@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Draw.io AI Architect — Generate AWS Diagrams</title>
+    <meta name="description" content="AI-powered AWS architecture diagram generator. Describe your cloud architecture and get a professional Draw.io diagram instantly.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0e1a;
+            --bg-secondary: #111827;
+            --bg-card: rgba(17, 24, 39, 0.7);
+            --bg-glass: rgba(255, 255, 255, 0.04);
+            --border-glass: rgba(255, 255, 255, 0.08);
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent: #ED7100;
+            --accent-glow: rgba(237, 113, 0, 0.25);
+            --accent-hover: #ff8c2a;
+            --accent-secondary: #8C4FFF;
+            --success: #22c55e;
+            --error: #ef4444;
+            --code-bg: #1e1e2e;
+            --radius: 16px;
+            --radius-sm: 10px;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Animated gradient background */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background:
+                radial-gradient(ellipse 80% 50% at 20% 20%, rgba(237, 113, 0, 0.08), transparent),
+                radial-gradient(ellipse 60% 40% at 80% 80%, rgba(140, 79, 255, 0.06), transparent),
+                radial-gradient(ellipse 50% 50% at 50% 50%, rgba(237, 113, 0, 0.03), transparent);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .app-wrapper {
+            position: relative;
+            z-index: 1;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        /* ── Header ───────────────────────────────── */
+        .header {
+            text-align: center;
+            margin-bottom: 2.5rem;
+            padding-top: 1rem;
+        }
+        .header-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: var(--bg-glass);
+            border: 1px solid var(--border-glass);
+            border-radius: 100px;
+            padding: 6px 16px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            margin-bottom: 1rem;
+        }
+        .header-badge::before {
+            content: '';
+            width: 6px; height: 6px;
+            background: var(--accent);
+            border-radius: 50%;
+            animation: pulse-dot 2s ease-in-out infinite;
+        }
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.3); }
+        }
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            background: linear-gradient(135deg, #fff 0%, #94a3b8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.5rem;
+        }
+        .header p {
+            color: var(--text-secondary);
+            font-size: 1.05rem;
+            max-width: 600px;
+            margin: 0 auto;
+            line-height: 1.6;
+        }
+
+        /* ── Input Card ───────────────────────────── */
+        .input-card {
+            background: var(--bg-card);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius);
+            padding: 2rem;
+            margin-bottom: 2rem;
+            transition: border-color 0.3s;
+        }
+        .input-card:focus-within {
+            border-color: rgba(237, 113, 0, 0.3);
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 200px;
+            gap: 1rem;
+            margin-bottom: 1.25rem;
+        }
+        @media (max-width: 640px) {
+            .form-row { grid-template-columns: 1fr; }
+        }
+
+        label {
+            display: block;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 0.5rem;
+        }
+
+        textarea {
+            width: 100%;
+            height: 110px;
+            background: var(--bg-glass);
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius-sm);
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 0.95rem;
+            padding: 1rem;
+            resize: vertical;
+            transition: border-color 0.3s, box-shadow 0.3s;
+            line-height: 1.6;
+        }
+        textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+        textarea::placeholder { color: var(--text-muted); }
+
+        select {
+            width: 100%;
+            background: var(--bg-glass);
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius-sm);
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 0.95rem;
+            padding: 0.75rem 1rem;
+            cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2394a3b8' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            transition: border-color 0.3s;
+        }
+        select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        select option {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+
+        .btn-generate {
+            width: 100%;
+            padding: 1rem;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
+            color: white;
+            border: none;
+            border-radius: var(--radius-sm);
+            font-family: inherit;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            position: relative;
+            overflow: hidden;
+            letter-spacing: 0.02em;
+        }
+        .btn-generate:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 8px 30px var(--accent-glow);
+        }
+        .btn-generate:active:not(:disabled) { transform: translateY(0); }
+        .btn-generate:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .btn-generate .spinner {
+            display: none;
+            width: 20px; height: 20px;
+            border: 2.5px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 10px;
+        }
+        .btn-generate.loading .spinner { display: inline-block; }
+        .btn-generate.loading .btn-text { display: none; }
+        .btn-generate.loading .btn-loading-text { display: inline; }
+        .btn-loading-text { display: none; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── Progress ─────────────────────────────── */
+        .progress-section {
+            display: none;
+            margin-bottom: 2rem;
+        }
+        .progress-section.active { display: block; }
+        .progress-card {
+            background: var(--bg-card);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius);
+            padding: 1.5rem 2rem;
+        }
+        .progress-steps {
+            display: flex;
+            gap: 1.5rem;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        .progress-step {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            transition: color 0.4s;
+        }
+        .progress-step.active { color: var(--accent); }
+        .progress-step.done { color: var(--success); }
+        .progress-step .step-icon {
+            width: 24px; height: 24px;
+            border-radius: 50%;
+            border: 2px solid currentColor;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.7rem;
+            font-weight: 700;
+            transition: all 0.4s;
+        }
+        .progress-step.active .step-icon {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: white;
+            box-shadow: 0 0 12px var(--accent-glow);
+        }
+        .progress-step.done .step-icon {
+            background: var(--success);
+            border-color: var(--success);
+            color: white;
+        }
+        .progress-bar-track {
+            width: 100%;
+            height: 4px;
+            background: rgba(255,255,255,0.06);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+            border-radius: 2px;
+            transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* ── Results ──────────────────────────────── */
+        .results-section {
+            display: none;
+            animation: fadeUp 0.5s ease-out;
+        }
+        .results-section.active { display: block; }
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+        }
+        .section-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .section-title .icon {
+            width: 20px;
+            height: 20px;
+            color: var(--accent);
+        }
+
+        /* Diagram iframe */
+        .diagram-card {
+            background: var(--bg-card);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius);
+            overflow: hidden;
+            margin-bottom: 2rem;
+        }
+        .diagram-card iframe {
+            width: 100%;
+            height: 750px;
+            border: none;
+            display: block;
+            background: white;
+        }
+
+        /* Action buttons bar */
+        .actions-bar {
+            display: flex;
+            gap: 0.75rem;
+            padding: 1rem 1.5rem;
+            border-top: 1px solid var(--border-glass);
+            background: rgba(0,0,0,0.2);
+        }
+        .btn-action {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 0.6rem 1.2rem;
+            border-radius: 8px;
+            font-family: inherit;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid var(--border-glass);
+            background: var(--bg-glass);
+            color: var(--text-secondary);
+        }
+        .btn-action:hover {
+            background: rgba(255,255,255,0.08);
+            color: var(--text-primary);
+            border-color: rgba(255,255,255,0.15);
+        }
+        .btn-action.primary {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+        .btn-action.primary:hover {
+            background: var(--accent-hover);
+        }
+        .btn-action svg { width: 16px; height: 16px; }
+
+        /* Suggestions */
+        .suggestions-card {
+            background: var(--bg-card);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius);
+            padding: 1.5rem 2rem;
+            margin-bottom: 2rem;
+        }
+        .suggestion-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 0.75rem 0;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+        .suggestion-item:last-child { border-bottom: none; }
+        .suggestion-item::before {
+            content: '→';
+            color: var(--accent);
+            font-weight: 700;
+            flex-shrink: 0;
+            margin-top: 1px;
+        }
+
+        /* XML Code */
+        .xml-card {
+            background: var(--bg-card);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius);
+            overflow: hidden;
+            margin-bottom: 2rem;
+        }
+        .xml-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1rem 1.5rem;
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.2s;
+        }
+        .xml-header:hover { background: rgba(255,255,255,0.03); }
+        .xml-header .chevron {
+            transition: transform 0.3s;
+            color: var(--text-muted);
+        }
+        .xml-header.open .chevron { transform: rotate(180deg); }
+        .xml-body {
+            display: none;
+            border-top: 1px solid var(--border-glass);
+        }
+        .xml-body.open { display: block; }
+        .xml-body pre {
+            margin: 0;
+            padding: 1.5rem;
+            background: var(--code-bg);
+            color: #cdd6f4;
+            font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+            font-size: 0.8rem;
+            line-height: 1.6;
+            overflow-x: auto;
+            max-height: 400px;
+            white-space: pre;
+        }
+        .copy-feedback {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            background: var(--success);
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s;
+            z-index: 1000;
+        }
+        .copy-feedback.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        /* ── Error ────────────────────────────────── */
+        .error-card {
+            display: none;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            border-radius: var(--radius);
+            padding: 1.5rem 2rem;
+            margin-bottom: 2rem;
+            color: #fca5a5;
+        }
+        .error-card.active { display: block; }
+
+        /* Platform Selector Styles */
+        .platform-selector-container {
+            margin-bottom: 1.5rem;
+        }
+        .platform-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+            margin-top: 0.5rem;
+        }
+        @media (max-width: 768px) {
+            .platform-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+        .platform-card {
+            background: var(--bg-glass);
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius-sm);
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            text-align: center;
+            user-select: none;
+        }
+        .platform-card:hover {
+            border-color: rgba(255, 255, 255, 0.15);
+            background: rgba(255, 255, 255, 0.06);
+            transform: translateY(-2px);
+        }
+        .platform-card.active {
+            border-color: var(--accent);
+            background: var(--accent-glow);
+            box-shadow: 0 0 15px var(--accent-glow);
+        }
+        .platform-card.active .platform-icon {
+            transform: scale(1.15);
+        }
+        .platform-icon {
+            font-size: 1.5rem;
+            transition: transform 0.3s;
+        }
+        .platform-name {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app-wrapper">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-badge">AI-Powered</div>
+            <h1>Enterprise Cloud Architecture Generator</h1>
+            <p>Describe your cloud architecture and get a production-grade Draw.io diagram instantly using standardized icon sets and neat boundaries.</p>
+        </header>
+
+        <!-- Input -->
+        <div class="input-card">
+            <!-- Platform Selector -->
+            <div class="platform-selector-container">
+                <label>Target Cloud Platform</label>
+                <div class="platform-grid">
+                    <div class="platform-card active" data-platform="aws" onclick="selectPlatform('aws')">
+                        <span class="platform-icon">☁️</span>
+                        <div class="platform-name">Amazon Web Services (AWS)</div>
+                    </div>
+                    <div class="platform-card" data-platform="gcp" onclick="selectPlatform('gcp')">
+                        <span class="platform-icon">⚡</span>
+                        <div class="platform-name">Google Cloud (GCP)</div>
+                    </div>
+                    <div class="platform-card" data-platform="azure" onclick="selectPlatform('azure')">
+                        <span class="platform-icon">🔷</span>
+                        <div class="platform-name">Microsoft Azure</div>
+                    </div>
+                    <div class="platform-card" data-platform="multi" onclick="selectPlatform('multi')">
+                        <span class="platform-icon">🌐</span>
+                        <div class="platform-name">Multi-Cloud / Hybrid</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div>
+                    <label for="prompt-input">Architecture Description</label>
+                    <textarea id="prompt-input"
+                        placeholder='e.g., "A payment processing system with API Gateway, Fargate in VPC with public/private subnets, Aurora, ElastiCache, CloudFront, Route 53, WAF, CloudWatch monitoring"'>A highly available web app with an API gateway, Fargate tasks in public and private subnets, Aurora database, ElastiCache, CloudFront CDN, Route 53, WAF, and CloudWatch monitoring</textarea>
+                </div>
+                <div>
+                    <label for="provider-select">AI Provider</label>
+                    <select id="provider-select">
+                        <option value="gemini">Google Gemini</option>
+                        <option value="openai">OpenAI GPT-4o</option>
+                        <option value="claude">Claude Sonnet 4</option>
+                    </select>
+                </div>
+            </div>
+            <button id="gen-btn" class="btn-generate" onclick="generate()">
+                <span class="spinner"></span>
+                <span class="btn-text">Generate Diagram</span>
+                <span class="btn-loading-text">Generating...</span>
+            </button>
+        </div>
+
+        <!-- Progress -->
+        <div id="progress-section" class="progress-section">
+            <div class="progress-card">
+                <div class="progress-steps">
+                    <div class="progress-step" id="step-1">
+                        <div class="step-icon">1</div>
+                        <span>Analyzing</span>
+                    </div>
+                    <div class="progress-step" id="step-2">
+                        <div class="step-icon">2</div>
+                        <span>Designing</span>
+                    </div>
+                    <div class="progress-step" id="step-3">
+                        <div class="step-icon">3</div>
+                        <span>Building XML</span>
+                    </div>
+                    <div class="progress-step" id="step-4">
+                        <div class="step-icon">4</div>
+                        <span>Rendering</span>
+                    </div>
+                </div>
+                <div class="progress-bar-track">
+                    <div class="progress-bar-fill" id="progress-bar"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Error -->
+        <div id="error-card" class="error-card">
+            <strong>Error: </strong><span id="error-msg"></span>
+        </div>
+
+        <!-- Results -->
+        <div id="results-section" class="results-section">
+            <!-- Diagram -->
+            <div class="section-header">
+                <div class="section-title">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M3 9h18"/></svg>
+                    Rendered Diagram
+                </div>
+            </div>
+            <div class="diagram-card">
+                <div id="iframe-wrapper"></div>
+                <div class="actions-bar">
+                    <button class="btn-action primary" onclick="downloadXML()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+                        Download .drawio
+                    </button>
+                    <button class="btn-action" onclick="copyXML()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                        Copy XML
+                    </button>
+                    <button class="btn-action" onclick="openInDrawio()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>
+                        Open in Draw.io
+                    </button>
+                </div>
+            </div>
+
+            <!-- Suggestions -->
+            <div class="section-header">
+                <div class="section-title">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+                    Architecture Suggestions
+                </div>
+            </div>
+            <div class="suggestions-card" id="suggestions-card"></div>
+
+            <!-- XML -->
+            <div class="xml-card">
+                <div class="xml-header" id="xml-toggle" onclick="toggleXML()">
+                    <div class="section-title">
+                        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                        Draw.io XML Source
+                    </div>
+                    <svg class="chevron" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                </div>
+                <div class="xml-body" id="xml-body">
+                    <pre id="xml-output"></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Copy feedback toast -->
+    <div class="copy-feedback" id="copy-toast">Copied to clipboard!</div>
+
+    <script>
+        let currentXml = "";
+        let selectedPlatform = "aws";
+
+        function selectPlatform(platform) {
+            selectedPlatform = platform;
+            
+            // Toggle active class on cards
+            document.querySelectorAll('.platform-card').forEach(card => {
+                card.classList.remove('active');
+                if (card.getAttribute('data-platform') === platform) {
+                    card.classList.add('active');
+                }
+            });
+
+            // Dynamically change visual colors matching the brand
+            const root = document.documentElement;
+            const promptInput = document.getElementById('prompt-input');
+
+            if (platform === 'aws') {
+                root.style.setProperty('--accent', '#ED7100');
+                root.style.setProperty('--accent-glow', 'rgba(237, 113, 0, 0.25)');
+                root.style.setProperty('--accent-hover', '#ff8c2a');
+                promptInput.placeholder = 'e.g., "A payment processing system with API Gateway, Fargate in VPC with public/private subnets, Aurora, ElastiCache, CloudFront, Route 53, WAF, CloudWatch monitoring"';
+            } else if (platform === 'gcp') {
+                root.style.setProperty('--accent', '#4285F4');
+                root.style.setProperty('--accent-glow', 'rgba(66, 133, 244, 0.25)');
+                root.style.setProperty('--accent-hover', '#669df6');
+                promptInput.placeholder = 'e.g., "A payment system with Cloud Load Balancing, Cloud Run inside a Shared VPC, Cloud SQL PostgreSQL, Memorystore for Redis, Cloud CDN, Cloud DNS, Cloud Armor, Cloud Monitoring"';
+            } else if (platform === 'azure') {
+                root.style.setProperty('--accent', '#0078D4');
+                root.style.setProperty('--accent-glow', 'rgba(0, 120, 212, 0.25)');
+                root.style.setProperty('--accent-hover', '#2b90f5');
+                promptInput.placeholder = 'e.g., "A payment processing system with Application Gateway, AKS in VNet with subnets, Cosmos DB, Cache for Redis, Azure Front Door, Azure DNS, Entra ID, Key Vault, Azure Monitor"';
+            } else {
+                root.style.setProperty('--accent', '#8C4FFF');
+                root.style.setProperty('--accent-glow', 'rgba(140, 79, 255, 0.25)');
+                root.style.setProperty('--accent-hover', '#a67cff');
+                promptInput.placeholder = 'e.g., "A hybrid deployment referencing AWS ECS tasks querying a Google Cloud Spanner database, connected via site-to-site VPN connection, with CloudWatch logs aggregated"';
+            }
+        }
+
+        function setProgress(percent, activeStep) {
+            document.getElementById('progress-section').classList.add('active');
+            document.getElementById('progress-bar').style.width = percent + '%';
+
+            for (let i = 1; i <= 4; i++) {
+                const el = document.getElementById('step-' + i);
+                el.classList.remove('active', 'done');
+                if (i < activeStep) el.classList.add('done');
+                else if (i === activeStep) el.classList.add('active');
+            }
+        }
+
+        function showError(msg) {
+            const card = document.getElementById('error-card');
+            document.getElementById('error-msg').textContent = msg;
+            card.classList.add('active');
+        }
+        function hideError() {
+            document.getElementById('error-card').classList.remove('active');
+        }
+
+        async function generate() {
+            const prompt = document.getElementById('prompt-input').value.trim();
+            const provider = document.getElementById('provider-select').value;
+            const btn = document.getElementById('gen-btn');
+
+            if (!prompt) {
+                showError("Please enter an architecture description.");
+                return;
+            }
+
+            hideError();
+            btn.disabled = true;
+            btn.classList.add('loading');
+            document.getElementById('results-section').classList.remove('active');
+
+            try {
+                setProgress(15, 1);
+
+                const res = await fetch('/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_prompt: prompt, provider: provider, platform: selectedPlatform })
+                });
+
+                setProgress(50, 2);
+
+                const data = await res.json();
+
+                if (!res.ok) {
+                    throw new Error(data.detail || 'Server error');
+                }
+
+                if (data.status === "success") {
+                    currentXml = data.xml;
+                    setProgress(70, 3);
+
+                    // Populate XML output
+                    document.getElementById('xml-output').textContent = data.xml;
+
+                    // Populate suggestions
+                    const suggCard = document.getElementById('suggestions-card');
+                    suggCard.innerHTML = '';
+                    (data.suggestions || []).forEach(s => {
+                        const div = document.createElement('div');
+                        div.className = 'suggestion-item';
+                        div.textContent = s;
+                        suggCard.appendChild(div);
+                    });
+
+                    setProgress(85, 4);
+                    renderDiagram(data.xml);
+                } else {
+                    throw new Error(data.detail || 'Unknown error');
+                }
+            } catch (err) {
+                console.error(err);
+                showError(err.message || 'Request failed. Check the terminal for errors.');
+                document.getElementById('progress-section').classList.remove('active');
+            } finally {
+                btn.disabled = false;
+                btn.classList.remove('loading');
+            }
+        }
+
+        function renderDiagram(xml) {
+            const wrapper = document.getElementById('iframe-wrapper');
+            wrapper.innerHTML = '<iframe id="diagram-iframe" src="https://embed.diagrams.net/?embed=1&ui=min&spin=1&proto=json&configure=1"></iframe>';
+
+            const iframe = document.getElementById('diagram-iframe');
+
+            const handleMessage = (evt) => {
+                if (!evt.data || evt.data.length === 0) return;
+                try {
+                    const msg = JSON.parse(evt.data);
+
+                    if (msg.event === 'configure') {
+                        iframe.contentWindow.postMessage(JSON.stringify({
+                            action: 'configure',
+                            config: { defaultFonts: ["Inter"] }
+                        }), '*');
+                    }
+
+                    if (msg.event === 'init') {
+                        iframe.contentWindow.postMessage(JSON.stringify({
+                            action: 'load',
+                            xml: xml,
+                            autosave: 0
+                        }), '*');
+
+                        setProgress(100, 5);
+                        document.getElementById('results-section').classList.add('active');
+
+                        setTimeout(() => {
+                            document.getElementById('progress-section').classList.remove('active');
+                        }, 1500);
+
+                        window.removeEventListener('message', handleMessage);
+                    }
+                } catch (e) { /* ignore non-JSON messages */ }
+            };
+
+            window.addEventListener('message', handleMessage);
+        }
+
+        function downloadXML() {
+            if (!currentXml) return;
+            const blob = new Blob([currentXml], { type: 'application/xml' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'architecture_' + selectedPlatform + '.drawio';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function copyXML() {
+            if (!currentXml) return;
+            navigator.clipboard.writeText(currentXml).then(() => {
+                const toast = document.getElementById('copy-toast');
+                toast.classList.add('show');
+                setTimeout(() => toast.classList.remove('show'), 2000);
+            });
+        }
+
+        function openInDrawio() {
+            if (!currentXml) return;
+            const encoded = encodeURIComponent(currentXml);
+            window.open('https://app.diagrams.net/#R' + encoded, '_blank');
+        }
+
+        function toggleXML() {
+            document.getElementById('xml-toggle').classList.toggle('open');
+            document.getElementById('xml-body').classList.toggle('open');
+        }
+
+        // Initialize default view
+        selectPlatform('aws');
+    </script>
+</body>
+
+</html>
