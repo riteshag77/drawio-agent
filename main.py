@@ -1,12 +1,14 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import RedirectResponse, Response, JSONResponse
 from pydantic import BaseModel
+import asyncio
 import uvicorn
 from dotenv import load_dotenv
 
-from agent import generate_architecture_json
+from agent import generate_architecture_json, MODEL_IDS, PLATFORM_LABELS
 from draftsman import generate_xml
+from pipeline_log import StepLogger
 
 # Force load the .env file immediately
 load_dotenv()
@@ -30,20 +32,57 @@ class PromptRequest(BaseModel):
 
 @app.post("/generate")
 async def generate_diagram(request: PromptRequest):
-    try:
-        # Pass the prompt, the chosen AI provider, and target cloud platform to LangChain
-        architecture_data = generate_architecture_json(request.user_prompt, request.provider, request.platform)
+    logger = StepLogger()
+    platform = (request.platform or "aws").strip().lower()
+    provider = (request.provider or "openai").strip().lower()
 
-        # Convert JSON to XML, customized with the platform theme
-        xml_output = generate_xml(architecture_data, request.platform)
+    try:
+        logger.log(
+            "request",
+            "Generation request received",
+            details={
+                "platform": platform,
+                "provider": provider,
+                "model": MODEL_IDS.get(provider, MODEL_IDS["openai"]),
+                "platform_label": PLATFORM_LABELS.get(platform, PLATFORM_LABELS["aws"]),
+            },
+        )
+
+        architecture_data = await asyncio.to_thread(
+            generate_architecture_json,
+            request.user_prompt,
+            request.provider,
+            request.platform,
+            logger,
+        )
+
+        logger.log("layout", "Running auto-layout and XML builder")
+        xml_output = await asyncio.to_thread(
+            generate_xml,
+            architecture_data,
+            request.platform,
+            logger,
+        )
+
+        logger.log(
+            "complete",
+            "Pipeline finished successfully",
+            level="success",
+            details={"xml_chars": len(xml_output)},
+        )
 
         return {
             "status": "success",
             "suggestions": architecture_data.suggestions,
-            "xml": xml_output
+            "xml": xml_output,
+            "logs": logger.to_list(),
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.log("error", str(e), level="error")
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "detail": str(e), "logs": logger.to_list()},
+        )
 
 
 @app.post("/download")

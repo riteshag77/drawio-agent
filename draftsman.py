@@ -1,21 +1,56 @@
-import json
-import os
 import html as html_module
+import re
+import uuid
+from typing import TYPE_CHECKING
+
+from style_builder import build_style
+
+if TYPE_CHECKING:
+    from pipeline_log import StepLogger
+
+
+def _wrap_mxfile(graph_xml: str, page_name: str = "Architecture") -> str:
+    """Wrap bare mxGraphModel in mxfile — required for reliable draw.io embed loading."""
+    trimmed = graph_xml.strip()
+    if "<mxfile" in trimmed:
+        return trimmed
+    page_id = uuid.uuid4().hex[:12]
+    return (
+        f'<mxfile host="app.diagrams.net" agent="drawio-agent" version="24.7.7">\n'
+        f'  <diagram id="{page_id}" name="{_escape_xml(page_name)}">\n'
+        f"    {trimmed}\n"
+        f"  </diagram>\n"
+        f"</mxfile>"
+    )
 
 
 def _escape_xml(text: str) -> str:
-    """Escape special characters for XML attribute values."""
     if not text:
         return ""
     return html_module.escape(str(text), quote=True)
 
 
-def _flow_sort_key(nid: str, nodes_by_id: dict) -> tuple:
-    """Order nodes left-to-right following traffic flow and subnet tiers."""
+def _subnet_tier(nid: str, nodes_by_id: dict) -> int:
     node = nodes_by_id[nid]
     label = node.label.lower()
     shape = node.shape_type.lower()
-    if "public" in label or "public" in shape:
+    combined = f"{label} {shape}"
+    if any(w in combined for w in ["public", "ingress", "frontend", "dmz", "edge"]):
+        return 0
+    if any(w in combined for w in ["data", "database", "db", "storage", "persistence"]):
+        return 2
+    if any(w in combined for w in ["private", "compute", "app", "backend", "worker"]):
+        return 1
+    return 1
+
+
+def _flow_sort_key(nid: str, nodes_by_id: dict) -> tuple:
+    node = nodes_by_id[nid]
+    label = node.label.lower()
+    shape = node.shape_type.lower()
+    if node.is_container:
+        tier = _subnet_tier(nid, nodes_by_id)
+    elif "public" in label or "public" in shape:
         tier = 0
     elif "private" in label or "private" in shape:
         tier = 1
@@ -28,7 +63,6 @@ def _flow_sort_key(nid: str, nodes_by_id: dict) -> tuple:
 
 
 def _get_abs_bounds(nid: str, nodes_by_id: dict, layout: dict) -> tuple[int, int, int, int]:
-    """Return (x, y, w, h) in root canvas coordinates."""
     node = nodes_by_id[nid]
     ld = layout.get(nid, {})
     w, h = ld.get("w", 48), ld.get("h", 48)
@@ -40,7 +74,6 @@ def _get_abs_bounds(nid: str, nodes_by_id: dict, layout: dict) -> tuple[int, int
 
 
 def _anchor_points(src_box: tuple, tgt_box: tuple) -> tuple[float, float, float, float]:
-    """Pick edge exit/entry sides so connectors attach at shape perimeters."""
     sx, sy, sw, sh = src_box
     tx, ty, tw, th = tgt_box
     scx, scy = sx + sw / 2, sy + sh / 2
@@ -63,7 +96,6 @@ def _edge_corridor_waypoints(
     entry_x: float,
     entry_y: float,
 ) -> list[tuple[int, int]]:
-    """Add orthogonal corridor waypoints so lines route around shapes, not through them."""
     sx, sy, sw, sh = src_box
     tx, ty, tw, th = tgt_box
     src_px = int(sx + sw * exit_x)
@@ -95,7 +127,6 @@ def _edge_corridor_waypoints(
 
 
 def _edge_sort_key(edge, nodes_by_id: dict) -> tuple:
-    """Render primary traffic-flow edges before secondary/monitoring edges."""
     src = nodes_by_id.get(edge.source_id)
     tgt = nodes_by_id.get(edge.target_id)
     src_step = src.step_number if src and src.step_number else 999
@@ -104,38 +135,36 @@ def _edge_sort_key(edge, nodes_by_id: dict) -> tuple:
     return (0 if is_adjacent_flow else 1, 1 if edge.style == "dashed" else 0, src_step, tgt_step)
 
 
-def generate_xml(architecture, platform: str = "aws") -> str:
-    """Generate Draw.io XML from an ArchitectureDiagram model with smart layout."""
-
-    shapes_path = os.path.join(os.path.dirname(__file__), "shapes.json")
-    with open(shapes_path, "r") as f:
-        shapes = json.load(f)
-
-    # ── Platform Themes ───────────────────────────────────────────────
+def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None" = None) -> str:
     platform = (platform or "aws").lower()
     if platform == "gcp":
-        default_edge_color = "#4285F4"  # Google Blue
-        badge_color = "#EA4335"        # Google Red
+        default_edge_color = "#4285F4"
+        badge_color = "#EA4335"
+        platform_accent = "#4285F4"
+        platform_label = "Google Cloud Platform"
     elif platform == "azure":
-        default_edge_color = "#0078D4"  # Azure Blue
-        badge_color = "#0078D4"        # Azure Blue
-    else:  # aws or multi
-        default_edge_color = "#ED7100"  # AWS Orange
-        badge_color = "#ED7100"        # AWS Orange
+        default_edge_color = "#0078D4"
+        badge_color = "#0078D4"
+        platform_accent = "#0078D4"
+        platform_label = "Microsoft Azure"
+    else:
+        default_edge_color = "#ED7100"
+        badge_color = "#ED7100"
+        platform_accent = "#ED7100"
+        platform_label = "Amazon Web Services"
 
-    # ── Layout constants ──────────────────────────────────────────────
-    LEAF_W = 48           # icon width for leaf nodes
-    LEAF_H = 48           # icon height for leaf nodes
-    LEAF_CELL_W = 120     # horizontal cell stride for leaf nodes (icon + label space)
-    LEAF_CELL_H = 100     # vertical cell stride for leaf nodes
-    CONTAINER_PAD_TOP = 50   # space above children (for header label)
-    CONTAINER_PAD = 40       # padding on left/right/bottom inside container
-    CONTAINER_GAP = 40       # gap between sibling containers at the same level
-    ROOT_GAP = 100           # gap between root-level nodes on the canvas
-    MAX_COLS = 4             # max children per row inside a container
-    STEP_BADGE_R = 14        # step-number badge radius
+    LEAF_W = 64
+    LEAF_H = 64
+    LEAF_CELL_W = 150
+    LEAF_CELL_H = 120
+    CONTAINER_PAD_TOP = 56
+    CONTAINER_PAD = 48
+    CONTAINER_GAP = 48
+    ROOT_GAP = 120
+    MAX_COLS = 4
+    ROOT_TOP = 100
+    STEP_BADGE_R = 14
 
-    # ── Build lookup structures ───────────────────────────────────────
     nodes_by_id = {n.id: n for n in architecture.nodes}
     children_map: dict[str, list[str]] = {}
     roots: list[str] = []
@@ -146,40 +175,44 @@ def generate_xml(architecture, platform: str = "aws") -> str:
         else:
             roots.append(node.id)
 
-    # ── Recursive size calculation ────────────────────────────────────
-    # Each entry: { w, h, children_pos: {child_id: (rel_x, rel_y)} }
     layout: dict[str, dict] = {}
 
     def calc_size(nid: str) -> tuple[int, int]:
-        """Return (width, height) needed for *nid*, populating `layout`."""
         node = nodes_by_id[nid]
         kids = children_map.get(nid, [])
 
-        # ---- Leaf node (no children or not a container) ----
         if not node.is_container or not kids:
             w = node.width or LEAF_W
             h = node.height or LEAF_H
             layout[nid] = {"w": w, "h": h, "children_pos": {}}
             return w, h
 
-        # ---- Container node ----
-        # Separate children into sub-containers vs leaf nodes, ordered for clean L→R flow
         kids = sorted(kids, key=lambda k: _flow_sort_key(k, nodes_by_id))
-        sub_containers = [k for k in kids if nodes_by_id[k].is_container]
-        leaf_kids = [k for k in kids if not nodes_by_id[k].is_container]
+        sub_containers = sorted(
+            [k for k in kids if nodes_by_id[k].is_container],
+            key=lambda k: _flow_sort_key(k, nodes_by_id),
+        )
+        leaf_kids = sorted(
+            [k for k in kids if not nodes_by_id[k].is_container],
+            key=lambda k: _flow_sort_key(k, nodes_by_id),
+        )
 
-        # Recursively size all children first
         child_sizes = {}
         for kid in kids:
             child_sizes[kid] = calc_size(kid)
 
         children_pos: dict[str, tuple[int, int]] = {}
 
-        # ---- Place sub-containers first (horizontally) ----
         cx = CONTAINER_PAD
         cy = CONTAINER_PAD_TOP + 10
         row_max_h = 0
-        container_cols = max(2, MAX_COLS - 1)
+        parent_shape = node.shape_type.lower()
+        network_parent = any(
+            token in parent_shape
+            for token in ("vpc", "vnet", "subnet", "region", "project", "resource_group")
+        )
+        # Subnets / AZs inside a network boundary flow left → right in one row.
+        container_cols = len(sub_containers) if network_parent and sub_containers else max(2, MAX_COLS - 1)
 
         for i, kid in enumerate(sub_containers):
             kw, kh = child_sizes[kid]
@@ -191,11 +224,9 @@ def generate_xml(architecture, platform: str = "aws") -> str:
             cx += kw + CONTAINER_GAP
             row_max_h = max(row_max_h, kh)
 
-        # Track the bottom of sub-containers section
         containers_bottom = cy + row_max_h + CONTAINER_GAP if sub_containers else CONTAINER_PAD_TOP + 10
         containers_right = cx if sub_containers else CONTAINER_PAD
 
-        # ---- Place leaf nodes below sub-containers (grid) ----
         lx = CONTAINER_PAD
         ly = containers_bottom
         leaf_row_max_h = 0
@@ -210,7 +241,6 @@ def generate_xml(architecture, platform: str = "aws") -> str:
                 ly += leaf_row_max_h + 20
                 leaf_row_max_h = 0
 
-            # Center the icon in its cell
             offset_x = (cell_w - kw) // 2
             offset_y = (cell_h - kh) // 2
             children_pos[kid] = (lx + offset_x, ly + offset_y)
@@ -220,33 +250,26 @@ def generate_xml(architecture, platform: str = "aws") -> str:
         leaf_right = lx if leaf_kids else CONTAINER_PAD
         leaf_bottom = (ly + leaf_row_max_h + CONTAINER_PAD) if leaf_kids else containers_bottom
 
-        # ---- Container total size ----
         total_w = max(containers_right, leaf_right) + CONTAINER_PAD
         total_h = max(leaf_bottom, containers_bottom) + CONTAINER_PAD
 
-        # Apply explicit size hints if given
         if node.width:
             total_w = max(total_w, node.width)
         if node.height:
             total_h = max(total_h, node.height)
 
-        # Ensure a minimum size with breathing room
         total_w = max(total_w, 220)
         total_h = max(total_h, 140)
 
         layout[nid] = {"w": total_w, "h": total_h, "children_pos": children_pos}
         return total_w, total_h
 
-    # ── Size all roots ────────────────────────────────────────────────
     for rid in roots:
         calc_size(rid)
 
-    # ── Position roots on canvas ──────────────────────────────────────
-    # Separate into: containers (big, center), standalone leaves (periphery)
     root_containers = [r for r in roots if nodes_by_id[r].is_container]
     root_leaves = [r for r in roots if not nodes_by_id[r].is_container]
 
-    # Split root containers into main (VPC, AZ, Region) and group/utility containers (Monitoring, Security, etc.)
     main_containers = []
     group_containers = []
 
@@ -259,11 +282,9 @@ def generate_xml(architecture, platform: str = "aws") -> str:
             main_containers.append(rid)
 
     if not main_containers and group_containers:
-        # Fallback if no main containers are present
         main_containers = group_containers
         group_containers = []
 
-    # Partition root leaf nodes based on their roles
     left_leaves = []
     right_leaves = []
     bottom_leaves = []
@@ -273,85 +294,183 @@ def generate_xml(architecture, platform: str = "aws") -> str:
         label = node.label.lower()
         shape = node.shape_type.lower()
 
-        # Check if it's an external third-party service/processor
         if any(w in label for w in ["payment", "processor", "third party", "external", "saas", "api key", "merchant"]):
             right_leaves.append(rid)
-        # Check if it's a standalone DB/storage at the bottom
         elif any(w in label for w in ["dynamodb", "s3", "database", "bucket", "storage", "blob", "gcs", "sql", "spanner", "cosmos"]) or any(s in shape for s in ["dynamodb", "s3", "blob", "gcs", "sql", "spanner", "cosmos"]):
             bottom_leaves.append(rid)
-        # Default to left side (Route 53, users, CloudFront, WAF)
         else:
             left_leaves.append(rid)
 
-    # Place left leaves first so main VPC can start after them
+    left_leaves = sorted(left_leaves, key=lambda k: _flow_sort_key(k, nodes_by_id))
+    main_containers = sorted(main_containers, key=lambda k: _flow_sort_key(k, nodes_by_id))
+
     lx = 40
-    ly = 80
+    ly = ROOT_TOP
     for i, rid in enumerate(left_leaves):
+        node = nodes_by_id[rid]
+        if node.x is not None:
+            layout[rid]["global_x"] = node.x
+            layout[rid]["global_y"] = node.y or ly
+            continue
         if i > 0 and i % 4 == 0:
-            lx += 140
-            ly = 80
+            lx += LEAF_CELL_W + 20
+            ly = ROOT_TOP
         layout[rid]["global_x"] = lx
         layout[rid]["global_y"] = ly
-        ly += LEAF_CELL_H + 30
+        ly += LEAF_CELL_H + 36
 
-    # Place main containers horizontally, after left-side entry nodes
     left_max_x = 40
     if left_leaves:
-        left_max_x = max(layout[rid].get("global_x", 0) + layout[rid]["w"] for rid in left_leaves) + 80
-    cx = max(left_max_x, 400)
-    cy = 80
+        left_max_x = max(layout[rid].get("global_x", 0) + layout[rid]["w"] for rid in left_leaves) + 100
+
+    cx = max(left_max_x, 360)
+    cy = ROOT_TOP
     for rid in main_containers:
+        node = nodes_by_id[rid]
+        if node.x is not None:
+            layout[rid]["global_x"] = node.x
+            layout[rid]["global_y"] = node.y or cy
+            cx = node.x + layout[rid]["w"] + ROOT_GAP
+            continue
         layout[rid]["global_x"] = cx
         layout[rid]["global_y"] = cy
         cx += layout[rid]["w"] + ROOT_GAP
 
-    # Place right leaves to the right of main containers
-    rx = cx + 40
-    ry = 80
+    rx = cx + 60
+    ry = ROOT_TOP
     for i, rid in enumerate(right_leaves):
+        node = nodes_by_id[rid]
+        if node.x is not None:
+            layout[rid]["global_x"] = node.x
+            layout[rid]["global_y"] = node.y or ry
+            continue
         if i > 0 and i % 4 == 0:
-            rx += 140
-            ry = 80
+            rx += LEAF_CELL_W + 20
+            ry = ROOT_TOP
         layout[rid]["global_x"] = rx
         layout[rid]["global_y"] = ry
         ry += LEAF_CELL_H + 30
 
-    # Determine y offset for bottom elements — keep clear corridor above for edge routing
     max_main_h = max([layout[rid]["h"] for rid in main_containers]) if main_containers else 0
-    group_y = cy + max_main_h + 140
+    group_y = ROOT_TOP + max_main_h + 160
 
-    # Place bottom leaves to the left of group containers
-    blx = 400
+    blx = max(left_max_x, 360)
     for rid in bottom_leaves:
+        node = nodes_by_id[rid]
+        if node.x is not None:
+            layout[rid]["global_x"] = node.x
+            layout[rid]["global_y"] = node.y or group_y
+            blx = node.x + LEAF_CELL_W + 50
+            continue
         layout[rid]["global_x"] = blx
         layout[rid]["global_y"] = group_y
         blx += LEAF_CELL_W + 50
 
-    # Place group containers horizontally at the bottom
     gcx = blx + 40 if bottom_leaves else 400
     for rid in group_containers:
+        node = nodes_by_id[rid]
+        if node.x is not None:
+            layout[rid]["global_x"] = node.x
+            layout[rid]["global_y"] = node.y or group_y
+            gcx = node.x + layout[rid]["w"] + ROOT_GAP
+            continue
         layout[rid]["global_x"] = gcx
         layout[rid]["global_y"] = group_y
         gcx += layout[rid]["w"] + ROOT_GAP
 
-    # ── Build XML ─────────────────────────────────────────────────────
+    # ── Calculate total canvas extent ──
+    all_bounds = []
+    for node in architecture.nodes:
+        nid = node.id
+        ld = layout.get(nid, {"w": LEAF_W, "h": LEAF_H, "children_pos": {}})
+        if node.parent_id and node.parent_id in nodes_by_id:
+            px, py, _, _ = _get_abs_bounds(node.parent_id, nodes_by_id, layout)
+            cx_, cy_ = ld.get("children_pos", {}).get(nid, (0, 0))
+            nx, ny = px + cx_, py + cy_
+        else:
+            nx, ny = ld.get("global_x", 0), ld.get("global_y", 0)
+        nw, nh = ld["w"], ld["h"]
+        all_bounds.append((nx, ny, nx + nw + 40, ny + nh + 40))
+
+    canvas_w = max((b[2] for b in all_bounds), default=3200) + 80
+    canvas_h = max((b[3] for b in all_bounds), default=2200) + 80
+    canvas_w = max(canvas_w, 1200)
+    canvas_h = max(canvas_h, 800)
+
+    # ── Build XML ──
     xml = [
-        '<mxGraphModel dx="2500" dy="2500" grid="1" gridSize="10" guides="1" '
-        'tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" '
-        'pageWidth="3200" pageHeight="2200" math="0" shadow="0">',
+        f'<mxGraphModel dx="0" dy="0" grid="1" gridSize="10" guides="1" '
+        f'tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" '
+        f'pageWidth="{canvas_w}" pageHeight="{canvas_h}" math="0" shadow="1">',
         '  <root>',
         '    <mxCell id="0" />',
         '    <mxCell id="1" parent="0" />',
     ]
 
-    cell_id = 100  # auto-increment for step badges and edges
+    # ── Canvas background ──
+    bg_style = (
+        f"rounded=0;whiteSpace=wrap;html=1;fillColor=#FAFBFC;"
+        f"strokeColor=#E1E5EA;strokeWidth=1;"
+        f"gradientColor=none;pointerEvents=0;"
+    )
+    xml.append(
+        f'    <mxCell id="bg" value="" style="{bg_style}" vertex="1" parent="1">'
+    )
+    xml.append(
+        f'      <mxGeometry x="-10" y="-10" width="{canvas_w + 20}" height="{canvas_h + 20}" as="geometry" />'
+    )
+    xml.append('    </mxCell>')
+
+    # ── Platform accent border ──
+    border_style = (
+        f"rounded=1;whiteSpace=wrap;html=1;fillColor=none;"
+        f"strokeColor={platform_accent};strokeWidth=3;dashed=0;"
+        f"pointerEvents=0;"
+    )
+    xml.append(
+        f'    <mxCell id="accent_border" value="" style="{border_style}" vertex="1" parent="1">'
+    )
+    xml.append(
+        f'      <mxGeometry x="10" y="10" width="{canvas_w - 20}" height="{canvas_h - 20}" as="geometry" />'
+    )
+    xml.append('    </mxCell>')
+
+    # ── Diagram title ──
+    title_text = _escape_xml(f"{platform_label} Architecture Diagram")
+    title_style = (
+        f"text;html=1;strokeColor=none;fillColor=none;"
+        f"align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;"
+        f"fontSize=20;fontStyle=1;fontColor=#232F3E;"
+        f"spacingLeft=10;"
+    )
+    xml.append(
+        f'    <mxCell id="title" value="{title_text}" style="{title_style}" vertex="1" parent="1">'
+    )
+    xml.append(
+        f'      <mxGeometry x="30" y="20" width="{canvas_w - 60}" height="36" as="geometry" />'
+    )
+    xml.append('    </mxCell>')
+
+    # ── Platform accent underline for title ──
+    underline_style = (
+        f"line;html=1;strokeColor={platform_accent};strokeWidth=3;"
+        f"rounded=0;pointerEvents=0;"
+    )
+    xml.append(
+        f'    <mxCell id="title_underline" value="" style="{underline_style}" vertex="1" parent="1">'
+    )
+    xml.append(
+        f'      <mxGeometry x="30" y="56" width="200" height="8" as="geometry" />'
+    )
+    xml.append('    </mxCell>')
+
+    cell_id = 100
 
     for node in architecture.nodes:
         nid = node.id
         ld = layout.get(nid, {"w": LEAF_W, "h": LEAF_H, "children_pos": {}})
         w, h = ld["w"], ld["h"]
 
-        # Determine parent cell and position
         if node.parent_id and node.parent_id in nodes_by_id:
             parent_cell = node.parent_id
             parent_ld = layout.get(node.parent_id, {})
@@ -361,12 +480,10 @@ def generate_xml(architecture, platform: str = "aws") -> str:
             x = ld.get("global_x", 0)
             y = ld.get("global_y", 0)
 
-        # Resolve style
-        style = shapes.get(node.shape_type, shapes.get("generic"))
+        style = build_style(node.shape_type)
 
-        # Inject standard font family and perimeter routing for clean connectors
         if "fontFamily=" not in style:
-            style += ";fontFamily=SF Pro Text,Segoe UI,Helvetica,Arial,sans-serif;"
+            style += ";fontFamily=Inter,SF Pro Text,Segoe UI,Helvetica,Arial,sans-serif;"
         if not node.is_container and "perimeter=" not in style:
             style += ";perimeter=orthogonalPerimeter;"
 
@@ -391,7 +508,6 @@ def generate_xml(architecture, platform: str = "aws") -> str:
             )
             xml.append('    </mxCell>')
 
-        # ── Step-number badge ─────────────────────────────────────
         if node.step_number is not None:
             badge_id = f"badge_{nid}_{cell_id}"
             cell_id += 1
@@ -412,7 +528,6 @@ def generate_xml(architecture, platform: str = "aws") -> str:
             )
             xml.append('    </mxCell>')
 
-    # ── Edges ─────────────────────────────────────────────────────────
     sorted_edges = sorted(architecture.edges, key=lambda e: _edge_sort_key(e, nodes_by_id))
 
     for edge in sorted_edges:
@@ -427,7 +542,6 @@ def generate_xml(architecture, platform: str = "aws") -> str:
         exit_x, exit_y, entry_x, entry_y = _anchor_points(src_box, tgt_box)
         waypoints = _edge_corridor_waypoints(src_box, tgt_box, exit_x, exit_y, entry_x, entry_y)
 
-        # Base orthogonal style with perimeter attachment and line jumps
         edge_style_parts = [
             "edgeStyle=orthogonalEdgeStyle",
             "rounded=1",
@@ -435,10 +549,11 @@ def generate_xml(architecture, platform: str = "aws") -> str:
             "jettySize=auto",
             "html=1",
             "strokeWidth=2",
-            "fontSize=10",
-            "fontFamily=SF Pro Text,Segoe UI,Helvetica,Arial,sans-serif",
+            "fontSize=11",
+            "fontFamily=Inter,SF Pro Text,Segoe UI,Helvetica,Arial,sans-serif",
             "endArrow=classicThin",
             "startArrow=none",
+            "endFill=1",
             "jumpStyle=arc",
             "jumpSize=8",
             f"exitX={exit_x}",
@@ -451,13 +566,13 @@ def generate_xml(architecture, platform: str = "aws") -> str:
             "entryDy=0",
         ]
 
-        # Color routing
         color = edge.color
         if color == "#ED7100" and platform != "aws":
             color = default_edge_color
 
         edge_style_parts.append(f"strokeColor={color}")
         edge_style_parts.append(f"fontColor={color}")
+        edge_style_parts.append(f"labelBackgroundColor=#ffffff")
 
         if edge.style == "dashed":
             edge_style_parts.append("dashed=1")
@@ -485,4 +600,28 @@ def generate_xml(architecture, platform: str = "aws") -> str:
         xml.append('    </mxCell>')
 
     xml.extend(['  </root>', '</mxGraphModel>'])
-    return "\n".join(xml)
+    graph_xml = "\n".join(xml)
+    wrapped = _wrap_mxfile(graph_xml, f"{platform_label} Architecture")
+
+    if logger:
+        page_match = re.search(r'pageWidth="(\d+)"\s+pageHeight="(\d+)"', graph_xml)
+        canvas = {}
+        if page_match:
+            canvas = {
+                "page_width": int(page_match.group(1)),
+                "page_height": int(page_match.group(2)),
+            }
+        logger.log(
+            "xml",
+            "Draw.io XML generated",
+            level="success",
+            details={
+                "platform": platform,
+                "mx_cells": graph_xml.count("<mxCell"),
+                "edges": len(architecture.edges),
+                "xml_chars": len(wrapped),
+                **canvas,
+            },
+        )
+
+    return wrapped

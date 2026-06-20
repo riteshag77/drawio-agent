@@ -4,744 +4,1160 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Draw.io AI Architect — Generate AWS Diagrams</title>
-    <meta name="description" content="AI-powered AWS architecture diagram generator. Describe your cloud architecture and get a professional Draw.io diagram instantly.">
+    <title>Draw.io AI Architect</title>
+    <meta name="description" content="AI-powered cloud architecture diagram generator with live Draw.io preview.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-primary: #0a0e1a;
-            --bg-secondary: #111827;
-            --bg-card: rgba(17, 24, 39, 0.7);
-            --bg-glass: rgba(255, 255, 255, 0.04);
-            --border-glass: rgba(255, 255, 255, 0.08);
+            --sidebar-bg: #0f1419;
+            --sidebar-border: rgba(255, 255, 255, 0.08);
+            --panel-bg: #f4f5f7;
             --text-primary: #f1f5f9;
             --text-secondary: #94a3b8;
             --text-muted: #64748b;
             --accent: #ED7100;
-            --accent-glow: rgba(237, 113, 0, 0.25);
+            --accent-glow: rgba(237, 113, 0, 0.2);
             --accent-hover: #ff8c2a;
-            --accent-secondary: #8C4FFF;
             --success: #22c55e;
             --error: #ef4444;
-            --code-bg: #1e1e2e;
-            --radius: 16px;
-            --radius-sm: 10px;
+            --code-bg: #1a1f2e;
+            --radius: 12px;
+            --sidebar-width: 380px;
+            --log-panel-width: 420px;
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
-        body {
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: var(--bg-primary);
+        }
+
+        .app-shell {
+            display: flex;
+            width: 100%;
+            height: 100vh;
+            background: var(--sidebar-bg);
+        }
+
+        /* ── Sidebar ─────────────────────────────── */
+        .sidebar {
+            width: var(--sidebar-width);
+            min-width: 320px;
+            max-width: 480px;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--sidebar-border);
+            background: var(--sidebar-bg);
             color: var(--text-primary);
-            min-height: 100vh;
-            overflow-x: hidden;
+            flex-shrink: 0;
         }
 
-        /* Animated gradient background */
-        body::before {
-            content: '';
-            position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background:
-                radial-gradient(ellipse 80% 50% at 20% 20%, rgba(237, 113, 0, 0.08), transparent),
-                radial-gradient(ellipse 60% 40% at 80% 80%, rgba(140, 79, 255, 0.06), transparent),
-                radial-gradient(ellipse 50% 50% at 50% 50%, rgba(237, 113, 0, 0.03), transparent);
-            pointer-events: none;
-            z-index: 0;
+        .sidebar-header {
+            padding: 1.25rem 1.5rem 1rem;
+            border-bottom: 1px solid var(--sidebar-border);
         }
 
-        .app-wrapper {
-            position: relative;
-            z-index: 1;
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 2rem;
+        .sidebar-header h1 {
+            font-size: 1.15rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            margin-bottom: 0.25rem;
         }
 
-        /* ── Header ───────────────────────────────── */
-        .header {
-            text-align: center;
-            margin-bottom: 2.5rem;
-            padding-top: 1rem;
-        }
-        .header-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            background: var(--bg-glass);
-            border: 1px solid var(--border-glass);
-            border-radius: 100px;
-            padding: 6px 16px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            color: var(--accent);
-            text-transform: uppercase;
-            letter-spacing: 1.5px;
-            margin-bottom: 1rem;
-        }
-        .header-badge::before {
-            content: '';
-            width: 6px; height: 6px;
-            background: var(--accent);
-            border-radius: 50%;
-            animation: pulse-dot 2s ease-in-out infinite;
-        }
-        @keyframes pulse-dot {
-            0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.5; transform: scale(1.3); }
-        }
-        .header h1 {
-            font-size: 2.5rem;
-            font-weight: 800;
-            letter-spacing: -0.03em;
-            background: linear-gradient(135deg, #fff 0%, #94a3b8 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            margin-bottom: 0.5rem;
-        }
-        .header p {
+        .sidebar-header p {
+            font-size: 0.82rem;
             color: var(--text-secondary);
-            font-size: 1.05rem;
-            max-width: 600px;
-            margin: 0 auto;
-            line-height: 1.6;
+            line-height: 1.5;
         }
 
-        /* ── Input Card ───────────────────────────── */
-        .input-card {
-            background: var(--bg-card);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border: 1px solid var(--border-glass);
-            border-radius: var(--radius);
-            padding: 2rem;
-            margin-bottom: 2rem;
-            transition: border-color 0.3s;
-        }
-        .input-card:focus-within {
-            border-color: rgba(237, 113, 0, 0.3);
+        .sidebar-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1.25rem 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
         }
 
-        .form-row {
-            display: grid;
-            grid-template-columns: 1fr 200px;
-            gap: 1rem;
-            margin-bottom: 1.25rem;
-        }
-        @media (max-width: 640px) {
-            .form-row { grid-template-columns: 1fr; }
+        .sidebar-footer {
+            padding: 1rem 1.5rem 1.25rem;
+            border-top: 1px solid var(--sidebar-border);
         }
 
         label {
             display: block;
-            font-size: 0.8rem;
+            font-size: 0.72rem;
             font-weight: 600;
             color: var(--text-secondary);
             text-transform: uppercase;
-            letter-spacing: 1px;
+            letter-spacing: 0.08em;
             margin-bottom: 0.5rem;
         }
 
-        textarea {
+        .platform-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.6rem;
+        }
+
+        .platform-card {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--sidebar-border);
+            border-radius: 10px;
+            padding: 0.75rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: center;
+            user-select: none;
+        }
+
+        .platform-card:hover {
+            border-color: rgba(255, 255, 255, 0.15);
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        .platform-card.active {
+            border-color: var(--accent);
+            background: var(--accent-glow);
+        }
+
+        .platform-icon { font-size: 1.25rem; margin-bottom: 0.25rem; }
+
+        .platform-name {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            line-height: 1.3;
+        }
+
+        textarea, select {
             width: 100%;
-            height: 110px;
-            background: var(--bg-glass);
-            border: 1px solid var(--border-glass);
-            border-radius: var(--radius-sm);
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--sidebar-border);
+            border-radius: 10px;
             color: var(--text-primary);
             font-family: inherit;
-            font-size: 0.95rem;
-            padding: 1rem;
-            resize: vertical;
-            transition: border-color 0.3s, box-shadow 0.3s;
-            line-height: 1.6;
+            font-size: 0.9rem;
+            padding: 0.85rem;
+            transition: border-color 0.2s, box-shadow 0.2s;
         }
-        textarea:focus {
+
+        textarea {
+            min-height: 120px;
+            resize: vertical;
+            line-height: 1.55;
+        }
+
+        textarea:focus, select:focus {
             outline: none;
             border-color: var(--accent);
             box-shadow: 0 0 0 3px var(--accent-glow);
         }
+
         textarea::placeholder { color: var(--text-muted); }
 
         select {
-            width: 100%;
-            background: var(--bg-glass);
-            border: 1px solid var(--border-glass);
-            border-radius: var(--radius-sm);
-            color: var(--text-primary);
-            font-family: inherit;
-            font-size: 0.95rem;
-            padding: 0.75rem 1rem;
             cursor: pointer;
             appearance: none;
             background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2394a3b8' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
             background-repeat: no-repeat;
             background-position: right 12px center;
-            transition: border-color 0.3s;
         }
-        select:focus {
-            outline: none;
-            border-color: var(--accent);
-        }
+
         select option {
-            background: var(--bg-secondary);
+            background: #111827;
             color: var(--text-primary);
+        }
+
+        .provider-hint {
+            margin-top: 0.5rem;
+            font-size: 0.72rem;
+            line-height: 1.45;
+            color: var(--text-muted);
+        }
+
+        .provider-hint code {
+            font-family: 'Cascadia Code', 'Consolas', monospace;
+            font-size: 0.68rem;
+            color: var(--text-secondary);
         }
 
         .btn-generate {
             width: 100%;
-            padding: 1rem;
-            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
+            padding: 0.9rem 1rem;
+            background: linear-gradient(135deg, var(--accent), var(--accent-hover));
             color: white;
             border: none;
-            border-radius: var(--radius-sm);
+            border-radius: 10px;
             font-family: inherit;
-            font-size: 1rem;
+            font-size: 0.95rem;
             font-weight: 700;
             cursor: pointer;
-            transition: all 0.3s;
-            position: relative;
-            overflow: hidden;
-            letter-spacing: 0.02em;
+            transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
         }
+
         .btn-generate:hover:not(:disabled) {
             transform: translateY(-1px);
-            box-shadow: 0 8px 30px var(--accent-glow);
+            box-shadow: 0 8px 24px var(--accent-glow);
         }
-        .btn-generate:active:not(:disabled) { transform: translateY(0); }
+
         .btn-generate:disabled {
-            opacity: 0.5;
+            opacity: 0.55;
             cursor: not-allowed;
         }
+
         .btn-generate .spinner {
             display: none;
-            width: 20px; height: 20px;
-            border: 2.5px solid rgba(255,255,255,0.3);
+            width: 18px;
+            height: 18px;
+            border: 2px solid rgba(255,255,255,0.35);
             border-top-color: white;
             border-radius: 50%;
             animation: spin 0.8s linear infinite;
-            margin-right: 10px;
+            vertical-align: middle;
+            margin-right: 8px;
         }
+
         .btn-generate.loading .spinner { display: inline-block; }
         .btn-generate.loading .btn-text { display: none; }
         .btn-generate.loading .btn-loading-text { display: inline; }
         .btn-loading-text { display: none; }
+
         @keyframes spin { to { transform: rotate(360deg); } }
 
-        /* ── Progress ─────────────────────────────── */
-        .progress-section {
-            display: none;
-            margin-bottom: 2rem;
-        }
-        .progress-section.active { display: block; }
-        .progress-card {
-            background: var(--bg-card);
-            backdrop-filter: blur(20px);
-            border: 1px solid var(--border-glass);
-            border-radius: var(--radius);
-            padding: 1.5rem 2rem;
-        }
-        .progress-steps {
-            display: flex;
-            gap: 1.5rem;
-            align-items: center;
-            margin-bottom: 1rem;
-        }
-        .progress-step {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 0.85rem;
-            color: var(--text-muted);
-            transition: color 0.4s;
-        }
-        .progress-step.active { color: var(--accent); }
-        .progress-step.done { color: var(--success); }
-        .progress-step .step-icon {
-            width: 24px; height: 24px;
-            border-radius: 50%;
-            border: 2px solid currentColor;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 0.7rem;
-            font-weight: 700;
-            transition: all 0.4s;
-        }
-        .progress-step.active .step-icon {
-            background: var(--accent);
-            border-color: var(--accent);
-            color: white;
-            box-shadow: 0 0 12px var(--accent-glow);
-        }
-        .progress-step.done .step-icon {
-            background: var(--success);
-            border-color: var(--success);
-            color: white;
-        }
         .progress-bar-track {
-            width: 100%;
-            height: 4px;
-            background: rgba(255,255,255,0.06);
+            height: 3px;
+            background: rgba(255,255,255,0.08);
             border-radius: 2px;
             overflow: hidden;
+            margin-top: 0.75rem;
+            display: none;
         }
+
+        .progress-bar-track.active { display: block; }
+
         .progress-bar-fill {
             height: 100%;
             width: 0%;
             background: linear-gradient(90deg, var(--accent), var(--accent-hover));
-            border-radius: 2px;
-            transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: width 0.4s ease;
         }
 
-        /* ── Results ──────────────────────────────── */
-        .results-section {
+        .error-banner {
             display: none;
-            animation: fadeUp 0.5s ease-out;
-        }
-        .results-section.active { display: block; }
-        @keyframes fadeUp {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .section-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 1rem;
-        }
-        .section-title {
-            font-size: 1.1rem;
-            font-weight: 700;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .section-title .icon {
-            width: 20px;
-            height: 20px;
-            color: var(--accent);
-        }
-
-        /* Diagram iframe */
-        .diagram-card {
-            background: var(--bg-card);
-            backdrop-filter: blur(20px);
-            border: 1px solid var(--border-glass);
-            border-radius: var(--radius);
-            overflow: hidden;
-            margin-bottom: 2rem;
-        }
-        .diagram-card iframe {
-            width: 100%;
-            height: 750px;
-            border: none;
-            display: block;
-            background: white;
-        }
-
-        /* Action buttons bar */
-        .actions-bar {
-            display: flex;
-            gap: 0.75rem;
-            padding: 1rem 1.5rem;
-            border-top: 1px solid var(--border-glass);
-            background: rgba(0,0,0,0.2);
-        }
-        .btn-action {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 0.6rem 1.2rem;
-            border-radius: 8px;
-            font-family: inherit;
+            padding: 0.75rem 0.85rem;
+            border-radius: 10px;
+            background: rgba(239, 68, 68, 0.12);
+            border: 1px solid rgba(239, 68, 68, 0.25);
+            color: #fca5a5;
             font-size: 0.85rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-            border: 1px solid var(--border-glass);
-            background: var(--bg-glass);
-            color: var(--text-secondary);
+            line-height: 1.45;
         }
-        .btn-action:hover {
-            background: rgba(255,255,255,0.08);
-            color: var(--text-primary);
-            border-color: rgba(255,255,255,0.15);
-        }
-        .btn-action.primary {
-            background: var(--accent);
-            color: white;
-            border-color: var(--accent);
-        }
-        .btn-action.primary:hover {
-            background: var(--accent-hover);
-        }
-        .btn-action svg { width: 16px; height: 16px; }
 
-        /* Suggestions */
-        .suggestions-card {
-            background: var(--bg-card);
-            backdrop-filter: blur(20px);
-            border: 1px solid var(--border-glass);
-            border-radius: var(--radius);
-            padding: 1.5rem 2rem;
-            margin-bottom: 2rem;
-        }
-        .suggestion-item {
-            display: flex;
-            align-items: flex-start;
-            gap: 10px;
-            padding: 0.75rem 0;
-            border-bottom: 1px solid rgba(255,255,255,0.04);
-            font-size: 0.9rem;
+        .error-banner.active { display: block; }
+
+        .suggestions-block { display: none; }
+        .suggestions-block.active { display: block; }
+
+        .suggestions-block h3 {
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
             color: var(--text-secondary);
-            line-height: 1.5;
+            margin-bottom: 0.6rem;
         }
+
+        .suggestion-item {
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+            line-height: 1.45;
+            padding: 0.55rem 0;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+        }
+
         .suggestion-item:last-child { border-bottom: none; }
+
         .suggestion-item::before {
             content: '→';
             color: var(--accent);
             font-weight: 700;
-            flex-shrink: 0;
-            margin-top: 1px;
+            margin-right: 0.45rem;
         }
 
-        /* XML Code */
-        .xml-card {
-            background: var(--bg-card);
-            backdrop-filter: blur(20px);
-            border: 1px solid var(--border-glass);
-            border-radius: var(--radius);
-            overflow: hidden;
-            margin-bottom: 2rem;
+        .xml-toggle {
+            display: none;
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            user-select: none;
         }
-        .xml-header {
+
+        .xml-toggle.active { display: block; }
+
+        .xml-panel {
+            display: none;
+            margin-top: 0.75rem;
+            border: 1px solid var(--sidebar-border);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .xml-panel.open { display: block; }
+
+        .xml-panel pre {
+            margin: 0;
+            padding: 0.85rem;
+            max-height: 220px;
+            overflow: auto;
+            background: var(--code-bg);
+            color: #cdd6f4;
+            font-size: 0.72rem;
+            line-height: 1.5;
+            white-space: pre;
+        }
+
+        /* ── Right log panel ─────────────────────── */
+        .log-panel {
+            width: 0;
+            min-width: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background: #0c1017;
+            border-left: 1px solid transparent;
+            overflow: hidden;
+            flex-shrink: 0;
+            transition: width 0.25s ease, min-width 0.25s ease, border-color 0.25s ease;
+        }
+
+        .log-panel.active {
+            width: var(--log-panel-width);
+            min-width: 320px;
+            max-width: 560px;
+            border-left-color: var(--sidebar-border);
+        }
+
+        .log-panel-header {
+            height: 52px;
+            padding: 0 1rem;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 1rem 1.5rem;
+            border-bottom: 1px solid var(--sidebar-border);
+            background: rgba(255, 255, 255, 0.02);
+            flex-shrink: 0;
+        }
+
+        .log-panel-header .title-block h2 {
+            font-size: 0.92rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            letter-spacing: -0.01em;
+        }
+
+        .log-panel-header .title-block p {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            margin-top: 0.1rem;
+        }
+
+        .log-panel-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .log-count-badge {
+            font-size: 0.68rem;
+            font-weight: 700;
+            padding: 0.15rem 0.45rem;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-secondary);
+        }
+
+        .btn-log-action {
+            border: 1px solid var(--sidebar-border);
+            background: rgba(255, 255, 255, 0.04);
+            color: var(--text-secondary);
+            font-family: inherit;
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 0.35rem 0.65rem;
+            border-radius: 6px;
             cursor: pointer;
-            user-select: none;
+            transition: background 0.15s, color 0.15s;
+        }
+
+        .btn-log-action:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-primary);
+        }
+
+        .log-panel-body {
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding: 0.85rem;
+            font-family: 'Cascadia Code', 'Consolas', 'SF Mono', monospace;
+            font-size: 0.78rem;
+            line-height: 1.55;
+        }
+
+        .log-entry {
+            padding: 0.65rem 0.75rem;
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+            border-left: 3px solid transparent;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .log-entry:last-child { margin-bottom: 0; }
+
+        .log-entry.info { border-left-color: #64748b; }
+        .log-entry.success { border-left-color: var(--success); }
+        .log-entry.warn { border-left-color: #f59e0b; }
+        .log-entry.error { border-left-color: var(--error); }
+
+        .log-entry-head {
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+        }
+
+        .log-entry-meta {
+            display: flex;
+            align-items: center;
+            gap: 0.65rem;
+            flex-wrap: wrap;
+        }
+
+        .log-time {
+            color: var(--text-muted);
+            font-size: 0.72rem;
+            white-space: nowrap;
+        }
+
+        .log-step {
+            color: var(--accent);
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-size: 0.7rem;
+            white-space: nowrap;
+        }
+
+        .log-message {
+            color: var(--text-primary);
+            font-size: 0.82rem;
+            line-height: 1.45;
+        }
+
+        .log-details {
+            margin-top: 0.5rem;
+            padding: 0.65rem 0.75rem;
+            border-radius: 6px;
+            background: rgba(0, 0, 0, 0.35);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            color: #a8b3cf;
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-size: 0.74rem;
+            line-height: 1.5;
+            max-height: 280px;
+            overflow: auto;
+        }
+
+        .log-empty {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            padding: 2rem 1rem;
+            text-align: center;
+            line-height: 1.6;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .verbose-toggle-row small {
+            display: block;
+            font-size: 0.72rem;
+            font-weight: 400;
+            color: var(--text-muted);
+            margin-top: 0.15rem;
+        }
+
+        .toggle-switch {
+            position: relative;
+            width: 42px;
+            height: 24px;
+            flex-shrink: 0;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.12);
+            border-radius: 999px;
+            cursor: pointer;
             transition: background 0.2s;
         }
-        .xml-header:hover { background: rgba(255,255,255,0.03); }
-        .xml-header .chevron {
-            transition: transform 0.3s;
-            color: var(--text-muted);
+
+        .toggle-slider::before {
+            content: '';
+            position: absolute;
+            width: 18px;
+            height: 18px;
+            left: 3px;
+            top: 3px;
+            background: white;
+            border-radius: 50%;
+            transition: transform 0.2s;
         }
-        .xml-header.open .chevron { transform: rotate(180deg); }
-        .xml-body {
-            display: none;
-            border-top: 1px solid var(--border-glass);
+
+        .toggle-switch input:checked + .toggle-slider {
+            background: var(--accent);
         }
-        .xml-body.open { display: block; }
-        .xml-body pre {
-            margin: 0;
-            padding: 1.5rem;
-            background: var(--code-bg);
-            color: #cdd6f4;
-            font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+
+        .toggle-switch input:checked + .toggle-slider::before {
+            transform: translateX(18px);
+        }
+
+        .verbose-toggle-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            padding: 0.65rem 0.75rem;
+            border: 1px solid var(--sidebar-border);
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .verbose-toggle-row span {
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        /* ── Diagram panel ───────────────────────── */
+        .diagram-panel {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            background: var(--panel-bg);
+        }
+
+        .diagram-toolbar {
+            height: 52px;
+            padding: 0 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: linear-gradient(to bottom, #ffffff, #fafbfc);
+            border-bottom: 1px solid #e5e7eb;
+            flex-shrink: 0;
+        }
+
+        .diagram-toolbar .title {
+            font-size: 0.92rem;
+            font-weight: 600;
+            color: #18181b;
+        }
+
+        .diagram-toolbar .status {
+            font-size: 0.78rem;
+            color: #71717a;
+        }
+
+        .toolbar-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .btn-action {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.45rem 0.85rem;
+            border-radius: 8px;
+            font-family: inherit;
             font-size: 0.8rem;
-            line-height: 1.6;
-            overflow-x: auto;
-            max-height: 400px;
-            white-space: pre;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid #e4e4e7;
+            background: #fff;
+            color: #3f3f46;
+            transition: background 0.15s, border-color 0.15s;
         }
+
+        .btn-action:hover:not(:disabled) {
+            background: #f4f4f5;
+            border-color: #d4d4d8;
+        }
+
+        .btn-action:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+
+        .btn-action.primary {
+            background: #18181b;
+            color: white;
+            border-color: #18181b;
+        }
+
+        .btn-action.primary:hover:not(:disabled) {
+            background: #27272a;
+        }
+
+        .btn-action svg { width: 14px; height: 14px; }
+
+        .diagram-viewport {
+            flex: 1;
+            position: relative;
+            min-height: 0;
+            background: #ffffff;
+        }
+
+        #drawio-frame {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            border: none;
+            display: block;
+        }
+
+        .diagram-placeholder,
+        .diagram-loading {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            color: #71717a;
+            background: #fafafa;
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        .diagram-loading { display: none; background: rgba(255,255,255,0.85); }
+
+        .diagram-loading.active,
+        .diagram-placeholder.hidden { display: none; }
+
+        .diagram-placeholder svg {
+            width: 48px;
+            height: 48px;
+            opacity: 0.35;
+        }
+
+        .diagram-placeholder p,
+        .diagram-loading p {
+            font-size: 0.9rem;
+            max-width: 320px;
+            text-align: center;
+            line-height: 1.5;
+        }
+
+        .loading-ring {
+            width: 36px;
+            height: 36px;
+            border: 3px solid #e4e4e7;
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
         .copy-feedback {
             position: fixed;
-            bottom: 2rem;
-            right: 2rem;
+            bottom: 1.25rem;
+            right: 1.25rem;
             background: var(--success);
             color: white;
-            padding: 0.75rem 1.5rem;
-            border-radius: 10px;
+            padding: 0.65rem 1.1rem;
+            border-radius: 8px;
             font-weight: 600;
-            font-size: 0.9rem;
-            transform: translateY(100px);
+            font-size: 0.85rem;
+            transform: translateY(80px);
             opacity: 0;
-            transition: all 0.3s;
+            transition: all 0.25s ease;
             z-index: 1000;
         }
+
         .copy-feedback.show {
             transform: translateY(0);
             opacity: 1;
         }
 
-        /* ── Error ────────────────────────────────── */
-        .error-card {
-            display: none;
-            background: rgba(239, 68, 68, 0.1);
-            border: 1px solid rgba(239, 68, 68, 0.2);
-            border-radius: var(--radius);
-            padding: 1.5rem 2rem;
-            margin-bottom: 2rem;
-            color: #fca5a5;
+        @media (max-width: 1200px) {
+            :root { --log-panel-width: 340px; }
         }
-        .error-card.active { display: block; }
 
-        /* Platform Selector Styles */
-        .platform-selector-container {
-            margin-bottom: 1.5rem;
-        }
-        .platform-grid {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 1rem;
-            margin-top: 0.5rem;
-        }
-        @media (max-width: 768px) {
-            .platform-grid {
-                grid-template-columns: repeat(2, 1fr);
+        @media (max-width: 900px) {
+            .app-shell { flex-direction: column; height: auto; min-height: 100vh; overflow: auto; }
+            html, body { overflow: auto; }
+            .sidebar {
+                width: 100%;
+                max-width: none;
+                height: auto;
+                max-height: none;
+                border-right: none;
+                border-bottom: 1px solid var(--sidebar-border);
             }
-        }
-        .platform-card {
-            background: var(--bg-glass);
-            border: 1px solid var(--border-glass);
-            border-radius: var(--radius-sm);
-            padding: 1rem;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 0.5rem;
-            cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            text-align: center;
-            user-select: none;
-        }
-        .platform-card:hover {
-            border-color: rgba(255, 255, 255, 0.15);
-            background: rgba(255, 255, 255, 0.06);
-            transform: translateY(-2px);
-        }
-        .platform-card.active {
-            border-color: var(--accent);
-            background: var(--accent-glow);
-            box-shadow: 0 0 15px var(--accent-glow);
-        }
-        .platform-card.active .platform-icon {
-            transform: scale(1.15);
-        }
-        .platform-icon {
-            font-size: 1.5rem;
-            transition: transform 0.3s;
-        }
-        .platform-name {
-            font-size: 0.85rem;
-            font-weight: 600;
-            color: var(--text-primary);
+            .diagram-panel { min-height: 50vh; }
+            .log-panel.active {
+                width: 100%;
+                min-width: 0;
+                max-width: none;
+                height: 45vh;
+                border-left: none;
+                border-top: 1px solid var(--sidebar-border);
+            }
         }
     </style>
 </head>
 
 <body>
-    <div class="app-wrapper">
-        <!-- Header -->
-        <header class="header">
-            <div class="header-badge">AI-Powered</div>
-            <h1>Enterprise Cloud Architecture Generator</h1>
-            <p>Describe your cloud architecture and get a production-grade Draw.io diagram instantly using standardized icon sets and neat boundaries.</p>
-        </header>
-
-        <!-- Input -->
-        <div class="input-card">
-            <!-- Platform Selector -->
-            <div class="platform-selector-container">
-                <label>Target Cloud Platform</label>
-                <div class="platform-grid">
-                    <div class="platform-card active" data-platform="aws" onclick="selectPlatform('aws')">
-                        <span class="platform-icon">☁️</span>
-                        <div class="platform-name">Amazon Web Services (AWS)</div>
-                    </div>
-                    <div class="platform-card" data-platform="gcp" onclick="selectPlatform('gcp')">
-                        <span class="platform-icon">⚡</span>
-                        <div class="platform-name">Google Cloud (GCP)</div>
-                    </div>
-                    <div class="platform-card" data-platform="azure" onclick="selectPlatform('azure')">
-                        <span class="platform-icon">🔷</span>
-                        <div class="platform-name">Microsoft Azure</div>
-                    </div>
-                    <div class="platform-card" data-platform="multi" onclick="selectPlatform('multi')">
-                        <span class="platform-icon">🌐</span>
-                        <div class="platform-name">Multi-Cloud / Hybrid</div>
-                    </div>
-                </div>
+    <div class="app-shell">
+        <!-- Left: chat / input panel -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1>Cloud Architecture Generator</h1>
+                <p>Describe your architecture and preview it live in Draw.io.</p>
             </div>
 
-            <div class="form-row">
+            <div class="sidebar-body">
+                <div>
+                    <label>Target Cloud Platform</label>
+                    <div class="platform-grid">
+                        <div class="platform-card active" data-platform="aws" onclick="selectPlatform('aws')">
+                            <div class="platform-icon">☁️</div>
+                            <div class="platform-name">AWS</div>
+                        </div>
+                        <div class="platform-card" data-platform="gcp" onclick="selectPlatform('gcp')">
+                            <div class="platform-icon">⚡</div>
+                            <div class="platform-name">Google Cloud</div>
+                        </div>
+                        <div class="platform-card" data-platform="azure" onclick="selectPlatform('azure')">
+                            <div class="platform-icon">🔷</div>
+                            <div class="platform-name">Azure</div>
+                        </div>
+                        <div class="platform-card" data-platform="multi" onclick="selectPlatform('multi')">
+                            <div class="platform-icon">🌐</div>
+                            <div class="platform-name">Multi-Cloud</div>
+                        </div>
+                    </div>
+                </div>
+
                 <div>
                     <label for="prompt-input">Architecture Description</label>
                     <textarea id="prompt-input"
-                        placeholder='e.g., "A payment processing system with API Gateway, Fargate in VPC with public/private subnets, Aurora, ElastiCache, CloudFront, Route 53, WAF, CloudWatch monitoring"'>A highly available web app with an API gateway, Fargate tasks in public and private subnets, Aurora database, ElastiCache, CloudFront CDN, Route 53, WAF, and CloudWatch monitoring</textarea>
+                        placeholder='e.g., "Highly available web app with API Gateway, Fargate in public/private subnets, Aurora, ElastiCache, CloudFront, Route 53, WAF, CloudWatch"'>A highly available web app with an API gateway, Fargate tasks in public and private subnets, Aurora database, ElastiCache, CloudFront CDN, Route 53, WAF, and CloudWatch monitoring</textarea>
                 </div>
+
                 <div>
                     <label for="provider-select">AI Provider</label>
                     <select id="provider-select">
                         <option value="gemini">Google Gemini</option>
                         <option value="openai">OpenAI GPT-4o</option>
                         <option value="claude">Claude Sonnet 4</option>
+                        <option value="cursor">Cursor Composer 2.5</option>
                     </select>
+                    <p id="cursor-hint" class="provider-hint" hidden>
+                        Requires <code>CURSOR_API_KEY</code> from Cursor Dashboard → API Keys.
+                        Uses Cloud Agents API (no local bridge). Optional: <code>CURSOR_MODEL=composer-2.5</code>
+                    </p>
                 </div>
-            </div>
-            <button id="gen-btn" class="btn-generate" onclick="generate()">
-                <span class="spinner"></span>
-                <span class="btn-text">Generate Diagram</span>
-                <span class="btn-loading-text">Generating...</span>
-            </button>
-        </div>
 
-        <!-- Progress -->
-        <div id="progress-section" class="progress-section">
-            <div class="progress-card">
-                <div class="progress-steps">
-                    <div class="progress-step" id="step-1">
-                        <div class="step-icon">1</div>
-                        <span>Analyzing</span>
-                    </div>
-                    <div class="progress-step" id="step-2">
-                        <div class="step-icon">2</div>
-                        <span>Designing</span>
-                    </div>
-                    <div class="progress-step" id="step-3">
-                        <div class="step-icon">3</div>
-                        <span>Building XML</span>
-                    </div>
-                    <div class="progress-step" id="step-4">
-                        <div class="step-icon">4</div>
-                        <span>Rendering</span>
-                    </div>
+                <div id="error-banner" class="error-banner">
+                    <strong>Error: </strong><span id="error-msg"></span>
                 </div>
-                <div class="progress-bar-track">
-                    <div class="progress-bar-fill" id="progress-bar"></div>
-                </div>
-            </div>
-        </div>
 
-        <!-- Error -->
-        <div id="error-card" class="error-card">
-            <strong>Error: </strong><span id="error-msg"></span>
-        </div>
-
-        <!-- Results -->
-        <div id="results-section" class="results-section">
-            <!-- Diagram -->
-            <div class="section-header">
-                <div class="section-title">
-                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M3 9h18"/></svg>
-                    Rendered Diagram
-                </div>
-            </div>
-            <div class="diagram-card">
-                <div id="iframe-wrapper"></div>
-                <div class="actions-bar">
-                    <button class="btn-action primary" onclick="downloadXML()">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
-                        Download .drawio
-                    </button>
-                    <button class="btn-action" onclick="copyXML()">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-                        Copy XML
-                    </button>
-                    <button class="btn-action" onclick="openInDrawio()">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>
-                        Open in Draw.io
-                    </button>
-                </div>
-            </div>
-
-            <!-- Suggestions -->
-            <div class="section-header">
-                <div class="section-title">
-                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
-                    Architecture Suggestions
-                </div>
-            </div>
-            <div class="suggestions-card" id="suggestions-card"></div>
-
-            <!-- XML -->
-            <div class="xml-card">
-                <div class="xml-header" id="xml-toggle" onclick="toggleXML()">
-                    <div class="section-title">
-                        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-                        Draw.io XML Source
+                <div class="verbose-toggle-row">
+                    <div>
+                        <span>Pipeline logs</span>
+                        <small>Open right panel for step-by-step output</small>
                     </div>
-                    <svg class="chevron" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                    <label class="toggle-switch" title="Toggle pipeline log panel">
+                        <input type="checkbox" id="verbose-toggle" onchange="toggleVerbosePanel()">
+                        <span class="toggle-slider"></span>
+                    </label>
                 </div>
-                <div class="xml-body" id="xml-body">
+
+                <div id="suggestions-block" class="suggestions-block">
+                    <h3>Architecture Suggestions</h3>
+                    <div id="suggestions-list"></div>
+                </div>
+
+                <div id="xml-toggle" class="xml-toggle" onclick="toggleXML()">
+                    ▸ View Draw.io XML source
+                </div>
+                <div id="xml-panel" class="xml-panel">
                     <pre id="xml-output"></pre>
                 </div>
             </div>
-        </div>
+
+            <div class="sidebar-footer">
+                <button id="gen-btn" class="btn-generate" onclick="generate()">
+                    <span class="spinner"></span>
+                    <span class="btn-text">Generate Diagram</span>
+                    <span class="btn-loading-text">Generating...</span>
+                </button>
+                <div id="progress-track" class="progress-bar-track">
+                    <div id="progress-bar" class="progress-bar-fill"></div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Right: full-height Draw.io editor -->
+        <main class="diagram-panel">
+            <div class="diagram-toolbar">
+                <div>
+                    <div class="title">Diagram Preview</div>
+                    <div id="diagram-status" class="status">Waiting for generation</div>
+                </div>
+                <div class="toolbar-actions">
+                    <button id="btn-download" class="btn-action primary" onclick="downloadXML()" disabled>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+                        Download
+                    </button>
+                    <button id="btn-copy" class="btn-action" onclick="copyXML()" disabled>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                        Copy XML
+                    </button>
+                    <button id="btn-open" class="btn-action" onclick="openInDrawio()" disabled>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>
+                        Open
+                    </button>
+                </div>
+            </div>
+
+            <div class="diagram-viewport">
+                <div id="diagram-placeholder" class="diagram-placeholder">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <rect x="3" y="3" width="18" height="18" rx="2"/>
+                        <path d="M9 3v18M3 9h18"/>
+                    </svg>
+                    <p>Your diagram will appear here after generation. You can pan, zoom, and edit directly in Draw.io.</p>
+                </div>
+                <div id="diagram-loading" class="diagram-loading">
+                    <div class="loading-ring"></div>
+                    <p>Rendering diagram...</p>
+                </div>
+                <iframe id="drawio-frame" title="Draw.io diagram editor"></iframe>
+            </div>
+        </main>
+
+        <!-- Right: pipeline log panel -->
+        <aside id="log-panel" class="log-panel">
+            <div class="log-panel-header">
+                <div class="title-block">
+                    <h2>Pipeline Logs</h2>
+                    <p>Client + server generation steps</p>
+                </div>
+                <div class="log-panel-actions">
+                    <span id="log-count-badge" class="log-count-badge">0 entries</span>
+                    <button type="button" class="btn-log-action" onclick="clearVerboseLogs()">Clear</button>
+                    <button type="button" class="btn-log-action" onclick="closeLogPanel()" title="Close panel">✕</button>
+                </div>
+            </div>
+            <div id="verbose-log-body" class="log-panel-body">
+                <div class="log-empty">Turn on <strong>Pipeline logs</strong> in the left sidebar, then generate a diagram to see each step here with full details.</div>
+            </div>
+        </aside>
     </div>
 
-    <!-- Copy feedback toast -->
     <div class="copy-feedback" id="copy-toast">Copied to clipboard!</div>
 
     <script>
-        let currentXml = "";
-        let selectedPlatform = "aws";
+        const DRAWIO_ORIGIN = 'https://embed.diagrams.net';
+        const DRAWIO_URL = `${DRAWIO_ORIGIN}/?embed=1&ui=kennedy&spin=1&proto=json&configure=1&libraries=0&nav=1&saveAndExit=0&noSaveBtn=1&noExitBtn=1`;
+
+        let currentXml = '';
+        let selectedPlatform = 'aws';
+        let drawioReady = false;
+        let pendingXml = null;
+        let messageHandler = null;
+        let verboseLogging = false;
+        let logEntryCount = 0;
+
+        const VERBOSE_STORAGE_KEY = 'drawio-agent-verbose-logging';
+
+        function formatLogTime(isoOrDate) {
+            const d = isoOrDate ? new Date(isoOrDate) : new Date();
+            return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }
+
+        function formatDetails(details) {
+            if (!details) return '';
+            if (typeof details === 'string') return details;
+            return JSON.stringify(details, null, 2);
+        }
+
+        function updateLogCount() {
+            const badge = document.getElementById('log-count-badge');
+            badge.textContent = `${logEntryCount} ${logEntryCount === 1 ? 'entry' : 'entries'}`;
+        }
+
+        function appendVerboseLog(step, message, level = 'info', details = null, timestamp = null) {
+            if (!verboseLogging) return;
+
+            const body = document.getElementById('verbose-log-body');
+            const empty = body.querySelector('.log-empty');
+            if (empty) empty.remove();
+
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${level}`;
+
+            const head = document.createElement('div');
+            head.className = 'log-entry-head';
+
+            const meta = document.createElement('div');
+            meta.className = 'log-entry-meta';
+
+            const timeEl = document.createElement('span');
+            timeEl.className = 'log-time';
+            timeEl.textContent = formatLogTime(timestamp);
+
+            const stepEl = document.createElement('span');
+            stepEl.className = 'log-step';
+            stepEl.textContent = step;
+
+            meta.appendChild(timeEl);
+            meta.appendChild(stepEl);
+
+            const msgEl = document.createElement('span');
+            msgEl.className = 'log-message';
+            msgEl.textContent = message;
+
+            head.appendChild(meta);
+            head.appendChild(msgEl);
+            entry.appendChild(head);
+
+            if (details) {
+                const detailEl = document.createElement('div');
+                detailEl.className = 'log-details';
+                detailEl.textContent = formatDetails(details);
+                entry.appendChild(detailEl);
+            }
+
+            body.appendChild(entry);
+            body.scrollTop = body.scrollHeight;
+
+            logEntryCount += 1;
+            updateLogCount();
+        }
+
+        function clearVerboseLogs() {
+            const body = document.getElementById('verbose-log-body');
+            body.innerHTML = '<div class="log-empty">Log cleared. Generate a diagram to see new pipeline steps.</div>';
+            logEntryCount = 0;
+            updateLogCount();
+        }
+
+        function setLogPanelOpen(open) {
+            verboseLogging = open;
+            document.getElementById('verbose-toggle').checked = open;
+            document.getElementById('log-panel').classList.toggle('active', open);
+            localStorage.setItem(VERBOSE_STORAGE_KEY, open ? '1' : '0');
+        }
+
+        function toggleVerbosePanel() {
+            const open = document.getElementById('verbose-toggle').checked;
+            setLogPanelOpen(open);
+            if (open) {
+                appendVerboseLog('ui', 'Pipeline log panel opened', 'info');
+            }
+        }
+
+        function closeLogPanel() {
+            setLogPanelOpen(false);
+        }
+
+        function mergeServerLogs(logs) {
+            (logs || []).forEach(entry => {
+                appendVerboseLog(
+                    entry.step || 'server',
+                    entry.message || '',
+                    entry.level || 'info',
+                    entry.details || null,
+                    entry.timestamp || null
+                );
+            });
+        }
+
+        function initVerboseLogging() {
+            const open = localStorage.getItem(VERBOSE_STORAGE_KEY) === '1';
+            setLogPanelOpen(open);
+            updateLogCount();
+        }
+
+        function setDiagramStatus(text) {
+            document.getElementById('diagram-status').textContent = text;
+        }
+
+        function setActionButtonsEnabled(enabled) {
+            ['btn-download', 'btn-copy', 'btn-open'].forEach(id => {
+                document.getElementById(id).disabled = !enabled;
+            });
+        }
+
+        function ensureDrawioFrame() {
+            const iframe = document.getElementById('drawio-frame');
+            if (!iframe.src) {
+                iframe.src = DRAWIO_URL;
+                bindDrawioMessages(iframe);
+            }
+            return iframe;
+        }
+
+        function bindDrawioMessages(iframe) {
+            if (messageHandler) {
+                window.removeEventListener('message', messageHandler);
+            }
+
+            messageHandler = (evt) => {
+                if (evt.origin !== DRAWIO_ORIGIN) return;
+                if (!evt.data || typeof evt.data !== 'string') return;
+
+                let msg;
+                try {
+                    msg = JSON.parse(evt.data);
+                } catch {
+                    return;
+                }
+
+                if (msg.event === 'configure') {
+                    appendVerboseLog('drawio', 'Embed sent configure response', 'info');
+                    iframe.contentWindow.postMessage(JSON.stringify({
+                        action: 'configure',
+                        config: {
+                            defaultFonts: ['Inter', 'Helvetica', 'Arial'],
+                            css: '.geDiagramContainer { background: #ffffff !important; }'
+                        }
+                    }), DRAWIO_ORIGIN);
+                }
+
+                if (msg.event === 'init') {
+                    drawioReady = true;
+                    appendVerboseLog('drawio', 'Editor initialized', 'success');
+                    if (pendingXml) {
+                        loadDiagramIntoEditor(pendingXml);
+                        pendingXml = null;
+                    }
+                }
+
+                if (msg.event === 'load') {
+                    appendVerboseLog('drawio', 'Diagram loaded in editor', 'success', {
+                        page: msg.page,
+                        bounds: msg.bounds || null
+                    });
+                    document.getElementById('diagram-loading').classList.remove('active');
+                    document.getElementById('diagram-placeholder').classList.add('hidden');
+                    setDiagramStatus('Diagram loaded — pan and zoom to explore');
+                }
+            };
+
+            window.addEventListener('message', messageHandler);
+        }
+
+        function loadDiagramIntoEditor(xml) {
+            const iframe = ensureDrawioFrame();
+            const payload = {
+                action: 'load',
+                xml: xml,
+                autosave: 0,
+                fit: 1,
+                maxFitScale: 1.25,
+                border: 20
+            };
+
+            if (!drawioReady) {
+                pendingXml = xml;
+                appendVerboseLog('drawio', 'Waiting for editor init before load', 'info', {
+                    xml_chars: xml.length
+                });
+                return;
+            }
+
+            appendVerboseLog('drawio', 'Sending diagram to editor', 'info', {
+                xml_chars: xml.length,
+                fit: payload.fit,
+                maxFitScale: payload.maxFitScale
+            });
+            iframe.contentWindow.postMessage(JSON.stringify(payload), DRAWIO_ORIGIN);
+        }
+
+        function updateProviderHint() {
+            const provider = document.getElementById('provider-select').value;
+            document.getElementById('cursor-hint').hidden = provider !== 'cursor';
+        }
 
         function selectPlatform(platform) {
             selectedPlatform = platform;
-            
-            // Toggle active class on cards
             document.querySelectorAll('.platform-card').forEach(card => {
-                card.classList.remove('active');
-                if (card.getAttribute('data-platform') === platform) {
-                    card.classList.add('active');
-                }
+                card.classList.toggle('active', card.getAttribute('data-platform') === platform);
             });
 
-            // Dynamically change visual colors matching the brand
             const root = document.documentElement;
             const promptInput = document.getElementById('prompt-input');
 
             if (platform === 'aws') {
                 root.style.setProperty('--accent', '#ED7100');
-                root.style.setProperty('--accent-glow', 'rgba(237, 113, 0, 0.25)');
+                root.style.setProperty('--accent-glow', 'rgba(237, 113, 0, 0.2)');
                 root.style.setProperty('--accent-hover', '#ff8c2a');
-                promptInput.placeholder = 'e.g., "A payment processing system with API Gateway, Fargate in VPC with public/private subnets, Aurora, ElastiCache, CloudFront, Route 53, WAF, CloudWatch monitoring"';
+                promptInput.placeholder = 'e.g., "Payment system with API Gateway, Fargate in VPC subnets, Aurora, ElastiCache, CloudFront, Route 53, WAF, CloudWatch"';
             } else if (platform === 'gcp') {
                 root.style.setProperty('--accent', '#4285F4');
-                root.style.setProperty('--accent-glow', 'rgba(66, 133, 244, 0.25)');
+                root.style.setProperty('--accent-glow', 'rgba(66, 133, 244, 0.2)');
                 root.style.setProperty('--accent-hover', '#669df6');
-                promptInput.placeholder = 'e.g., "A payment system with Cloud Load Balancing, Cloud Run inside a Shared VPC, Cloud SQL PostgreSQL, Memorystore for Redis, Cloud CDN, Cloud DNS, Cloud Armor, Cloud Monitoring"';
+                promptInput.placeholder = 'e.g., "Cloud Run in Shared VPC, Cloud SQL, Memorystore, Cloud CDN, Cloud DNS, Cloud Armor, Cloud Monitoring"';
             } else if (platform === 'azure') {
                 root.style.setProperty('--accent', '#0078D4');
-                root.style.setProperty('--accent-glow', 'rgba(0, 120, 212, 0.25)');
+                root.style.setProperty('--accent-glow', 'rgba(0, 120, 212, 0.2)');
                 root.style.setProperty('--accent-hover', '#2b90f5');
-                promptInput.placeholder = 'e.g., "A payment processing system with Application Gateway, AKS in VNet with subnets, Cosmos DB, Cache for Redis, Azure Front Door, Azure DNS, Entra ID, Key Vault, Azure Monitor"';
+                promptInput.placeholder = 'e.g., "Application Gateway, AKS in VNet subnets, Cosmos DB, Redis, Front Door, Azure Monitor"';
             } else {
                 root.style.setProperty('--accent', '#8C4FFF');
-                root.style.setProperty('--accent-glow', 'rgba(140, 79, 255, 0.25)');
+                root.style.setProperty('--accent-glow', 'rgba(140, 79, 255, 0.2)');
                 root.style.setProperty('--accent-hover', '#a67cff');
-                promptInput.placeholder = 'e.g., "A hybrid deployment referencing AWS ECS tasks querying a Google Cloud Spanner database, connected via site-to-site VPN connection, with CloudWatch logs aggregated"';
+                promptInput.placeholder = 'e.g., "Hybrid: AWS ECS tasks querying GCP Spanner over site-to-site VPN with centralized logging"';
             }
         }
 
-        function setProgress(percent, activeStep) {
-            document.getElementById('progress-section').classList.add('active');
+        function setProgress(percent) {
+            const track = document.getElementById('progress-track');
+            track.classList.add('active');
             document.getElementById('progress-bar').style.width = percent + '%';
-
-            for (let i = 1; i <= 4; i++) {
-                const el = document.getElementById('step-' + i);
-                el.classList.remove('active', 'done');
-                if (i < activeStep) el.classList.add('done');
-                else if (i === activeStep) el.classList.add('active');
+            if (percent >= 100) {
+                setTimeout(() => track.classList.remove('active'), 1200);
             }
         }
 
         function showError(msg) {
-            const card = document.getElementById('error-card');
+            const banner = document.getElementById('error-banner');
             document.getElementById('error-msg').textContent = msg;
-            card.classList.add('active');
+            banner.classList.add('active');
         }
+
         function hideError() {
-            document.getElementById('error-card').classList.remove('active');
+            document.getElementById('error-banner').classList.remove('active');
         }
 
         async function generate() {
@@ -750,102 +1166,79 @@
             const btn = document.getElementById('gen-btn');
 
             if (!prompt) {
-                showError("Please enter an architecture description.");
+                showError('Please enter an architecture description.');
                 return;
             }
 
             hideError();
             btn.disabled = true;
             btn.classList.add('loading');
-            document.getElementById('results-section').classList.remove('active');
+            setProgress(10);
+            setDiagramStatus('Analyzing architecture...');
+            document.getElementById('diagram-loading').classList.add('active');
+
+            if (verboseLogging) {
+                clearVerboseLogs();
+                appendVerboseLog('client', 'Starting generation', 'info', {
+                    platform: selectedPlatform,
+                    provider,
+                    prompt_chars: prompt.length
+                });
+            }
 
             try {
-                setProgress(15, 1);
-
+                appendVerboseLog('client', 'POST /generate', 'info');
                 const res = await fetch('/generate', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ user_prompt: prompt, provider: provider, platform: selectedPlatform })
+                    body: JSON.stringify({ user_prompt: prompt, provider, platform: selectedPlatform })
                 });
 
-                setProgress(50, 2);
+                setProgress(45);
+                setDiagramStatus('Building diagram XML...');
 
                 const data = await res.json();
+                mergeServerLogs(data.logs);
 
-                if (!res.ok) {
-                    throw new Error(data.detail || 'Server error');
-                }
+                if (!res.ok) throw new Error(data.detail || 'Server error');
+                if (data.status !== 'success') throw new Error(data.detail || 'Unknown error');
 
-                if (data.status === "success") {
-                    currentXml = data.xml;
-                    setProgress(70, 3);
+                appendVerboseLog('client', 'Server response received', 'success', {
+                    suggestions: (data.suggestions || []).length,
+                    xml_chars: (data.xml || '').length
+                });
 
-                    // Populate XML output
-                    document.getElementById('xml-output').textContent = data.xml;
+                currentXml = data.xml;
+                document.getElementById('xml-output').textContent = data.xml;
+                document.getElementById('xml-toggle').classList.add('active');
 
-                    // Populate suggestions
-                    const suggCard = document.getElementById('suggestions-card');
-                    suggCard.innerHTML = '';
-                    (data.suggestions || []).forEach(s => {
-                        const div = document.createElement('div');
-                        div.className = 'suggestion-item';
-                        div.textContent = s;
-                        suggCard.appendChild(div);
-                    });
+                const suggBlock = document.getElementById('suggestions-block');
+                const suggList = document.getElementById('suggestions-list');
+                suggList.innerHTML = '';
+                (data.suggestions || []).forEach(s => {
+                    const div = document.createElement('div');
+                    div.className = 'suggestion-item';
+                    div.textContent = s;
+                    suggList.appendChild(div);
+                });
+                suggBlock.classList.toggle('active', (data.suggestions || []).length > 0);
 
-                    setProgress(85, 4);
-                    renderDiagram(data.xml);
-                } else {
-                    throw new Error(data.detail || 'Unknown error');
-                }
+                setProgress(75);
+                setDiagramStatus('Loading into Draw.io...');
+                loadDiagramIntoEditor(data.xml);
+                setActionButtonsEnabled(true);
+                setProgress(100);
+                appendVerboseLog('client', 'Generation complete', 'success');
             } catch (err) {
                 console.error(err);
-                showError(err.message || 'Request failed. Check the terminal for errors.');
-                document.getElementById('progress-section').classList.remove('active');
+                appendVerboseLog('client', err.message || 'Request failed', 'error');
+                showError(err.message || 'Request failed. Check the server logs.');
+                document.getElementById('diagram-loading').classList.remove('active');
+                setDiagramStatus('Generation failed');
             } finally {
                 btn.disabled = false;
                 btn.classList.remove('loading');
             }
-        }
-
-        function renderDiagram(xml) {
-            const wrapper = document.getElementById('iframe-wrapper');
-            wrapper.innerHTML = '<iframe id="diagram-iframe" src="https://embed.diagrams.net/?embed=1&ui=min&spin=1&proto=json&configure=1"></iframe>';
-
-            const iframe = document.getElementById('diagram-iframe');
-
-            const handleMessage = (evt) => {
-                if (!evt.data || evt.data.length === 0) return;
-                try {
-                    const msg = JSON.parse(evt.data);
-
-                    if (msg.event === 'configure') {
-                        iframe.contentWindow.postMessage(JSON.stringify({
-                            action: 'configure',
-                            config: { defaultFonts: ["Inter"] }
-                        }), '*');
-                    }
-
-                    if (msg.event === 'init') {
-                        iframe.contentWindow.postMessage(JSON.stringify({
-                            action: 'load',
-                            xml: xml,
-                            autosave: 0
-                        }), '*');
-
-                        setProgress(100, 5);
-                        document.getElementById('results-section').classList.add('active');
-
-                        setTimeout(() => {
-                            document.getElementById('progress-section').classList.remove('active');
-                        }, 1500);
-
-                        window.removeEventListener('message', handleMessage);
-                    }
-                } catch (e) { /* ignore non-JSON messages */ }
-            };
-
-            window.addEventListener('message', handleMessage);
         }
 
         function downloadXML() {
@@ -854,7 +1247,7 @@
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = 'architecture_' + selectedPlatform + '.drawio';
+            a.download = `architecture_${selectedPlatform}.drawio`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -873,15 +1266,24 @@
         function openInDrawio() {
             if (!currentXml) return;
             const encoded = encodeURIComponent(currentXml);
-            window.open('https://app.diagrams.net/#R' + encoded, '_blank');
+            window.open(`https://app.diagrams.net/#R${encoded}`, '_blank');
         }
 
         function toggleXML() {
-            document.getElementById('xml-toggle').classList.toggle('open');
-            document.getElementById('xml-body').classList.toggle('open');
+            const panel = document.getElementById('xml-panel');
+            const toggle = document.getElementById('xml-toggle');
+            panel.classList.toggle('open');
+            toggle.textContent = panel.classList.contains('open')
+                ? '▾ Hide Draw.io XML source'
+                : '▸ View Draw.io XML source';
         }
 
-        // Initialize default view
+        // Boot Draw.io iframe immediately so it is ready when the user generates
+        initVerboseLogging();
+        ensureDrawioFrame();
+        appendVerboseLog('drawio', 'Embed iframe created', 'info', { url: DRAWIO_URL });
+        document.getElementById('provider-select').addEventListener('change', updateProviderHint);
+        updateProviderHint();
         selectPlatform('aws');
     </script>
 </body>

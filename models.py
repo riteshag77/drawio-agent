@@ -10,6 +10,9 @@ class Node(BaseModel):
     step_number: Optional[int] = Field(default=None, description="The numbered step in the traffic flow sequence (1, 2, 3, ...). Only set for nodes that represent a numbered step in the architecture flow.")
     width: Optional[int] = Field(default=None, description="Optional width hint in pixels. Leaf nodes default to 48, containers auto-size.")
     height: Optional[int] = Field(default=None, description="Optional height hint in pixels. Leaf nodes default to 48, containers auto-size.")
+    x: Optional[int] = Field(default=None, description="Optional horizontal position hint. The layout engine uses this as a preferred X coordinate.")
+    y: Optional[int] = Field(default=None, description="Optional vertical position hint. The layout engine uses this as a preferred Y coordinate.")
+    description: Optional[str] = Field(default=None, description="Optional tooltip or annotation text displayed on hover.")
 
 
 class Edge(BaseModel):
