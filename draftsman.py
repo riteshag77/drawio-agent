@@ -182,8 +182,8 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         kids = children_map.get(nid, [])
 
         if not node.is_container or not kids:
-            w = node.width or LEAF_W
-            h = node.height or LEAF_H
+            w = node.width if node.width is not None else LEAF_W
+            h = node.height if node.height is not None else LEAF_H
             layout[nid] = {"w": w, "h": h, "children_pos": {}}
             return w, h
 
@@ -253,9 +253,9 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         total_w = max(containers_right, leaf_right) + CONTAINER_PAD
         total_h = max(leaf_bottom, containers_bottom) + CONTAINER_PAD
 
-        if node.width:
+        if node.width is not None:
             total_w = max(total_w, node.width)
-        if node.height:
+        if node.height is not None:
             total_h = max(total_h, node.height)
 
         total_w = max(total_w, 220)
@@ -310,7 +310,7 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         node = nodes_by_id[rid]
         if node.x is not None:
             layout[rid]["global_x"] = node.x
-            layout[rid]["global_y"] = node.y or ly
+            layout[rid]["global_y"] = node.y if node.y is not None else ly
             continue
         if i > 0 and i % 4 == 0:
             lx += LEAF_CELL_W + 20
@@ -329,7 +329,7 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         node = nodes_by_id[rid]
         if node.x is not None:
             layout[rid]["global_x"] = node.x
-            layout[rid]["global_y"] = node.y or cy
+            layout[rid]["global_y"] = node.y if node.y is not None else cy
             cx = node.x + layout[rid]["w"] + ROOT_GAP
             continue
         layout[rid]["global_x"] = cx
@@ -342,7 +342,7 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         node = nodes_by_id[rid]
         if node.x is not None:
             layout[rid]["global_x"] = node.x
-            layout[rid]["global_y"] = node.y or ry
+            layout[rid]["global_y"] = node.y if node.y is not None else ry
             continue
         if i > 0 and i % 4 == 0:
             rx += LEAF_CELL_W + 20
@@ -359,7 +359,7 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         node = nodes_by_id[rid]
         if node.x is not None:
             layout[rid]["global_x"] = node.x
-            layout[rid]["global_y"] = node.y or group_y
+            layout[rid]["global_y"] = node.y if node.y is not None else group_y
             blx = node.x + LEAF_CELL_W + 50
             continue
         layout[rid]["global_x"] = blx
@@ -371,7 +371,7 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         node = nodes_by_id[rid]
         if node.x is not None:
             layout[rid]["global_x"] = node.x
-            layout[rid]["global_y"] = node.y or group_y
+            layout[rid]["global_y"] = node.y if node.y is not None else group_y
             gcx = node.x + layout[rid]["w"] + ROOT_GAP
             continue
         layout[rid]["global_x"] = gcx

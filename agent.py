@@ -119,8 +119,8 @@ def generate_architecture_json(
         if logger:
             logger.log(
                 "llm",
-                "Using Cursor SDK provider",
-                details={"model": MODEL_IDS["cursor"]},
+                "Using Cursor Cloud Agents API",
+                details={"model": MODEL_IDS["cursor"] or "(account default)"},
             )
         return generate_with_cursor(
             system_prompt=system_prompt,
