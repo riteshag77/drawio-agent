@@ -1,3 +1,5 @@
+import ssl_config  # noqa: F401 — trust OS CA store before LangChain HTTP clients
+
 import os
 from typing import TYPE_CHECKING
 

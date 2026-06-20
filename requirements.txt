@@ -7,3 +7,5 @@ langchain-google-genai
 langchain-anthropic
 python-dotenv
 httpx
+truststore
+certifi

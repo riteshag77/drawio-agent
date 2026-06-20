@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ssl_config  # noqa: F401 — trust OS CA store before httpx
+
 import json
 import os
 import re
@@ -161,7 +163,11 @@ def generate_with_cursor(
 
     agent_id: str | None = None
 
-    with httpx.Client(auth=(api_key, ""), timeout=httpx.Timeout(60.0, read=120.0)) as client:
+    with httpx.Client(
+        auth=(api_key, ""),
+        timeout=httpx.Timeout(60.0, read=120.0),
+        verify=ssl_config.SSL_VERIFY_ENABLED,
+    ) as client:
         try:
             create_resp = client.post(f"{API_BASE}/agents", json=body)
             _raise_for_api(create_resp)

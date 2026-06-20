@@ -1,3 +1,5 @@
+import ssl_config  # noqa: F401 — trust OS CA store before any HTTPS clients
+
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse, Response, JSONResponse
