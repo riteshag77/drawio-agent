@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 from urllib.parse import unquote
 
-from models import DiagramOperation
+from app.models import DiagramOperation
 
 MAX_XML_SIZE = 1_000_000
 MIN_REAL_DIAGRAM_LENGTH = 300

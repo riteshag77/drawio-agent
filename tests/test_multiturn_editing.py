@@ -12,10 +12,10 @@ from __future__ import annotations
 import re
 import unittest
 
-from chat_helpers import is_minimal_diagram
-from draftsman import generate_xml
-from models import ArchitectureDiagram, DiagramOperation, Edge, Node
-from xml_utils import apply_diagram_operations, validate_and_fix_xml, wrap_with_mxfile
+from app.utils.chat import is_minimal_diagram
+from app.diagram.draftsman import generate_xml
+from app.models import ArchitectureDiagram, DiagramOperation, Edge, Node
+from app.diagram.xml_tools import apply_diagram_operations, validate_and_fix_xml, wrap_with_mxfile
 
 
 def _extract_mxcell(xml: str, cell_id: str) -> str | None:
@@ -100,7 +100,7 @@ class MultiturnEditingTest(unittest.TestCase):
         self.assertNotIn('id="lambda1"', xml_turn3)
 
     def test_cached_wrap_and_minimal_detection(self):
-        from cached_responses import find_cached_response
+        from app.patterns.cache import find_cached_response
 
         prompt = (
             "Highly available web app with API Gateway, Fargate in public/private subnets, "

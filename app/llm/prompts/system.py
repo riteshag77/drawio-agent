@@ -137,6 +137,25 @@ These rules prevent overlapping text like "SQL HTTPS", cramped "Logs/Metrics", e
 ## Chat / iterative edits
 When current architecture JSON is provided, it is the SINGLE SOURCE OF TRUTH.
 Return the COMPLETE updated JSON. Preserve `id` values. Apply only requested changes.
+
+---
+
+## Sequence numbering & Notes (REQUIRED)
+Every diagram must tell a numbered story of how a request flows through it.
+
+1. Assign consecutive `step_number` (1, 2, 3 …) to the nodes on the PRIMARY request path,
+   left-to-right, starting at 1. Only the main flow gets numbers — shared/ops nodes
+   (monitoring, secrets, logging) keep `step_number: null`.
+2. Populate `flow_steps`: one entry per `step_number`, in ascending order. Each entry:
+   - `number`: matches the node's `step_number`.
+   - `title`: 2–4 words (e.g. "Edge security", "Stateless compute").
+   - `summary`: ONE concise sentence explaining what happens at that step.
+3. Keep `flow_steps` tightly aligned with the numbered nodes — same count, same order.
+4. Set `title` to a short name for the whole architecture (e.g. "HA Web App on AWS").
+5. If you reused a reference pattern, set `pattern_id` to that pattern's id.
+
+The server renders the numbered badges on the icons and a Notes panel from `flow_steps`,
+so accurate, point-wise summaries are essential.
 """
 
 STYLE_INSTRUCTIONS = """
@@ -264,7 +283,7 @@ If compute connects to 4+ services, insert an intermediate hub (API Gateway, Ser
 so the layout engine can route edges without label collisions.
 """
 
-ARCHITECTURE_SCHEMA_FILENAME = "system_prompt.txt"
+ARCHITECTURE_SCHEMA_FILENAME = "schema.txt"
 
 
 @lru_cache(maxsize=1)
@@ -298,6 +317,7 @@ def get_system_prompt(
     custom_system_message: str = "",
     is_edit_mode: bool = False,
     include_schema: bool = True,
+    patterns_block: str = "",
 ) -> str:
     model_name = _resolve_model_name(model_id, provider)
 
@@ -310,6 +330,10 @@ def get_system_prompt(
         prompt = MINIMAL_STYLE_INSTRUCTION + prompt
     else:
         prompt += STYLE_INSTRUCTIONS
+
+    block = (patterns_block or "").strip()
+    if block:
+        prompt += f"\n\n---\n{block}"
 
     if include_schema:
         schema = _load_architecture_schema()

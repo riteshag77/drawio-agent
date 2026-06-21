@@ -13,11 +13,11 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
-from validation_models import DEFAULT_VALID_RESULT, ValidationResult
-from validation_prompts import VALIDATION_SYSTEM_PROMPT
+from app.models import DEFAULT_VALID_RESULT, ValidationResult
+from app.llm.prompts.validation import VALIDATION_SYSTEM_PROMPT
 
 if TYPE_CHECKING:
-    from pipeline_log import StepLogger
+    from app.core.logging import StepLogger
 
 MAX_IMAGE_BYTES = 4 * 1024 * 1024  # 4MB decoded
 DEFAULT_TIMEOUT_S = 10

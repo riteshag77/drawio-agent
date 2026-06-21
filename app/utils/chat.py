@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import re
 
-from models import ArchitectureDiagram
+from app.models import ArchitectureDiagram
 
 ARCHITECTURE_OMITTED_PLACEHOLDER = (
     "[Previous diagram state omitted — see current architecture JSON in the latest turn.]"

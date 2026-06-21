@@ -96,10 +96,16 @@ GCP — Services: `gcp_compute_engine` `gcp_kubernetes_engine` `gcp_cloud_run` `
 Azure — Containers: `azure_cloud` `azure_subscription` `azure_resource_group` `azure_vnet`
 `azure_subnet` `azure_generic_group`
 
-Azure — Services: `azure_vm` `azure_aks` `azure_function` `azure_app_service` `azure_dns`
-`azure_cdn` `azure_application_gateway` `azure_front_door` `azure_firewall` `azure_ad`
-`azure_key_vault` `azure_blob_storage` `azure_sql_db` `azure_cosmos_db` `azure_cache_redis`
-`azure_monitor` `azure_log_analytics` `azure_service_bus` `azure_event_hub`
+Azure — Services: `azure_vm` `azure_vmss` `azure_aks` `azure_function` `azure_app_service`
+`azure_container_app` `azure_container_instances` `azure_static_web_app` `azure_dns` `azure_cdn`
+`azure_application_gateway` `azure_load_balancer` `azure_front_door` `azure_traffic_manager`
+`azure_firewall` `azure_bastion` `azure_nat_gateway` `azure_vpn_gateway` `azure_express_route`
+`azure_ad` `azure_managed_identity` `azure_key_vault` `azure_defender` `azure_sentinel`
+`azure_blob_storage` `azure_file_storage` `azure_queue_storage` `azure_data_lake`
+`azure_sql_db` `azure_sql_managed_instance` `azure_cosmos_db` `azure_postgresql` `azure_mysql`
+`azure_cache_redis` `azure_synapse` `azure_data_factory` `azure_databricks` `azure_stream_analytics`
+`azure_event_hub` `azure_event_grid` `azure_service_bus` `azure_logic_apps` `azure_api_gateway`
+`azure_ml` `azure_openai` `azure_cognitive_services` `azure_monitor` `azure_log_analytics`
 
 Generic (any platform): `user_client` `user_mobile` `user_users` `external_service` `internet`
 `generic_database` `generic_server` `generic_api` `generic`

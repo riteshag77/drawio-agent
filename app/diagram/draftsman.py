@@ -2,11 +2,11 @@ import html as html_module
 import re
 from typing import TYPE_CHECKING
 
-from style_builder import build_style
-from xml_utils import validate_and_fix_xml_legacy, wrap_with_mxfile
+from app.diagram.styles import build_style
+from app.diagram.xml_tools import validate_and_fix_xml_legacy, wrap_with_mxfile
 
 if TYPE_CHECKING:
-    from pipeline_log import StepLogger
+    from app.core.logging import StepLogger
 
 
 def _escape_xml(text: str) -> str:
@@ -18,6 +18,40 @@ def _escape_xml(text: str) -> str:
 def _edge_label(label: str | None) -> str:
     """Use edge label as-is (draw.io handles placement). Prompt guides brevity."""
     return (label or "").strip()
+
+
+_PLATFORM_ACCENTS = {
+    "aws": "#ED7100",
+    "gcp": "#4285F4",
+    "azure": "#0078D4",
+    "multi": "#8C4FFF",
+}
+
+
+def _platform_accent(platform: str) -> str:
+    return _PLATFORM_ACCENTS.get((platform or "aws").lower(), "#ED7100")
+
+
+def _build_flow_notes(architecture) -> list[tuple[int, str, str]]:
+    """
+    Return ordered (number, title, summary) tuples for the Notes panel.
+
+    Prefers the model-provided `flow_steps`; otherwise synthesizes from the
+    numbered nodes so a Notes section always appears when steps exist.
+    """
+    steps = getattr(architecture, "flow_steps", None) or []
+    if steps:
+        ordered = sorted(steps, key=lambda s: s.number)
+        return [(s.number, (s.title or "").strip(), (s.summary or "").strip()) for s in ordered]
+
+    numbered = [n for n in architecture.nodes if getattr(n, "step_number", None) is not None]
+    numbered.sort(key=lambda n: n.step_number)
+    notes: list[tuple[int, str, str]] = []
+    for node in numbered:
+        title = (node.label or "").strip()
+        summary = (node.description or "").strip()
+        notes.append((node.step_number, title, summary))
+    return notes
 
 
 def _ancestor_chain(nid: str, nodes_by_id: dict) -> list[str]:
@@ -417,10 +451,25 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         nw, nh = ld["w"], ld["h"]
         all_bounds.append((nx, ny, nx + nw + 40, ny + nh + 40))
 
-    canvas_w = min(max((b[2] for b in all_bounds), default=1169) + 60, MAX_CANVAS_W)
-    canvas_h = min(max((b[3] for b in all_bounds), default=827) + 60, MAX_CANVAS_H)
-    canvas_w = max(canvas_w, 900)
-    canvas_h = max(canvas_h, 600)
+    content_right = max((b[2] for b in all_bounds), default=1169)
+    content_bottom = max((b[3] for b in all_bounds), default=827)
+
+    canvas_w = max(min(content_right + 60, MAX_CANVAS_W), 900)
+    canvas_h = max(min(content_bottom + 60, MAX_CANVAS_H), 600)
+
+    # ── Reserve space for the Notes / Legend panel (below the diagram) ──
+    flow_notes = _build_flow_notes(architecture)
+    accent = _platform_accent(platform)
+    notes_geom = None
+    if flow_notes:
+        notes_x = 40
+        notes_w = max(min(canvas_w - 80, 760), 440)
+        notes_y = content_bottom + 24
+        # Header + one row per step (rows wrap, so budget generously).
+        notes_h = 52 + len(flow_notes) * 30
+        notes_geom = (notes_x, notes_y, notes_w, notes_h)
+        canvas_h = max(canvas_h, notes_y + notes_h + 40)
+        canvas_w = max(canvas_w, notes_x + notes_w + 40)
 
     xml = [
         f'<mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" '
@@ -472,6 +521,22 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
                 f'      <mxGeometry x="{x}" y="{y}" width="{w}" height="{h}" as="geometry" />'
             )
             xml.append('    </mxCell>')
+
+            # Numbered sequence badge on flow nodes (top-left corner of the icon).
+            step = getattr(node, "step_number", None)
+            if step is not None:
+                badge_x = x - 6
+                badge_y = y - 6
+                xml.append(
+                    f'    <mxCell id="badge_{nid}" value="{step}" '
+                    f'style="ellipse;whiteSpace=wrap;html=1;fillColor={accent};strokeColor=#ffffff;'
+                    f'fontColor=#ffffff;fontSize=11;fontStyle=1;align=center;verticalAlign=middle;'
+                    f'shadow=1;" vertex="1" parent="{parent_cell}">'
+                )
+                xml.append(
+                    f'      <mxGeometry x="{badge_x}" y="{badge_y}" width="22" height="22" as="geometry" />'
+                )
+                xml.append('    </mxCell>')
 
     sorted_edges = sorted(architecture.edges, key=lambda e: _edge_sort_key(e, nodes_by_id))
 
@@ -530,6 +595,46 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
             f'source="{edge.source_id}" target="{edge.target_id}">'
         )
         xml.append('      <mxGeometry relative="1" as="geometry" />')
+        xml.append('    </mxCell>')
+
+    # ── Notes / Legend panel (numbered, point-wise step summaries) ──
+    if notes_geom and flow_notes:
+        nx, ny, nw, nh = notes_geom
+        diagram_title = (getattr(architecture, "title", None) or "").strip()
+        # Text content is HTML-escaped here; the whole value is XML-attribute-escaped below.
+        heading_text = html_module.escape(diagram_title) if diagram_title else ""
+        heading = f"{heading_text} — Flow Notes" if heading_text else "Flow Notes"
+        rows = [
+            (
+                '<div style="font-family:Helvetica,Arial,sans-serif;color:#1A2233;'
+                'text-align:left;padding:10px 14px;">'
+                f'<div style="font-size:14px;font-weight:700;margin-bottom:8px;'
+                f'color:{accent};">{heading}</div>'
+            )
+        ]
+        for number, title, summary in flow_notes:
+            safe_title = html_module.escape(title)
+            safe_summary = html_module.escape(summary)
+            title_html = f"<b>{safe_title}</b>" if safe_title else ""
+            sep = " — " if safe_title and safe_summary else ""
+            rows.append(
+                '<div style="font-size:12px;line-height:1.45;margin-bottom:5px;">'
+                f'<span style="display:inline-block;min-width:20px;font-weight:700;'
+                f'color:{accent};">{number}.</span> {title_html}{sep}{safe_summary}'
+                "</div>"
+            )
+        rows.append("</div>")
+        notes_value = html_module.escape("".join(rows), quote=True)
+
+        xml.append(
+            f'    <mxCell id="flow_notes" value="{notes_value}" '
+            f'style="rounded=1;arcSize=4;whiteSpace=wrap;html=1;fillColor=#FBFCFE;'
+            f'strokeColor={accent};strokeWidth=1.5;align=left;verticalAlign=top;'
+            f'shadow=1;spacing=2;" vertex="1" parent="1">'
+        )
+        xml.append(
+            f'      <mxGeometry x="{nx}" y="{ny}" width="{nw}" height="{nh}" as="geometry" />'
+        )
         xml.append('    </mxCell>')
 
     xml.extend(['  </root>', '</mxGraphModel>'])

@@ -6,8 +6,13 @@ Includes structural JSON validation (always available) and feedback formatting f
 
 from __future__ import annotations
 
-from models import ArchitectureDiagram, Node
-from validation_models import DEFAULT_VALID_RESULT, ValidationIssue, ValidationResult
+from app.models import (
+    DEFAULT_VALID_RESULT,
+    ArchitectureDiagram,
+    Node,
+    ValidationIssue,
+    ValidationResult,
+)
 
 
 def format_validation_feedback(result: ValidationResult) -> str:

@@ -107,6 +107,32 @@ _AZURE_ICONS: dict[str, tuple[str, str]] = {
     "data_factory": ("data_factories", "Data_Factories.svg"),
 }
 
+# Aliases so common synonyms resolve to a verified icon above.
+_AZURE_ALIASES: dict[str, str] = {
+    "load_balancer": "load_balancer",
+    "redis": "cache_redis",
+    "postgresql": "sql_db",
+    "mysql": "sql_db",
+    "sql_managed_instance": "sql_db",
+    "data_lake": "blob_storage",
+    "file_storage": "blob_storage",
+    "queue_storage": "blob_storage",
+    "table_storage": "blob_storage",
+    "event_grid": "event_hub",
+    "stream_analytics": "synapse",
+    "ml": "databricks",
+    "openai": "databricks",
+    "cognitive_services": "databricks",
+    "container_app": "aks",
+    "container_instances": "aks",
+    "static_web_app": "app_service",
+    "vmss": "vm",
+    "traffic_manager": "front_door",
+    "bastion": "firewall",
+    "managed_identity": "ad",
+    "defender": "sentinel",
+}
+
 
 # ── Category-based color maps ────────────────────────────────────────────────
 _AWS_COLORS: dict[str, str] = {
@@ -257,7 +283,7 @@ def _aws_service(name: str) -> str:
     color = _AWS_COLORS[category]
     return (f"outlineConnect=0;dashed=0;html=1;"
             f"shape={AWS_LIB}.resourceIcon;resIcon={AWS_LIB}.{icon};"
-            f"sketch=0;fillColor={color};strokeColor=#ffffff;{_ICON_LABEL}")
+            f"sketch=0;shadow=1;fillColor={color};strokeColor=#ffffff;{_ICON_LABEL}")
 
 
 def _gcp_container(name: str) -> str:
@@ -276,12 +302,20 @@ def _gcp_container(name: str) -> str:
 
 
 def _gcp_service(name: str) -> str:
-    """Build style for a GCP service icon."""
+    """Build style for a GCP service icon.
+
+    GCP ships single-color stencils in draw.io (``mxgraph.gcp2``). We render the glyph
+    in its brand color with ``sketch=0`` (crisp vector, not hand-drawn) and a soft
+    shadow so the icons read as polished as the AWS resource icons.
+    """
     icon = _GCP_ICON_EXCEPTIONS.get(name, name)
     category = _gcp_category(name)
     color = _GCP_COLORS[category]
-    return (f"outlineConnect=0;dashed=0;html=1;shape={GCP_LIB}.{icon};"
-            f"fillColor={color};strokeColor=none;{_ICON_LABEL}")
+    return (
+        f"sketch=0;outlineConnect=0;dashed=0;html=1;shadow=1;aspect=fixed;"
+        f"shape={GCP_LIB}.{icon};"
+        f"fillColor={color};strokeColor=none;{_ICON_LABEL}"
+    )
 
 
 def _azure_container(name: str) -> str:
@@ -300,19 +334,30 @@ def _azure_container(name: str) -> str:
 
 def _azure_service(name: str) -> str:
     """Build style for an Azure service icon."""
-    icon = _AZURE_ICONS.get(name)
+    icon = _AZURE_ICONS.get(name) or _AZURE_ICONS.get(_AZURE_ALIASES.get(name, ""))
     if icon is None:
-        return _generic_fallback(name)
+        return _branded_card("#0078D4")
     category, filename = icon
-    return (f"image;html=1;aspect=fixed;align=center;"
+    return (f"image;html=1;aspect=fixed;points=[];align=center;shadow=1;"
             f"image={AZURE_LIB}/{category}/{filename};"
             f"verticalLabelPosition=bottom;verticalAlign=top;{_ICON_LABEL}")
 
 
+def _branded_card(color: str) -> str:
+    """A clean, shadowed rounded card used as a graceful fallback for unmapped
+    services so they read as intentional (matching the polish of icon shapes)
+    rather than a flat default rectangle."""
+    return (
+        "rounded=1;arcSize=14;whiteSpace=wrap;html=1;shadow=1;"
+        f"fillColor=#ffffff;strokeColor={color};strokeWidth=2;"
+        f"fontSize=11;fontColor=#232F3E;fontStyle=1;align=center;verticalAlign=middle;"
+    )
+
+
 def _generic_fallback(name: str) -> str:
     """Fallback style for unrecognised shape types."""
-    return ("rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;"
-            "arcSize=10;fontSize=12;fontColor=#232F3E;")
+    return ("rounded=1;arcSize=12;whiteSpace=wrap;html=1;shadow=1;fillColor=#dae8fc;"
+            "strokeColor=#6c8ebf;strokeWidth=1.5;fontSize=12;fontColor=#232F3E;")
 
 
 def build_style(shape_type: str) -> str:

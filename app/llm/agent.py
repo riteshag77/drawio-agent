@@ -1,22 +1,23 @@
-import ssl_config  # noqa: F401 — trust OS CA store before LangChain HTTP clients
+import app.core.ssl_trust  # noqa: F401 — trust OS CA store before LangChain HTTP clients
 
 import json
 import os
 import re
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
-from chat_helpers import replace_historical_tool_inputs, trim_chat_messages_for_prompt
-from models import ArchitectureDiagram, EditResponse
+from app.core.config import BASE_DIR
+from app.utils.chat import replace_historical_tool_inputs, trim_chat_messages_for_prompt
+from app.models import ArchitectureDiagram, EditResponse
 from dotenv import load_dotenv
-from system_prompts import get_edit_system_prompt, get_system_prompt, XML_EDIT_VALIDATION_FEEDBACK
+from app.patterns.library import find_matching_patterns, format_patterns_for_prompt
+from app.llm.prompts.system import get_edit_system_prompt, get_system_prompt, XML_EDIT_VALIDATION_FEEDBACK
 
 if TYPE_CHECKING:
-    from pipeline_log import StepLogger
+    from app.core.logging import StepLogger
 
 load_dotenv()
 
@@ -141,7 +142,7 @@ def _generate_with_cursor_sdk(
     logger: "StepLogger | None" = None,
 ) -> ArchitectureDiagram:
     """Generate architecture JSON via the official Cursor SDK (`cursor-sdk` / @cursor/sdk)."""
-    from cursor_bridge_patch import apply_windows_bridge_patch
+    from app.core.cursor_bridge import apply_windows_bridge_patch
     from cursor_sdk import Agent, AgentOptions, CloudAgentOptions, LocalAgentOptions
     from cursor_sdk.errors import CursorAgentError
 
@@ -156,7 +157,7 @@ def _generate_with_cursor_sdk(
 
     model_id = _cursor_model_id(model)
     runtime = os.getenv("CURSOR_RUNTIME", "local").strip().lower()
-    workspace = str(Path(__file__).resolve().parent)
+    workspace = str(BASE_DIR)
     combined_prompt = (
         f"{system_prompt}\n\n"
         "---\n"
@@ -254,6 +255,17 @@ def generate_architecture_json(
     if chat_messages is None:
         chat_messages = [{"role": "user", "content": user_request}]
 
+    is_edit = current_architecture is not None or len(chat_messages) > 1
+
+    # Match curated reference patterns on first generation only — on follow-up edits
+    # the existing architecture is the source of truth, so patterns would just add noise.
+    patterns_block = ""
+    if not is_edit:
+        match_text = user_request or (chat_messages[-1]["content"] if chat_messages else "")
+        matched = find_matching_patterns(match_text, platform_key)
+        if matched:
+            patterns_block = format_patterns_for_prompt(matched, platform_key)
+
     if logger:
         logger.log(
             "prompt",
@@ -265,6 +277,7 @@ def generate_architecture_json(
                 "turns": len(chat_messages),
                 "has_existing_diagram": current_architecture is not None,
                 "has_validation_feedback": bool(validation_feedback),
+                "matched_patterns": [p.id for p in matched] if not is_edit and matched else [],
             },
         )
 
@@ -273,8 +286,9 @@ def generate_architecture_json(
         minimal_style=minimal_style,
         provider=provider_key,
         custom_system_message=custom_system_message,
-        is_edit_mode=current_architecture is not None or len(chat_messages) > 1,
+        is_edit_mode=is_edit,
         include_schema=True,
+        patterns_block=patterns_block,
     )
 
     if logger:
@@ -445,7 +459,7 @@ def generate_edit_operations(
         api_key = os.getenv("CURSOR_API_KEY", "").strip()
         if not api_key:
             raise ValueError("CURSOR_API_KEY environment variable is not set.")
-        from cursor_bridge_patch import apply_windows_bridge_patch
+        from app.core.cursor_bridge import apply_windows_bridge_patch
         from cursor_sdk import Agent, AgentOptions, LocalAgentOptions
         from cursor_sdk.errors import CursorAgentError
 
@@ -457,7 +471,7 @@ def generate_edit_operations(
             api_key=api_key,
             model=_cursor_model_id(MODEL_IDS["cursor"]),
             name="drawio-xml-edit",
-            local=LocalAgentOptions(cwd=str(Path(__file__).resolve().parent)),
+            local=LocalAgentOptions(cwd=str(BASE_DIR)),
         )
         if logger:
             logger.log("llm", "Calling Cursor SDK for EditResponse")
