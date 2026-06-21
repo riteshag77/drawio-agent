@@ -1,6 +1,9 @@
 import ssl_config  # noqa: F401 — trust OS CA store before LangChain HTTP clients
 
+import json
 import os
+import re
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from langchain_openai import ChatOpenAI
@@ -12,8 +15,6 @@ from dotenv import load_dotenv
 
 if TYPE_CHECKING:
     from pipeline_log import StepLogger
-
-from cursor_provider import generate_with_cursor
 
 load_dotenv()
 
@@ -70,6 +71,120 @@ def _build_llm(provider: str):
     return ChatOpenAI(model=MODEL_IDS["openai"], temperature=0)
 
 
+def _extract_json_from_text(text: str) -> dict:
+    if not text or not text.strip():
+        raise ValueError("Cursor returned an empty response.")
+
+    stripped = text.strip()
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        pass
+
+    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", stripped, re.DOTALL)
+    if fenced:
+        return json.loads(fenced.group(1))
+
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start >= 0 and end > start:
+        return json.loads(stripped[start : end + 1])
+
+    raise ValueError("Cursor response did not contain valid architecture JSON.")
+
+
+def _cursor_model_id(model: str | None = None) -> str:
+    model_id = (model or os.getenv("CURSOR_MODEL", "composer-2.5")).strip()
+    return model_id or "composer-2.5"
+
+
+def _generate_with_cursor_sdk(
+    system_prompt: str,
+    user_prompt: str,
+    model: str | None = None,
+    logger: "StepLogger | None" = None,
+) -> ArchitectureDiagram:
+    """Generate architecture JSON via the official Cursor SDK (`cursor-sdk` / @cursor/sdk)."""
+    from cursor_bridge_patch import apply_windows_bridge_patch
+    from cursor_sdk import Agent, AgentOptions, CloudAgentOptions, LocalAgentOptions
+    from cursor_sdk.errors import CursorAgentError
+
+    api_key = os.getenv("CURSOR_API_KEY", "").strip()
+    if not api_key:
+        raise ValueError(
+            "CURSOR_API_KEY environment variable is not set. "
+            "Create a key at https://cursor.com/dashboard (API Keys section)."
+        )
+
+    apply_windows_bridge_patch()
+
+    model_id = _cursor_model_id(model)
+    runtime = os.getenv("CURSOR_RUNTIME", "local").strip().lower()
+    workspace = str(Path(__file__).resolve().parent)
+    combined_prompt = (
+        f"{system_prompt}\n\n"
+        "---\n"
+        "IMPORTANT: Respond with ONLY one valid JSON object matching the schema above. "
+        "Do not use tools, edit files, or wrap the JSON in markdown.\n\n"
+        f"{user_prompt}"
+    )
+
+    if runtime == "cloud":
+        options = AgentOptions(
+            api_key=api_key,
+            model=model_id,
+            name="drawio-architecture",
+            cloud=CloudAgentOptions(repos=[]),
+        )
+    else:
+        options = AgentOptions(
+            api_key=api_key,
+            model=model_id,
+            name="drawio-architecture",
+            local=LocalAgentOptions(cwd=workspace),
+        )
+
+    if logger:
+        logger.log(
+            "cursor",
+            "Calling Cursor SDK (Agent.prompt)",
+            details={"model": model_id, "runtime": runtime, "workspace": workspace},
+        )
+
+    try:
+        result = Agent.prompt(combined_prompt, options)
+    except CursorAgentError as error:
+        raise ValueError(f"Cursor SDK error: {error.message}") from error
+
+    if result.status != "finished":
+        raise ValueError(
+            f"Cursor agent ended with status={result.status}. "
+            f"Result: {result.result or 'no result text'}"
+        )
+
+    raw_text = str(result.result or "")
+    if logger:
+        logger.log(
+            "cursor",
+            "Cursor SDK run finished",
+            level="success",
+            details={
+                "response_chars": len(raw_text),
+                "preview": raw_text[:240] + ("…" if len(raw_text) > 240 else ""),
+            },
+        )
+
+    diagram = ArchitectureDiagram.model_validate(_extract_json_from_text(raw_text))
+    if logger:
+        logger.log(
+            "cursor",
+            "Parsed response into ArchitectureDiagram",
+            level="success",
+            details={"nodes": len(diagram.nodes), "edges": len(diagram.edges)},
+        )
+    return diagram
+
+
 def generate_architecture_json(
     user_request: str,
     provider: str = "openai",
@@ -121,10 +236,10 @@ def generate_architecture_json(
         if logger:
             logger.log(
                 "llm",
-                "Using Cursor Cloud Agents API",
-                details={"model": MODEL_IDS["cursor"] or "(account default)"},
+                "Using Cursor SDK",
+                details={"model": _cursor_model_id(MODEL_IDS["cursor"])},
             )
-        return generate_with_cursor(
+        return _generate_with_cursor_sdk(
             system_prompt=system_prompt,
             user_prompt=human_content,
             model=MODEL_IDS["cursor"],

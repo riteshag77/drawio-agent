@@ -4,7 +4,10 @@ Derives draw.io shape styles from shape_type names using convention over configu
 To update to a newer draw.io shape library, change only the version prefix constants below.
 """
 
-_ICON_LABEL = "fontSize=11;fontColor=#232F3E;labelBackgroundColor=#ffffff;spacingTop=4;"
+_ICON_LABEL = (
+    "fontSize=11;fontColor=#232F3E;labelBackgroundColor=#ffffff;"
+    "verticalLabelPosition=bottom;verticalAlign=top;align=center;spacingTop=2;"
+)
 AWS_LIB = "mxgraph.aws4"           # Also used for generic/user/internet shapes
 GCP_LIB = "mxgraph.gcp2"
 AZURE_LIB = "img/lib/azure2"       # SVG path prefix for Azure icons
@@ -188,34 +191,29 @@ def _gcp_category(name: str) -> str:
 def _generic_shapes(shape_type: str) -> str | None:
     """Return a style string for known generic shapes, or None."""
     if shape_type == "user_client":
-        return (f"outlineConnect=0;dashed=0;verticalLabelPosition=bottom;"
-                f"verticalAlign=top;align=center;html=1;shape={AWS_LIB}.client;"
-                f"fillColor=#232F3E;{_ICON_LABEL}shadow=1;")
+        return (f"outlineConnect=0;dashed=0;html=1;shape={AWS_LIB}.client;"
+                f"fillColor=#232F3E;{_ICON_LABEL}")
     if shape_type == "user_mobile":
-        return (f"outlineConnect=0;dashed=0;verticalLabelPosition=bottom;"
-                f"verticalAlign=top;align=center;html=1;shape={AWS_LIB}.mobile_client;"
-                f"fillColor=#232F3E;fontColor=#232F3E;shadow=1;")
+        return (f"outlineConnect=0;dashed=0;html=1;shape={AWS_LIB}.mobile_client;"
+                f"fillColor=#232F3E;fontColor=#232F3E;")
     if shape_type == "user_users":
-        return (f"outlineConnect=0;dashed=0;verticalLabelPosition=bottom;"
-                f"verticalAlign=top;align=center;html=1;shape={AWS_LIB}.users;"
-                f"fillColor=#232F3E;fontColor=#232F3E;shadow=1;")
+        return (f"outlineConnect=0;dashed=0;html=1;shape={AWS_LIB}.users;"
+                f"fillColor=#232F3E;fontColor=#232F3E;")
     if shape_type == "external_service":
-        return (f"outlineConnect=0;dashed=0;verticalLabelPosition=bottom;"
-                f"verticalAlign=top;align=center;html=1;shape={AWS_LIB}.traditional_server;"
-                f"fillColor=#232F3E;fontColor=#232F3E;shadow=1;")
+        return (f"outlineConnect=0;dashed=0;html=1;shape={AWS_LIB}.traditional_server;"
+                f"fillColor=#232F3E;fontColor=#232F3E;")
     if shape_type == "internet":
-        return (f"outlineConnect=0;dashed=0;verticalLabelPosition=bottom;"
-                f"verticalAlign=top;align=center;html=1;shape={AWS_LIB}.internet_alt2;"
-                f"fillColor=#232F3E;fontColor=#232F3E;shadow=1;")
+        return (f"outlineConnect=0;dashed=0;html=1;shape={AWS_LIB}.internet_alt2;"
+                f"fillColor=#232F3E;fontColor=#232F3E;")
     if shape_type == "generic_database":
         return ("rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;"
-                "arcSize=10;fontSize=12;fontColor=#232F3E;shape=cylinder3;shadow=1;")
+                "arcSize=10;fontSize=12;fontColor=#232F3E;shape=cylinder3;")
     if shape_type == "generic_server":
         return ("rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;"
-                "arcSize=10;fontSize=12;fontColor=#232F3E;shadow=1;")
+                "arcSize=10;fontSize=12;fontColor=#232F3E;")
     if shape_type == "generic_api":
         return ("rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;"
-                "arcSize=10;fontSize=12;fontColor=#232F3E;shape=step;shadow=1;")
+                "arcSize=10;fontSize=12;fontColor=#232F3E;shape=step;")
     return None
 
 
@@ -238,16 +236,16 @@ def _aws_container(name: str) -> str:
     base = _AWS_GROUP + f"grIcon={AWS_LIB}.{icon};"
 
     configs = {
-        "vpc": "strokeColor=#8C4FFF;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#8C4FFF;dashed=0;strokeWidth=2;shadow=1;",
-        "region": "strokeColor=#00A4A6;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#00A4A6;dashed=1;strokeWidth=1.5;shadow=1;",
-        "az": "strokeColor=#545B64;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#545B64;dashed=1;strokeWidth=1.5;shadow=1;",
-        "public_subnet": f"grStroke=0;strokeColor=#7AA116;fillColor=#F2F6E8;verticalAlign=top;align=left;spacingLeft=30;fontColor=#248814;dashed=0;strokeWidth=1.5;shadow=1;",
-        "private_subnet": f"grStroke=0;strokeColor=#00A4A6;fillColor=#E6F6F7;verticalAlign=top;align=left;spacingLeft=30;fontColor=#147EBA;dashed=0;strokeWidth=1.5;shadow=1;",
-        "security_group": f"grStroke=0;strokeColor=#DD3522;fillColor=#FFEBEE;verticalAlign=top;align=left;spacingLeft=30;fontColor=#DD3522;dashed=0;strokeWidth=1.5;shadow=1;",
-        "account": "strokeColor=#CD2264;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#CD2264;dashed=0;strokeWidth=2;shadow=1;",
-        "cloud": "strokeColor=#232F3E;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#232F3E;dashed=0;strokeWidth=2;shadow=1;",
-        "generic_group": "strokeColor=#232F3E;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#232F3E;dashed=1;strokeWidth=1.5;shadow=1;",
-        "auto_scaling_group": f"grStroke=0;strokeColor=#D86613;fillColor=#FFF4E8;verticalAlign=top;align=left;spacingLeft=30;fontColor=#D86613;dashed=1;strokeWidth=1.5;shadow=1;",
+        "vpc": "strokeColor=#8C4FFF;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#8C4FFF;dashed=0;strokeWidth=2;",
+        "region": "strokeColor=#00A4A6;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#00A4A6;dashed=1;strokeWidth=1.5;",
+        "az": "strokeColor=#545B64;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#545B64;dashed=1;strokeWidth=1.5;",
+        "public_subnet": f"grStroke=0;strokeColor=#7AA116;fillColor=#F2F6E8;verticalAlign=top;align=left;spacingLeft=30;fontColor=#248814;dashed=0;strokeWidth=1.5;",
+        "private_subnet": f"grStroke=0;strokeColor=#00A4A6;fillColor=#E6F6F7;verticalAlign=top;align=left;spacingLeft=30;fontColor=#147EBA;dashed=0;strokeWidth=1.5;",
+        "security_group": f"grStroke=0;strokeColor=#DD3522;fillColor=#FFEBEE;verticalAlign=top;align=left;spacingLeft=30;fontColor=#DD3522;dashed=0;strokeWidth=1.5;",
+        "account": "strokeColor=#CD2264;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#CD2264;dashed=0;strokeWidth=2;",
+        "cloud": "strokeColor=#232F3E;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#232F3E;dashed=0;strokeWidth=2;",
+        "generic_group": "strokeColor=#232F3E;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#232F3E;dashed=1;strokeWidth=1.5;",
+        "auto_scaling_group": f"grStroke=0;strokeColor=#D86613;fillColor=#FFF4E8;verticalAlign=top;align=left;spacingLeft=30;fontColor=#D86613;dashed=1;strokeWidth=1.5;",
     }
     return base + configs.get(name, configs["generic_group"])
 
@@ -257,22 +255,22 @@ def _aws_service(name: str) -> str:
     icon = _AWS_ICON_EXCEPTIONS.get(name, name)
     category = _aws_category(name)
     color = _AWS_COLORS[category]
-    return (f"outlineConnect=0;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;"
-            f"align=center;html=1;shape={AWS_LIB}.resourceIcon;resIcon={AWS_LIB}.{icon};"
-            f"sketch=0;fillColor={color};{_ICON_LABEL}shadow=1;")
+    return (f"outlineConnect=0;dashed=0;html=1;"
+            f"shape={AWS_LIB}.resourceIcon;resIcon={AWS_LIB}.{icon};"
+            f"sketch=0;fillColor={color};strokeColor=#ffffff;{_ICON_LABEL}")
 
 
 def _gcp_container(name: str) -> str:
     """Build style for a GCP container (group) shape."""
     base = _GCP_AZURE_GROUP + "fillColor=none;"
     configs = {
-        "cloud": "strokeColor=#4285F4;verticalAlign=top;align=left;spacingLeft=15;fontColor=#4285F4;dashed=0;strokeWidth=2;shadow=1;",
-        "project": "strokeColor=#EA4335;verticalAlign=top;align=left;spacingLeft=15;fontColor=#EA4335;dashed=1;strokeWidth=2;shadow=1;",
-        "vpc": "strokeColor=#4285F4;verticalAlign=top;align=left;spacingLeft=15;fontColor=#4285F4;dashed=0;strokeWidth=1.5;shadow=1;",
-        "subnet": "strokeColor=#34A853;fillColor=#E8F5E9;verticalAlign=top;align=left;spacingLeft=15;fontColor=#2E7D32;dashed=0;strokeWidth=1.5;shadow=1;",
-        "region": "strokeColor=#5F6368;verticalAlign=top;align=left;spacingLeft=15;fontColor=#5F6368;dashed=1;strokeWidth=1.5;shadow=1;",
-        "zone": "strokeColor=#9AA0A6;verticalAlign=top;align=left;spacingLeft=15;fontColor=#9AA0A6;dashed=1;strokeWidth=1.5;shadow=1;",
-        "generic_group": "strokeColor=#5F6368;verticalAlign=top;align=left;spacingLeft=15;fontColor=#5F6368;dashed=1;strokeWidth=1.5;shadow=1;",
+        "cloud": "strokeColor=#4285F4;verticalAlign=top;align=left;spacingLeft=15;fontColor=#4285F4;dashed=0;strokeWidth=2;",
+        "project": "strokeColor=#EA4335;verticalAlign=top;align=left;spacingLeft=15;fontColor=#EA4335;dashed=1;strokeWidth=2;",
+        "vpc": "strokeColor=#4285F4;verticalAlign=top;align=left;spacingLeft=15;fontColor=#4285F4;dashed=0;strokeWidth=1.5;",
+        "subnet": "strokeColor=#34A853;fillColor=#E8F5E9;verticalAlign=top;align=left;spacingLeft=15;fontColor=#2E7D32;dashed=0;strokeWidth=1.5;",
+        "region": "strokeColor=#5F6368;verticalAlign=top;align=left;spacingLeft=15;fontColor=#5F6368;dashed=1;strokeWidth=1.5;",
+        "zone": "strokeColor=#9AA0A6;verticalAlign=top;align=left;spacingLeft=15;fontColor=#9AA0A6;dashed=1;strokeWidth=1.5;",
+        "generic_group": "strokeColor=#5F6368;fillColor=none;verticalAlign=top;align=left;spacingLeft=15;fontColor=#5F6368;dashed=1;strokeWidth=1.5;",
     }
     return base + configs.get(name, configs["generic_group"])
 
@@ -282,21 +280,20 @@ def _gcp_service(name: str) -> str:
     icon = _GCP_ICON_EXCEPTIONS.get(name, name)
     category = _gcp_category(name)
     color = _GCP_COLORS[category]
-    return (f"outlineConnect=0;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;"
-            f"align=center;html=1;shape={GCP_LIB}.{icon};"
-            f"fillColor={color};strokeColor=none;{_ICON_LABEL}shadow=1;")
+    return (f"outlineConnect=0;dashed=0;html=1;shape={GCP_LIB}.{icon};"
+            f"fillColor={color};strokeColor=none;{_ICON_LABEL}")
 
 
 def _azure_container(name: str) -> str:
     """Build style for an Azure container (group) shape."""
     base = _GCP_AZURE_GROUP + "fillColor=none;"
     configs = {
-        "cloud": "strokeColor=#0078D4;verticalAlign=top;align=left;spacingLeft=15;fontColor=#0078D4;dashed=0;strokeWidth=2;shadow=1;",
-        "subscription": "strokeColor=#00BCF2;verticalAlign=top;align=left;spacingLeft=15;fontColor=#00BCF2;dashed=1;strokeWidth=2;shadow=1;",
-        "resource_group": "strokeColor=#7FBA00;verticalAlign=top;align=left;spacingLeft=15;fontColor=#7FBA00;dashed=0;strokeWidth=2;shadow=1;",
-        "vnet": "strokeColor=#0078D4;verticalAlign=top;align=left;spacingLeft=15;fontColor=#0078D4;dashed=0;strokeWidth=1.5;shadow=1;",
-        "subnet": "strokeColor=#5C2D91;fillColor=#F3EBF9;verticalAlign=top;align=left;spacingLeft=15;fontColor=#5C2D91;dashed=0;strokeWidth=1.5;shadow=1;",
-        "generic_group": "strokeColor=#505050;verticalAlign=top;align=left;spacingLeft=15;fontColor=#505050;dashed=1;strokeWidth=1.5;shadow=1;",
+        "cloud": "strokeColor=#0078D4;verticalAlign=top;align=left;spacingLeft=15;fontColor=#0078D4;dashed=0;strokeWidth=2;",
+        "subscription": "strokeColor=#00BCF2;verticalAlign=top;align=left;spacingLeft=15;fontColor=#00BCF2;dashed=1;strokeWidth=2;",
+        "resource_group": "strokeColor=#7FBA00;verticalAlign=top;align=left;spacingLeft=15;fontColor=#7FBA00;dashed=0;strokeWidth=2;",
+        "vnet": "strokeColor=#0078D4;verticalAlign=top;align=left;spacingLeft=15;fontColor=#0078D4;dashed=0;strokeWidth=1.5;",
+        "subnet": "strokeColor=#5C2D91;fillColor=#F3EBF9;verticalAlign=top;align=left;spacingLeft=15;fontColor=#5C2D91;dashed=0;strokeWidth=1.5;",
+        "generic_group": "strokeColor=#505050;fillColor=none;verticalAlign=top;align=left;spacingLeft=15;fontColor=#505050;dashed=1;strokeWidth=1.5;",
     }
     return base + configs.get(name, configs["generic_group"])
 
@@ -307,15 +304,15 @@ def _azure_service(name: str) -> str:
     if icon is None:
         return _generic_fallback(name)
     category, filename = icon
-    return (f"aspect=fixed;html=1;points=[];align=center;image;fontSize=11;"
+    return (f"image;html=1;aspect=fixed;align=center;"
             f"image={AZURE_LIB}/{category}/{filename};"
-            f"verticalLabelPosition=bottom;verticalAlign=top;{_ICON_LABEL}shadow=1;")
+            f"verticalLabelPosition=bottom;verticalAlign=top;{_ICON_LABEL}")
 
 
 def _generic_fallback(name: str) -> str:
     """Fallback style for unrecognised shape types."""
     return ("rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;"
-            "arcSize=10;fontSize=12;fontColor=#232F3E;shadow=1;")
+            "arcSize=10;fontSize=12;fontColor=#232F3E;")
 
 
 def build_style(shape_type: str) -> str:

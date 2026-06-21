@@ -1,27 +1,12 @@
 import html as html_module
 import re
-import uuid
 from typing import TYPE_CHECKING
 
 from style_builder import build_style
+from xml_utils import validate_and_fix_xml, wrap_with_mxfile
 
 if TYPE_CHECKING:
     from pipeline_log import StepLogger
-
-
-def _wrap_mxfile(graph_xml: str, page_name: str = "Architecture") -> str:
-    """Wrap bare mxGraphModel in mxfile — required for reliable draw.io embed loading."""
-    trimmed = graph_xml.strip()
-    if "<mxfile" in trimmed:
-        return trimmed
-    page_id = uuid.uuid4().hex[:12]
-    return (
-        f'<mxfile host="app.diagrams.net" agent="drawio-agent" version="24.7.7">\n'
-        f'  <diagram id="{page_id}" name="{_escape_xml(page_name)}">\n'
-        f"    {trimmed}\n"
-        f"  </diagram>\n"
-        f"</mxfile>"
-    )
 
 
 def _escape_xml(text: str) -> str:
@@ -73,19 +58,30 @@ def _get_abs_bounds(nid: str, nodes_by_id: dict, layout: dict) -> tuple[int, int
     return ld.get("global_x", 0), ld.get("global_y", 0), w, h
 
 
-def _anchor_points(src_box: tuple, tgt_box: tuple) -> tuple[float, float, float, float]:
+def _anchor_points(
+    src_box: tuple,
+    tgt_box: tuple,
+    *,
+    slot: int = 0,
+) -> tuple[float, float, float, float]:
     sx, sy, sw, sh = src_box
     tx, ty, tw, th = tgt_box
     scx, scy = sx + sw / 2, sy + sh / 2
     tcx, tcy = tx + tw / 2, ty + th / 2
     dx, dy = tcx - scx, tcy - scy
+
+    # Stagger attachment points when multiple edges share the same node pair.
+    offsets = (0.3, 0.5, 0.7)
+    slot_idx = max(0, min(slot, len(offsets) - 1))
+    along = offsets[slot_idx]
+
     if abs(dx) >= abs(dy):
         if dx >= 0:
-            return 1, 0.5, 0, 0.5
-        return 0, 0.5, 1, 0.5
+            return 1, along, 0, along
+        return 0, along, 1, along
     if dy >= 0:
-        return 0.5, 1, 0.5, 0
-    return 0.5, 0, 0.5, 1
+        return along, 1, along, 0
+    return along, 0, along, 1
 
 
 def _edge_corridor_waypoints(
@@ -139,31 +135,24 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
     platform = (platform or "aws").lower()
     if platform == "gcp":
         default_edge_color = "#4285F4"
-        badge_color = "#EA4335"
-        platform_accent = "#4285F4"
         platform_label = "Google Cloud Platform"
     elif platform == "azure":
         default_edge_color = "#0078D4"
-        badge_color = "#0078D4"
-        platform_accent = "#0078D4"
         platform_label = "Microsoft Azure"
     else:
         default_edge_color = "#ED7100"
-        badge_color = "#ED7100"
-        platform_accent = "#ED7100"
         platform_label = "Amazon Web Services"
 
-    LEAF_W = 64
-    LEAF_H = 64
-    LEAF_CELL_W = 150
-    LEAF_CELL_H = 120
-    CONTAINER_PAD_TOP = 56
-    CONTAINER_PAD = 48
-    CONTAINER_GAP = 48
-    ROOT_GAP = 120
+    LEAF_W = 60
+    LEAF_H = 60
+    LEAF_CELL_W = 140
+    LEAF_CELL_H = 100
+    CONTAINER_PAD_TOP = 48
+    CONTAINER_PAD = 40
+    CONTAINER_GAP = 36
+    ROOT_GAP = 80
     MAX_COLS = 4
-    ROOT_TOP = 100
-    STEP_BADGE_R = 14
+    ROOT_TOP = 40
 
     nodes_by_id = {n.id: n for n in architecture.nodes}
     children_map: dict[str, list[str]] = {}
@@ -392,77 +381,19 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         nw, nh = ld["w"], ld["h"]
         all_bounds.append((nx, ny, nx + nw + 40, ny + nh + 40))
 
-    canvas_w = max((b[2] for b in all_bounds), default=3200) + 80
-    canvas_h = max((b[3] for b in all_bounds), default=2200) + 80
-    canvas_w = max(canvas_w, 1200)
-    canvas_h = max(canvas_h, 800)
+    canvas_w = max((b[2] for b in all_bounds), default=1169) + 60
+    canvas_h = max((b[3] for b in all_bounds), default=827) + 60
+    canvas_w = max(canvas_w, 900)
+    canvas_h = max(canvas_h, 600)
 
-    # ── Build XML ──
     xml = [
-        f'<mxGraphModel dx="0" dy="0" grid="1" gridSize="10" guides="1" '
+        f'<mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" '
         f'tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" '
-        f'pageWidth="{canvas_w}" pageHeight="{canvas_h}" math="0" shadow="1">',
+        f'pageWidth="{canvas_w}" pageHeight="{canvas_h}" math="0" shadow="0">',
         '  <root>',
         '    <mxCell id="0" />',
         '    <mxCell id="1" parent="0" />',
     ]
-
-    # ── Canvas background ──
-    bg_style = (
-        f"rounded=0;whiteSpace=wrap;html=1;fillColor=#FAFBFC;"
-        f"strokeColor=#E1E5EA;strokeWidth=1;"
-        f"gradientColor=none;pointerEvents=0;"
-    )
-    xml.append(
-        f'    <mxCell id="bg" value="" style="{bg_style}" vertex="1" parent="1">'
-    )
-    xml.append(
-        f'      <mxGeometry x="-10" y="-10" width="{canvas_w + 20}" height="{canvas_h + 20}" as="geometry" />'
-    )
-    xml.append('    </mxCell>')
-
-    # ── Platform accent border ──
-    border_style = (
-        f"rounded=1;whiteSpace=wrap;html=1;fillColor=none;"
-        f"strokeColor={platform_accent};strokeWidth=3;dashed=0;"
-        f"pointerEvents=0;"
-    )
-    xml.append(
-        f'    <mxCell id="accent_border" value="" style="{border_style}" vertex="1" parent="1">'
-    )
-    xml.append(
-        f'      <mxGeometry x="10" y="10" width="{canvas_w - 20}" height="{canvas_h - 20}" as="geometry" />'
-    )
-    xml.append('    </mxCell>')
-
-    # ── Diagram title ──
-    title_text = _escape_xml(f"{platform_label} Architecture Diagram")
-    title_style = (
-        f"text;html=1;strokeColor=none;fillColor=none;"
-        f"align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;"
-        f"fontSize=20;fontStyle=1;fontColor=#232F3E;"
-        f"spacingLeft=10;"
-    )
-    xml.append(
-        f'    <mxCell id="title" value="{title_text}" style="{title_style}" vertex="1" parent="1">'
-    )
-    xml.append(
-        f'      <mxGeometry x="30" y="20" width="{canvas_w - 60}" height="36" as="geometry" />'
-    )
-    xml.append('    </mxCell>')
-
-    # ── Platform accent underline for title ──
-    underline_style = (
-        f"line;html=1;strokeColor={platform_accent};strokeWidth=3;"
-        f"rounded=0;pointerEvents=0;"
-    )
-    xml.append(
-        f'    <mxCell id="title_underline" value="" style="{underline_style}" vertex="1" parent="1">'
-    )
-    xml.append(
-        f'      <mxGeometry x="30" y="56" width="200" height="8" as="geometry" />'
-    )
-    xml.append('    </mxCell>')
 
     cell_id = 100
 
@@ -483,7 +414,7 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         style = build_style(node.shape_type)
 
         if "fontFamily=" not in style:
-            style += ";fontFamily=Inter,SF Pro Text,Segoe UI,Helvetica,Arial,sans-serif;"
+            style += ";fontFamily=Helvetica,Arial,sans-serif;"
         if not node.is_container and "perimeter=" not in style:
             style += ";perimeter=orthogonalPerimeter;"
 
@@ -508,27 +439,8 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
             )
             xml.append('    </mxCell>')
 
-        if node.step_number is not None:
-            badge_id = f"badge_{nid}_{cell_id}"
-            cell_id += 1
-            badge_style = (
-                "ellipse;whiteSpace=wrap;html=1;aspect=fixed;"
-                f"fillColor={badge_color};fontColor=#FFFFFF;fontStyle=1;"
-                "fontSize=11;strokeColor=none;shadow=1;"
-            )
-            bx = x - 8
-            by = y - 8
-            bd = STEP_BADGE_R * 2
-            xml.append(
-                f'    <mxCell id="{badge_id}" value="{node.step_number}" '
-                f'style="{badge_style}" vertex="1" parent="{parent_cell}">'
-            )
-            xml.append(
-                f'      <mxGeometry x="{bx}" y="{by}" width="{bd}" height="{bd}" as="geometry" />'
-            )
-            xml.append('    </mxCell>')
-
     sorted_edges = sorted(architecture.edges, key=lambda e: _edge_sort_key(e, nodes_by_id))
+    edge_pair_slots: dict[tuple[str, str], int] = {}
 
     for edge in sorted_edges:
         if edge.source_id not in nodes_by_id or edge.target_id not in nodes_by_id:
@@ -537,10 +449,25 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         cell_id += 1
         eid = f"edge_{cell_id}"
 
+        pair_key = (edge.source_id, edge.target_id)
+        slot = edge_pair_slots.get(pair_key, 0)
+        edge_pair_slots[pair_key] = slot + 1
+
         src_box = _get_abs_bounds(edge.source_id, nodes_by_id, layout)
         tgt_box = _get_abs_bounds(edge.target_id, nodes_by_id, layout)
-        exit_x, exit_y, entry_x, entry_y = _anchor_points(src_box, tgt_box)
+        exit_x, exit_y, entry_x, entry_y = _anchor_points(src_box, tgt_box, slot=slot)
         waypoints = _edge_corridor_waypoints(src_box, tgt_box, exit_x, exit_y, entry_x, entry_y)
+
+        src = nodes_by_id.get(edge.source_id)
+        tgt = nodes_by_id.get(edge.target_id)
+        src_step = src.step_number if src and src.step_number else 999
+        tgt_step = tgt.step_number if tgt and tgt.step_number else 999
+        is_flow_edge = (
+            edge.style != "dashed"
+            and src_step < 900
+            and tgt_step < 900
+            and abs(src_step - tgt_step) <= 1
+        )
 
         edge_style_parts = [
             "edgeStyle=orthogonalEdgeStyle",
@@ -550,12 +477,12 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
             "html=1",
             "strokeWidth=2",
             "fontSize=11",
-            "fontFamily=Inter,SF Pro Text,Segoe UI,Helvetica,Arial,sans-serif",
+            "fontFamily=Helvetica,Arial,sans-serif",
             "endArrow=classicThin",
             "startArrow=none",
             "endFill=1",
             "jumpStyle=arc",
-            "jumpSize=8",
+            "jumpSize=6",
             f"exitX={exit_x}",
             f"exitY={exit_y}",
             "exitDx=0",
@@ -579,6 +506,8 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
             edge_style_parts.append("dashPattern=8 4")
         elif edge.style == "bold":
             edge_style_parts.append("strokeWidth=3")
+        elif is_flow_edge:
+            edge_style_parts.append("flowAnimation=1")
 
         edge_style = ";".join(edge_style_parts) + ";"
         label = _escape_xml(edge.label or "")
@@ -601,7 +530,8 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
 
     xml.extend(['  </root>', '</mxGraphModel>'])
     graph_xml = "\n".join(xml)
-    wrapped = _wrap_mxfile(graph_xml, f"{platform_label} Architecture")
+    graph_xml, fixes = validate_and_fix_xml(graph_xml)
+    wrapped = wrap_with_mxfile(graph_xml, f"{platform_label} Architecture")
 
     if logger:
         page_match = re.search(r'pageWidth="(\d+)"\s+pageHeight="(\d+)"', graph_xml)
@@ -620,6 +550,7 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
                 "mx_cells": graph_xml.count("<mxCell"),
                 "edges": len(architecture.edges),
                 "xml_chars": len(wrapped),
+                "xml_fixes": fixes,
                 **canvas,
             },
         )

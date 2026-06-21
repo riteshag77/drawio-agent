@@ -781,7 +781,8 @@
                     </select>
                     <p id="cursor-hint" class="provider-hint" hidden>
                         Requires <code>CURSOR_API_KEY</code> from Cursor Dashboard → API Keys.
-                        Uses Cloud Agents API (no local bridge). Optional: <code>CURSOR_MODEL=composer-2.5</code>
+                        Uses the official Cursor SDK (<code>cursor-sdk</code>).
+                        Optional: <code>CURSOR_MODEL=composer-2.5</code> or <code>CURSOR_RUNTIME=cloud</code>
                     </p>
                 </div>
 
@@ -887,7 +888,7 @@
 
     <script>
         const DRAWIO_ORIGIN = 'https://embed.diagrams.net';
-        const DRAWIO_URL = `${DRAWIO_ORIGIN}/?embed=1&ui=kennedy&spin=1&proto=json&configure=1&libraries=0&nav=1&saveAndExit=0&noSaveBtn=1&noExitBtn=1`;
+        const DRAWIO_URL = `${DRAWIO_ORIGIN}/?embed=1&ui=kennedy&spin=1&proto=json&configure=1&libs=aws4;gcp2;azure2&nav=1&saveAndExit=0&noSaveBtn=1&noExitBtn=1`;
 
         let currentXml = '';
         let selectedPlatform = 'aws';
@@ -1048,7 +1049,8 @@
                     iframe.contentWindow.postMessage(JSON.stringify({
                         action: 'configure',
                         config: {
-                            defaultFonts: ['Inter', 'Helvetica', 'Arial'],
+                            defaultFonts: ['Helvetica', 'Arial', 'sans-serif'],
+                            defaultLibraries: 'aws4;gcp2;azure2',
                             css: '.geDiagramContainer { background: #ffffff !important; }'
                         }
                     }), DRAWIO_ORIGIN);
