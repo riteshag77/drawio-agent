@@ -3,7 +3,6 @@ import re
 from typing import TYPE_CHECKING
 
 from style_builder import build_style
-from edge_router import collect_obstacles, route_edge
 from xml_utils import validate_and_fix_xml_legacy, wrap_with_mxfile
 
 if TYPE_CHECKING:
@@ -16,96 +15,72 @@ def _escape_xml(text: str) -> str:
     return html_module.escape(str(text), quote=True)
 
 
-def _normalize_edge_label(label: str | None) -> str:
-    """Shorten edge labels to reduce overlap (protocol-only, max ~10 chars)."""
-    if not label:
-        return ""
-    text = str(label).strip()
-    if not text:
-        return ""
-
-    lower = text.lower()
-    protocol_map = {
-        "https": "HTTPS",
-        "http/s": "HTTPS",
-        "http": "HTTP",
-        "sql": "SQL",
-        "redis": "Redis",
-        "grpc": "gRPC",
-        "rest": "REST",
-        "tcp": "TCP",
-        "udp": "UDP",
-        "amqp": "AMQP",
-        "mqtt": "MQTT",
-    }
-    for key, short in protocol_map.items():
-        if key in lower and len(text) > len(short):
-            # Prefer single protocol token when label combines service + protocol
-            if any(p in lower for p in ("https", "http", "sql", "redis", "grpc")):
-                if "redis" in lower and "https" in lower:
-                    return "Redis"
-                if "sql" in lower and "https" in lower:
-                    return "SQL"
-                if "http" in lower:
-                    return "HTTPS"
-            return short
-
-    if len(text) > 12:
-        # "Logs/Metrics" → keep; "Get Secrets from KV" → truncate
-        if "/" in text and len(text) <= 14:
-            return text
-        return text[:10].rstrip()
-    return text
+def _edge_label(label: str | None) -> str:
+    """Use edge label as-is (draw.io handles placement). Prompt guides brevity."""
+    return (label or "").strip()
 
 
-# Relative position along edge (0–1) and perpendicular pixel offset for label placement.
-_LABEL_OFFSETS: list[tuple[float, int, str]] = [
-    (0.22, -22, "top"),
-    (0.42, 18, "bottom"),
-    (0.55, -26, "top"),
-    (0.68, 14, "bottom"),
-    (0.32, 10, "bottom"),
-    (0.58, -16, "top"),
-    (0.75, 22, "bottom"),
-    (0.48, -12, "top"),
-]
+def _ancestor_chain(nid: str, nodes_by_id: dict) -> list[str]:
+    """Container ancestors of a node, nearest first (next-ai parent chain)."""
+    chain: list[str] = []
+    current = nodes_by_id.get(nid)
+    while current and current.parent_id and current.parent_id in nodes_by_id:
+        chain.append(current.parent_id)
+        current = nodes_by_id[current.parent_id]
+    return chain
 
 
-def _edge_label_style_and_geometry(
-    label: str,
-    label_slot: int,
-    *,
-    has_waypoints: bool,
-) -> tuple[list[str], list[str]]:
-    """Return extra style parts and mxGeometry XML lines for non-overlapping edge labels."""
-    if not label:
-        return [], ['      <mxGeometry relative="1" as="geometry" />']
+def _lca_parent(source_id: str, target_id: str, nodes_by_id: dict) -> str:
+    """Lowest common ancestor container of two nodes, or '1' (root).
 
-    rel_pos, perp_offset, v_pos = _LABEL_OFFSETS[label_slot % len(_LABEL_OFFSETS)]
-    h_pos = "left" if label_slot % 3 == 0 else ("right" if label_slot % 3 == 1 else "center")
+    Mirrors next-ai-draw-io: an edge is parented to the container that holds
+    both endpoints so draw.io routes it natively within that coordinate space.
+    """
+    source_anc = _ancestor_chain(source_id, nodes_by_id)
+    target_set = set(_ancestor_chain(target_id, nodes_by_id))
+    for anc in source_anc:
+        if anc in target_set:
+            return anc
+    return "1"
 
-    style_parts = [
-        f"verticalLabelPosition={v_pos}",
-        f"horizontalLabelPosition={h_pos}",
-        "labelBackgroundColor=#ffffff",
-        "labelBorderColor=#ffffff",
-        "spacingTop=2",
-        "spacingBottom=2",
-        "fontSize=10",
-    ]
 
-    if has_waypoints:
-        geom = [
-            '      <mxGeometry relative="1" as="geometry">',
-            f'        <mxPoint x="{rel_pos}" y="{perp_offset}" as="offset" />',
-            '      </mxGeometry>',
-        ]
-    else:
-        geom = [
-            f'      <mxGeometry x="{rel_pos}" y="{perp_offset}" relative="1" as="geometry" />',
-        ]
+def _connection_points(
+    src_box: tuple[int, int, int, int],
+    tgt_box: tuple[int, int, int, int],
+) -> tuple[float, float, float, float]:
+    """Pick exit/entry connection points from geometry (next-ai style).
 
-    return style_parts, geom
+    Horizontal flow → right-center to left-center (or reverse).
+    Vertical flow → bottom-center to top-center (or reverse).
+    """
+    scx = src_box[0] + src_box[2] / 2
+    scy = src_box[1] + src_box[3] / 2
+    tcx = tgt_box[0] + tgt_box[2] / 2
+    tcy = tgt_box[1] + tgt_box[3] / 2
+    dx = tcx - scx
+    dy = tcy - scy
+
+    if abs(dx) >= abs(dy):
+        if dx >= 0:
+            return 1.0, 0.5, 0.0, 0.5
+        return 0.0, 0.5, 1.0, 0.5
+    if dy >= 0:
+        return 0.5, 1.0, 0.5, 0.0
+    return 0.5, 0.0, 0.5, 1.0
+
+
+def _is_ops_node(node) -> bool:
+    """Shared services that belong below the main flow band."""
+    if node.step_number is not None:
+        return False
+    shape = (node.shape_type or "").lower()
+    label = (node.label or "").lower()
+    ops_tokens = (
+        "cloudwatch", "cloudtrail", "monitor", "logging", "log_analytics",
+        "secrets", "kms", "key_vault", "sentinel", "config", "guardduty",
+        "iam", "audit",
+    )
+    return any(t in shape or t in label for t in ops_tokens)
 
 
 def _subnet_tier(nid: str, nodes_by_id: dict) -> int:
@@ -174,14 +149,17 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
 
     LEAF_W = 60
     LEAF_H = 60
-    LEAF_CELL_W = 168
-    LEAF_CELL_H = 112
+    LEAF_CELL_W = 148
+    LEAF_CELL_H = 100
+    LEAF_GAP = 40
     CONTAINER_PAD_TOP = 48
     CONTAINER_PAD = 40
-    CONTAINER_GAP = 36
-    ROOT_GAP = 80
-    MAX_COLS = 4
+    CONTAINER_GAP = 40
+    ROOT_GAP = 72
+    MAX_COLS = 6
     ROOT_TOP = 40
+    MAX_CANVAS_W = 1200
+    MAX_CANVAS_H = 860
 
     nodes_by_id = {n.id: n for n in architecture.nodes}
     children_map: dict[str, list[str]] = {}
@@ -215,6 +193,15 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
             key=lambda k: _flow_sort_key(k, nodes_by_id),
         )
 
+        # Split main flow (step_number or non-ops) vs ops/support band below
+        flow_leaves = [
+            k for k in leaf_kids
+            if nodes_by_id[k].step_number is not None or not _is_ops_node(nodes_by_id[k])
+        ]
+        ops_leaves = [k for k in leaf_kids if k not in flow_leaves]
+        flow_leaves.sort(key=lambda k: nodes_by_id[k].step_number or 999)
+        ops_leaves.sort(key=lambda k: _flow_sort_key(k, nodes_by_id))
+
         child_sizes = {}
         for kid in kids:
             child_sizes[kid] = calc_size(kid)
@@ -229,7 +216,6 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
             token in parent_shape
             for token in ("vpc", "vnet", "subnet", "region", "project", "resource_group")
         )
-        # Subnets / AZs inside a network boundary flow left → right in one row.
         container_cols = len(sub_containers) if network_parent and sub_containers else max(2, MAX_COLS - 1)
 
         for i, kid in enumerate(sub_containers):
@@ -245,28 +231,38 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         containers_bottom = cy + row_max_h + CONTAINER_GAP if sub_containers else CONTAINER_PAD_TOP + 10
         containers_right = cx if sub_containers else CONTAINER_PAD
 
+        def _place_leaf_row(leaves: list[str], start_x: int, start_y: int) -> tuple[int, int, int]:
+            """Place leaves left→right (next-ai flow band). Returns (right_x, bottom_y, row_h)."""
+            lx = start_x
+            ly = start_y
+            row_h = 0
+            for i, kid in enumerate(leaves):
+                kw, kh = child_sizes[kid]
+                cell_w = max(LEAF_CELL_W, kw + 10)
+                cell_h = max(LEAF_CELL_H, kh + 10)
+                if i > 0 and i % MAX_COLS == 0:
+                    lx = start_x
+                    ly += row_h + LEAF_GAP
+                    row_h = 0
+                offset_x = (cell_w - kw) // 2
+                offset_y = (cell_h - kh) // 2
+                children_pos[kid] = (lx + offset_x, ly + offset_y)
+                lx += cell_w + LEAF_GAP
+                row_h = max(row_h, cell_h)
+            return lx, ly + row_h, row_h
+
         lx = CONTAINER_PAD
         ly = containers_bottom
-        leaf_row_max_h = 0
-
-        for i, kid in enumerate(leaf_kids):
-            kw, kh = child_sizes[kid]
-            cell_w = max(LEAF_CELL_W, kw + 10)
-            cell_h = max(LEAF_CELL_H, kh + 10)
-
-            if i > 0 and i % MAX_COLS == 0:
-                lx = CONTAINER_PAD
-                ly += leaf_row_max_h + 20
-                leaf_row_max_h = 0
-
-            offset_x = (cell_w - kw) // 2
-            offset_y = (cell_h - kh) // 2
-            children_pos[kid] = (lx + offset_x, ly + offset_y)
-            lx += cell_w + 12
-            leaf_row_max_h = max(leaf_row_max_h, cell_h)
+        if flow_leaves:
+            right_x, bottom_y, _ = _place_leaf_row(flow_leaves, lx, ly)
+            lx, ly = right_x, bottom_y + LEAF_GAP
+        if ops_leaves:
+            _, bottom_y, _ = _place_leaf_row(ops_leaves, CONTAINER_PAD, ly)
+            ly = bottom_y
+        leaf_row_max_h = ly - containers_bottom
 
         leaf_right = lx if leaf_kids else CONTAINER_PAD
-        leaf_bottom = (ly + leaf_row_max_h + CONTAINER_PAD) if leaf_kids else containers_bottom
+        leaf_bottom = (ly + CONTAINER_PAD) if leaf_kids else containers_bottom
 
         total_w = max(containers_right, leaf_right) + CONTAINER_PAD
         total_h = max(leaf_bottom, containers_bottom) + CONTAINER_PAD
@@ -319,23 +315,23 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         else:
             left_leaves.append(rid)
 
-    left_leaves = sorted(left_leaves, key=lambda k: _flow_sort_key(k, nodes_by_id))
+    left_leaves = sorted(
+        left_leaves,
+        key=lambda k: (nodes_by_id[k].step_number or 999, k),
+    )
     main_containers = sorted(main_containers, key=lambda k: _flow_sort_key(k, nodes_by_id))
 
+    # Entry nodes: horizontal row by step_number (next-ai left-to-right flow)
     lx = 40
-    ly = ROOT_TOP
     for i, rid in enumerate(left_leaves):
         node = nodes_by_id[rid]
         if node.x is not None:
             layout[rid]["global_x"] = node.x
-            layout[rid]["global_y"] = node.y if node.y is not None else ly
+            layout[rid]["global_y"] = node.y if node.y is not None else ROOT_TOP
             continue
-        if i > 0 and i % 4 == 0:
-            lx += LEAF_CELL_W + 20
-            ly = ROOT_TOP
         layout[rid]["global_x"] = lx
-        layout[rid]["global_y"] = ly
-        ly += LEAF_CELL_H + 44
+        layout[rid]["global_y"] = ROOT_TOP
+        lx += LEAF_CELL_W + LEAF_GAP
 
     left_max_x = 40
     if left_leaves:
@@ -381,7 +377,7 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
             ry += LEAF_CELL_H + 30
 
     max_main_h = max([layout[rid]["h"] for rid in main_containers]) if main_containers else 0
-    group_y = ROOT_TOP + max_main_h + 200
+    group_y = ROOT_TOP + max_main_h + 120
 
     blx = max(left_max_x, 360)
     for rid in bottom_leaves:
@@ -389,11 +385,11 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         if node.x is not None:
             layout[rid]["global_x"] = node.x
             layout[rid]["global_y"] = node.y if node.y is not None else group_y
-            blx = node.x + LEAF_CELL_W + 50
+            blx = node.x + LEAF_CELL_W + LEAF_GAP
             continue
         layout[rid]["global_x"] = blx
         layout[rid]["global_y"] = group_y
-        blx += LEAF_CELL_W + 72
+        blx += LEAF_CELL_W + LEAF_GAP
 
     gcx = blx + 40 if bottom_leaves else 400
     for rid in group_containers:
@@ -421,8 +417,8 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         nw, nh = ld["w"], ld["h"]
         all_bounds.append((nx, ny, nx + nw + 40, ny + nh + 40))
 
-    canvas_w = max((b[2] for b in all_bounds), default=1169) + 60
-    canvas_h = max((b[3] for b in all_bounds), default=827) + 60
+    canvas_w = min(max((b[2] for b in all_bounds), default=1169) + 60, MAX_CANVAS_W)
+    canvas_h = min(max((b[3] for b in all_bounds), default=827) + 60, MAX_CANVAS_H)
     canvas_w = max(canvas_w, 900)
     canvas_h = max(canvas_h, 600)
 
@@ -455,10 +451,6 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
 
         if "fontFamily=" not in style:
             style += ";fontFamily=Helvetica,Arial,sans-serif;"
-        if not node.is_container and "perimeter=" not in style:
-            style += ";perimeter=orthogonalPerimeter;"
-        if not node.is_container:
-            style += ";whiteSpace=wrap;html=1;align=center;verticalAlign=top;spacingTop=4;spacingBottom=6;"
 
         label = _escape_xml(node.label)
 
@@ -487,14 +479,6 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         nid: _get_abs_bounds(nid, nodes_by_id, layout)
         for nid in nodes_by_id
     }
-    container_ids = {nid for nid, n in nodes_by_id.items() if n.is_container}
-
-    source_slots: dict[str, int] = {}
-    target_slots: dict[str, int] = {}
-    edge_lane = 0
-
-    source_label_slots: dict[str, int] = {}
-    target_label_slots: dict[str, int] = {}
 
     for edge in sorted_edges:
         if edge.source_id not in nodes_by_id or edge.target_id not in nodes_by_id:
@@ -503,123 +487,49 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         cell_id += 1
         eid = f"edge_{cell_id}"
 
-        exit_slot = source_slots.get(edge.source_id, 0)
-        source_slots[edge.source_id] = exit_slot + 1
-        entry_slot = target_slots.get(edge.target_id, 0)
-        target_slots[edge.target_id] = entry_slot + 1
-
         src_box = node_bounds[edge.source_id]
         tgt_box = node_bounds[edge.target_id]
-        obstacles = collect_obstacles(
-            node_bounds,
-            exclude={edge.source_id, edge.target_id},
-            include_containers=True,
-            container_ids=container_ids,
-        )
+        exit_x, exit_y, entry_x, entry_y = _connection_points(src_box, tgt_box)
 
-        scx = src_box[0] + src_box[2] / 2
-        tcx = tgt_box[0] + tgt_box[2] / 2
-        prefer_horizontal = abs(tcx - scx) >= abs(
-            (src_box[1] + src_box[3] / 2) - (tgt_box[1] + tgt_box[3] / 2)
-        )
-
-        exit_x, exit_y, entry_x, entry_y, waypoints = route_edge(
-            src_box,
-            tgt_box,
-            obstacles,
-            exit_slot=exit_slot,
-            entry_slot=entry_slot,
-            lane=edge_lane,
-            prefer_horizontal=prefer_horizontal,
-        )
-        edge_lane += 1
-
-        src = nodes_by_id.get(edge.source_id)
-        tgt = nodes_by_id.get(edge.target_id)
-        src_step = src.step_number if src and src.step_number else 999
-        tgt_step = tgt.step_number if tgt and tgt.step_number else 999
-        is_flow_edge = (
-            edge.style != "dashed"
-            and src_step < 900
-            and tgt_step < 900
-            and abs(src_step - tgt_step) <= 1
-            and not waypoints
-        )
+        # Parent the edge to the container holding both endpoints (next-ai style)
+        # so draw.io's native orthogonal router draws the path — no manual waypoints.
+        edge_parent = _lca_parent(edge.source_id, edge.target_id, nodes_by_id)
 
         edge_style_parts = [
             "edgeStyle=orthogonalEdgeStyle",
-            "rounded=1",
-            "orthogonalLoop=1",
-            "jettySize=auto",
+            "rounded=0",
             "html=1",
-            "strokeWidth=2",
-            "fontSize=11",
-            "fontFamily=Helvetica,Arial,sans-serif",
             "endArrow=classic",
-            "startArrow=none",
-            "endFill=1",
             f"exitX={exit_x}",
             f"exitY={exit_y}",
-            "exitDx=0",
-            "exitDy=0",
             f"entryX={entry_x}",
             f"entryY={entry_y}",
-            "entryDx=0",
-            "entryDy=0",
         ]
 
         color = edge.color
         if color == "#ED7100" and platform != "aws":
             color = default_edge_color
-
         edge_style_parts.append(f"strokeColor={color}")
         edge_style_parts.append(f"fontColor={color}")
 
         if edge.style == "dashed":
             edge_style_parts.append("dashed=1")
-            edge_style_parts.append("dashPattern=8 4")
         elif edge.style == "bold":
             edge_style_parts.append("strokeWidth=3")
-        elif is_flow_edge:
-            edge_style_parts.append("flowAnimation=1")
 
-        raw_label = _normalize_edge_label(edge.label)
-        src_label_idx = source_label_slots.get(edge.source_id, 0)
-        tgt_label_idx = target_label_slots.get(edge.target_id, 0)
-        source_label_slots[edge.source_id] = src_label_idx + 1
-        target_label_slots[edge.target_id] = tgt_label_idx + 1
-        label_slot = edge_lane + exit_slot + entry_slot + src_label_idx + tgt_label_idx
-
-        label_style_parts, label_geom_lines = _edge_label_style_and_geometry(
-            raw_label,
-            label_slot,
-            has_waypoints=bool(waypoints),
-        )
-        edge_style_parts.extend(label_style_parts)
+        label_text = _edge_label(edge.label)
+        label = _escape_xml(label_text)
+        if label_text:
+            edge_style_parts.append("labelBackgroundColor=#ffffff")
 
         edge_style = ";".join(edge_style_parts) + ";"
-        label = _escape_xml(raw_label)
 
         xml.append(
             f'    <mxCell id="{eid}" value="{label}" '
-            f'style="{edge_style}" edge="1" parent="1" '
+            f'style="{edge_style}" edge="1" parent="{edge_parent}" '
             f'source="{edge.source_id}" target="{edge.target_id}">'
         )
-        if waypoints:
-            xml.append('      <mxGeometry relative="1" as="geometry">')
-            xml.append('        <Array as="points">')
-            for wx, wy in waypoints:
-                xml.append(f'          <mxPoint x="{wx}" y="{wy}" />')
-            xml.append('        </Array>')
-            if raw_label and label_geom_lines:
-                # offset point inside geometry with waypoints
-                rel_pos, perp_offset, _ = _LABEL_OFFSETS[label_slot % len(_LABEL_OFFSETS)]
-                xml.append(f'        <mxPoint x="{rel_pos}" y="{perp_offset}" as="offset" />')
-            xml.append('      </mxGeometry>')
-        elif raw_label and label_geom_lines:
-            xml.extend(label_geom_lines)
-        else:
-            xml.append('      <mxGeometry relative="1" as="geometry" />')
+        xml.append('      <mxGeometry relative="1" as="geometry" />')
         xml.append('    </mxCell>')
 
     xml.extend(['  </root>', '</mxGraphModel>'])

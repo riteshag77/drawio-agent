@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-MARGIN = 36
-LANE_STEP = 36
-CLEARANCE = 44
-_SLOT_POSITIONS = (0.2, 0.32, 0.45, 0.55, 0.68, 0.8)
+MARGIN = 28
+LANE_STEP = 28
+CLEARANCE = 36
+_SLOT_POSITIONS = (0.25, 0.35, 0.5, 0.65, 0.75)
 
 
 def _slot_value(slot: int) -> float:
@@ -145,10 +145,10 @@ def route_edge(
         tgt_py = ty + th * entry_y
         lane_offset = lane * LANE_STEP
 
-        # Route above the diagram band first (cleaner for cloud arch), else below.
+        # Prefer routing below the main flow band (avoids crossing entry nodes on top).
         top_band = min(sy, ty) - CLEARANCE - lane_offset
         bottom_band = max(sy + sh, ty + th) + CLEARANCE + lane_offset
-        corridor_y = top_band if top_band >= 20 else bottom_band
+        corridor_y = bottom_band if bottom_band >= 20 else top_band
 
         out_x = int(src_px + MARGIN)
         in_x = int(tgt_px - MARGIN)

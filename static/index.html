@@ -1418,7 +1418,8 @@
         const MINIMAL_STYLE_STORAGE_KEY = 'drawio-agent-minimal-style';
         const CUSTOM_SYSTEM_MESSAGE_KEY = 'drawio-agent-custom-system-message';
         const VLM_VALIDATION_KEY = 'drawio-agent-vlm-validation';
-        const MAX_VLM_CLIENT_RETRIES = 1;
+        const MAX_VLM_CLIENT_RETRIES = 2;
+        let vlmAutoRetryCount = 0;
 
         const EXAMPLE_PROMPTS = {
             aws: [
@@ -1580,13 +1581,97 @@
                 appendVerboseLog('validation', 'VLM validation result', validation?.valid ? 'success' : 'warn', validation);
 
                 if (validation && !validation.valid) {
-                    showValidationBanner(validation, null);
+                    const feedback = buildClientValidationFeedback(validation);
+                    if (vlmAutoRetryCount < MAX_VLM_CLIENT_RETRIES && feedback) {
+                        vlmAutoRetryCount += 1;
+                        appendVerboseLog(
+                            'validation',
+                            `VLM auto-retry ${vlmAutoRetryCount}/${MAX_VLM_CLIENT_RETRIES}`,
+                            'info',
+                        );
+                        await autoRetryWithVlm(imageData, feedback);
+                        return;
+                    }
+                    showValidationBanner(validation, feedback);
                     setDiagramStatus('Diagram loaded — layout issues detected');
                 } else {
+                    vlmAutoRetryCount = 0;
                     hideValidationBanner();
                 }
             } catch (err) {
                 appendVerboseLog('validation', `VLM validation skipped: ${err.message}`, 'warn');
+            }
+        }
+
+        async function autoRetryWithVlm(imageData, feedback) {
+            if (isSending) return;
+            const provider = document.getElementById('provider-select').value;
+            const sendBtn = document.getElementById('send-btn');
+            const input = document.getElementById('chat-input');
+            const fixMessage = 'Fix visual layout issues from validation — improve spacing, edge routing, and remove overlaps.';
+
+            isSending = true;
+            sendBtn.disabled = true;
+            input.disabled = true;
+            hideValidationBanner();
+            setTyping(true);
+            setDiagramStatus('Auto-fixing layout from validation…');
+            document.getElementById('diagram-loading').classList.add('active');
+
+            chatMessages.push({ role: 'user', content: fixMessage });
+            appendChatBubble('user', fixMessage);
+
+            try {
+                const promptSettings = getPromptSettings();
+                const res = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        messages: chatMessages,
+                        provider,
+                        platform: selectedPlatform,
+                        current_architecture: currentArchitecture,
+                        previous_architecture: previousArchitecture,
+                        minimal_style: promptSettings.minimal_style,
+                        custom_system_message: promptSettings.custom_system_message,
+                        validation_feedback: feedback,
+                        image_data: imageData,
+                    }),
+                });
+                const data = await res.json();
+                mergeServerLogs(data.logs);
+                if (!res.ok) throw new Error(data.detail || 'Server error');
+                if (data.status !== 'success') throw new Error(data.detail || 'Unknown error');
+
+                const assistantText = data.assistant_message || 'Diagram updated from validation feedback.';
+                chatMessages.push({ role: 'assistant', content: assistantText });
+                appendChatBubble('assistant', assistantText, data.suggestions || []);
+
+                currentXml = data.xml;
+                previousArchitecture = currentArchitecture;
+                currentArchitecture = data.architecture || null;
+                document.getElementById('xml-output').textContent = data.xml;
+                document.getElementById('xml-toggle').classList.add('active');
+
+                if (data.validation?.feedback && data.validation?.vlm && !data.validation.vlm.valid) {
+                    showValidationBanner(data.validation.vlm, data.validation.feedback);
+                } else if (data.validation?.structural && !data.validation.structural.valid) {
+                    showValidationBanner(data.validation.structural, data.validation.feedback);
+                }
+
+                loadDiagramIntoEditor(data.xml);
+                setActionButtonsEnabled(true);
+                setDiagramStatus('Diagram reloaded after validation fix');
+            } catch (err) {
+                appendVerboseLog('validation', `VLM auto-retry failed: ${err.message}`, 'error');
+                chatMessages.pop();
+                showError(err.message || 'Auto-fix failed');
+                document.getElementById('diagram-loading').classList.remove('active');
+            } finally {
+                setTyping(false);
+                isSending = false;
+                sendBtn.disabled = false;
+                input.disabled = false;
             }
         }
 
@@ -1993,6 +2078,7 @@
 
             hideError();
             hideValidationBanner();
+            vlmAutoRetryCount = 0;
             isSending = true;
             sendBtn.disabled = true;
             input.disabled = true;

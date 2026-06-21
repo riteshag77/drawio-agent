@@ -28,8 +28,8 @@ from xml_utils import validate_and_fix_xml
 # Force load the .env file immediately
 load_dotenv()
 
-MAX_STRUCTURAL_RETRIES = int(os.getenv("MAX_VALIDATION_RETRIES", "2"))
-MAX_VLM_RETRIES = int(os.getenv("MAX_VLM_RETRIES", "1"))
+MAX_STRUCTURAL_RETRIES = int(os.getenv("MAX_VALIDATION_RETRIES", "1"))
+MAX_VLM_RETRIES = int(os.getenv("MAX_VLM_RETRIES", "2"))
 
 app = FastAPI(title="Draw.io AI Architect")
 

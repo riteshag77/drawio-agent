@@ -141,17 +141,28 @@ def validate_architecture_structure(diagram: ArchitectureDiagram) -> ValidationR
     for node_id, count in solid_outgoing.items():
         node = node_map.get(node_id)
         label = node.label if node else node_id
-        is_lb = node and any(k in (node.shape_type or "") for k in ("alb", "nlb", "elb", "load_bal", "gateway"))
-        limit = 3 if is_lb else 2
-        if count > limit:
+        is_lb = node and any(
+            k in (node.shape_type or "").lower()
+            for k in ("alb", "nlb", "elb", "load_bal", "gateway", "apigateway")
+        )
+        limit = 4 if is_lb else 3
+        if count > limit + 1:
             issues.append(
                 ValidationIssue(
                     type="edge_routing",
                     severity="critical",
-                    description=f"Node '{label}' has {count} outgoing solid edges (max {limit})",
+                    description=f"Node '{label}' has {count} outgoing solid edges (max {limit + 1})",
                 )
             )
             suggestions.append(f"Reduce solid edges from '{label}' or merge flows via an intermediate service.")
+        elif count > limit:
+            issues.append(
+                ValidationIssue(
+                    type="edge_routing",
+                    severity="warning",
+                    description=f"Node '{label}' has {count} outgoing solid edges (target ≤{limit})",
+                )
+            )
 
     step_nodes = [(n.step_number, n) for n in nodes if n.step_number is not None]
     if step_nodes:
