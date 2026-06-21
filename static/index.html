@@ -353,6 +353,38 @@
             align-items: flex-end;
         }
 
+        .btn-attach {
+            flex-shrink: 0;
+            width: 36px;
+            height: 44px;
+            border: none;
+            background: transparent;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1.1rem;
+            opacity: 0.75;
+        }
+
+        .btn-attach:hover { opacity: 1; background: var(--surface-2); }
+
+        .attachment-preview {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-bottom: 0.35rem;
+            padding: 0.25rem 0.5rem;
+            background: var(--surface-2);
+            border-radius: 6px;
+        }
+
+        .template-list { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.5rem; }
+        .template-row {
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            font-size: 0.8rem;
+        }
+        .template-row span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
         .chat-input-wrap textarea { flex: 1; }
 
         .btn-send {
@@ -1263,6 +1295,26 @@
                             <span class="toggle-slider"></span>
                         </label>
                     </div>
+                    <div class="settings-row" style="margin-top: 0.65rem;">
+                        <div>
+                            <label for="drawio-theme-select">Draw.io theme</label>
+                            <select id="drawio-theme-select" onchange="changeDrawioTheme()">
+                                <option value="kennedy">Kennedy (default)</option>
+                                <option value="atlas">Atlas</option>
+                                <option value="dark">Dark</option>
+                                <option value="min">Minimal</option>
+                                <option value="sketch">Sketch</option>
+                                <option value="simple">Simple</option>
+                            </select>
+                        </div>
+                    </div>
+                    <details class="settings-details" style="margin-top: 0.85rem;">
+                        <summary>▸ Saved templates</summary>
+                        <div class="settings-details-content">
+                            <div id="template-list" class="template-list"></div>
+                            <button type="button" class="btn-chat-clear" onclick="saveCurrentAsTemplate()">Save current prompt</button>
+                        </div>
+                    </details>
                     <details class="settings-details" style="margin-top: 0.85rem;">
                         <summary>▸ AI customization</summary>
                         <div class="settings-details-content">
@@ -1309,7 +1361,10 @@
             </div>
 
             <div class="sidebar-footer">
+                <div id="attachment-preview" class="attachment-preview" hidden></div>
                 <div class="chat-input-wrap">
+                    <input type="file" id="file-input" multiple accept="image/*,.pdf,.txt,.md,.json" hidden onchange="handleFileSelect(event)">
+                    <button type="button" class="btn-attach" onclick="document.getElementById('file-input').click()" title="Attach image, PDF, or text">📎</button>
                     <textarea id="chat-input" rows="1"
                         placeholder="Describe or refine your architecture…"></textarea>
                     <button id="send-btn" class="btn-send" onclick="sendMessage()" title="Send (Enter)">
@@ -1397,11 +1452,23 @@
 
     <script>
         const DRAWIO_ORIGIN = 'https://embed.diagrams.net';
-        const DRAWIO_URL = `${DRAWIO_ORIGIN}/?embed=1&ui=kennedy&spin=1&proto=json&configure=1&libs=aws4;gcp2;azure2&nav=1&saveAndExit=0&noSaveBtn=1&noExitBtn=1`;
+        const DRAWIO_THEMES = ['kennedy', 'atlas', 'dark', 'min', 'sketch', 'simple'];
+        const THEME_STORAGE_KEY = 'drawio-agent-drawio-theme';
+        const TEMPLATES_STORAGE_KEY = 'drawio-agent-templates';
+
+        function getDrawioUrl(theme) {
+            const ui = DRAWIO_THEMES.includes(theme) ? theme : 'kennedy';
+            return `${DRAWIO_ORIGIN}/?embed=1&ui=${ui}&spin=1&proto=json&configure=1&libs=aws4;gcp2;azure2&nav=1&saveAndExit=0&noSaveBtn=1&noExitBtn=1`;
+        }
 
         let currentXml = '';
+        let previousXml = null;
         let currentArchitecture = null;
         let previousArchitecture = null;
+        let pendingXmlExport = null;
+        let attachmentContext = '';
+        let attachmentImageData = null;
+        let hasImageAttachment = false;
         let lastValidationFeedback = null;
         let pendingPngExport = null;
         let chatMessages = [];
@@ -1539,6 +1606,145 @@
             return lines.join('\n');
         }
 
+        function exportDiagramXml() {
+            return new Promise((resolve, reject) => {
+                if (!drawioReady) {
+                    resolve(currentXml || null);
+                    return;
+                }
+                const iframe = document.getElementById('drawio-frame');
+                pendingXmlExport = { resolve, reject };
+                iframe.contentWindow.postMessage(JSON.stringify({
+                    action: 'export',
+                    format: 'xml',
+                }), DRAWIO_ORIGIN);
+                setTimeout(() => {
+                    if (pendingXmlExport) {
+                        pendingXmlExport.resolve(currentXml || null);
+                        pendingXmlExport = null;
+                    }
+                }, 5000);
+            });
+        }
+
+        function changeDrawioTheme() {
+            const theme = document.getElementById('drawio-theme-select').value;
+            localStorage.setItem(THEME_STORAGE_KEY, theme);
+            drawioReady = false;
+            pendingXml = currentXml || pendingXml;
+            const iframe = document.getElementById('drawio-frame');
+            if (iframe) {
+                iframe.src = getDrawioUrl(theme);
+            }
+        }
+
+        function loadTemplates() {
+            const list = document.getElementById('template-list');
+            if (!list) return;
+            let templates = [];
+            try {
+                templates = JSON.parse(localStorage.getItem(TEMPLATES_STORAGE_KEY) || '[]');
+            } catch (_) { templates = []; }
+            list.innerHTML = '';
+            if (!templates.length) {
+                list.innerHTML = '<small style="color:var(--text-muted)">No saved templates yet.</small>';
+                return;
+            }
+            templates.forEach(t => {
+                const row = document.createElement('div');
+                row.className = 'template-row';
+                row.innerHTML = `<span>${t.title}</span>`;
+                const useBtn = document.createElement('button');
+                useBtn.type = 'button';
+                useBtn.className = 'btn-chat-clear';
+                useBtn.textContent = 'Use';
+                useBtn.onclick = () => {
+                    document.getElementById('chat-input').value = t.prompt;
+                    autoResizeChatInput();
+                };
+                const delBtn = document.createElement('button');
+                delBtn.type = 'button';
+                delBtn.className = 'btn-chat-clear';
+                delBtn.textContent = '×';
+                delBtn.onclick = () => deleteTemplate(t.id);
+                row.appendChild(useBtn);
+                row.appendChild(delBtn);
+                list.appendChild(row);
+            });
+        }
+
+        function saveCurrentAsTemplate() {
+            const prompt = document.getElementById('chat-input').value.trim();
+            if (!prompt) {
+                showError('Enter a prompt to save as template.');
+                return;
+            }
+            let templates = JSON.parse(localStorage.getItem(TEMPLATES_STORAGE_KEY) || '[]');
+            const title = prompt.length > 24 ? prompt.slice(0, 24) + '…' : prompt;
+            templates.unshift({
+                id: 't_' + Date.now(),
+                title,
+                prompt,
+                createdAt: Date.now(),
+            });
+            templates = templates.slice(0, 20);
+            localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(templates));
+            loadTemplates();
+        }
+
+        function deleteTemplate(id) {
+            let templates = JSON.parse(localStorage.getItem(TEMPLATES_STORAGE_KEY) || '[]');
+            templates = templates.filter(t => t.id !== id);
+            localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(templates));
+            loadTemplates();
+        }
+
+        async function handleFileSelect(event) {
+            const files = Array.from(event.target.files || []);
+            const preview = document.getElementById('attachment-preview');
+            preview.innerHTML = '';
+            preview.hidden = true;
+            attachmentContext = '';
+            attachmentImageData = null;
+            hasImageAttachment = false;
+
+            for (const file of files.slice(0, 3)) {
+                if (file.type.startsWith('image/')) {
+                    const dataUrl = await new Promise((res, rej) => {
+                        const r = new FileReader();
+                        r.onload = () => res(r.result);
+                        r.onerror = rej;
+                        r.readAsDataURL(file);
+                    });
+                    attachmentImageData = dataUrl;
+                    hasImageAttachment = true;
+                    preview.hidden = false;
+                    preview.textContent = `📷 ${file.name}`;
+                } else if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+                    preview.hidden = false;
+                    preview.textContent = `📄 ${file.name} (PDF — describe in prompt or paste text)`;
+                    attachmentContext += `[Attached PDF: ${file.name} — extract architecture from user description]\n`;
+                } else {
+                    const text = await file.text();
+                    attachmentContext += `\n--- File: ${file.name} ---\n${text.slice(0, 8000)}\n`;
+                    preview.hidden = false;
+                    preview.textContent = `📄 ${file.name}`;
+                }
+            }
+            event.target.value = '';
+        }
+
+        async function parseUrlContext(url) {
+            const res = await fetch('/parse-url', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'URL parse failed');
+            return `--- URL: ${url} (${data.title}) ---\n${data.content}`;
+        }
+
         function exportDiagramPng() {
             return new Promise((resolve, reject) => {
                 if (!drawioReady) {
@@ -1623,6 +1829,9 @@
 
             try {
                 const promptSettings = getPromptSettings();
+                const liveXml = await exportDiagramXml();
+                const xmlForRequest = (liveXml && liveXml.length > 200) ? liveXml : (currentXml || null);
+
                 const res = await fetch('/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1632,6 +1841,8 @@
                         platform: selectedPlatform,
                         current_architecture: currentArchitecture,
                         previous_architecture: previousArchitecture,
+                        current_xml: xmlForRequest,
+                        previous_xml: previousXml,
                         minimal_style: promptSettings.minimal_style,
                         custom_system_message: promptSettings.custom_system_message,
                         validation_feedback: feedback,
@@ -1648,8 +1859,13 @@
                 appendChatBubble('assistant', assistantText, data.suggestions || []);
 
                 currentXml = data.xml;
+                previousXml = xmlForRequest;
                 previousArchitecture = currentArchitecture;
-                currentArchitecture = data.architecture || null;
+                if (data.edit_mode) {
+                    currentArchitecture = null;
+                } else {
+                    currentArchitecture = data.architecture || null;
+                }
                 document.getElementById('xml-output').textContent = data.xml;
                 document.getElementById('xml-toggle').classList.add('active');
 
@@ -1760,6 +1976,12 @@
             currentArchitecture = null;
             previousArchitecture = null;
             currentXml = '';
+            previousXml = null;
+            attachmentContext = '';
+            attachmentImageData = null;
+            hasImageAttachment = false;
+            const preview = document.getElementById('attachment-preview');
+            if (preview) { preview.hidden = true; preview.textContent = ''; }
             hideValidationBanner();
             setActionButtonsEnabled(false);
             document.getElementById('xml-output').textContent = '';
@@ -1910,8 +2132,11 @@
 
         function ensureDrawioFrame() {
             const iframe = document.getElementById('drawio-frame');
+            const theme = localStorage.getItem(THEME_STORAGE_KEY) || 'kennedy';
+            const themeSelect = document.getElementById('drawio-theme-select');
+            if (themeSelect) themeSelect.value = theme;
             if (!iframe.src) {
-                iframe.src = DRAWIO_URL;
+                iframe.src = getDrawioUrl(theme);
                 bindDrawioMessages(iframe);
             }
             return iframe;
@@ -1965,15 +2190,22 @@
                     setTimeout(() => runVisualValidation(), 600);
                 }
 
-                if (msg.event === 'export' && msg.data && pendingPngExport) {
-                    let dataUrl = msg.data;
-                    if (!dataUrl.startsWith('data:')) {
-                        dataUrl = 'data:image/png;base64,' + btoa(
-                            unescape(encodeURIComponent(msg.data))
-                        );
+                if (msg.event === 'export' && msg.data) {
+                    if (pendingXmlExport) {
+                        pendingXmlExport.resolve(msg.data);
+                        pendingXmlExport = null;
+                        return;
                     }
-                    pendingPngExport.resolve(dataUrl);
-                    pendingPngExport = null;
+                    if (pendingPngExport) {
+                        let dataUrl = msg.data;
+                        if (!dataUrl.startsWith('data:')) {
+                            dataUrl = 'data:image/png;base64,' + btoa(
+                                unescape(encodeURIComponent(msg.data))
+                            );
+                        }
+                        pendingPngExport.resolve(dataUrl);
+                        pendingPngExport = null;
+                    }
                 }
             };
 
@@ -2106,7 +2338,25 @@
 
             try {
                 const promptSettings = getPromptSettings();
-                appendVerboseLog('client', 'POST /chat', 'info', promptSettings);
+                const liveXml = await exportDiagramXml();
+                const xmlForRequest = (liveXml && liveXml.length > 200) ? liveXml : (currentXml || null);
+                previousXml = currentXml || null;
+
+                let contextText = attachmentContext || '';
+                const urlMatch = text.match(/https?:\/\/[^\s<>"']+/);
+                if (urlMatch && !contextText.includes(urlMatch[0])) {
+                    try {
+                        contextText = (contextText ? contextText + '\n' : '') + await parseUrlContext(urlMatch[0]);
+                    } catch (urlErr) {
+                        appendVerboseLog('client', `URL parse skipped: ${urlErr.message}`, 'warn');
+                    }
+                }
+
+                appendVerboseLog('client', 'POST /chat', 'info', {
+                    ...promptSettings,
+                    has_current_xml: !!xmlForRequest,
+                    xml_chars: (xmlForRequest || '').length,
+                });
                 const res = await fetch('/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -2116,9 +2366,14 @@
                         platform: selectedPlatform,
                         current_architecture: currentArchitecture,
                         previous_architecture: previousArchitecture,
+                        current_xml: xmlForRequest,
+                        previous_xml: previousXml,
                         minimal_style: promptSettings.minimal_style,
                         custom_system_message: promptSettings.custom_system_message,
                         validation_feedback: validationFeedback,
+                        context_text: contextText || null,
+                        image_data: attachmentImageData,
+                        has_image_input: hasImageAttachment,
                     }),
                 });
 
@@ -2137,13 +2392,25 @@
                 appendVerboseLog('client', 'Server response received', 'success', {
                     suggestions: (data.suggestions || []).length,
                     xml_chars: (data.xml || '').length,
+                    edit_mode: !!data.edit_mode,
                 });
 
                 currentXml = data.xml;
+                previousXml = xmlForRequest;
                 previousArchitecture = currentArchitecture;
-                currentArchitecture = data.architecture || null;
+                if (data.edit_mode) {
+                    currentArchitecture = null;
+                } else {
+                    currentArchitecture = data.architecture || null;
+                }
                 document.getElementById('xml-output').textContent = data.xml;
                 document.getElementById('xml-toggle').classList.add('active');
+
+                attachmentContext = '';
+                attachmentImageData = null;
+                hasImageAttachment = false;
+                const attachPreview = document.getElementById('attachment-preview');
+                if (attachPreview) { attachPreview.hidden = true; attachPreview.textContent = ''; }
 
                 if (data.validation?.feedback) {
                     showValidationBanner(data.validation.structural || data.validation.vlm, data.validation.feedback);
@@ -2217,8 +2484,10 @@
         initVerboseLogging();
         initPromptSettings();
         hideValidationBanner();
+        loadTemplates();
         ensureDrawioFrame();
-        appendVerboseLog('drawio', 'Embed iframe created', 'info', { url: DRAWIO_URL });
+        const bootTheme = localStorage.getItem(THEME_STORAGE_KEY) || 'kennedy';
+        appendVerboseLog('drawio', 'Embed iframe created', 'info', { url: getDrawioUrl(bootTheme) });
         document.getElementById('provider-select').addEventListener('change', updateProviderHint);
         updateProviderHint();
         selectPlatform('aws');

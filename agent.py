@@ -10,10 +10,10 @@ from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
-from chat_helpers import trim_chat_messages_for_prompt
-from models import ArchitectureDiagram
+from chat_helpers import replace_historical_tool_inputs, trim_chat_messages_for_prompt
+from models import ArchitectureDiagram, EditResponse
 from dotenv import load_dotenv
-from system_prompts import get_system_prompt
+from system_prompts import get_edit_system_prompt, get_system_prompt, XML_EDIT_VALIDATION_FEEDBACK
 
 if TYPE_CHECKING:
     from pipeline_log import StepLogger
@@ -57,7 +57,7 @@ def _build_chat_prompt(
     if not messages:
         raise ValueError("At least one user message is required.")
 
-    trimmed_messages = trim_chat_messages_for_prompt(messages)
+    trimmed_messages = replace_historical_tool_inputs(trim_chat_messages_for_prompt(messages))
 
     parts: list[str] = []
     if previous_architecture is not None:
@@ -349,6 +349,135 @@ def generate_architecture_json(
         )
 
     return result
+
+
+def _build_edit_prompt(
+    messages: list[dict[str, str]],
+    current_xml: str,
+    previous_xml: str | None = None,
+    validation_feedback: str | None = None,
+    context_text: str | None = None,
+) -> str:
+    if not messages:
+        raise ValueError("At least one user message is required.")
+
+    trimmed = replace_historical_tool_inputs(trim_chat_messages_for_prompt(messages))
+    parts: list[str] = []
+
+    if previous_xml:
+        parts.append(
+            "Previous diagram XML (before the user's last message — for comparison only):\n"
+            f'"""xml\n{previous_xml}\n"""'
+        )
+
+    parts.append(
+        "Current diagram XML (AUTHORITATIVE — apply operations to this; copy ids/styles from here):\n"
+        f'"""xml\n{current_xml}\n"""'
+    )
+
+    if context_text:
+        parts.append(f"\nAdditional context from uploaded file or URL:\n{context_text}")
+
+    if len(trimmed) > 1:
+        parts.append("\nConversation so far:")
+        for msg in trimmed[:-1]:
+            parts.append(f"{msg.get('role', 'user').upper()}: {msg.get('content', '')}")
+
+    parts.append(f"\nLatest user request:\n{trimmed[-1].get('content', '')}")
+
+    if validation_feedback:
+        parts.append(f"\n---\n{XML_EDIT_VALIDATION_FEEDBACK}\n{validation_feedback}")
+
+    return "\n".join(parts)
+
+
+def _extract_edit_json_from_text(text: str) -> dict:
+    if not text or not text.strip():
+        raise ValueError("Empty response from model.")
+    stripped = text.strip()
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        pass
+    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", stripped, re.DOTALL)
+    if fenced:
+        return json.loads(fenced.group(1))
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start >= 0 and end > start:
+        return json.loads(stripped[start : end + 1])
+    raise ValueError("Response did not contain valid EditResponse JSON.")
+
+
+def generate_edit_operations(
+    messages: list[dict[str, str]],
+    provider: str = "openai",
+    current_xml: str = "",
+    previous_xml: str | None = None,
+    logger: "StepLogger | None" = None,
+    custom_system_message: str = "",
+    validation_feedback: str | None = None,
+    context_text: str | None = None,
+) -> EditResponse:
+    """Generate incremental diagram edit operations from current draw.io XML."""
+    provider_key = (provider or "openai").strip().lower()
+    system_prompt = get_edit_system_prompt(
+        model_id=MODEL_IDS.get(provider_key, MODEL_IDS["openai"]),
+        provider=provider_key,
+        custom_system_message=custom_system_message,
+    )
+    human_content = _build_edit_prompt(
+        messages,
+        current_xml,
+        previous_xml,
+        validation_feedback,
+        context_text,
+    )
+
+    if logger:
+        logger.log(
+            "prompt",
+            "Prepared XML edit request",
+            details={"provider": provider_key, "xml_chars": len(current_xml)},
+        )
+
+    if provider_key == "cursor":
+        api_key = os.getenv("CURSOR_API_KEY", "").strip()
+        if not api_key:
+            raise ValueError("CURSOR_API_KEY environment variable is not set.")
+        from cursor_bridge_patch import apply_windows_bridge_patch
+        from cursor_sdk import Agent, AgentOptions, LocalAgentOptions
+        from cursor_sdk.errors import CursorAgentError
+
+        apply_windows_bridge_patch()
+        combined = (
+            f"{system_prompt}\n\n---\nRespond with ONLY EditResponse JSON.\n\n{human_content}"
+        )
+        options = AgentOptions(
+            api_key=api_key,
+            model=_cursor_model_id(MODEL_IDS["cursor"]),
+            name="drawio-xml-edit",
+            local=LocalAgentOptions(cwd=str(Path(__file__).resolve().parent)),
+        )
+        if logger:
+            logger.log("llm", "Calling Cursor SDK for EditResponse")
+        try:
+            result = Agent.prompt(combined, options)
+        except CursorAgentError as error:
+            raise ValueError(f"Cursor SDK error: {error.message}") from error
+        if result.status != "finished":
+            raise ValueError(f"Cursor agent ended with status={result.status}")
+        return EditResponse.model_validate(_extract_edit_json_from_text(str(result.result or "")))
+
+    langchain_messages: list[Any] = [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=human_content),
+    ]
+    llm = _build_llm(provider)
+    structured_llm = llm.with_structured_output(EditResponse)
+    if logger:
+        logger.log("llm", "Calling LLM for EditResponse (incremental XML edit)")
+    return structured_llm.invoke(langchain_messages)
 
 
 def generate_architecture_from_chat(
