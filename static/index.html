@@ -98,7 +98,40 @@
             align-items: flex-end;
         }
 
-        .settings-row > div { flex: 1; min-width: 0; }
+        .custom-prompt-wrap {
+            margin-top: 0.85rem;
+        }
+
+        .custom-prompt-wrap textarea {
+            min-height: 72px;
+            max-height: 120px;
+            resize: vertical;
+            font-size: 0.82rem;
+            line-height: 1.45;
+        }
+
+        .settings-details summary {
+            cursor: pointer;
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            user-select: none;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+
+        .settings-details summary::-webkit-details-marker { display: none; }
+
+        .settings-details[open] summary { color: var(--text-primary); }
+
+        .settings-details-content {
+            margin-top: 0.65rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.65rem;
+        }
 
         /* ── Chat panel ─────────────────────────── */
         .chat-panel {
@@ -552,6 +585,136 @@
 
         .error-banner.active { display: block; }
 
+        /* ── Right panel: visual validation ───────── */
+        .validation-panel {
+            display: none;
+            flex-shrink: 0;
+            border-bottom: 1px solid var(--sidebar-border);
+            background: rgba(245, 158, 11, 0.06);
+        }
+
+        .validation-panel.active {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .validation-panel.critical {
+            background: rgba(239, 68, 68, 0.08);
+        }
+
+        .validation-panel-header {
+            padding: 0.85rem 1rem 0.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+        }
+
+        .validation-panel-header h3 {
+            font-size: 0.78rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #fcd34d;
+        }
+
+        .validation-panel.critical .validation-panel-header h3 {
+            color: #fca5a5;
+        }
+
+        .validation-status-badge {
+            font-size: 0.68rem;
+            font-weight: 700;
+            padding: 0.15rem 0.5rem;
+            border-radius: 999px;
+            background: rgba(245, 158, 11, 0.2);
+            color: #fcd34d;
+        }
+
+        .validation-panel.critical .validation-status-badge {
+            background: rgba(239, 68, 68, 0.2);
+            color: #fca5a5;
+        }
+
+        .validation-panel-body {
+            padding: 0 1rem 0.85rem;
+            overflow-y: auto;
+            max-height: 240px;
+            font-size: 0.82rem;
+            line-height: 1.5;
+        }
+
+        .validation-issue-item {
+            padding: 0.55rem 0.65rem;
+            border-radius: 8px;
+            margin-bottom: 0.45rem;
+            background: rgba(0, 0, 0, 0.25);
+            border-left: 3px solid #f59e0b;
+            color: var(--text-primary);
+            font-size: 0.8rem;
+        }
+
+        .validation-panel.critical .validation-issue-item.critical {
+            border-left-color: var(--error);
+        }
+
+        .validation-issue-item.warning {
+            border-left-color: #64748b;
+            color: var(--text-secondary);
+        }
+
+        .validation-issue-type {
+            font-size: 0.68rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            margin-bottom: 0.2rem;
+        }
+
+        .validation-suggestions-title {
+            font-size: 0.68rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-muted);
+            margin: 0.65rem 0 0.4rem;
+        }
+
+        .validation-suggestion-item {
+            font-size: 0.78rem;
+            color: var(--text-secondary);
+            padding: 0.3rem 0;
+            line-height: 1.45;
+        }
+
+        .validation-suggestion-item::before {
+            content: '→';
+            color: var(--accent);
+            font-weight: 700;
+            margin-right: 0.4rem;
+        }
+
+        .btn-fix-layout {
+            margin: 0 1rem 0.85rem;
+            padding: 0.55rem 0.85rem;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s;
+            flex-shrink: 0;
+            display: none;
+        }
+
+        .btn-fix-layout:hover {
+            background: rgba(255, 255, 255, 0.12);
+        }
+
         .suggestions-block { display: none; }
         .suggestions-block.active { display: block; }
 
@@ -692,6 +855,7 @@
 
         .log-panel-body {
             flex: 1;
+            min-height: 0;
             overflow-y: auto;
             overflow-x: hidden;
             padding: 0.85rem;
@@ -1071,14 +1235,45 @@
                     </p>
                     <div class="verbose-toggle-row" style="margin-top: 0.85rem;">
                         <div>
+                            <span>Minimal style</span>
+                            <small>Simpler diagrams — like next-ai minimal mode</small>
+                        </div>
+                        <label class="toggle-switch" title="Toggle minimal diagram style">
+                            <input type="checkbox" id="minimal-style-toggle" onchange="savePromptSettings()">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="verbose-toggle-row" style="margin-top: 0.65rem;">
+                        <div>
                             <span>Pipeline logs</span>
-                            <small>Open right panel for step-by-step output</small>
+                            <small>Right panel — validation &amp; step-by-step output</small>
                         </div>
                         <label class="toggle-switch" title="Toggle pipeline log panel">
                             <input type="checkbox" id="verbose-toggle" onchange="toggleVerbosePanel()">
                             <span class="toggle-slider"></span>
                         </label>
                     </div>
+                    <div class="verbose-toggle-row" style="margin-top: 0.65rem;">
+                        <div>
+                            <span>Visual validation</span>
+                            <small>VLM checks rendered diagram for overlaps (needs vision API key)</small>
+                        </div>
+                        <label class="toggle-switch" title="Toggle VLM validation after render">
+                            <input type="checkbox" id="vlm-validation-toggle" checked onchange="savePromptSettings()">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <details class="settings-details" style="margin-top: 0.85rem;">
+                        <summary>▸ AI customization</summary>
+                        <div class="settings-details-content">
+                            <div class="custom-prompt-wrap">
+                                <label for="custom-system-message">Custom instructions</label>
+                                <textarea id="custom-system-message"
+                                    placeholder="Optional: e.g. Always use multi-AZ, prefer serverless, keep labels in Spanish…"
+                                    oninput="savePromptSettings()"></textarea>
+                            </div>
+                        </div>
+                    </details>
                 </div>
 
                 <div class="chat-panel">
@@ -1169,18 +1364,28 @@
             </div>
         </main>
 
-        <!-- Right: pipeline log panel -->
+        <!-- Right: validation + pipeline logs -->
         <aside id="log-panel" class="log-panel">
             <div class="log-panel-header">
                 <div class="title-block">
-                    <h2>Pipeline Logs</h2>
-                    <p>Client + server generation steps</p>
+                    <h2>Diagram Insights</h2>
+                    <p>Validation issues &amp; pipeline steps</p>
                 </div>
                 <div class="log-panel-actions">
                     <span id="log-count-badge" class="log-count-badge">0 entries</span>
-                    <button type="button" class="btn-log-action" onclick="clearVerboseLogs()">Clear</button>
+                    <button type="button" class="btn-log-action" onclick="clearVerboseLogs()">Clear logs</button>
                     <button type="button" class="btn-log-action" onclick="closeLogPanel()" title="Close panel">✕</button>
                 </div>
+            </div>
+            <div id="validation-panel" class="validation-panel">
+                <div class="validation-panel-header">
+                    <h3>Visual Validation</h3>
+                    <span id="validation-status-badge" class="validation-status-badge">Issues found</span>
+                </div>
+                <div id="validation-panel-body" class="validation-panel-body"></div>
+                <button type="button" id="btn-fix-layout" class="btn-fix-layout" onclick="fixLayoutIssues()">
+                    Fix layout automatically
+                </button>
             </div>
             <div id="verbose-log-body" class="log-panel-body">
                 <div class="log-empty">Turn on <strong>Pipeline logs</strong> in the left sidebar, then generate a diagram to see each step here with full details.</div>
@@ -1196,6 +1401,9 @@
 
         let currentXml = '';
         let currentArchitecture = null;
+        let previousArchitecture = null;
+        let lastValidationFeedback = null;
+        let pendingPngExport = null;
         let chatMessages = [];
         let isSending = false;
         let selectedPlatform = 'aws';
@@ -1203,9 +1411,14 @@
         let pendingXml = null;
         let messageHandler = null;
         let verboseLogging = false;
+        let validationPanelActive = false;
         let logEntryCount = 0;
 
         const VERBOSE_STORAGE_KEY = 'drawio-agent-verbose-logging';
+        const MINIMAL_STYLE_STORAGE_KEY = 'drawio-agent-minimal-style';
+        const CUSTOM_SYSTEM_MESSAGE_KEY = 'drawio-agent-custom-system-message';
+        const VLM_VALIDATION_KEY = 'drawio-agent-vlm-validation';
+        const MAX_VLM_CLIENT_RETRIES = 1;
 
         const EXAMPLE_PROMPTS = {
             aws: [
@@ -1232,6 +1445,157 @@
             azure: 'e.g., Add Azure Front Door WAF, or describe a new Azure architecture…',
             multi: 'e.g., Add cross-cloud VPN, or describe a hybrid architecture…',
         };
+
+        function getPromptSettings() {
+            return {
+                minimal_style: document.getElementById('minimal-style-toggle').checked,
+                custom_system_message: document.getElementById('custom-system-message').value.slice(0, 5000),
+                vlm_validation: document.getElementById('vlm-validation-toggle').checked,
+            };
+        }
+
+        function savePromptSettings() {
+            const minimal = document.getElementById('minimal-style-toggle').checked;
+            const custom = document.getElementById('custom-system-message').value.slice(0, 5000);
+            const vlm = document.getElementById('vlm-validation-toggle').checked;
+            localStorage.setItem(MINIMAL_STYLE_STORAGE_KEY, minimal ? '1' : '0');
+            localStorage.setItem(CUSTOM_SYSTEM_MESSAGE_KEY, custom);
+            localStorage.setItem(VLM_VALIDATION_KEY, vlm ? '1' : '0');
+        }
+
+        function initPromptSettings() {
+            document.getElementById('minimal-style-toggle').checked =
+                localStorage.getItem(MINIMAL_STYLE_STORAGE_KEY) === '1';
+            document.getElementById('custom-system-message').value =
+                localStorage.getItem(CUSTOM_SYSTEM_MESSAGE_KEY) || '';
+            const vlmStored = localStorage.getItem(VLM_VALIDATION_KEY);
+            document.getElementById('vlm-validation-toggle').checked =
+                vlmStored === null ? true : vlmStored === '1';
+        }
+
+        function hideValidationBanner() {
+            validationPanelActive = false;
+            const panel = document.getElementById('validation-panel');
+            panel.classList.remove('active', 'critical');
+            document.getElementById('validation-panel-body').innerHTML = '';
+            document.getElementById('btn-fix-layout').style.display = 'none';
+            lastValidationFeedback = null;
+            updateRightPanelVisibility();
+        }
+
+        function showValidationBanner(validation, feedback) {
+            const panel = document.getElementById('validation-panel');
+            const body = document.getElementById('validation-panel-body');
+            const fixBtn = document.getElementById('btn-fix-layout');
+            body.innerHTML = '';
+
+            const issues = validation?.issues || [];
+            issues.forEach(issue => {
+                const item = document.createElement('div');
+                item.className = `validation-issue-item ${issue.severity}`;
+                item.innerHTML = `
+                    <div class="validation-issue-type">${issue.type} · ${issue.severity}</div>
+                    <div>${issue.description}</div>`;
+                body.appendChild(item);
+            });
+
+            const suggestions = validation?.suggestions || [];
+            if (suggestions.length) {
+                const title = document.createElement('div');
+                title.className = 'validation-suggestions-title';
+                title.textContent = 'Suggestions';
+                body.appendChild(title);
+                suggestions.forEach(text => {
+                    const item = document.createElement('div');
+                    item.className = 'validation-suggestion-item';
+                    item.textContent = text;
+                    body.appendChild(item);
+                });
+            }
+
+            const hasCritical = issues.some(i => i.severity === 'critical');
+            panel.classList.toggle('critical', hasCritical);
+            panel.classList.add('active');
+            fixBtn.style.display = 'block';
+
+            const badge = document.getElementById('validation-status-badge');
+            badge.textContent = hasCritical
+                ? `${issues.length} critical`
+                : `${issues.length} warning${issues.length === 1 ? '' : 's'}`;
+
+            validationPanelActive = true;
+            lastValidationFeedback = feedback || buildClientValidationFeedback(validation);
+            updateRightPanelVisibility();
+        }
+
+        function buildClientValidationFeedback(validation) {
+            if (!validation?.issues?.length) return null;
+            const lines = ['DIAGRAM VALIDATION FAILED', ''];
+            validation.issues.forEach(issue => {
+                lines.push(`- [${issue.type}] ${issue.description}`);
+            });
+            (validation.suggestions || []).forEach(s => lines.push(`- ${s}`));
+            return lines.join('\n');
+        }
+
+        function exportDiagramPng() {
+            return new Promise((resolve, reject) => {
+                if (!drawioReady) {
+                    reject(new Error('Draw.io not ready'));
+                    return;
+                }
+                const iframe = document.getElementById('drawio-frame');
+                pendingPngExport = { resolve, reject };
+                iframe.contentWindow.postMessage(JSON.stringify({
+                    action: 'export',
+                    format: 'png',
+                    scale: 1,
+                }), DRAWIO_ORIGIN);
+                setTimeout(() => {
+                    if (pendingPngExport) {
+                        pendingPngExport.reject(new Error('PNG export timed out'));
+                        pendingPngExport = null;
+                    }
+                }, 8000);
+            });
+        }
+
+        async function runVisualValidation() {
+            const settings = getPromptSettings();
+            if (!settings.vlm_validation || !currentArchitecture) return;
+
+            try {
+                appendVerboseLog('validation', 'Exporting diagram PNG for VLM check', 'info');
+                const imageData = await exportDiagramPng();
+                const res = await fetch('/validate-diagram', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image_data: imageData }),
+                });
+                const data = await res.json();
+                mergeServerLogs(data.logs);
+                if (!res.ok) return;
+
+                const validation = data.validation;
+                appendVerboseLog('validation', 'VLM validation result', validation?.valid ? 'success' : 'warn', validation);
+
+                if (validation && !validation.valid) {
+                    showValidationBanner(validation, null);
+                    setDiagramStatus('Diagram loaded — layout issues detected');
+                } else {
+                    hideValidationBanner();
+                }
+            } catch (err) {
+                appendVerboseLog('validation', `VLM validation skipped: ${err.message}`, 'warn');
+            }
+        }
+
+        async function fixLayoutIssues() {
+            if (!lastValidationFeedback && !currentArchitecture) return;
+            const input = document.getElementById('chat-input');
+            input.value = 'Fix the layout issues identified in validation — improve spacing, edge routing, and remove overlaps.';
+            await sendMessage({ validationFeedback: lastValidationFeedback });
+        }
 
         function renderExampleChips() {
             const container = document.getElementById('example-chips');
@@ -1309,7 +1673,9 @@
             if (isSending) return;
             chatMessages = [];
             currentArchitecture = null;
+            previousArchitecture = null;
             currentXml = '';
+            hideValidationBanner();
             setActionButtonsEnabled(false);
             document.getElementById('xml-output').textContent = '';
             document.getElementById('xml-toggle').classList.remove('active');
@@ -1404,11 +1770,16 @@
             updateLogCount();
         }
 
+        function updateRightPanelVisibility() {
+            const open = verboseLogging || validationPanelActive;
+            document.getElementById('log-panel').classList.toggle('active', open);
+        }
+
         function setLogPanelOpen(open) {
             verboseLogging = open;
             document.getElementById('verbose-toggle').checked = open;
-            document.getElementById('log-panel').classList.toggle('active', open);
             localStorage.setItem(VERBOSE_STORAGE_KEY, open ? '1' : '0');
+            updateRightPanelVisibility();
         }
 
         function toggleVerbosePanel() {
@@ -1420,6 +1791,7 @@
         }
 
         function closeLogPanel() {
+            hideValidationBanner();
             setLogPanelOpen(false);
         }
 
@@ -1505,6 +1877,18 @@
                     document.getElementById('diagram-loading').classList.remove('active');
                     document.getElementById('diagram-placeholder').classList.add('hidden');
                     setDiagramStatus('Diagram loaded — pan and zoom to explore');
+                    setTimeout(() => runVisualValidation(), 600);
+                }
+
+                if (msg.event === 'export' && msg.data && pendingPngExport) {
+                    let dataUrl = msg.data;
+                    if (!dataUrl.startsWith('data:')) {
+                        dataUrl = 'data:image/png;base64,' + btoa(
+                            unescape(encodeURIComponent(msg.data))
+                        );
+                    }
+                    pendingPngExport.resolve(dataUrl);
+                    pendingPngExport = null;
                 }
             };
 
@@ -1595,26 +1979,30 @@
             document.getElementById('error-banner').classList.remove('active');
         }
 
-        async function sendMessage() {
+        async function sendMessage(options = {}) {
             const input = document.getElementById('chat-input');
-            const text = input.value.trim();
+            const text = (options.skipInput ? options.message : input.value).trim();
             const provider = document.getElementById('provider-select').value;
             const sendBtn = document.getElementById('send-btn');
+            const validationFeedback = options.validationFeedback || null;
 
             if (!text || isSending) {
-                if (!text) showError('Please enter a message.');
+                if (!text && !validationFeedback) showError('Please enter a message.');
                 return;
             }
 
             hideError();
+            hideValidationBanner();
             isSending = true;
             sendBtn.disabled = true;
             input.disabled = true;
 
-            chatMessages.push({ role: 'user', content: text });
-            appendChatBubble('user', text);
-            input.value = '';
-            autoResizeChatInput();
+            if (!options.skipInput) {
+                chatMessages.push({ role: 'user', content: text });
+                appendChatBubble('user', text);
+                input.value = '';
+                autoResizeChatInput();
+            }
 
             setProgress(10);
             setTyping(true);
@@ -1631,7 +2019,8 @@
             }
 
             try {
-                appendVerboseLog('client', 'POST /chat', 'info');
+                const promptSettings = getPromptSettings();
+                appendVerboseLog('client', 'POST /chat', 'info', promptSettings);
                 const res = await fetch('/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1640,6 +2029,10 @@
                         provider,
                         platform: selectedPlatform,
                         current_architecture: currentArchitecture,
+                        previous_architecture: previousArchitecture,
+                        minimal_style: promptSettings.minimal_style,
+                        custom_system_message: promptSettings.custom_system_message,
+                        validation_feedback: validationFeedback,
                     }),
                 });
 
@@ -1661,9 +2054,16 @@
                 });
 
                 currentXml = data.xml;
+                previousArchitecture = currentArchitecture;
                 currentArchitecture = data.architecture || null;
                 document.getElementById('xml-output').textContent = data.xml;
                 document.getElementById('xml-toggle').classList.add('active');
+
+                if (data.validation?.feedback) {
+                    showValidationBanner(data.validation.structural || data.validation.vlm, data.validation.feedback);
+                } else if (data.validation?.structural && !data.validation.structural.valid) {
+                    showValidationBanner(data.validation.structural, data.validation.feedback);
+                }
 
                 setTyping(false);
                 appendChatBubble('assistant', assistantText, data.suggestions || []);
@@ -1676,7 +2076,7 @@
                 appendVerboseLog('client', 'Chat turn complete', 'success');
             } catch (err) {
                 console.error(err);
-                chatMessages.pop();
+                if (!options.skipInput) chatMessages.pop();
                 setTyping(false);
                 appendVerboseLog('client', err.message || 'Request failed', 'error');
                 showError(err.message || 'Request failed. Check the server logs.');
@@ -1729,6 +2129,8 @@
 
         // Boot Draw.io iframe immediately so it is ready when the user sends a message
         initVerboseLogging();
+        initPromptSettings();
+        hideValidationBanner();
         ensureDrawioFrame();
         appendVerboseLog('drawio', 'Embed iframe created', 'info', { url: DRAWIO_URL });
         document.getElementById('provider-select').addEventListener('change', updateProviderHint);

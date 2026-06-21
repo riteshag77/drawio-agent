@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-MARGIN = 28
-LANE_STEP = 24
-CLEARANCE = 32
-_SLOT_POSITIONS = (0.25, 0.35, 0.5, 0.65, 0.75)
+MARGIN = 36
+LANE_STEP = 36
+CLEARANCE = 44
+_SLOT_POSITIONS = (0.2, 0.32, 0.45, 0.55, 0.68, 0.8)
 
 
 def _slot_value(slot: int) -> float:

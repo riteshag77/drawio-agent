@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 from style_builder import build_style
 from edge_router import collect_obstacles, route_edge
-from xml_utils import validate_and_fix_xml, wrap_with_mxfile
+from xml_utils import validate_and_fix_xml_legacy, wrap_with_mxfile
 
 if TYPE_CHECKING:
     from pipeline_log import StepLogger
@@ -14,6 +14,98 @@ def _escape_xml(text: str) -> str:
     if not text:
         return ""
     return html_module.escape(str(text), quote=True)
+
+
+def _normalize_edge_label(label: str | None) -> str:
+    """Shorten edge labels to reduce overlap (protocol-only, max ~10 chars)."""
+    if not label:
+        return ""
+    text = str(label).strip()
+    if not text:
+        return ""
+
+    lower = text.lower()
+    protocol_map = {
+        "https": "HTTPS",
+        "http/s": "HTTPS",
+        "http": "HTTP",
+        "sql": "SQL",
+        "redis": "Redis",
+        "grpc": "gRPC",
+        "rest": "REST",
+        "tcp": "TCP",
+        "udp": "UDP",
+        "amqp": "AMQP",
+        "mqtt": "MQTT",
+    }
+    for key, short in protocol_map.items():
+        if key in lower and len(text) > len(short):
+            # Prefer single protocol token when label combines service + protocol
+            if any(p in lower for p in ("https", "http", "sql", "redis", "grpc")):
+                if "redis" in lower and "https" in lower:
+                    return "Redis"
+                if "sql" in lower and "https" in lower:
+                    return "SQL"
+                if "http" in lower:
+                    return "HTTPS"
+            return short
+
+    if len(text) > 12:
+        # "Logs/Metrics" → keep; "Get Secrets from KV" → truncate
+        if "/" in text and len(text) <= 14:
+            return text
+        return text[:10].rstrip()
+    return text
+
+
+# Relative position along edge (0–1) and perpendicular pixel offset for label placement.
+_LABEL_OFFSETS: list[tuple[float, int, str]] = [
+    (0.22, -22, "top"),
+    (0.42, 18, "bottom"),
+    (0.55, -26, "top"),
+    (0.68, 14, "bottom"),
+    (0.32, 10, "bottom"),
+    (0.58, -16, "top"),
+    (0.75, 22, "bottom"),
+    (0.48, -12, "top"),
+]
+
+
+def _edge_label_style_and_geometry(
+    label: str,
+    label_slot: int,
+    *,
+    has_waypoints: bool,
+) -> tuple[list[str], list[str]]:
+    """Return extra style parts and mxGeometry XML lines for non-overlapping edge labels."""
+    if not label:
+        return [], ['      <mxGeometry relative="1" as="geometry" />']
+
+    rel_pos, perp_offset, v_pos = _LABEL_OFFSETS[label_slot % len(_LABEL_OFFSETS)]
+    h_pos = "left" if label_slot % 3 == 0 else ("right" if label_slot % 3 == 1 else "center")
+
+    style_parts = [
+        f"verticalLabelPosition={v_pos}",
+        f"horizontalLabelPosition={h_pos}",
+        "labelBackgroundColor=#ffffff",
+        "labelBorderColor=#ffffff",
+        "spacingTop=2",
+        "spacingBottom=2",
+        "fontSize=10",
+    ]
+
+    if has_waypoints:
+        geom = [
+            '      <mxGeometry relative="1" as="geometry">',
+            f'        <mxPoint x="{rel_pos}" y="{perp_offset}" as="offset" />',
+            '      </mxGeometry>',
+        ]
+    else:
+        geom = [
+            f'      <mxGeometry x="{rel_pos}" y="{perp_offset}" relative="1" as="geometry" />',
+        ]
+
+    return style_parts, geom
 
 
 def _subnet_tier(nid: str, nodes_by_id: dict) -> int:
@@ -82,8 +174,8 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
 
     LEAF_W = 60
     LEAF_H = 60
-    LEAF_CELL_W = 140
-    LEAF_CELL_H = 100
+    LEAF_CELL_W = 168
+    LEAF_CELL_H = 112
     CONTAINER_PAD_TOP = 48
     CONTAINER_PAD = 40
     CONTAINER_GAP = 36
@@ -170,7 +262,7 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
             offset_x = (cell_w - kw) // 2
             offset_y = (cell_h - kh) // 2
             children_pos[kid] = (lx + offset_x, ly + offset_y)
-            lx += cell_w
+            lx += cell_w + 12
             leaf_row_max_h = max(leaf_row_max_h, cell_h)
 
         leaf_right = lx if leaf_kids else CONTAINER_PAD
@@ -243,7 +335,7 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
             ly = ROOT_TOP
         layout[rid]["global_x"] = lx
         layout[rid]["global_y"] = ly
-        ly += LEAF_CELL_H + 36
+        ly += LEAF_CELL_H + 44
 
     left_max_x = 40
     if left_leaves:
@@ -289,7 +381,7 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
             ry += LEAF_CELL_H + 30
 
     max_main_h = max([layout[rid]["h"] for rid in main_containers]) if main_containers else 0
-    group_y = ROOT_TOP + max_main_h + 160
+    group_y = ROOT_TOP + max_main_h + 200
 
     blx = max(left_max_x, 360)
     for rid in bottom_leaves:
@@ -301,7 +393,7 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
             continue
         layout[rid]["global_x"] = blx
         layout[rid]["global_y"] = group_y
-        blx += LEAF_CELL_W + 50
+        blx += LEAF_CELL_W + 72
 
     gcx = blx + 40 if bottom_leaves else 400
     for rid in group_containers:
@@ -365,6 +457,8 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
             style += ";fontFamily=Helvetica,Arial,sans-serif;"
         if not node.is_container and "perimeter=" not in style:
             style += ";perimeter=orthogonalPerimeter;"
+        if not node.is_container:
+            style += ";whiteSpace=wrap;html=1;align=center;verticalAlign=top;spacingTop=4;spacingBottom=6;"
 
         label = _escape_xml(node.label)
 
@@ -398,6 +492,9 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
     source_slots: dict[str, int] = {}
     target_slots: dict[str, int] = {}
     edge_lane = 0
+
+    source_label_slots: dict[str, int] = {}
+    target_label_slots: dict[str, int] = {}
 
     for edge in sorted_edges:
         if edge.source_id not in nodes_by_id or edge.target_id not in nodes_by_id:
@@ -477,7 +574,6 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
 
         edge_style_parts.append(f"strokeColor={color}")
         edge_style_parts.append(f"fontColor={color}")
-        edge_style_parts.append(f"labelBackgroundColor=#ffffff")
 
         if edge.style == "dashed":
             edge_style_parts.append("dashed=1")
@@ -487,8 +583,22 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         elif is_flow_edge:
             edge_style_parts.append("flowAnimation=1")
 
+        raw_label = _normalize_edge_label(edge.label)
+        src_label_idx = source_label_slots.get(edge.source_id, 0)
+        tgt_label_idx = target_label_slots.get(edge.target_id, 0)
+        source_label_slots[edge.source_id] = src_label_idx + 1
+        target_label_slots[edge.target_id] = tgt_label_idx + 1
+        label_slot = edge_lane + exit_slot + entry_slot + src_label_idx + tgt_label_idx
+
+        label_style_parts, label_geom_lines = _edge_label_style_and_geometry(
+            raw_label,
+            label_slot,
+            has_waypoints=bool(waypoints),
+        )
+        edge_style_parts.extend(label_style_parts)
+
         edge_style = ";".join(edge_style_parts) + ";"
-        label = _escape_xml(edge.label or "")
+        label = _escape_xml(raw_label)
 
         xml.append(
             f'    <mxCell id="{eid}" value="{label}" '
@@ -501,14 +611,20 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
             for wx, wy in waypoints:
                 xml.append(f'          <mxPoint x="{wx}" y="{wy}" />')
             xml.append('        </Array>')
+            if raw_label and label_geom_lines:
+                # offset point inside geometry with waypoints
+                rel_pos, perp_offset, _ = _LABEL_OFFSETS[label_slot % len(_LABEL_OFFSETS)]
+                xml.append(f'        <mxPoint x="{rel_pos}" y="{perp_offset}" as="offset" />')
             xml.append('      </mxGeometry>')
+        elif raw_label and label_geom_lines:
+            xml.extend(label_geom_lines)
         else:
             xml.append('      <mxGeometry relative="1" as="geometry" />')
         xml.append('    </mxCell>')
 
     xml.extend(['  </root>', '</mxGraphModel>'])
     graph_xml = "\n".join(xml)
-    graph_xml, fixes = validate_and_fix_xml(graph_xml)
+    graph_xml, fixes = validate_and_fix_xml_legacy(graph_xml)
     wrapped = wrap_with_mxfile(graph_xml, f"{platform_label} Architecture")
 
     if logger:

@@ -5,8 +5,8 @@ To update to a newer draw.io shape library, change only the version prefix const
 """
 
 _ICON_LABEL = (
-    "fontSize=11;fontColor=#232F3E;labelBackgroundColor=#ffffff;"
-    "verticalLabelPosition=bottom;verticalAlign=top;align=center;spacingTop=2;"
+    "fontSize=10;fontColor=#232F3E;labelBackgroundColor=#ffffff;"
+    "verticalLabelPosition=bottom;verticalAlign=top;align=center;spacingTop=4;spacingBottom=8;"
 )
 AWS_LIB = "mxgraph.aws4"           # Also used for generic/user/internet shapes
 GCP_LIB = "mxgraph.gcp2"
