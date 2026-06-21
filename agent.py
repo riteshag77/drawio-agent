@@ -4,12 +4,12 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import SystemMessage, HumanMessage   # ← replaces ChatPromptTemplate
+from langchain_core.messages import HumanMessage, SystemMessage
 from models import ArchitectureDiagram
 from dotenv import load_dotenv
 
@@ -35,6 +35,50 @@ PLATFORM_LABELS = {
     "azure": "Microsoft Azure",
     "multi": "Multi-Cloud / Hybrid",
 }
+
+CHAT_INSTRUCTIONS = """
+You are in a multi-turn chat helping the user build and refine cloud architecture diagrams.
+
+When a current architecture JSON is provided, treat it as the authoritative starting point.
+Apply only the changes requested in the latest message. Preserve existing node `id` values
+when updating or relabeling components. Return the COMPLETE updated diagram JSON every time.
+
+Output ONLY one valid JSON object matching the schema — no markdown fences, no commentary.
+"""
+
+
+def _summarize_diagram(diagram: ArchitectureDiagram) -> str:
+    containers = sum(1 for n in diagram.nodes if n.is_container)
+    return (
+        f"Diagram updated: {len(diagram.nodes)} nodes ({containers} containers), "
+        f"{len(diagram.edges)} edges."
+    )
+
+
+def _build_chat_prompt(
+    messages: list[dict[str, str]],
+    platform_label: str,
+    current_architecture: ArchitectureDiagram | None,
+) -> str:
+    if not messages:
+        raise ValueError("At least one user message is required.")
+
+    parts: list[str] = []
+    if current_architecture is not None:
+        parts.append(
+            "Current architecture JSON (modify this; return the full updated object):\n"
+            f"{current_architecture.model_dump_json()}"
+        )
+
+    if len(messages) > 1:
+        parts.append("\nConversation so far:")
+        for msg in messages[:-1]:
+            role = msg.get("role", "user").upper()
+            parts.append(f"{role}: {msg.get('content', '')}")
+
+    parts.append(f"\nTarget cloud platform: {platform_label}")
+    parts.append(f"\nLatest user request:\n{messages[-1].get('content', '')}")
+    return "\n".join(parts)
 
 
 def get_system_prompt() -> str:
@@ -190,22 +234,29 @@ def generate_architecture_json(
     provider: str = "openai",
     platform: str = "aws",
     logger: "StepLogger | None" = None,
+    messages: list[dict[str, str]] | None = None,
+    current_architecture: ArchitectureDiagram | None = None,
 ) -> ArchitectureDiagram:
     """
     Generate an architecture diagram JSON using the selected AI provider.
 
     Args:
-        user_request: Natural-language description of the architecture to generate.
+        user_request: Natural-language description (used when messages is None).
         provider:     "openai" | "gemini" | "claude" | "cursor"
         platform:     "aws" | "gcp" | "azure" | "multi"
+        messages:     Optional full chat history; last entry must be the latest user message.
+        current_architecture: Previous diagram for iterative edits.
 
     Returns:
         A validated ArchitectureDiagram Pydantic model instance.
     """
-    # BUG 4 FIX: use a different local name to avoid shadowing the parameter
     platform_key = (platform or "aws").strip().lower()
     platform_label = PLATFORM_LABELS.get(platform_key, PLATFORM_LABELS["aws"])
     provider_key = (provider or "openai").strip().lower()
+
+    chat_messages = messages
+    if chat_messages is None:
+        chat_messages = [{"role": "user", "content": user_request}]
 
     if logger:
         logger.log(
@@ -215,11 +266,15 @@ def generate_architecture_json(
                 "platform": platform_key,
                 "platform_label": platform_label,
                 "provider": provider_key,
-                "prompt_chars": len(user_request),
+                "turns": len(chat_messages),
+                "has_existing_diagram": current_architecture is not None,
             },
         )
 
     system_prompt = get_system_prompt()
+    if current_architecture is not None or len(chat_messages) > 1:
+        system_prompt = f"{system_prompt}\n\n{CHAT_INSTRUCTIONS}"
+
     if logger:
         logger.log(
             "system_prompt",
@@ -227,10 +282,7 @@ def generate_architecture_json(
             details={"chars": len(system_prompt), "path": "system_prompt.txt"},
         )
 
-    human_content = (
-        f"Target cloud platform: {platform_label}\n\n"
-        f"Architecture request:\n{user_request}"
-    )
+    human_content = _build_chat_prompt(chat_messages, platform_label, current_architecture)
 
     if provider_key == "cursor":
         if logger:
@@ -246,7 +298,7 @@ def generate_architecture_json(
             logger=logger,
         )
 
-    messages = [
+    langchain_messages: list[Any] = [
         SystemMessage(content=system_prompt),
         HumanMessage(content=human_content),
     ]
@@ -260,17 +312,12 @@ def generate_architecture_json(
         )
 
     llm = _build_llm(provider)
-
-    # BUG 3 FIX: invoke structured_llm directly instead of piping through
-    # a RunnableSequence (prompt_template | structured_llm).
-    # Direct invocation avoids ChatPromptValue → message conversion edge cases
-    # that can break Claude and Gemini's tool-calling paths.
     structured_llm = llm.with_structured_output(ArchitectureDiagram)
 
     if logger:
         logger.log("llm", "Calling LLM for structured architecture JSON")
 
-    result = structured_llm.invoke(messages)
+    result = structured_llm.invoke(langchain_messages)
 
     if logger:
         containers = sum(1 for node in result.nodes if node.is_container)
@@ -289,3 +336,28 @@ def generate_architecture_json(
         )
 
     return result
+
+
+def generate_architecture_from_chat(
+    messages: list[dict[str, str]],
+    provider: str = "openai",
+    platform: str = "aws",
+    current_architecture: ArchitectureDiagram | None = None,
+    logger: "StepLogger | None" = None,
+) -> tuple[ArchitectureDiagram, str]:
+    """Run one chat turn and return the diagram plus a short assistant summary."""
+    if not messages or messages[-1].get("role") != "user":
+        raise ValueError("Chat must end with a user message.")
+
+    diagram = generate_architecture_json(
+        user_request=messages[-1]["content"],
+        provider=provider,
+        platform=platform,
+        logger=logger,
+        messages=messages,
+        current_architecture=current_architecture,
+    )
+    summary = _summarize_diagram(diagram)
+    if diagram.suggestions:
+        summary += f" {len(diagram.suggestions)} suggestion(s) included."
+    return diagram, summary

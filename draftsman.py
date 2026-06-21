@@ -3,6 +3,7 @@ import re
 from typing import TYPE_CHECKING
 
 from style_builder import build_style
+from edge_router import collect_obstacles, route_edge
 from xml_utils import validate_and_fix_xml, wrap_with_mxfile
 
 if TYPE_CHECKING:
@@ -56,70 +57,6 @@ def _get_abs_bounds(nid: str, nodes_by_id: dict, layout: dict) -> tuple[int, int
         cx, cy = ld.get("children_pos", {}).get(nid, (0, 0))
         return px + cx, py + cy, w, h
     return ld.get("global_x", 0), ld.get("global_y", 0), w, h
-
-
-def _anchor_points(
-    src_box: tuple,
-    tgt_box: tuple,
-    *,
-    slot: int = 0,
-) -> tuple[float, float, float, float]:
-    sx, sy, sw, sh = src_box
-    tx, ty, tw, th = tgt_box
-    scx, scy = sx + sw / 2, sy + sh / 2
-    tcx, tcy = tx + tw / 2, ty + th / 2
-    dx, dy = tcx - scx, tcy - scy
-
-    # Stagger attachment points when multiple edges share the same node pair.
-    offsets = (0.3, 0.5, 0.7)
-    slot_idx = max(0, min(slot, len(offsets) - 1))
-    along = offsets[slot_idx]
-
-    if abs(dx) >= abs(dy):
-        if dx >= 0:
-            return 1, along, 0, along
-        return 0, along, 1, along
-    if dy >= 0:
-        return along, 1, along, 0
-    return along, 0, along, 1
-
-
-def _edge_corridor_waypoints(
-    src_box: tuple,
-    tgt_box: tuple,
-    exit_x: float,
-    exit_y: float,
-    entry_x: float,
-    entry_y: float,
-) -> list[tuple[int, int]]:
-    sx, sy, sw, sh = src_box
-    tx, ty, tw, th = tgt_box
-    src_px = int(sx + sw * exit_x)
-    src_py = int(sy + sh * exit_y)
-    tgt_px = int(tx + tw * entry_x)
-    tgt_py = int(ty + th * entry_y)
-
-    gap = 50
-    overlap_x = sx < tx + tw and tx < sx + sw
-    overlap_y = sy < ty + th and ty < sy + sh
-
-    if overlap_x and overlap_y:
-        corridor_x = int(min(sx, tx) - gap) if exit_x <= 0.5 else int(max(sx + sw, tx + tw) + gap)
-        return [(corridor_x, src_py), (corridor_x, tgt_py)]
-
-    if abs(src_px - tgt_px) < 40 and abs(src_py - tgt_py) > 50:
-        mid_y = int((src_py + tgt_py) / 2)
-        return [(src_px, mid_y), (tgt_px, mid_y)]
-
-    if abs(src_py - tgt_py) < 40 and abs(src_px - tgt_px) > 50:
-        mid_x = int((src_px + tgt_px) / 2)
-        return [(mid_x, src_py), (mid_x, tgt_py)]
-
-    if abs(src_px - tgt_px) > 80 and abs(src_py - tgt_py) > 80:
-        mid_x = int((src_px + tgt_px) / 2)
-        return [(mid_x, src_py), (mid_x, tgt_py)]
-
-    return []
 
 
 def _edge_sort_key(edge, nodes_by_id: dict) -> tuple:
@@ -325,6 +262,14 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         layout[rid]["global_y"] = cy
         cx += layout[rid]["w"] + ROOT_GAP
 
+    main_flow_y: int | None = None
+    if main_containers:
+        rid0 = main_containers[0]
+        main_flow_y = layout[rid0]["global_y"] + layout[rid0]["h"] // 2
+        for rid in left_leaves:
+            if nodes_by_id[rid].x is None:
+                layout[rid]["global_y"] = main_flow_y - layout[rid]["h"] // 2
+
     rx = cx + 60
     ry = ROOT_TOP
     for i, rid in enumerate(right_leaves):
@@ -333,12 +278,15 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
             layout[rid]["global_x"] = node.x
             layout[rid]["global_y"] = node.y if node.y is not None else ry
             continue
+        if main_flow_y is not None:
+            ry = main_flow_y - layout[rid]["h"] // 2
         if i > 0 and i % 4 == 0:
             rx += LEAF_CELL_W + 20
-            ry = ROOT_TOP
+            ry = main_flow_y - layout[rid]["h"] // 2 if main_flow_y else ROOT_TOP
         layout[rid]["global_x"] = rx
         layout[rid]["global_y"] = ry
-        ry += LEAF_CELL_H + 30
+        if main_flow_y is None:
+            ry += LEAF_CELL_H + 30
 
     max_main_h = max([layout[rid]["h"] for rid in main_containers]) if main_containers else 0
     group_y = ROOT_TOP + max_main_h + 160
@@ -440,7 +388,16 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
             xml.append('    </mxCell>')
 
     sorted_edges = sorted(architecture.edges, key=lambda e: _edge_sort_key(e, nodes_by_id))
-    edge_pair_slots: dict[tuple[str, str], int] = {}
+
+    node_bounds = {
+        nid: _get_abs_bounds(nid, nodes_by_id, layout)
+        for nid in nodes_by_id
+    }
+    container_ids = {nid for nid, n in nodes_by_id.items() if n.is_container}
+
+    source_slots: dict[str, int] = {}
+    target_slots: dict[str, int] = {}
+    edge_lane = 0
 
     for edge in sorted_edges:
         if edge.source_id not in nodes_by_id or edge.target_id not in nodes_by_id:
@@ -449,14 +406,36 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         cell_id += 1
         eid = f"edge_{cell_id}"
 
-        pair_key = (edge.source_id, edge.target_id)
-        slot = edge_pair_slots.get(pair_key, 0)
-        edge_pair_slots[pair_key] = slot + 1
+        exit_slot = source_slots.get(edge.source_id, 0)
+        source_slots[edge.source_id] = exit_slot + 1
+        entry_slot = target_slots.get(edge.target_id, 0)
+        target_slots[edge.target_id] = entry_slot + 1
 
-        src_box = _get_abs_bounds(edge.source_id, nodes_by_id, layout)
-        tgt_box = _get_abs_bounds(edge.target_id, nodes_by_id, layout)
-        exit_x, exit_y, entry_x, entry_y = _anchor_points(src_box, tgt_box, slot=slot)
-        waypoints = _edge_corridor_waypoints(src_box, tgt_box, exit_x, exit_y, entry_x, entry_y)
+        src_box = node_bounds[edge.source_id]
+        tgt_box = node_bounds[edge.target_id]
+        obstacles = collect_obstacles(
+            node_bounds,
+            exclude={edge.source_id, edge.target_id},
+            include_containers=True,
+            container_ids=container_ids,
+        )
+
+        scx = src_box[0] + src_box[2] / 2
+        tcx = tgt_box[0] + tgt_box[2] / 2
+        prefer_horizontal = abs(tcx - scx) >= abs(
+            (src_box[1] + src_box[3] / 2) - (tgt_box[1] + tgt_box[3] / 2)
+        )
+
+        exit_x, exit_y, entry_x, entry_y, waypoints = route_edge(
+            src_box,
+            tgt_box,
+            obstacles,
+            exit_slot=exit_slot,
+            entry_slot=entry_slot,
+            lane=edge_lane,
+            prefer_horizontal=prefer_horizontal,
+        )
+        edge_lane += 1
 
         src = nodes_by_id.get(edge.source_id)
         tgt = nodes_by_id.get(edge.target_id)
@@ -467,6 +446,7 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
             and src_step < 900
             and tgt_step < 900
             and abs(src_step - tgt_step) <= 1
+            and not waypoints
         )
 
         edge_style_parts = [
@@ -478,11 +458,9 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
             "strokeWidth=2",
             "fontSize=11",
             "fontFamily=Helvetica,Arial,sans-serif",
-            "endArrow=classicThin",
+            "endArrow=classic",
             "startArrow=none",
             "endFill=1",
-            "jumpStyle=arc",
-            "jumpSize=6",
             f"exitX={exit_x}",
             f"exitY={exit_y}",
             "exitDx=0",

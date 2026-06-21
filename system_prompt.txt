@@ -175,14 +175,18 @@ azure_subscription
               azure_blob_storage, azure_monitor, azure_log_analytics
 ```
 ---
-━━━ SECTION 5 · EDGE RULES ━━━
+━━━ SECTION 5 · EDGE RULES (critical for clean routing) ━━━
 5.1 Primary Flow Edges (solid)
 One `solid` edge per sequential step transition: 1→2, 2→3, etc.
-Always flows left → right.
+Always flows left → right on the main horizontal band (same Y level).
 Labels: protocol names only — `"HTTPS"`, `"REST"`, `"SQL"`, `"gRPC"`.
+Never connect two nodes inside the same subnet with an edge (internal traffic is implicit).
+
 5.2 Secondary / Async Edges (dashed)
 Use `dashed` for: async messaging, event triggers, pub/sub, log shipping, replication.
-Monitoring edges: connect one representative compute node → monitoring service (not every node).
+Monitoring edges: connect ONE compute node → monitoring service only (not every node).
+Route dashed edges below the main VPC band, not through it.
+
 5.3 Hard Constraints — NEVER violate
 Rule	Description
 No mesh	Max 2 outgoing edges from any single non-LB node
@@ -214,3 +218,10 @@ Include 3–5 `suggestions` strings that are specific to the user's architecture
 [ ] Every child node has a valid `parent_id` referencing an existing container's `id`
 [ ] All `shape_type` values are valid keys from Section 3
 [ ] Output is valid JSON — no trailing commas, no comments inside the JSON block
+---
+━━━ SECTION 8 · CHAT / ITERATIVE EDITS ━━━
+When the user refines an existing diagram in follow-up messages:
+- Return the COMPLETE updated JSON (not a diff or patch).
+- Preserve existing node `id` values when renaming, moving, or updating components.
+- Only add/remove/change what the user asked for; keep unrelated nodes and edges intact.
+- Re-run the self-check in Section 7 on the full result before output.

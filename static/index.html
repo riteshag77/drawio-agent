@@ -56,6 +56,7 @@
             background: var(--sidebar-bg);
             color: var(--text-primary);
             flex-shrink: 0;
+            min-height: 0;
         }
 
         .sidebar-header {
@@ -78,16 +79,280 @@
 
         .sidebar-body {
             flex: 1;
-            overflow-y: auto;
-            padding: 1.25rem 1.5rem;
+            min-height: 0;
+            overflow: hidden;
+            padding: 0;
             display: flex;
             flex-direction: column;
-            gap: 1.25rem;
+        }
+
+        .settings-section {
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid var(--sidebar-border);
+            flex-shrink: 0;
+        }
+
+        .settings-row {
+            display: flex;
+            gap: 0.75rem;
+            align-items: flex-end;
+        }
+
+        .settings-row > div { flex: 1; min-width: 0; }
+
+        /* ── Chat panel ─────────────────────────── */
+        .chat-panel {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chat-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.65rem 1.5rem;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+            flex-shrink: 0;
+        }
+
+        .chat-toolbar span {
+            font-size: 0.72rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .btn-chat-clear {
+            border: none;
+            background: transparent;
+            color: var(--text-muted);
+            font-family: inherit;
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            padding: 0.25rem 0.5rem;
+            border-radius: 6px;
+            transition: color 0.15s, background 0.15s;
+        }
+
+        .btn-chat-clear:hover {
+            color: var(--text-primary);
+            background: rgba(255,255,255,0.06);
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.85rem;
+        }
+
+        .chat-welcome {
+            text-align: center;
+            padding: 1.5rem 0.5rem;
+            color: var(--text-secondary);
+        }
+
+        .chat-welcome h3 {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .chat-welcome p {
+            font-size: 0.82rem;
+            line-height: 1.55;
+            margin-bottom: 1rem;
+        }
+
+        .example-chips {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .example-chip {
+            text-align: left;
+            padding: 0.65rem 0.85rem;
+            border-radius: 10px;
+            border: 1px solid var(--sidebar-border);
+            background: rgba(255,255,255,0.03);
+            color: var(--text-secondary);
+            font-family: inherit;
+            font-size: 0.78rem;
+            line-height: 1.45;
+            cursor: pointer;
+            transition: border-color 0.15s, background 0.15s, color 0.15s;
+        }
+
+        .example-chip:hover {
+            border-color: rgba(255,255,255,0.15);
+            background: rgba(255,255,255,0.06);
+            color: var(--text-primary);
+        }
+
+        .chat-message {
+            display: flex;
+            flex-direction: column;
+            max-width: 92%;
+            animation: fadeIn 0.2s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .chat-message.user { align-self: flex-end; }
+        .chat-message.assistant { align-self: flex-start; }
+
+        .chat-bubble {
+            padding: 0.75rem 0.9rem;
+            border-radius: 14px;
+            font-size: 0.86rem;
+            line-height: 1.55;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .chat-message.user .chat-bubble {
+            background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+
+        .chat-message.assistant .chat-bubble {
+            background: rgba(255,255,255,0.06);
+            border: 1px solid var(--sidebar-border);
+            color: var(--text-primary);
+            border-bottom-left-radius: 4px;
+        }
+
+        .chat-meta {
+            font-size: 0.68rem;
+            color: var(--text-muted);
+            margin-top: 0.3rem;
+            padding: 0 0.25rem;
+        }
+
+        .chat-message.user .chat-meta { text-align: right; }
+
+        .chat-suggestions {
+            margin-top: 0.5rem;
+            padding: 0.65rem 0.75rem;
+            border-radius: 10px;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .chat-suggestions-title {
+            font-size: 0.68rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-muted);
+            margin-bottom: 0.45rem;
+        }
+
+        .chat-suggestion-item {
+            font-size: 0.78rem;
+            color: var(--text-secondary);
+            line-height: 1.45;
+            padding: 0.35rem 0;
+        }
+
+        .chat-suggestion-item::before {
+            content: '→';
+            color: var(--accent);
+            font-weight: 700;
+            margin-right: 0.4rem;
+        }
+
+        .chat-typing {
+            align-self: flex-start;
+            display: none;
+            padding: 0.75rem 1rem;
+            border-radius: 14px;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid var(--sidebar-border);
+            gap: 0.35rem;
+        }
+
+        .chat-typing.active { display: flex; }
+
+        .chat-typing span {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--text-muted);
+            animation: typingBounce 1.2s infinite ease-in-out;
+        }
+
+        .chat-typing span:nth-child(2) { animation-delay: 0.15s; }
+        .chat-typing span:nth-child(3) { animation-delay: 0.3s; }
+
+        @keyframes typingBounce {
+            0%, 60%, 100% { transform: translateY(0); opacity: 0.45; }
+            30% { transform: translateY(-4px); opacity: 1; }
+        }
+
+        .chat-extras {
+            padding: 0 1.5rem 0.75rem;
+            flex-shrink: 0;
         }
 
         .sidebar-footer {
-            padding: 1rem 1.5rem 1.25rem;
+            padding: 0.85rem 1.5rem 1.1rem;
             border-top: 1px solid var(--sidebar-border);
+            flex-shrink: 0;
+        }
+
+        .chat-input-wrap {
+            display: flex;
+            gap: 0.6rem;
+            align-items: flex-end;
+        }
+
+        .chat-input-wrap textarea { flex: 1; }
+
+        .btn-send {
+            flex-shrink: 0;
+            width: 44px;
+            height: 44px;
+            border: none;
+            border-radius: 10px;
+            background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.15s, opacity 0.15s;
+        }
+
+        .btn-send:hover:not(:disabled) {
+            transform: translateY(-1px);
+        }
+
+        .btn-send:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-send svg { width: 18px; height: 18px; }
+
+        .chat-hint {
+            margin-top: 0.45rem;
+            font-size: 0.68rem;
+            color: var(--text-muted);
+            text-align: center;
         }
 
         label {
@@ -106,6 +371,11 @@
             gap: 0.6rem;
         }
 
+        .settings-section .platform-grid {
+            grid-template-columns: repeat(4, 1fr);
+            gap: 0.45rem;
+        }
+
         .platform-card {
             background: rgba(255, 255, 255, 0.04);
             border: 1px solid var(--sidebar-border);
@@ -115,6 +385,10 @@
             transition: all 0.2s ease;
             text-align: center;
             user-select: none;
+        }
+
+        .settings-section .platform-card {
+            padding: 0.5rem 0.35rem;
         }
 
         .platform-card:hover {
@@ -129,12 +403,19 @@
 
         .platform-icon { font-size: 1.25rem; margin-bottom: 0.25rem; }
 
+        .settings-section .platform-icon {
+            font-size: 1rem;
+            margin-bottom: 0.15rem;
+        }
+
         .platform-name {
             font-size: 0.75rem;
             font-weight: 600;
             color: var(--text-primary);
             line-height: 1.3;
         }
+
+        .settings-section .platform-name { font-size: 0.68rem; }
 
         textarea, select {
             width: 100%;
@@ -152,6 +433,15 @@
             min-height: 120px;
             resize: vertical;
             line-height: 1.55;
+        }
+
+        .chat-input-wrap textarea {
+            min-height: 44px;
+            max-height: 140px;
+            resize: none;
+            line-height: 1.5;
+            padding: 0.7rem 0.85rem;
+            flex: 1;
         }
 
         textarea:focus, select:focus {
@@ -739,11 +1029,11 @@
         <aside class="sidebar">
             <div class="sidebar-header">
                 <h1>Cloud Architecture Generator</h1>
-                <p>Describe your architecture and preview it live in Draw.io.</p>
+                <p>Chat to create and refine architectures with live Draw.io preview.</p>
             </div>
 
             <div class="sidebar-body">
-                <div>
+                <div class="settings-section">
                     <label>Target Cloud Platform</label>
                     <div class="platform-grid">
                         <div class="platform-card active" data-platform="aws" onclick="selectPlatform('aws')">
@@ -752,7 +1042,7 @@
                         </div>
                         <div class="platform-card" data-platform="gcp" onclick="selectPlatform('gcp')">
                             <div class="platform-icon">⚡</div>
-                            <div class="platform-name">Google Cloud</div>
+                            <div class="platform-name">GCP</div>
                         </div>
                         <div class="platform-card" data-platform="azure" onclick="selectPlatform('azure')">
                             <div class="platform-icon">🔷</div>
@@ -760,66 +1050,80 @@
                         </div>
                         <div class="platform-card" data-platform="multi" onclick="selectPlatform('multi')">
                             <div class="platform-icon">🌐</div>
-                            <div class="platform-name">Multi-Cloud</div>
+                            <div class="platform-name">Multi</div>
                         </div>
                     </div>
-                </div>
-
-                <div>
-                    <label for="prompt-input">Architecture Description</label>
-                    <textarea id="prompt-input"
-                        placeholder='e.g., "Highly available web app with API Gateway, Fargate in public/private subnets, Aurora, ElastiCache, CloudFront, Route 53, WAF, CloudWatch"'>A highly available web app with an API gateway, Fargate tasks in public and private subnets, Aurora database, ElastiCache, CloudFront CDN, Route 53, WAF, and CloudWatch monitoring</textarea>
-                </div>
-
-                <div>
-                    <label for="provider-select">AI Provider</label>
-                    <select id="provider-select">
-                        <option value="gemini">Google Gemini</option>
-                        <option value="openai">OpenAI GPT-4o</option>
-                        <option value="claude">Claude Sonnet 4</option>
-                        <option value="cursor">Cursor Composer 2.5</option>
-                    </select>
+                    <div class="settings-row" style="margin-top: 0.85rem;">
+                        <div>
+                            <label for="provider-select">AI Provider</label>
+                            <select id="provider-select">
+                                <option value="gemini">Google Gemini</option>
+                                <option value="openai">OpenAI GPT-4o</option>
+                                <option value="claude">Claude Sonnet 4</option>
+                                <option value="cursor">Cursor Composer 2.5</option>
+                            </select>
+                        </div>
+                    </div>
                     <p id="cursor-hint" class="provider-hint" hidden>
                         Requires <code>CURSOR_API_KEY</code> from Cursor Dashboard → API Keys.
                         Uses the official Cursor SDK (<code>cursor-sdk</code>).
                         Optional: <code>CURSOR_MODEL=composer-2.5</code> or <code>CURSOR_RUNTIME=cloud</code>
                     </p>
-                </div>
-
-                <div id="error-banner" class="error-banner">
-                    <strong>Error: </strong><span id="error-msg"></span>
-                </div>
-
-                <div class="verbose-toggle-row">
-                    <div>
-                        <span>Pipeline logs</span>
-                        <small>Open right panel for step-by-step output</small>
+                    <div class="verbose-toggle-row" style="margin-top: 0.85rem;">
+                        <div>
+                            <span>Pipeline logs</span>
+                            <small>Open right panel for step-by-step output</small>
+                        </div>
+                        <label class="toggle-switch" title="Toggle pipeline log panel">
+                            <input type="checkbox" id="verbose-toggle" onchange="toggleVerbosePanel()">
+                            <span class="toggle-slider"></span>
+                        </label>
                     </div>
-                    <label class="toggle-switch" title="Toggle pipeline log panel">
-                        <input type="checkbox" id="verbose-toggle" onchange="toggleVerbosePanel()">
-                        <span class="toggle-slider"></span>
-                    </label>
                 </div>
 
-                <div id="suggestions-block" class="suggestions-block">
-                    <h3>Architecture Suggestions</h3>
-                    <div id="suggestions-list"></div>
+                <div class="chat-panel">
+                    <div class="chat-toolbar">
+                        <span>Conversation</span>
+                        <button type="button" class="btn-chat-clear" onclick="clearChat()">Clear chat</button>
+                    </div>
+
+                    <div id="chat-messages" class="chat-messages">
+                        <div id="chat-welcome" class="chat-welcome">
+                            <h3>Describe your architecture</h3>
+                            <p>Chat naturally to create or refine diagrams — like next-ai-draw-io. Follow up to add services, change layout, or fix connections.</p>
+                            <div class="example-chips" id="example-chips"></div>
+                        </div>
+                        <div id="chat-typing" class="chat-typing">
+                            <span></span><span></span><span></span>
+                        </div>
+                    </div>
                 </div>
 
-                <div id="xml-toggle" class="xml-toggle" onclick="toggleXML()">
-                    ▸ View Draw.io XML source
-                </div>
-                <div id="xml-panel" class="xml-panel">
-                    <pre id="xml-output"></pre>
+                <div class="chat-extras">
+                    <div id="error-banner" class="error-banner">
+                        <strong>Error: </strong><span id="error-msg"></span>
+                    </div>
+
+                    <div id="xml-toggle" class="xml-toggle" onclick="toggleXML()">
+                        ▸ View Draw.io XML source
+                    </div>
+                    <div id="xml-panel" class="xml-panel">
+                        <pre id="xml-output"></pre>
+                    </div>
                 </div>
             </div>
 
             <div class="sidebar-footer">
-                <button id="gen-btn" class="btn-generate" onclick="generate()">
-                    <span class="spinner"></span>
-                    <span class="btn-text">Generate Diagram</span>
-                    <span class="btn-loading-text">Generating...</span>
-                </button>
+                <div class="chat-input-wrap">
+                    <textarea id="chat-input" rows="1"
+                        placeholder="Describe or refine your architecture…"></textarea>
+                    <button id="send-btn" class="btn-send" onclick="sendMessage()" title="Send (Enter)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                            <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+                        </svg>
+                    </button>
+                </div>
+                <p class="chat-hint">Enter to send · Shift+Enter for new line</p>
                 <div id="progress-track" class="progress-bar-track">
                     <div id="progress-bar" class="progress-bar-fill"></div>
                 </div>
@@ -891,6 +1195,9 @@
         const DRAWIO_URL = `${DRAWIO_ORIGIN}/?embed=1&ui=kennedy&spin=1&proto=json&configure=1&libs=aws4;gcp2;azure2&nav=1&saveAndExit=0&noSaveBtn=1&noExitBtn=1`;
 
         let currentXml = '';
+        let currentArchitecture = null;
+        let chatMessages = [];
+        let isSending = false;
         let selectedPlatform = 'aws';
         let drawioReady = false;
         let pendingXml = null;
@@ -899,6 +1206,131 @@
         let logEntryCount = 0;
 
         const VERBOSE_STORAGE_KEY = 'drawio-agent-verbose-logging';
+
+        const EXAMPLE_PROMPTS = {
+            aws: [
+                'Highly available web app with API Gateway, Fargate in public/private subnets, Aurora, ElastiCache, CloudFront, Route 53, WAF, and CloudWatch',
+                'Serverless data pipeline: S3 → Lambda → SQS → ECS workers → Redshift with KMS encryption',
+            ],
+            gcp: [
+                'Cloud Run in Shared VPC with Cloud SQL, Memorystore, Cloud CDN, Cloud DNS, Cloud Armor, and Cloud Monitoring',
+                'GKE cluster with private nodes, Cloud Load Balancing, Pub/Sub event bus, and BigQuery analytics',
+            ],
+            azure: [
+                'Application Gateway, AKS in VNet subnets, Cosmos DB, Redis, Front Door, and Azure Monitor',
+                'Event-driven Azure Functions with Service Bus, Blob Storage, and Key Vault secrets',
+            ],
+            multi: [
+                'Hybrid: AWS ECS tasks querying GCP Spanner over site-to-site VPN with centralized logging',
+                'Multi-cloud DR: primary AWS Aurora with Azure Cosmos DB read replica and global traffic manager',
+            ],
+        };
+
+        const CHAT_PLACEHOLDERS = {
+            aws: 'e.g., Add ElastiCache between API and database, or describe a new AWS architecture…',
+            gcp: 'e.g., Switch Cloud Run to GKE, or describe a new GCP architecture…',
+            azure: 'e.g., Add Azure Front Door WAF, or describe a new Azure architecture…',
+            multi: 'e.g., Add cross-cloud VPN, or describe a hybrid architecture…',
+        };
+
+        function renderExampleChips() {
+            const container = document.getElementById('example-chips');
+            container.innerHTML = '';
+            (EXAMPLE_PROMPTS[selectedPlatform] || EXAMPLE_PROMPTS.aws).forEach(text => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'example-chip';
+                btn.textContent = text;
+                btn.onclick = () => {
+                    document.getElementById('chat-input').value = text;
+                    autoResizeChatInput();
+                    sendMessage();
+                };
+                container.appendChild(btn);
+            });
+        }
+
+        function hideWelcome() {
+            const welcome = document.getElementById('chat-welcome');
+            if (welcome) welcome.remove();
+        }
+
+        function appendChatBubble(role, content, suggestions = null) {
+            hideWelcome();
+            const container = document.getElementById('chat-messages');
+            const msg = document.createElement('div');
+            msg.className = `chat-message ${role}`;
+
+            const bubble = document.createElement('div');
+            bubble.className = 'chat-bubble';
+            bubble.textContent = content;
+            msg.appendChild(bubble);
+
+            if (role === 'assistant' && suggestions && suggestions.length) {
+                const suggWrap = document.createElement('div');
+                suggWrap.className = 'chat-suggestions';
+                const title = document.createElement('div');
+                title.className = 'chat-suggestions-title';
+                title.textContent = 'Suggestions';
+                suggWrap.appendChild(title);
+                suggestions.forEach(s => {
+                    const item = document.createElement('div');
+                    item.className = 'chat-suggestion-item';
+                    item.textContent = s;
+                    suggWrap.appendChild(item);
+                });
+                msg.appendChild(suggWrap);
+            }
+
+            const meta = document.createElement('div');
+            meta.className = 'chat-meta';
+            meta.textContent = role === 'user' ? 'You' : 'Assistant · ' + formatLogTime();
+            msg.appendChild(meta);
+
+            container.appendChild(msg);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function setTyping(active) {
+            document.getElementById('chat-typing').classList.toggle('active', active);
+            if (active) {
+                const container = document.getElementById('chat-messages');
+                container.scrollTop = container.scrollHeight;
+            }
+        }
+
+        function autoResizeChatInput() {
+            const el = document.getElementById('chat-input');
+            el.style.height = 'auto';
+            el.style.height = Math.min(el.scrollHeight, 140) + 'px';
+        }
+
+        function clearChat() {
+            if (isSending) return;
+            chatMessages = [];
+            currentArchitecture = null;
+            currentXml = '';
+            setActionButtonsEnabled(false);
+            document.getElementById('xml-output').textContent = '';
+            document.getElementById('xml-toggle').classList.remove('active');
+            document.getElementById('xml-panel').classList.remove('open');
+            hideError();
+            setDiagramStatus('Waiting for generation');
+            document.getElementById('diagram-placeholder').classList.remove('hidden');
+
+            const container = document.getElementById('chat-messages');
+            container.innerHTML = `
+                <div id="chat-welcome" class="chat-welcome">
+                    <h3>Describe your architecture</h3>
+                    <p>Chat naturally to create or refine diagrams — like next-ai-draw-io. Follow up to add services, change layout, or fix connections.</p>
+                    <div class="example-chips" id="example-chips"></div>
+                </div>
+                <div id="chat-typing" class="chat-typing">
+                    <span></span><span></span><span></span>
+                </div>`;
+            renderExampleChips();
+            appendVerboseLog('ui', 'Chat cleared', 'info');
+        }
 
         function formatLogTime(isoOrDate) {
             const d = isoOrDate ? new Date(isoOrDate) : new Date();
@@ -1118,28 +1550,29 @@
             });
 
             const root = document.documentElement;
-            const promptInput = document.getElementById('prompt-input');
+            const chatInput = document.getElementById('chat-input');
 
             if (platform === 'aws') {
                 root.style.setProperty('--accent', '#ED7100');
                 root.style.setProperty('--accent-glow', 'rgba(237, 113, 0, 0.2)');
                 root.style.setProperty('--accent-hover', '#ff8c2a');
-                promptInput.placeholder = 'e.g., "Payment system with API Gateway, Fargate in VPC subnets, Aurora, ElastiCache, CloudFront, Route 53, WAF, CloudWatch"';
             } else if (platform === 'gcp') {
                 root.style.setProperty('--accent', '#4285F4');
                 root.style.setProperty('--accent-glow', 'rgba(66, 133, 244, 0.2)');
                 root.style.setProperty('--accent-hover', '#669df6');
-                promptInput.placeholder = 'e.g., "Cloud Run in Shared VPC, Cloud SQL, Memorystore, Cloud CDN, Cloud DNS, Cloud Armor, Cloud Monitoring"';
             } else if (platform === 'azure') {
                 root.style.setProperty('--accent', '#0078D4');
                 root.style.setProperty('--accent-glow', 'rgba(0, 120, 212, 0.2)');
                 root.style.setProperty('--accent-hover', '#2b90f5');
-                promptInput.placeholder = 'e.g., "Application Gateway, AKS in VNet subnets, Cosmos DB, Redis, Front Door, Azure Monitor"';
             } else {
                 root.style.setProperty('--accent', '#8C4FFF');
                 root.style.setProperty('--accent-glow', 'rgba(140, 79, 255, 0.2)');
                 root.style.setProperty('--accent-hover', '#a67cff');
-                promptInput.placeholder = 'e.g., "Hybrid: AWS ECS tasks querying GCP Spanner over site-to-site VPN with centralized logging"';
+            }
+
+            chatInput.placeholder = CHAT_PLACEHOLDERS[platform] || CHAT_PLACEHOLDERS.aws;
+            if (document.getElementById('example-chips')) {
+                renderExampleChips();
             }
         }
 
@@ -1162,38 +1595,52 @@
             document.getElementById('error-banner').classList.remove('active');
         }
 
-        async function generate() {
-            const prompt = document.getElementById('prompt-input').value.trim();
+        async function sendMessage() {
+            const input = document.getElementById('chat-input');
+            const text = input.value.trim();
             const provider = document.getElementById('provider-select').value;
-            const btn = document.getElementById('gen-btn');
+            const sendBtn = document.getElementById('send-btn');
 
-            if (!prompt) {
-                showError('Please enter an architecture description.');
+            if (!text || isSending) {
+                if (!text) showError('Please enter a message.');
                 return;
             }
 
             hideError();
-            btn.disabled = true;
-            btn.classList.add('loading');
+            isSending = true;
+            sendBtn.disabled = true;
+            input.disabled = true;
+
+            chatMessages.push({ role: 'user', content: text });
+            appendChatBubble('user', text);
+            input.value = '';
+            autoResizeChatInput();
+
             setProgress(10);
+            setTyping(true);
             setDiagramStatus('Analyzing architecture...');
             document.getElementById('diagram-loading').classList.add('active');
 
             if (verboseLogging) {
-                clearVerboseLogs();
-                appendVerboseLog('client', 'Starting generation', 'info', {
+                appendVerboseLog('client', 'Sending chat message', 'info', {
                     platform: selectedPlatform,
                     provider,
-                    prompt_chars: prompt.length
+                    turn: chatMessages.length,
+                    has_existing_diagram: !!currentArchitecture,
                 });
             }
 
             try {
-                appendVerboseLog('client', 'POST /generate', 'info');
-                const res = await fetch('/generate', {
+                appendVerboseLog('client', 'POST /chat', 'info');
+                const res = await fetch('/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ user_prompt: prompt, provider, platform: selectedPlatform })
+                    body: JSON.stringify({
+                        messages: chatMessages,
+                        provider,
+                        platform: selectedPlatform,
+                        current_architecture: currentArchitecture,
+                    }),
                 });
 
                 setProgress(45);
@@ -1205,41 +1652,41 @@
                 if (!res.ok) throw new Error(data.detail || 'Server error');
                 if (data.status !== 'success') throw new Error(data.detail || 'Unknown error');
 
+                const assistantText = data.assistant_message || 'Diagram updated.';
+                chatMessages.push({ role: 'assistant', content: assistantText });
+
                 appendVerboseLog('client', 'Server response received', 'success', {
                     suggestions: (data.suggestions || []).length,
-                    xml_chars: (data.xml || '').length
+                    xml_chars: (data.xml || '').length,
                 });
 
                 currentXml = data.xml;
+                currentArchitecture = data.architecture || null;
                 document.getElementById('xml-output').textContent = data.xml;
                 document.getElementById('xml-toggle').classList.add('active');
 
-                const suggBlock = document.getElementById('suggestions-block');
-                const suggList = document.getElementById('suggestions-list');
-                suggList.innerHTML = '';
-                (data.suggestions || []).forEach(s => {
-                    const div = document.createElement('div');
-                    div.className = 'suggestion-item';
-                    div.textContent = s;
-                    suggList.appendChild(div);
-                });
-                suggBlock.classList.toggle('active', (data.suggestions || []).length > 0);
+                setTyping(false);
+                appendChatBubble('assistant', assistantText, data.suggestions || []);
 
                 setProgress(75);
                 setDiagramStatus('Loading into Draw.io...');
                 loadDiagramIntoEditor(data.xml);
                 setActionButtonsEnabled(true);
                 setProgress(100);
-                appendVerboseLog('client', 'Generation complete', 'success');
+                appendVerboseLog('client', 'Chat turn complete', 'success');
             } catch (err) {
                 console.error(err);
+                chatMessages.pop();
+                setTyping(false);
                 appendVerboseLog('client', err.message || 'Request failed', 'error');
                 showError(err.message || 'Request failed. Check the server logs.');
                 document.getElementById('diagram-loading').classList.remove('active');
                 setDiagramStatus('Generation failed');
             } finally {
-                btn.disabled = false;
-                btn.classList.remove('loading');
+                isSending = false;
+                sendBtn.disabled = false;
+                input.disabled = false;
+                input.focus();
             }
         }
 
@@ -1280,13 +1727,23 @@
                 : '▸ View Draw.io XML source';
         }
 
-        // Boot Draw.io iframe immediately so it is ready when the user generates
+        // Boot Draw.io iframe immediately so it is ready when the user sends a message
         initVerboseLogging();
         ensureDrawioFrame();
         appendVerboseLog('drawio', 'Embed iframe created', 'info', { url: DRAWIO_URL });
         document.getElementById('provider-select').addEventListener('change', updateProviderHint);
         updateProviderHint();
         selectPlatform('aws');
+        renderExampleChips();
+
+        const chatInput = document.getElementById('chat-input');
+        chatInput.addEventListener('input', autoResizeChatInput);
+        chatInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
     </script>
 </body>
 
