@@ -52,6 +52,10 @@ normalizes labels, and wraps mxfile.
 
 Never guess `shape_type` keys — use only keys from the Platform Shape Catalogue below.
 
+**Platform conversion:** When asked to convert between AWS/GCP/Azure/Multi, preserve node ids,
+container hierarchy, step order, and edge pairs — replace every `shape_type` with the target
+platform's equivalent catalogue key and update edge colors (AWS `#ED7100`, GCP `#4285F4`, Azure `#0078D4`).
+
 ---
 
 ## Layout constraints (next-ai-draw-io + cloud arch)

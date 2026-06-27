@@ -2,6 +2,7 @@ import html as html_module
 import re
 from typing import TYPE_CHECKING
 
+from app.diagram.edge_router import collect_obstacles, route_edge
 from app.diagram.styles import build_style
 from app.diagram.xml_tools import validate_and_fix_xml_legacy, wrap_with_mxfile
 
@@ -169,6 +170,59 @@ def _edge_sort_key(edge, nodes_by_id: dict) -> tuple:
     return (0 if is_adjacent_flow else 1, 1 if edge.style == "dashed" else 0, src_step, tgt_step)
 
 
+def _clamp_children_in_container(
+    parent_id: str,
+    layout: dict,
+    nodes_by_id: dict,
+    pad: int,
+) -> None:
+    """Keep child nodes inside their parent container with padding."""
+    parent_ld = layout.get(parent_id)
+    if not parent_ld:
+        return
+    children_pos = parent_ld.get("children_pos", {})
+    if not children_pos:
+        return
+
+    parent_w = parent_ld["w"]
+    parent_h = parent_ld["h"]
+    max_x = pad
+    max_y = pad
+
+    for child_id, (cx, cy) in list(children_pos.items()):
+        child_ld = layout.get(child_id, {})
+        cw = child_ld.get("w", 48)
+        ch = child_ld.get("h", 48)
+        min_x = pad
+        min_y = CONTAINER_PAD_TOP if parent_id in nodes_by_id and nodes_by_id[parent_id].is_container else pad
+        cx = max(min_x, min(cx, parent_w - cw - pad))
+        cy = max(min_y, min(cy, parent_h - ch - pad))
+        children_pos[child_id] = (cx, cy)
+        max_x = max(max_x, cx + cw + pad)
+        max_y = max(max_y, cy + ch + pad)
+
+    if max_x + pad > parent_w:
+        parent_ld["w"] = max_x + pad
+    if max_y + pad > parent_h:
+        parent_ld["h"] = max_y + pad
+
+
+CONTAINER_PAD_TOP = 48  # used by _clamp_children_in_container before generate_xml locals
+
+
+def _waypoints_to_parent_relative(
+    waypoints: list[tuple[int, int]],
+    edge_parent: str,
+    nodes_by_id: dict,
+    layout: dict,
+) -> list[tuple[int, int]]:
+    """Convert absolute canvas waypoints to coordinates relative to edge parent."""
+    if edge_parent == "1" or not waypoints:
+        return waypoints
+    px, py, _, _ = _get_abs_bounds(edge_parent, nodes_by_id, layout)
+    return [(x - px, y - py) for x, y in waypoints]
+
+
 def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None" = None) -> str:
     platform = (platform or "aws").lower()
     if platform == "gcp":
@@ -310,6 +364,7 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         total_h = max(total_h, 140)
 
         layout[nid] = {"w": total_w, "h": total_h, "children_pos": children_pos}
+        _clamp_children_in_container(nid, layout, nodes_by_id, CONTAINER_PAD)
         return total_w, total_h
 
     for rid in roots:
@@ -545,6 +600,10 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         for nid in nodes_by_id
     }
 
+    container_ids = {n.id for n in architecture.nodes if n.is_container}
+    source_slot_counts: dict[str, int] = {}
+    target_slot_counts: dict[str, int] = {}
+
     for edge in sorted_edges:
         if edge.source_id not in nodes_by_id or edge.target_id not in nodes_by_id:
             continue
@@ -554,11 +613,38 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
 
         src_box = node_bounds[edge.source_id]
         tgt_box = node_bounds[edge.target_id]
-        exit_x, exit_y, entry_x, entry_y = _connection_points(src_box, tgt_box)
 
-        # Parent the edge to the container holding both endpoints (next-ai style)
-        # so draw.io's native orthogonal router draws the path — no manual waypoints.
+        obstacles = collect_obstacles(
+            node_bounds,
+            exclude={edge.source_id, edge.target_id},
+            include_containers=False,
+            container_ids=container_ids,
+        )
+        exit_slot = source_slot_counts.get(edge.source_id, 0)
+        entry_slot = target_slot_counts.get(edge.target_id, 0)
+        source_slot_counts[edge.source_id] = exit_slot + 1
+        target_slot_counts[edge.target_id] = entry_slot + 1
+
+        scx = src_box[0] + src_box[2] / 2
+        scy = src_box[1] + src_box[3] / 2
+        tcx = tgt_box[0] + tgt_box[2] / 2
+        tcy = tgt_box[1] + tgt_box[3] / 2
+        prefer_horizontal = abs(tcx - scx) >= abs(tcy - scy)
+
+        exit_x, exit_y, entry_x, entry_y, waypoints = route_edge(
+            src_box,
+            tgt_box,
+            obstacles,
+            exit_slot=exit_slot,
+            entry_slot=entry_slot,
+            lane=exit_slot,
+            prefer_horizontal=prefer_horizontal,
+        )
+
         edge_parent = _lca_parent(edge.source_id, edge.target_id, nodes_by_id)
+        rel_waypoints = _waypoints_to_parent_relative(
+            waypoints, edge_parent, nodes_by_id, layout
+        )
 
         edge_style_parts = [
             "edgeStyle=orthogonalEdgeStyle",
@@ -594,7 +680,15 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
             f'style="{edge_style}" edge="1" parent="{edge_parent}" '
             f'source="{edge.source_id}" target="{edge.target_id}">'
         )
-        xml.append('      <mxGeometry relative="1" as="geometry" />')
+        if rel_waypoints:
+            xml.append('      <mxGeometry relative="1" as="geometry">')
+            xml.append('        <Array as="points">')
+            for wx, wy in rel_waypoints:
+                xml.append(f'          <mxPoint x="{wx}" y="{wy}" />')
+            xml.append('        </Array>')
+            xml.append('      </mxGeometry>')
+        else:
+            xml.append('      <mxGeometry relative="1" as="geometry" />')
         xml.append('    </mxCell>')
 
     # ── Notes / Legend panel (numbered, point-wise step summaries) ──

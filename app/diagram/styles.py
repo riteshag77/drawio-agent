@@ -114,6 +114,12 @@ _AZURE_ALIASES: dict[str, str] = {
     "postgresql": "sql_db",
     "mysql": "sql_db",
     "sql_managed_instance": "sql_db",
+    "sql_database": "sql_db",
+    "app_services": "app_service",
+    "functions": "function",
+    "kubernetes_services": "aks",
+    "api_management": "api_gateway",
+    "synapse_analytics": "synapse",
     "data_lake": "blob_storage",
     "file_storage": "blob_storage",
     "queue_storage": "blob_storage",
@@ -132,6 +138,39 @@ _AZURE_ALIASES: dict[str, str] = {
     "managed_identity": "ad",
     "defender": "sentinel",
 }
+
+# Legacy / pattern-library keys → canonical AWS suffix (after stripping aws_).
+_AWS_ALIASES: dict[str, str] = {
+    "route_53": "route53",
+    "application_load_balancer": "alb",
+    "elastic_load_balancer": "alb",
+    "network_load_balancer": "nlb",
+}
+
+# Legacy GCP keys → canonical suffix (after stripping gcp_).
+_GCP_ALIASES: dict[str, str] = {
+    "cloud_cdn": "cdn",
+    "cloud_load_balancing": "load_balancing",
+}
+
+
+def normalize_shape_type(shape_type: str) -> str:
+    """Map legacy pattern-library keys to canonical schema.txt keys."""
+    if not shape_type:
+        return shape_type
+    if shape_type.startswith("aws_"):
+        suffix = shape_type[4:]
+        canonical = _AWS_ALIASES.get(suffix, suffix)
+        return f"aws_{canonical}" if canonical != suffix else shape_type
+    if shape_type.startswith("gcp_"):
+        suffix = shape_type[4:]
+        canonical = _GCP_ALIASES.get(suffix, suffix)
+        return f"gcp_{canonical}" if canonical != suffix else shape_type
+    if shape_type.startswith("azure_"):
+        suffix = shape_type[6:]
+        canonical = _AZURE_ALIASES.get(suffix)
+        return f"azure_{canonical}" if canonical and canonical != suffix else shape_type
+    return shape_type
 
 
 # ── Category-based color maps ────────────────────────────────────────────────
@@ -278,6 +317,7 @@ def _aws_container(name: str) -> str:
 
 def _aws_service(name: str) -> str:
     """Build style for an AWS service icon."""
+    name = _AWS_ALIASES.get(name, name)
     icon = _AWS_ICON_EXCEPTIONS.get(name, name)
     category = _aws_category(name)
     color = _AWS_COLORS[category]
@@ -308,6 +348,7 @@ def _gcp_service(name: str) -> str:
     in its brand color with ``sketch=0`` (crisp vector, not hand-drawn) and a soft
     shadow so the icons read as polished as the AWS resource icons.
     """
+    name = _GCP_ALIASES.get(name, name)
     icon = _GCP_ICON_EXCEPTIONS.get(name, name)
     category = _gcp_category(name)
     color = _GCP_COLORS[category]
@@ -334,6 +375,7 @@ def _azure_container(name: str) -> str:
 
 def _azure_service(name: str) -> str:
     """Build style for an Azure service icon."""
+    name = _AZURE_ALIASES.get(name, name)
     icon = _AZURE_ICONS.get(name) or _AZURE_ICONS.get(_AZURE_ALIASES.get(name, ""))
     if icon is None:
         return _branded_card("#0078D4")
@@ -368,6 +410,8 @@ def build_style(shape_type: str) -> str:
     """
     if not shape_type:
         return _generic_fallback("")
+
+    shape_type = normalize_shape_type(shape_type)
 
     generic = _generic_shapes(shape_type)
     if generic:

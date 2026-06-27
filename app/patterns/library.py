@@ -8,7 +8,7 @@ system prompt so the model reuses proven topology, ordering, and best practices
 instead of improvising from scratch.
 
 Patterns are intentionally platform-agnostic in description; the per-platform
-`services` map lists the concrete shape_type keys (matching shapes.json) so the
+`services` map lists canonical shape_type keys (matching schema.txt Section 3) so the
 model emits valid nodes.
 """
 
@@ -27,7 +27,7 @@ class ArchitecturePattern:
     platforms: tuple[str, ...]
     # Ordered flow of logical tiers — used to suggest step numbering.
     flow: tuple[str, ...]
-    # Concrete shape_type keys per platform (must exist in shapes.json).
+    # Concrete shape_type keys per platform (must match schema.txt Section 3).
     services: dict[str, tuple[str, ...]]
     best_practices: tuple[str, ...] = field(default_factory=tuple)
 
@@ -52,19 +52,19 @@ ARCHITECTURE_PATTERNS: tuple[ArchitecturePattern, ...] = (
         ),
         services={
             "aws": (
-                "user_client", "aws_route_53", "aws_cloudfront", "aws_waf",
-                "aws_application_load_balancer", "aws_ecs", "aws_elasticache",
+                "user_client", "aws_route53", "aws_cloudfront", "aws_waf",
+                "aws_alb", "aws_ecs", "aws_elasticache",
                 "aws_aurora", "aws_cloudwatch",
             ),
             "gcp": (
-                "user_client", "gcp_cloud_dns", "gcp_cloud_cdn", "gcp_cloud_armor",
-                "gcp_cloud_load_balancing", "gcp_compute_engine", "gcp_memorystore",
+                "user_client", "gcp_cloud_dns", "gcp_cdn", "gcp_cloud_armor",
+                "gcp_load_balancing", "gcp_compute_engine", "gcp_memorystore",
                 "gcp_cloud_sql", "gcp_cloud_monitoring",
             ),
             "azure": (
                 "user_client", "azure_dns", "azure_front_door", "azure_application_gateway",
-                "azure_load_balancer", "azure_app_services", "azure_cache_redis",
-                "azure_sql_database", "azure_monitor",
+                "azure_load_balancer", "azure_app_service", "azure_cache_redis",
+                "azure_sql_db", "azure_monitor",
             ),
         },
         best_practices=(
@@ -101,7 +101,7 @@ ARCHITECTURE_PATTERNS: tuple[ArchitecturePattern, ...] = (
                 "gcp_cloud_storage", "gcp_cloud_monitoring",
             ),
             "azure": (
-                "user_client", "azure_api_management", "azure_functions", "azure_cosmos_db",
+                "user_client", "azure_api_gateway", "azure_function", "azure_cosmos_db",
                 "azure_blob_storage", "azure_monitor",
             ),
         },
@@ -174,7 +174,7 @@ ARCHITECTURE_PATTERNS: tuple[ArchitecturePattern, ...] = (
                 "gcp_cloud_kms", "gcp_cloud_monitoring",
             ),
             "azure": (
-                "azure_blob_storage", "azure_data_factory", "azure_synapse_analytics",
+                "azure_blob_storage", "azure_data_factory", "azure_synapse",
                 "azure_key_vault", "azure_monitor",
             ),
         },
@@ -203,16 +203,16 @@ ARCHITECTURE_PATTERNS: tuple[ArchitecturePattern, ...] = (
         ),
         services={
             "aws": (
-                "user_client", "aws_application_load_balancer", "aws_eks",
+                "user_client", "aws_alb", "aws_eks",
                 "aws_ecr", "aws_rds", "aws_cloudwatch",
             ),
             "gcp": (
-                "user_client", "gcp_cloud_load_balancing", "gcp_kubernetes_engine",
+                "user_client", "gcp_load_balancing", "gcp_kubernetes_engine",
                 "gcp_container_registry", "gcp_cloud_sql", "gcp_cloud_monitoring",
             ),
             "azure": (
-                "user_client", "azure_application_gateway", "azure_kubernetes_services",
-                "azure_container_registry", "azure_sql_database", "azure_monitor",
+                "user_client", "azure_application_gateway", "azure_aks",
+                "azure_container_registry", "azure_sql_db", "azure_monitor",
             ),
         },
         best_practices=(
@@ -236,16 +236,16 @@ ARCHITECTURE_PATTERNS: tuple[ArchitecturePattern, ...] = (
         flow=("Users", "DNS", "CDN", "Object Storage (static)", "Serverless API"),
         services={
             "aws": (
-                "user_client", "aws_route_53", "aws_cloudfront", "aws_s3",
+                "user_client", "aws_route53", "aws_cloudfront", "aws_s3",
                 "aws_api_gateway", "aws_lambda",
             ),
             "gcp": (
-                "user_client", "gcp_cloud_dns", "gcp_cloud_cdn", "gcp_cloud_storage",
+                "user_client", "gcp_cloud_dns", "gcp_cdn", "gcp_cloud_storage",
                 "gcp_api_gateway", "gcp_cloud_functions",
             ),
             "azure": (
                 "user_client", "azure_dns", "azure_front_door", "azure_blob_storage",
-                "azure_api_management", "azure_functions",
+                "azure_api_gateway", "azure_function",
             ),
         },
         best_practices=(

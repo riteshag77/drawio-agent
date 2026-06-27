@@ -47,16 +47,18 @@ def _segment_intersects_rect(
     # Horizontal segment
     if abs(y1 - y2) < 1:
         y = y1
-        if rx <= x1 <= rx + rw or rx <= x2 <= rx + rw:
-            return ry <= y <= ry + rh
-        return False
+        if not (ry <= y <= ry + rh):
+            return False
+        seg_left, seg_right = min(x1, x2), max(x1, x2)
+        return seg_left < rx + rw and rx < seg_right
 
     # Vertical segment
     if abs(x1 - x2) < 1:
         x = x1
-        if ry <= y1 <= ry + rh or ry <= y2 <= ry + rh:
-            return rx <= x <= rx + rw
-        return False
+        if not (rx <= x <= rx + rw):
+            return False
+        seg_top, seg_bottom = min(y1, y2), max(y1, y2)
+        return seg_top < ry + rh and ry < seg_bottom
 
     return _rects_overlap(
         (int(left), int(top), int(max(1, right - left)), int(max(1, bottom - top))),

@@ -28,6 +28,7 @@ from app.llm.agent import (
     generate_architecture_from_chat,
     generate_architecture_json,
     generate_edit_operations,
+    generate_mermaid_diagram,
 )
 from app.models import ArchitectureDiagram, ValidationResult
 from app.patterns.cache import find_cached_response
@@ -37,6 +38,23 @@ from app.validation.structural import (
     validate_architecture_structure,
 )
 from app.validation.visual import validate_diagram_image
+
+_CLOUD_KEYWORDS = (
+    "aws", "amazon", "gcp", "google cloud", "azure", "microsoft azure",
+    "vpc", "vnet", "subnet", "lambda", "ecs", "eks", "kubernetes", "k8s",
+    "cloudfront", "route 53", "route53", "alb", "load balancer",
+    "rds", "aurora", "dynamodb", "s3", "cloud architecture",
+    "three tier", "3-tier", "microservices", "serverless",
+    "api gateway", "cloud run", "cloud sql", "cloud watch",
+)
+
+_SIMPLE_KEYWORDS = (
+    "flowchart", "flow chart", "sequence diagram", "sequence chart",
+    "org chart", "organization chart", "organizational chart",
+    "state diagram", "state machine", "simple diagram",
+    "basic flow", "no cloud", "mermaid", "process flow",
+    "workflow diagram",
+)
 
 _PLATFORM_PAGE_NAMES = {
     "aws": "Amazon Web Services",
@@ -56,6 +74,78 @@ def platform_page_name(platform: str) -> str:
     return _PLATFORM_PAGE_NAMES.get(platform, "Architecture")
 
 
+def classify_diagram_intent(
+    prompt: str,
+    *,
+    diagram_mode: str = "auto",
+    platform: str = "aws",
+) -> str:
+    """Return ``cloud`` or ``simple`` for pipeline routing."""
+    mode = (diagram_mode or "auto").strip().lower()
+    if mode in ("cloud", "simple"):
+        return mode
+
+    text = (prompt or "").lower()
+    has_cloud = any(kw in text for kw in _CLOUD_KEYWORDS)
+    has_simple = any(kw in text for kw in _SIMPLE_KEYWORDS)
+    if has_simple and not has_cloud:
+        return "simple"
+    if platform in ("aws", "gcp", "azure", "multi") and has_cloud:
+        return "cloud"
+    return "cloud"
+
+
+async def run_mermaid_pipeline(
+    *,
+    user_prompt: str | None,
+    messages: list[dict[str, str]] | None,
+    provider: str,
+    logger: StepLogger,
+) -> dict:
+    """Generate a Mermaid diagram for simple flowcharts / sequence diagrams."""
+    provider = (provider or "openai").strip().lower()
+    human_prompt = user_prompt or (messages[-1]["content"] if messages else "")
+
+    logger.log(
+        "request",
+        "Mermaid simple-diagram request received",
+        details={"provider": provider, "model": MODEL_IDS.get(provider, MODEL_IDS["openai"])},
+    )
+
+    result = await asyncio.to_thread(
+        generate_mermaid_diagram,
+        human_prompt,
+        provider,
+        logger,
+        messages,
+    )
+
+    assistant_message = result.assistant_message or "Generated Mermaid diagram."
+
+    logger.log(
+        "complete",
+        "Mermaid pipeline finished",
+        level="success",
+        details={"mermaid_chars": len(result.mermaid)},
+    )
+
+    return {
+        "status": "success",
+        "diagram_type": "mermaid",
+        "mermaid": result.mermaid,
+        "suggestions": result.suggestions,
+        "xml": None,
+        "architecture": None,
+        "flow_steps": [],
+        "pattern_id": None,
+        "title": None,
+        "assistant_message": assistant_message,
+        "edit_mode": False,
+        "validation": {"structural": None, "vlm": None, "retries": 0, "feedback": None},
+        "logs": logger.to_list(),
+    }
+
+
 async def try_cached_first_turn(
     *,
     prompt_text: str,
@@ -71,6 +161,7 @@ async def try_cached_first_turn(
     xml_output = wrap_with_mxfile(cached.xml, platform_page_name(platform))
     return {
         "status": "success",
+        "diagram_type": "cloud",
         "suggestions": [],
         "xml": xml_output,
         "architecture": None,
@@ -198,6 +289,7 @@ async def run_edit_pipeline(
 
     return {
         "status": "success",
+        "diagram_type": "cloud",
         "suggestions": suggestions,
         "xml": xml_output,
         "architecture": None,
@@ -230,6 +322,9 @@ async def run_generation_pipeline(
     validation_feedback: str | None = None,
     image_data: str | None = None,
     context_text: str | None = None,
+    platform_convert: bool = False,
+    previous_platform: str | None = None,
+    current_xml: str | None = None,
 ) -> dict:
     """Generate (or chat-edit) an architecture as JSON, then render it to XML."""
     platform = (platform or "aws").strip().lower()
@@ -237,7 +332,7 @@ async def run_generation_pipeline(
 
     logger.log(
         "request",
-        "Generation request received",
+        "Generation request received" if not platform_convert else "Platform conversion request received",
         details={
             "platform": platform,
             "provider": provider,
@@ -246,6 +341,8 @@ async def run_generation_pipeline(
             "chat_turns": len(messages) if messages else 1,
             "minimal_style": minimal_style,
             "custom_instructions": bool(sanitize_custom_message(custom_system_message)),
+            "platform_convert": platform_convert,
+            "previous_platform": previous_platform,
         },
     )
 
@@ -253,7 +350,7 @@ async def run_generation_pipeline(
     if context_text:
         human_prompt = f"{human_prompt}\n\n--- Context ---\n{context_text[:8000]}"
 
-    if current_architecture is None and (not messages or len(messages) <= 1):
+    if not platform_convert and current_architecture is None and (not messages or len(messages) <= 1):
         cached_result = await try_cached_first_turn(
             prompt_text=human_prompt,
             has_image=bool(image_data),
@@ -285,6 +382,9 @@ async def run_generation_pipeline(
                 minimal_style,
                 custom_msg,
                 feedback,
+                platform_convert,
+                previous_platform,
+                current_xml,
             )
         else:
             architecture_data = await asyncio.to_thread(
@@ -363,6 +463,9 @@ async def run_generation_pipeline(
                     minimal_style,
                     custom_msg,
                     feedback,
+                    platform_convert,
+                    previous_platform,
+                    current_xml,
                 )
             else:
                 architecture_data = await asyncio.to_thread(
@@ -402,6 +505,7 @@ async def run_generation_pipeline(
 
     return {
         "status": "success",
+        "diagram_type": "cloud",
         "suggestions": architecture_data.suggestions,
         "xml": xml_output,
         "architecture": architecture_data.model_dump(),

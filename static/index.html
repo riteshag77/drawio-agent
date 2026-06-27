@@ -167,6 +167,12 @@
         }
         .segmented .platform-card.active .platform-name { color: #fff; }
 
+        .segmented .platform-card.is-busy {
+            opacity: 0.55;
+            cursor: wait;
+            pointer-events: none;
+        }
+
         .control-bar-row select { padding: 0.6rem 0.85rem; font-size: 0.84rem; }
 
         /* ── Settings drawer ────────────────────── */
@@ -1900,6 +1906,8 @@
         let selectedPlatform = 'aws';
         let drawioReady = false;
         let pendingXml = null;
+        let pendingMermaid = null;
+        let currentMermaid = '';
         let messageHandler = null;
         let verboseLogging = false;
         let validationPanelActive = false;
@@ -2507,7 +2515,7 @@
                     showValidationBanner(data.validation.structural, data.validation.feedback);
                 }
 
-                loadDiagramIntoEditor(data.xml);
+                loadDiagramFromResponse(data);
                 setActionButtonsEnabled(true);
                 setDiagramStatus('Diagram reloaded after validation fix');
             } catch (err) {
@@ -2806,7 +2814,10 @@
                 if (msg.event === 'init') {
                     drawioReady = true;
                     appendVerboseLog('drawio', 'Editor initialized', 'success');
-                    if (pendingXml) {
+                    if (pendingMermaid) {
+                        loadMermaidIntoEditor(pendingMermaid);
+                        pendingMermaid = null;
+                    } else if (pendingXml) {
                         loadDiagramIntoEditor(pendingXml);
                         pendingXml = null;
                     }
@@ -2845,6 +2856,48 @@
             window.addEventListener('message', messageHandler);
         }
 
+        function loadMermaidIntoEditor(mermaid) {
+            const iframe = ensureDrawioFrame();
+            const payload = {
+                action: 'import',
+                format: 'mermaid',
+                data: mermaid,
+                fit: 1,
+                maxFitScale: 1.25,
+                border: 20
+            };
+
+            if (!drawioReady) {
+                pendingMermaid = mermaid;
+                pendingXml = null;
+                appendVerboseLog('drawio', 'Waiting for editor init before Mermaid import', 'info', {
+                    mermaid_chars: mermaid.length
+                });
+                return;
+            }
+
+            appendVerboseLog('drawio', 'Importing Mermaid diagram into editor', 'info', {
+                mermaid_chars: mermaid.length
+            });
+            iframe.contentWindow.postMessage(JSON.stringify(payload), DRAWIO_ORIGIN);
+        }
+
+        function loadDiagramFromResponse(data) {
+            if (data.diagram_type === 'mermaid' && data.mermaid) {
+                currentMermaid = data.mermaid;
+                currentXml = '';
+                document.getElementById('xml-output').textContent = data.mermaid;
+                loadMermaidIntoEditor(data.mermaid);
+                setDiagramStatus('Mermaid diagram loaded');
+                return;
+            }
+            currentMermaid = '';
+            if (data.xml) {
+                document.getElementById('xml-output').textContent = data.xml;
+                loadDiagramIntoEditor(data.xml);
+            }
+        }
+
         function loadDiagramIntoEditor(xml) {
             const iframe = ensureDrawioFrame();
             const payload = {
@@ -2858,6 +2911,7 @@
 
             if (!drawioReady) {
                 pendingXml = xml;
+                pendingMermaid = null;
                 appendVerboseLog('drawio', 'Waiting for editor init before load', 'info', {
                     xml_chars: xml.length
                 });
@@ -2877,10 +2931,27 @@
             document.getElementById('cursor-hint').hidden = provider !== 'cursor';
         }
 
-        function selectPlatform(platform) {
+        function setPlatformTabsBusy(busy) {
+            document.querySelectorAll('.platform-card').forEach(card => {
+                card.classList.toggle('is-busy', busy);
+                card.setAttribute('aria-busy', busy ? 'true' : 'false');
+            });
+        }
+
+        function shouldRegenerateOnPlatformSwitch() {
+            if (isSending) return false;
+            if (currentMermaid && !currentArchitecture) return false;
+            if (currentArchitecture?.nodes?.length > 0) return true;
+            if (currentXml && currentXml.length > 300 && !currentMermaid) return true;
+            return false;
+        }
+
+        function applyPlatformUi(platform) {
             selectedPlatform = platform;
             document.querySelectorAll('.platform-card').forEach(card => {
-                card.classList.toggle('active', card.getAttribute('data-platform') === platform);
+                const isActive = card.getAttribute('data-platform') === platform;
+                card.classList.toggle('active', isActive);
+                card.setAttribute('aria-selected', isActive ? 'true' : 'false');
             });
 
             const root = document.documentElement;
@@ -2907,6 +2978,34 @@
             chatInput.placeholder = CHAT_PLACEHOLDERS[platform] || CHAT_PLACEHOLDERS.aws;
             if (document.getElementById('example-chips')) {
                 renderExampleChips();
+            }
+        }
+
+        async function regenerateForPlatform(previousPlatform) {
+            const targetLabel = selectedPlatform.toUpperCase();
+            const message =
+                `Convert this architecture from ${previousPlatform} to ${selectedPlatform}. ` +
+                `Keep the same topology and flow; use equivalent ${selectedPlatform} services and icons only.`;
+            await sendMessage({
+                skipInput: true,
+                platformConvert: true,
+                previousPlatform,
+                message,
+                showUserBubble: true,
+            });
+        }
+
+        function selectPlatform(platform) {
+            if (platform === selectedPlatform) return;
+            if (isSending) return;
+
+            const previousPlatform = selectedPlatform;
+            applyPlatformUi(platform);
+
+            if (shouldRegenerateOnPlatformSwitch()) {
+                regenerateForPlatform(previousPlatform);
+            } else if (currentMermaid && !currentArchitecture) {
+                setDiagramStatus('Platform applies to new cloud diagrams');
             }
         }
 
@@ -2947,17 +3046,27 @@
             isSending = true;
             sendBtn.disabled = true;
             input.disabled = true;
+            setPlatformTabsBusy(true);
 
             if (!options.skipInput) {
                 chatMessages.push({ role: 'user', content: text });
                 appendChatBubble('user', text);
                 input.value = '';
                 autoResizeChatInput();
+            } else if (options.platformConvert && text) {
+                chatMessages.push({ role: 'user', content: text });
+                if (options.showUserBubble !== false) {
+                    appendChatBubble('user', text);
+                }
             }
 
             setProgress(10);
             setTyping(true);
-            setDiagramStatus('Analyzing architecture...');
+            setDiagramStatus(
+                options.platformConvert
+                    ? `Regenerating for ${selectedPlatform.toUpperCase()}…`
+                    : 'Analyzing architecture...'
+            );
             document.getElementById('diagram-loading').classList.add('active');
 
             if (verboseLogging) {
@@ -2997,6 +3106,9 @@
                         messages: chatMessages,
                         provider,
                         platform: selectedPlatform,
+                        diagram_mode: options.platformConvert ? 'cloud' : 'auto',
+                        platform_convert: !!options.platformConvert,
+                        previous_platform: options.previousPlatform || null,
                         current_architecture: currentArchitecture,
                         previous_architecture: previousArchitecture,
                         current_xml: xmlForRequest,
@@ -3024,11 +3136,13 @@
 
                 appendVerboseLog('client', 'Server response received', 'success', {
                     suggestions: (data.suggestions || []).length,
+                    diagram_type: data.diagram_type || 'cloud',
                     xml_chars: (data.xml || '').length,
+                    mermaid_chars: (data.mermaid || '').length,
                     edit_mode: !!data.edit_mode,
                 });
 
-                currentXml = data.xml;
+                currentXml = data.xml || '';
                 previousXml = xmlForRequest;
                 previousArchitecture = currentArchitecture;
                 if (data.edit_mode) {
@@ -3036,7 +3150,6 @@
                 } else {
                     currentArchitecture = data.architecture || null;
                 }
-                document.getElementById('xml-output').textContent = data.xml;
                 document.getElementById('xml-toggle').classList.add('active');
 
                 attachmentContext = '';
@@ -3058,13 +3171,16 @@
 
                 setProgress(75);
                 setDiagramStatus('Loading into Draw.io...');
-                loadDiagramIntoEditor(data.xml);
+                loadDiagramFromResponse(data);
                 setActionButtonsEnabled(true);
                 setProgress(100);
                 appendVerboseLog('client', 'Chat turn complete', 'success');
             } catch (err) {
                 console.error(err);
-                if (!options.skipInput) chatMessages.pop();
+                if (options.platformConvert && options.previousPlatform) {
+                    applyPlatformUi(options.previousPlatform);
+                }
+                if (!options.skipInput || !options.platformConvert) chatMessages.pop();
                 setTyping(false);
                 appendVerboseLog('client', err.message || 'Request failed', 'error');
                 showError(err.message || 'Request failed. Check the server logs.');
@@ -3074,6 +3190,7 @@
                 isSending = false;
                 sendBtn.disabled = false;
                 input.disabled = false;
+                setPlatformTabsBusy(false);
                 input.focus();
             }
         }
@@ -3126,7 +3243,7 @@
         appendVerboseLog('drawio', 'Embed iframe created', 'info', { url: getDrawioUrl(bootTheme) });
         document.getElementById('provider-select').addEventListener('change', updateProviderHint);
         updateProviderHint();
-        selectPlatform('aws');
+        applyPlatformUi('aws');
         renderExampleChips();
 
         const chatInput = document.getElementById('chat-input');

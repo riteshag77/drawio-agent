@@ -18,8 +18,10 @@ from app.diagram.draftsman import generate_xml
 from app.llm.agent import generate_architecture_json
 from app.models import ArchitectureDiagram
 from app.services.pipeline import (
+    classify_diagram_intent,
     run_edit_pipeline,
     run_generation_pipeline,
+    run_mermaid_pipeline,
     sanitize_custom_message,
     try_cached_first_turn,
 )
@@ -47,6 +49,18 @@ async def generate_diagram(request: PromptRequest):
         )
         if cached:
             return cached
+        intent = classify_diagram_intent(
+            request.user_prompt,
+            diagram_mode=request.diagram_mode,
+            platform=request.platform,
+        )
+        if intent == "simple":
+            return await run_mermaid_pipeline(
+                user_prompt=request.user_prompt,
+                messages=None,
+                provider=request.provider,
+                logger=logger,
+            )
         return await run_generation_pipeline(
             user_prompt=request.user_prompt,
             messages=None,
@@ -114,6 +128,25 @@ async def chat_diagram(request: ChatRequest):
             and not is_minimal_diagram(request.current_xml)
         )
 
+        if request.platform_convert:
+            return await run_generation_pipeline(
+                user_prompt=None,
+                messages=messages,
+                provider=provider,
+                platform=platform,
+                current_architecture=current_architecture,
+                previous_architecture=previous_architecture,
+                logger=logger,
+                minimal_style=request.minimal_style,
+                custom_system_message=sanitize_custom_message(request.custom_system_message),
+                validation_feedback=request.validation_feedback,
+                image_data=request.image_data,
+                context_text=request.context_text,
+                platform_convert=True,
+                previous_platform=request.previous_platform,
+                current_xml=request.current_xml,
+            )
+
         if use_xml_edit:
             return await run_edit_pipeline(
                 messages=messages,
@@ -137,6 +170,19 @@ async def chat_diagram(request: ChatRequest):
             )
             if cached:
                 return cached
+
+        intent = classify_diagram_intent(
+            last_user,
+            diagram_mode=request.diagram_mode,
+            platform=platform,
+        )
+        if intent == "simple" and not use_xml_edit and current_architecture is None:
+            return await run_mermaid_pipeline(
+                user_prompt=None,
+                messages=messages,
+                provider=provider,
+                logger=logger,
+            )
 
         return await run_generation_pipeline(
             user_prompt=None,

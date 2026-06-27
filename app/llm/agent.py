@@ -11,9 +11,10 @@ from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
 from app.core.config import BASE_DIR
 from app.utils.chat import replace_historical_tool_inputs, trim_chat_messages_for_prompt
-from app.models import ArchitectureDiagram, EditResponse
+from app.models import ArchitectureDiagram, EditResponse, MermaidDiagram
 from dotenv import load_dotenv
 from app.patterns.library import find_matching_patterns, format_patterns_for_prompt
+from app.llm.prompts.simple import MERMAID_SYSTEM_PROMPT
 from app.llm.prompts.system import get_edit_system_prompt, get_system_prompt, XML_EDIT_VALIDATION_FEEDBACK
 
 if TYPE_CHECKING:
@@ -48,12 +49,56 @@ def _summarize_diagram(diagram: ArchitectureDiagram) -> str:
     )
 
 
+def build_platform_conversion_block(
+    previous_platform: str,
+    target_platform: str,
+    *,
+    current_xml: str | None = None,
+) -> str:
+    """Instructions prepended when the user switches cloud platform in the UI."""
+    prev = (previous_platform or "aws").strip().lower()
+    target = (target_platform or "aws").strip().lower()
+    prev_label = PLATFORM_LABELS.get(prev, prev.upper())
+    target_label = PLATFORM_LABELS.get(target, target.upper())
+
+    lines = [
+        "PLATFORM CONVERSION (authoritative):",
+        f"Convert the current architecture from {prev_label} to {target_label}.",
+        "- Preserve topology: same node ids, container hierarchy, step_number order, and edge pairs.",
+        f"- Replace every shape_type with the equivalent {target} key from the Platform Shape Catalogue.",
+    ]
+    if target == "multi":
+        lines.append(
+            "- Multi-cloud target: use mixed providers only where the design is explicitly hybrid; "
+            "otherwise map each tier to the closest single-provider equivalent."
+        )
+    else:
+        lines.append(
+            f"- Never mix aws_*, gcp_*, azure_* shape keys — use {target}_* keys only."
+        )
+    lines.extend([
+        "- Update edge colors: AWS #ED7100, GCP #4285F4, Azure #0078D4.",
+        "- Return the FULL updated ArchitectureDiagram JSON.",
+    ])
+    if current_xml and len(current_xml.strip()) > 300:
+        lines.append(
+            "\nCurrent draw.io XML (infer topology if architecture JSON is missing):\n"
+            f'"""xml\n{current_xml[:12000]}\n"""'
+        )
+    return "\n".join(lines)
+
+
 def _build_chat_prompt(
     messages: list[dict[str, str]],
     platform_label: str,
     current_architecture: ArchitectureDiagram | None,
     previous_architecture: ArchitectureDiagram | None = None,
     validation_feedback: str | None = None,
+    *,
+    platform_convert: bool = False,
+    previous_platform: str | None = None,
+    target_platform: str = "aws",
+    current_xml: str | None = None,
 ) -> str:
     if not messages:
         raise ValueError("At least one user message is required.")
@@ -61,6 +106,15 @@ def _build_chat_prompt(
     trimmed_messages = replace_historical_tool_inputs(trim_chat_messages_for_prompt(messages))
 
     parts: list[str] = []
+    if platform_convert:
+        parts.append(
+            build_platform_conversion_block(
+                previous_platform or "aws",
+                target_platform,
+                current_xml=current_xml if current_architecture is None else None,
+            )
+        )
+
     if previous_architecture is not None:
         parts.append(
             "Previous architecture JSON (before the user's last message — for comparison only):\n"
@@ -233,6 +287,9 @@ def generate_architecture_json(
     minimal_style: bool = False,
     custom_system_message: str = "",
     validation_feedback: str | None = None,
+    platform_convert: bool = False,
+    previous_platform: str | None = None,
+    current_xml: str | None = None,
 ) -> ArchitectureDiagram:
     """
     Generate an architecture diagram JSON using the selected AI provider.
@@ -255,11 +312,12 @@ def generate_architecture_json(
     if chat_messages is None:
         chat_messages = [{"role": "user", "content": user_request}]
 
-    is_edit = current_architecture is not None or len(chat_messages) > 1
+    is_edit = current_architecture is not None or len(chat_messages) > 1 or platform_convert
 
     # Match curated reference patterns on first generation only — on follow-up edits
     # the existing architecture is the source of truth, so patterns would just add noise.
     patterns_block = ""
+    matched = []
     if not is_edit:
         match_text = user_request or (chat_messages[-1]["content"] if chat_messages else "")
         matched = find_matching_patterns(match_text, platform_key)
@@ -277,8 +335,16 @@ def generate_architecture_json(
                 "turns": len(chat_messages),
                 "has_existing_diagram": current_architecture is not None,
                 "has_validation_feedback": bool(validation_feedback),
+                "platform_convert": platform_convert,
                 "matched_patterns": [p.id for p in matched] if not is_edit and matched else [],
             },
+        )
+
+    if platform_convert and logger:
+        logger.log(
+            "platform_convert",
+            f"Converting architecture {previous_platform or '?'} → {platform_key}",
+            details={"previous_platform": previous_platform, "target_platform": platform_key},
         )
 
     system_prompt = get_system_prompt(
@@ -309,6 +375,10 @@ def generate_architecture_json(
         current_architecture,
         previous_architecture,
         validation_feedback,
+        platform_convert=platform_convert,
+        previous_platform=previous_platform,
+        target_platform=platform_key,
+        current_xml=current_xml,
     )
 
     if provider_key == "cursor":
@@ -504,6 +574,9 @@ def generate_architecture_from_chat(
     minimal_style: bool = False,
     custom_system_message: str = "",
     validation_feedback: str | None = None,
+    platform_convert: bool = False,
+    previous_platform: str | None = None,
+    current_xml: str | None = None,
 ) -> tuple[ArchitectureDiagram, str]:
     """Run one chat turn and return the diagram plus a short assistant summary."""
     if not messages or messages[-1].get("role") != "user":
@@ -520,8 +593,103 @@ def generate_architecture_from_chat(
         minimal_style=minimal_style,
         custom_system_message=custom_system_message,
         validation_feedback=validation_feedback,
+        platform_convert=platform_convert,
+        previous_platform=previous_platform,
+        current_xml=current_xml,
     )
-    summary = _summarize_diagram(diagram)
+    if platform_convert:
+        summary = (
+            f"Converted diagram to {PLATFORM_LABELS.get(platform.lower(), platform)}: "
+            f"{len(diagram.nodes)} nodes, {len(diagram.edges)} edges."
+        )
+    else:
+        summary = _summarize_diagram(diagram)
     if diagram.suggestions:
         summary += f" {len(diagram.suggestions)} suggestion(s) included."
     return diagram, summary
+
+
+def _extract_mermaid_from_text(text: str) -> str:
+    """Pull Mermaid source from fenced or plain text."""
+    if not text or not text.strip():
+        raise ValueError("Empty Mermaid response from model.")
+    stripped = text.strip()
+    fenced = re.search(r"```(?:mermaid)?\s*([\s\S]*?)```", stripped)
+    if fenced:
+        return fenced.group(1).strip()
+    return stripped
+
+
+def generate_mermaid_diagram(
+    user_request: str,
+    provider: str = "openai",
+    logger: "StepLogger | None" = None,
+    messages: list[dict[str, str]] | None = None,
+) -> MermaidDiagram:
+    """Generate a Mermaid diagram for simple flowcharts / sequence diagrams."""
+    provider_key = (provider or "openai").strip().lower()
+    chat_messages = messages or [{"role": "user", "content": user_request}]
+    human_content = _build_chat_prompt(
+        chat_messages,
+        "Generic (Mermaid)",
+        None,
+        None,
+        None,
+    )
+
+    if logger:
+        logger.log(
+            "prompt",
+            "Prepared Mermaid LLM request",
+            details={"provider": provider_key, "turns": len(chat_messages)},
+        )
+
+    if provider_key == "cursor":
+        api_key = os.getenv("CURSOR_API_KEY", "").strip()
+        if not api_key:
+            raise ValueError("CURSOR_API_KEY environment variable is not set.")
+        from app.core.cursor_bridge import apply_windows_bridge_patch
+        from cursor_sdk import Agent, AgentOptions, LocalAgentOptions
+        from cursor_sdk.errors import CursorAgentError
+
+        apply_windows_bridge_patch()
+        combined = (
+            f"{MERMAID_SYSTEM_PROMPT}\n\n---\nRespond with ONLY MermaidDiagram JSON.\n\n{human_content}"
+        )
+        options = AgentOptions(
+            api_key=api_key,
+            model=_cursor_model_id(MODEL_IDS["cursor"]),
+            name="drawio-mermaid",
+            local=LocalAgentOptions(cwd=str(BASE_DIR)),
+        )
+        if logger:
+            logger.log("llm", "Calling Cursor SDK for MermaidDiagram")
+        try:
+            result = Agent.prompt(combined, options)
+        except CursorAgentError as error:
+            raise ValueError(f"Cursor SDK error: {error.message}") from error
+        if result.status != "finished":
+            raise ValueError(f"Cursor agent ended with status={result.status}")
+        parsed = MermaidDiagram.model_validate(_extract_json_from_text(str(result.result or "")))
+    else:
+        langchain_messages: list[Any] = [
+            SystemMessage(content=MERMAID_SYSTEM_PROMPT),
+            HumanMessage(content=human_content),
+        ]
+        llm = _build_llm(provider)
+        structured_llm = llm.with_structured_output(MermaidDiagram)
+        if logger:
+            logger.log("llm", "Calling LLM for MermaidDiagram")
+        parsed = structured_llm.invoke(langchain_messages)
+
+    parsed.mermaid = _extract_mermaid_from_text(parsed.mermaid)
+    if not parsed.assistant_message:
+        parsed.assistant_message = "Generated Mermaid diagram."
+    if logger:
+        logger.log(
+            "mermaid",
+            "Mermaid diagram generated",
+            level="success",
+            details={"chars": len(parsed.mermaid), "lines": parsed.mermaid.count(chr(10)) + 1},
+        )
+    return parsed

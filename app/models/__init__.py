@@ -9,6 +9,7 @@ from app.models.architecture import (
     FlowStep,
     Node,
 )
+from app.models.mermaid import MermaidDiagram
 from app.models.operations import DiagramOperation, EditResponse
 from app.models.validation import (
     DEFAULT_VALID_RESULT,
@@ -30,4 +31,5 @@ __all__ = [
     "IssueType",
     "ValidationIssue",
     "ValidationResult",
+    "MermaidDiagram",
 ]
