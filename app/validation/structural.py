@@ -60,6 +60,15 @@ def _node_by_id(nodes: list[Node]) -> dict[str, Node]:
     return {n.id: n for n in nodes}
 
 
+def _hierarchy_depth(node_id: str, node_map: dict[str, Node]) -> int:
+    depth = 0
+    current = node_map.get(node_id)
+    while current and current.parent_id and current.parent_id in node_map:
+        depth += 1
+        current = node_map[current.parent_id]
+    return depth
+
+
 def validate_architecture_structure(diagram: ArchitectureDiagram) -> ValidationResult:
     """
     Deterministic structural validation on ArchitectureDiagram JSON.
@@ -71,9 +80,6 @@ def validate_architecture_structure(diagram: ArchitectureDiagram) -> ValidationR
     edges = diagram.edges
     node_map = _node_by_id(nodes)
     node_ids = set(node_map)
-
-    if len(nodes) <= 1 and len(edges) == 0:
-        return DEFAULT_VALID_RESULT.model_copy()
 
     if not nodes:
         issues.append(
@@ -116,6 +122,44 @@ def validate_architecture_structure(diagram: ArchitectureDiagram) -> ValidationR
                     description=f"Node '{node.label}' parent '{node.parent_id}' is not marked as a container",
                 )
             )
+
+    for node in nodes:
+        if node.x is not None or node.y is not None:
+            issues.append(
+                ValidationIssue(
+                    type="layout",
+                    severity="warning",
+                    description=f"Node '{node.label}' has x/y coordinates — remove them; layout engine handles placement",
+                )
+            )
+        if node.width is not None or node.height is not None:
+            if not node.is_container:
+                issues.append(
+                    ValidationIssue(
+                        type="layout",
+                        severity="warning",
+                        description=f"Leaf node '{node.label}' has width/height — remove them; layout engine sizes icons",
+                    )
+                )
+
+    max_depth = max((_hierarchy_depth(n.id, node_map) for n in nodes), default=0)
+    if max_depth > 5:
+        issues.append(
+            ValidationIssue(
+                type="layout",
+                severity="critical",
+                description=f"Container hierarchy too deep (depth {max_depth}, max 5)",
+            )
+        )
+        suggestions.append("Flatten nesting: use cloud → vpc → subnet → service (max 4 container levels).")
+    elif max_depth > 4:
+        issues.append(
+            ValidationIssue(
+                type="layout",
+                severity="warning",
+                description=f"Container hierarchy depth {max_depth} exceeds target of 4 levels",
+            )
+        )
 
     for edge in edges:
         if edge.source_id not in node_ids:

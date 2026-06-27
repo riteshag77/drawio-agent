@@ -1,0 +1,19 @@
+<!-- Reference container skeleton for three_tier_web — layout engine applies scaffold sizes -->
+<mxGraphModel>
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+    <mxCell id="aws_cloud" value="AWS Cloud" style="swimlane;" vertex="1" parent="1">
+      <mxGeometry x="40" y="40" width="920" height="540" as="geometry"/>
+    </mxCell>
+    <mxCell id="vpc" value="VPC" style="swimlane;" vertex="1" parent="aws_cloud">
+      <mxGeometry x="40" y="60" width="820" height="400" as="geometry"/>
+    </mxCell>
+    <mxCell id="public_subnet" value="Public Subnet" style="swimlane;" vertex="1" parent="vpc">
+      <mxGeometry x="30" y="50" width="380" height="220" as="geometry"/>
+    </mxCell>
+    <mxCell id="private_subnet" value="Private Subnet" style="swimlane;" vertex="1" parent="vpc">
+      <mxGeometry x="430" y="50" width="380" height="220" as="geometry"/>
+    </mxCell>
+  </root>
+</mxGraphModel>

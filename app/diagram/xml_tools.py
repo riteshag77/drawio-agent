@@ -415,6 +415,93 @@ def validate_mxcell_structure(graph_xml: str) -> str | None:
     return None
 
 
+def _cell_depth(cell_id: str, parent_map: dict[str, str | None]) -> int:
+    depth = 0
+    current = parent_map.get(cell_id)
+    while current and current in parent_map:
+        depth += 1
+        current = parent_map.get(current)
+    return depth
+
+
+def _fix_xml_with_elementtree(graph_xml: str) -> tuple[str, list[str]]:
+    """Fix missing geometry, orphan parents, and parent-before-child ordering."""
+    fixes: list[str] = []
+    trimmed = (graph_xml or "").strip()
+    if not trimmed or "<mxCell" not in trimmed:
+        return graph_xml, fixes
+
+    is_mxfile = "<mxfile" in trimmed
+    parse_src = trimmed
+    if not is_mxfile and "<root>" not in trimmed:
+        parse_src = f"<root>{trimmed}</root>"
+
+    try:
+        tree = ET.fromstring(parse_src)
+    except ET.ParseError:
+        return graph_xml, fixes
+
+    root = _find_diagram_root(tree) if is_mxfile else tree
+    if root is None:
+        root = tree.find("root")
+    if root is None:
+        return graph_xml, fixes
+
+    cells = root.findall("mxCell")
+    if not cells:
+        return graph_xml, fixes
+
+    cell_map: dict[str, ET.Element] = {}
+    for cell in cells:
+        cid = cell.get("id")
+        if cid:
+            cell_map[cid] = cell
+
+    for cell in cells:
+        cid = cell.get("id") or ""
+        parent = cell.get("parent")
+        if parent and parent not in cell_map and parent not in ("0", "1"):
+            cell.set("parent", "1")
+            fixes.append(f"Re-parented orphan cell '{cid}' to canvas")
+
+        is_vertex = cell.get("vertex") == "1"
+        is_edge = cell.get("edge") == "1"
+        if is_vertex and not is_edge:
+            geom = cell.find("mxGeometry")
+            if geom is None:
+                geom = ET.SubElement(cell, "mxGeometry")
+                geom.set("x", "0")
+                geom.set("y", "0")
+                geom.set("width", "60")
+                geom.set("height", "60")
+                geom.set("as", "geometry")
+                fixes.append(f"Added missing mxGeometry for vertex '{cid}'")
+            elif geom.get("as") != "geometry":
+                geom.set("as", "geometry")
+                fixes.append(f"Set as=geometry on cell '{cid}'")
+
+    parent_map = {cid: cell.get("parent") for cid, cell in cell_map.items()}
+    ordered = sorted(
+        cells,
+        key=lambda c: (_cell_depth(c.get("id") or "", parent_map), c.get("id") or ""),
+    )
+    if [c.get("id") for c in cells] != [c.get("id") for c in ordered]:
+        for cell in cells:
+            root.remove(cell)
+        for cell in ordered:
+            root.append(cell)
+        fixes.append("Reordered cells so parents appear before children")
+
+    if is_mxfile:
+        output = ET.tostring(tree, encoding="unicode")
+    elif "<root>" in trimmed:
+        output = ET.tostring(root, encoding="unicode")
+    else:
+        output = "".join(ET.tostring(c, encoding="unicode") for c in ordered)
+
+    return output, fixes
+
+
 def auto_fix_xml(graph_xml: str) -> tuple[str, list[str]]:
     """Apply safe structural fixes — expanded port of autoFixXml."""
     fixes: list[str] = []
@@ -504,24 +591,36 @@ def auto_fix_xml(graph_xml: str) -> tuple[str, list[str]]:
         fixes.append("Renamed duplicate ID(s)")
         fixed = renamed
 
+    struct_fixed, struct_fixes = _fix_xml_with_elementtree(fixed)
+    if struct_fixes:
+        fixes.extend(struct_fixes)
+        fixed = struct_fixed
+
     return fixed, fixes
 
 
 def validate_and_fix_xml(graph_xml: str) -> XmlValidationResult:
-    error = validate_mxcell_structure(graph_xml)
-    if not error:
-        return XmlValidationResult(valid=True, fixed=None, fixes=[])
+    struct_fixed, struct_fixes = _fix_xml_with_elementtree(graph_xml)
+    struct_error = validate_mxcell_structure(struct_fixed)
+    if not struct_error:
+        return XmlValidationResult(
+            valid=True,
+            error=None,
+            fixed=struct_fixed if struct_fixes else None,
+            fixes=struct_fixes,
+        )
 
     fixed, fixes = auto_fix_xml(graph_xml)
+    all_fixes = struct_fixes + [f for f in fixes if f not in struct_fixes]
     retry_error = validate_mxcell_structure(fixed)
     if not retry_error:
-        return XmlValidationResult(valid=True, error=None, fixed=fixed, fixes=fixes)
+        return XmlValidationResult(valid=True, error=None, fixed=fixed, fixes=all_fixes)
 
     return XmlValidationResult(
         valid=False,
-        error=retry_error,
-        fixed=fixed if fixes else None,
-        fixes=fixes,
+        error=retry_error or struct_error,
+        fixed=fixed if all_fixes else None,
+        fixes=all_fixes,
     )
 
 

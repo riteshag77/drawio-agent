@@ -17,14 +17,14 @@ Output a single valid JSON object only:
   "is_container": "boolean",
   "parent_id":    "string | null",
   "step_number":  "integer | null — main path only, 1=leftmost entry, max 8",
-  "x":            "integer | null — optional layout hint",
-  "y":            "integer | null — optional layout hint",
-  "width":        "integer | null — optional",
-  "height":       "integer | null — optional",
+  "x":            "always null — DO NOT SET (server auto-layouts)",
+  "y":            "always null — DO NOT SET (server auto-layouts)",
+  "width":        "always null — DO NOT SET (server auto-layouts)",
+  "height":       "always null — DO NOT SET (server auto-layouts)",
   "description":  "string | null — tooltip only, not shown on canvas"
 }
 ```
-Auto-layout refines x/y. Use hints only for zone placement (entry=left, db=bottom).
+Do NOT set x, y, width, or height on any node. The layout engine assigns all coordinates.
 
 1.2 Edge schema
 ```json
@@ -122,6 +122,11 @@ Azure: azure_subscription → azure_resource_group → azure_vnet → subnets (i
 Global: azure_ad, front_door, key_vault, monitor, log_analytics
 
 Every child `parent_id` must reference its direct container. Databases never in public subnets.
+
+Container rules:
+- Maximum 4 hierarchy levels: cloud/account → region/vpc → subnet → service (never deeper).
+- Never nest containers of the same tier (e.g. subnet inside subnet, vpc inside vpc).
+- Prefer flatter hierarchy — combine AZ/group boxes only when essential.
 
 ---
 ━━━ SECTION 5 · EDGE RULES ━━━

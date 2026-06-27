@@ -1647,6 +1647,13 @@
                         </div>
                     </div>
                     <div class="control-bar-row">
+                        <select id="diagram-mode-select" aria-label="Diagram type" onchange="saveDiagramMode()">
+                            <option value="auto">Diagram: Auto</option>
+                            <option value="cloud">Diagram: Cloud</option>
+                            <option value="simple">Diagram: Simple (Mermaid)</option>
+                        </select>
+                    </div>
+                    <div class="control-bar-row">
                         <select id="provider-select" aria-label="AI provider">
                             <option value="gemini">Google Gemini</option>
                             <option value="openai">OpenAI GPT-4o</option>
@@ -1748,6 +1755,16 @@
                 <div class="drawer-body">
                     <div class="drawer-group">
                         <div class="drawer-group-title">Generation</div>
+                        <div class="verbose-toggle-row">
+                            <div>
+                                <span>Auto-layout on load</span>
+                                <small>Run Draw.io horizontal flow when cloud diagrams load</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle auto-layout on diagram load">
+                                <input type="checkbox" id="autolayout-toggle" checked onchange="saveAutolayoutSetting()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
                         <div class="verbose-toggle-row">
                             <div>
                                 <span>Minimal style</span>
@@ -1871,6 +1888,9 @@
                 <button type="button" id="btn-fix-layout" class="btn-fix-layout" onclick="fixLayoutIssues()">
                     Fix layout automatically
                 </button>
+                <button type="button" id="btn-apply-layout" class="btn-fix-layout" onclick="applyLayoutToEditor()" style="margin-top: 8px;">
+                    Apply layout
+                </button>
             </div>
             <div id="verbose-log-body" class="log-panel-body">
                 <div class="log-empty">Turn on <strong>Pipeline logs</strong> in the left sidebar, then generate a diagram to see each step here with full details.</div>
@@ -1917,6 +1937,8 @@
         const MINIMAL_STYLE_STORAGE_KEY = 'drawio-agent-minimal-style';
         const CUSTOM_SYSTEM_MESSAGE_KEY = 'drawio-agent-custom-system-message';
         const VLM_VALIDATION_KEY = 'drawio-agent-vlm-validation';
+        const AUTO_LAYOUT_STORAGE_KEY = 'drawio-agent-autolayout-on-load';
+        const DIAGRAM_MODE_STORAGE_KEY = 'drawio-agent-diagram-mode';
         const MAX_VLM_CLIENT_RETRIES = 2;
         let vlmAutoRetryCount = 0;
 
@@ -1945,6 +1967,45 @@
             azure: 'e.g., Add Azure Front Door WAF, or describe a new Azure architecture…',
             multi: 'e.g., Add cross-cloud VPN, or describe a hybrid architecture…',
         };
+
+        function getDiagramMode() {
+            const select = document.getElementById('diagram-mode-select');
+            const mode = select ? select.value : 'auto';
+            if (mode === 'cloud' || mode === 'simple') return mode;
+            return 'auto';
+        }
+
+        function saveDiagramMode() {
+            localStorage.setItem(DIAGRAM_MODE_STORAGE_KEY, getDiagramMode());
+        }
+
+        function initDiagramMode() {
+            const stored = localStorage.getItem(DIAGRAM_MODE_STORAGE_KEY) || 'auto';
+            const select = document.getElementById('diagram-mode-select');
+            if (select && ['auto', 'cloud', 'simple'].includes(stored)) {
+                select.value = stored;
+            }
+        }
+
+        function isAutolayoutOnLoadEnabled() {
+            const toggle = document.getElementById('autolayout-toggle');
+            return toggle ? toggle.checked : true;
+        }
+
+        function saveAutolayoutSetting() {
+            localStorage.setItem(
+                AUTO_LAYOUT_STORAGE_KEY,
+                isAutolayoutOnLoadEnabled() ? '1' : '0'
+            );
+        }
+
+        function initAutolayoutSetting() {
+            const stored = localStorage.getItem(AUTO_LAYOUT_STORAGE_KEY);
+            const toggle = document.getElementById('autolayout-toggle');
+            if (toggle) {
+                toggle.checked = stored === null ? true : stored === '1';
+            }
+        }
 
         function getPromptSettings() {
             return {
@@ -2479,6 +2540,7 @@
                         messages: chatMessages,
                         provider,
                         platform: selectedPlatform,
+                        diagram_mode: getDiagramMode(),
                         current_architecture: currentArchitecture,
                         previous_architecture: previousArchitecture,
                         current_xml: xmlForRequest,
@@ -2908,12 +2970,16 @@
                 maxFitScale: 1.25,
                 border: 20
             };
+            if (isAutolayoutOnLoadEnabled()) {
+                payload.layout = 'horizontalFlow';
+            }
 
             if (!drawioReady) {
                 pendingXml = xml;
                 pendingMermaid = null;
                 appendVerboseLog('drawio', 'Waiting for editor init before load', 'info', {
-                    xml_chars: xml.length
+                    xml_chars: xml.length,
+                    layout: payload.layout || null
                 });
                 return;
             }
@@ -2921,8 +2987,26 @@
             appendVerboseLog('drawio', 'Sending diagram to editor', 'info', {
                 xml_chars: xml.length,
                 fit: payload.fit,
-                maxFitScale: payload.maxFitScale
+                maxFitScale: payload.maxFitScale,
+                layout: payload.layout || null
             });
+            iframe.contentWindow.postMessage(JSON.stringify(payload), DRAWIO_ORIGIN);
+        }
+
+        function applyLayoutToEditor() {
+            const iframe = ensureDrawioFrame();
+            if (!drawioReady) {
+                appendVerboseLog('drawio', 'Editor not ready for layout', 'warn');
+                return;
+            }
+            const payload = {
+                action: 'layout',
+                layouts: [{
+                    layout: 'mxHierarchicalLayout',
+                    config: { orientation: 'west', resizeParent: true }
+                }]
+            };
+            appendVerboseLog('drawio', 'Applying hierarchical layout in editor', 'info');
             iframe.contentWindow.postMessage(JSON.stringify(payload), DRAWIO_ORIGIN);
         }
 
@@ -3106,7 +3190,7 @@
                         messages: chatMessages,
                         provider,
                         platform: selectedPlatform,
-                        diagram_mode: options.platformConvert ? 'cloud' : 'auto',
+                        diagram_mode: options.platformConvert ? 'cloud' : getDiagramMode(),
                         platform_convert: !!options.platformConvert,
                         previous_platform: options.previousPlatform || null,
                         current_architecture: currentArchitecture,
@@ -3235,6 +3319,8 @@
         // Boot Draw.io iframe immediately so it is ready when the user sends a message
         initVerboseLogging();
         initPromptSettings();
+        initDiagramMode();
+        initAutolayoutSetting();
         hideValidationBanner();
         loadTemplates();
         initVoiceInput();

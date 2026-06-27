@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING
 from app.diagram.edge_router import collect_obstacles, route_edge
 from app.diagram.styles import build_style
 from app.diagram.xml_tools import validate_and_fix_xml_legacy, wrap_with_mxfile
+from app.models import ArchitectureDiagram, Node
+from app.patterns.template_merge import apply_three_tier_scaffold
 
 if TYPE_CHECKING:
     from app.core.logging import StepLogger
@@ -223,7 +225,22 @@ def _waypoints_to_parent_relative(
     return [(x - px, y - py) for x, y in waypoints]
 
 
+def sanitize_layout_hints(architecture: ArchitectureDiagram) -> ArchitectureDiagram:
+    """Strip LLM coordinate hints so the layout engine owns all placement."""
+    cleaned = [
+        node.model_copy(update={"x": None, "y": None, "width": None, "height": None})
+        for node in architecture.nodes
+    ]
+    return architecture.model_copy(update={"nodes": cleaned})
+
+
 def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None" = None) -> str:
+    if isinstance(architecture, ArchitectureDiagram):
+        architecture = sanitize_layout_hints(architecture)
+        architecture = apply_three_tier_scaffold(architecture)
+        if logger and architecture.pattern_id == "three_tier_web":
+            logger.log("template", "Applied three_tier_web container scaffold", level="info")
+
     platform = (platform or "aws").lower()
     if platform == "gcp":
         default_edge_color = "#4285F4"

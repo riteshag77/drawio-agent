@@ -65,6 +65,8 @@ CRITICAL: Single-page viewport — user must see the entire diagram without scro
 - Container max ~700×500px (VPC/VNet/project boxes).
 - Space sibling service icons ~150–200px apart (layout engine uses ~168px cells).
 - Maximum ~12–15 service icons; group into subnets/containers instead of cluttering the canvas.
+- **Never set `x`, `y`, `width`, or `height` on nodes** — the server layout engine owns all coordinates.
+- **Max 4 container levels:** cloud/account → region/VPC → subnet → service. No subnet-in-subnet nesting.
 - Organize into visual layers/zones before assigning nodes:
 
 ```

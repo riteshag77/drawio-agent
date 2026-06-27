@@ -39,11 +39,15 @@ These return a draw.io URL (browser tab). The web UI embed uses Mermaid **import
 
 ## API diagram modes
 
-| `diagram_mode` | Behavior |
-|----------------|----------|
-| `auto` (default) | Classify prompt: simple keywords → Mermaid; cloud keywords → JSON pipeline |
-| `cloud` | Force cloud architecture JSON pipeline |
-| `simple` | Force Mermaid generation |
+Use the **Diagram type** selector in the web UI (Auto / Cloud / Simple), or pass `diagram_mode` on every `/chat` and `/generate` request.
+
+| Mode | `diagram_mode` | When to use |
+|------|----------------|-------------|
+| Auto (default) | `auto` | Let the server classify: simple keywords → Mermaid; cloud keywords → JSON pipeline |
+| Cloud | `cloud` | AWS/GCP/Azure architecture with icons, VPC containers, validation |
+| Simple (Mermaid) | `simple` | Flowcharts, sequence diagrams, org charts without cloud icons |
+
+Cloud diagrams also use **Auto-layout on load** (Draw.io `horizontalFlow`) in the embed unless disabled in Settings.
 
 Example:
 
