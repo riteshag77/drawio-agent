@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import unittest
 
-from app.llm.agent import MODEL_IDS, _extract_opencode_response
+from app.llm.agent import MODEL_IDS, _normalize_opencode_model
 
 
 class ProviderTests(unittest.TestCase):
@@ -14,13 +13,13 @@ class ProviderTests(unittest.TestCase):
         self.assertIn("opencode", MODEL_IDS)
         self.assertIsInstance(MODEL_IDS["openrouter"], str)
         self.assertTrue(len(MODEL_IDS["openrouter"]) > 0)
+        self.assertEqual(MODEL_IDS["opencode"], "big-pickle")
 
-    def test_opencode_json_wrapper_response_is_unwrapped(self) -> None:
-        payload = {"response": json.dumps({"nodes": [], "edges": [], "suggestions": []})}
-        self.assertEqual(
-            _extract_opencode_response(json.dumps(payload)),
-            '{"nodes": [], "edges": [], "suggestions": []}',
-        )
+    def test_normalize_opencode_model_strips_prefix(self) -> None:
+        self.assertEqual(_normalize_opencode_model("opencode/big-pickle"), "big-pickle")
+        self.assertEqual(_normalize_opencode_model("big-pickle"), "big-pickle")
+        self.assertEqual(_normalize_opencode_model(""), "big-pickle")
+        self.assertEqual(_normalize_opencode_model("  opencode/glm-5.2  "), "glm-5.2")
 
 
 if __name__ == "__main__":

@@ -97,6 +97,40 @@ class LayoutSanitizeTests(unittest.TestCase):
         warnings = [i for i in result.issues if i.severity == "warning"]
         self.assertTrue(any("x/y coordinates" in i.description for i in warnings))
 
+    def test_topology_edges_use_default_anchors(self) -> None:
+        arch = ArchitectureDiagram(
+            nodes=[
+                Node(id="a", label="A", shape_type="generic_server", step_number=1),
+                Node(id="b", label="B", shape_type="generic_server", step_number=2),
+            ],
+            edges=[Edge(source_id="a", target_id="b")],
+            suggestions=[],
+        )
+        xml = generate_xml(arch, platform="aws")
+        self.assertIn("exitX=1", xml)
+        self.assertIn("entryX=0", xml)
+        self.assertNotIn('<Array as="points">', xml)
+
+    def test_topology_container_children_are_parent_relative(self) -> None:
+        arch = ArchitectureDiagram(
+            pattern_id="three_tier_web",
+            nodes=[
+                Node(id="cloud", label="AWS Cloud", shape_type="aws_cloud", is_container=True),
+                Node(id="vpc", label="VPC", shape_type="aws_vpc", is_container=True, parent_id="cloud"),
+                Node(
+                    id="pub",
+                    label="Public Subnet",
+                    shape_type="aws_subnet",
+                    is_container=True,
+                    parent_id="vpc",
+                ),
+            ],
+            edges=[],
+            suggestions=[],
+        )
+        xml = generate_xml(arch, platform="aws")
+        self.assertIn('parent="vpc"', xml)
+
     def test_three_tier_scaffold_applies_container_sizes(self) -> None:
         arch = ArchitectureDiagram(
             pattern_id="three_tier_web",

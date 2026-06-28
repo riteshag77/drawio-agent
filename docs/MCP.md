@@ -60,7 +60,34 @@ The web UI provider selector supports:
 | OpenRouter | `OPENROUTER_API_KEY` | `OPENROUTER_MODEL` (default `openai/gpt-4o-mini`) |
 | Claude | `ANTHROPIC_API_KEY` | Built-in `claude-sonnet-4-6` |
 | Cursor | `CURSOR_API_KEY` | `CURSOR_MODEL`, `CURSOR_RUNTIME` |
-| OpenCode Agent | Installed/configured `opencode` CLI | `OPENCODE_COMMAND`, `OPENCODE_MODEL`, `OPENCODE_TIMEOUT` |
+| OpenCode Zen | `OPENCODE_API_KEY` | `OPENCODE_MODEL` (default `big-pickle`), `OPENCODE_BASE_URL` |
+
+### OpenCode Zen (direct HTTP API)
+
+The OpenCode provider calls [OpenCode Zen](https://opencode.ai/docs/zen/) over HTTP via LangChain `ChatOpenAI`. **No `opencode` CLI install is required.**
+
+**Setup**
+
+1. Create an API key at [opencode.ai/auth](https://opencode.ai/auth).
+2. Set `OPENCODE_API_KEY` in `.env` (optional: `OPENCODE_MODEL=big-pickle`).
+3. Restart the FastAPI server after changing env vars.
+
+**Supported models**
+
+Only Zen models on the OpenAI-compatible `/chat/completions` endpoint are supported, for example:
+
+- `big-pickle` (free)
+- `deepseek-v4-flash-free` (free)
+- `mimo-v2.5-free`, `glm-5.2`, `kimi-k2.5`
+
+Claude (`/messages`), GPT 5.x (`/responses`), and Gemini (per-model URLs) are **not** supported by this provider — use the `claude`, `openai`, or `gemini` providers instead.
+
+Model list: `GET https://opencode.ai/zen/v1/models`
+
+**Troubleshooting**
+
+1. Run `py scripts/diagnose_opencode.py` — lists models and sends a minimal chat prompt.
+2. If structured output fails on free models, set `STRUCTURED_OUTPUT_METHOD=none` in `.env`.
 
 ### Cursor SDK troubleshooting (local runtime)
 

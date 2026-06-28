@@ -3,8 +3,6 @@ import app.core.ssl_trust  # noqa: F401 — trust OS CA store before LangChain H
 import json
 import os
 import re
-import shlex
-import subprocess
 from typing import TYPE_CHECKING, Any
 
 from langchain_openai import ChatOpenAI
@@ -30,6 +28,13 @@ if TYPE_CHECKING:
 load_dotenv()
 
 
+def _normalize_opencode_model(model_id: str) -> str:
+    model_id = (model_id or "big-pickle").strip()
+    if model_id.startswith("opencode/"):
+        return model_id.split("/", 1)[1]
+    return model_id or "big-pickle"
+
+
 class _ProviderConfig:
     __slots__ = ("klass", "model", "env_key", "kind")
     def __init__(self, klass=None, model="", env_key="", kind="langchain"):
@@ -45,7 +50,11 @@ _LLM_PROVIDERS: dict[str, _ProviderConfig] = {
     "gemini":     _ProviderConfig(ChatGoogleGenerativeAI, "gemini-2.5-flash", "GOOGLE_API_KEY"),
     "claude":     _ProviderConfig(ChatAnthropic, "claude-sonnet-4-6", "ANTHROPIC_API_KEY"),
     "cursor":     _ProviderConfig(model=os.getenv("CURSOR_MODEL", "composer-2.5"), env_key="CURSOR_API_KEY", kind="cursor"),
-    "opencode":   _ProviderConfig(model=os.getenv("OPENCODE_MODEL", ""), kind="opencode"),
+    "opencode":   _ProviderConfig(
+        ChatOpenAI,
+        _normalize_opencode_model(os.getenv("OPENCODE_MODEL", "big-pickle")),
+        "OPENCODE_API_KEY",
+    ),
 }
 
 MODEL_IDS = {k: v.model for k, v in _LLM_PROVIDERS.items()}
@@ -193,65 +202,6 @@ def _call_cursor_sdk(system_prompt: str, user_prompt: str, output_type: type, mo
     return output_type.model_validate(_extract_json(raw_text))
 
 
-def _extract_opencode_response(raw_text: str) -> str:
-    payload = _extract_json(raw_text)
-    for key in ("response", "result", "output", "text"):
-        value = payload.get(key)
-        if isinstance(value, str) and value.strip():
-            return value
-    return json.dumps(payload)
-
-
-def _run_opencode(args: list[str], combined_prompt: str, timeout: int) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        args,
-        input=combined_prompt,
-        capture_output=True,
-        text=True,
-        cwd=str(BASE_DIR),
-        timeout=timeout,
-        check=False,
-    )
-
-
-def _call_opencode_agent(system_prompt: str, user_prompt: str, output_type: type, model_id: str, logger=None) -> Any:
-    command = shlex.split(os.getenv("OPENCODE_COMMAND", "opencode"), posix=os.name != "nt")
-    if not command:
-        raise ValueError("OPENCODE_COMMAND is empty.")
-
-    timeout = int(os.getenv("OPENCODE_TIMEOUT", "120"))
-    combined = f"{system_prompt}\n\n---\nRespond with ONLY valid JSON.\n\n{user_prompt}"
-    base_args = command + ["run", "-p", combined, "-f", "json", "-q"]
-    if model_id:
-        base_args.extend(["-m", model_id])
-
-    if logger:
-        logger.log("opencode", f"Calling OpenCode agent ({model_id or 'configured model'})")
-
-    try:
-        result = _run_opencode(base_args, combined, timeout)
-        stderr = (result.stderr or "").lower()
-        if result.returncode != 0 and ("unknown command" in stderr or "invalid command" in stderr):
-            fallback_args = command + ["-p", combined, "-f", "json", "-q"]
-            if model_id:
-                fallback_args.extend(["-m", model_id])
-            result = _run_opencode(fallback_args, combined, timeout)
-    except FileNotFoundError as error:
-        raise ValueError("OpenCode CLI was not found. Set OPENCODE_COMMAND or install opencode.") from error
-    except subprocess.TimeoutExpired as error:
-        raise ValueError(f"OpenCode agent timed out after {timeout}s.") from error
-
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout or "no output").strip()
-        raise ValueError(f"OpenCode agent failed: {detail[:1000]}")
-
-    raw_text = result.stdout or ""
-    if logger:
-        logger.log("opencode", "OpenCode agent finished", level="success", details={"chars": len(raw_text)})
-
-    return output_type.model_validate(_extract_json(_extract_opencode_response(raw_text)))
-
-
 def _call_llm(system_prompt: str, human_content: str, provider: str, output_type: type, logger=None) -> Any:
     provider_key = (provider or "openai").strip().lower()
     config = _LLM_PROVIDERS.get(provider_key)
@@ -260,8 +210,6 @@ def _call_llm(system_prompt: str, human_content: str, provider: str, output_type
 
     if config.kind == "cursor":
         return _call_cursor_sdk(system_prompt, human_content, output_type, config.model, logger)
-    if config.kind == "opencode":
-        return _call_opencode_agent(system_prompt, human_content, output_type, config.model, logger)
 
     if config.env_key and not os.getenv(config.env_key):
         raise ValueError(f"{config.env_key} environment variable is not set.")
@@ -280,6 +228,11 @@ def _call_llm(system_prompt: str, human_content: str, provider: str, output_type
         client_kwargs.update({
             "api_key": os.getenv(config.env_key),
             "base_url": os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
+        })
+    elif provider_key == "opencode":
+        client_kwargs.update({
+            "api_key": os.getenv(config.env_key),
+            "base_url": os.getenv("OPENCODE_BASE_URL", "https://opencode.ai/zen/v1"),
         })
 
     llm = config.klass(model=config.model, **client_kwargs)

@@ -25,6 +25,8 @@
             --code-bg: #1a1f2e;
             --radius: 12px;
             --sidebar-width: 380px;
+            --sidebar-min-width: 280px;
+            --sidebar-max-width: 800px;
             --log-panel-width: 420px;
         }
 
@@ -47,18 +49,49 @@
         /* ── Sidebar ─────────────────────────────── */
         .sidebar {
             width: var(--sidebar-width);
-            min-width: 320px;
-            max-width: 480px;
+            min-width: var(--sidebar-min-width);
+            max-width: var(--sidebar-max-width);
             height: 100vh;
             display: flex;
             flex-direction: column;
-            border-right: 1px solid var(--sidebar-border);
+            border-right: none;
             background: var(--sidebar-bg);
             color: var(--text-primary);
             flex-shrink: 0;
             min-height: 0;
             position: relative;
             overflow: hidden;
+        }
+
+        .sidebar-resizer {
+            width: 6px;
+            cursor: col-resize;
+            flex-shrink: 0;
+            background: transparent;
+            position: relative;
+            z-index: 10;
+            transition: background 0.15s;
+            margin-left: -1px;
+        }
+        .sidebar-resizer:hover,
+        .sidebar-resizer.resizing {
+            background: var(--accent);
+        }
+        .sidebar-resizer::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 2px;
+            height: 32px;
+            border-radius: 2px;
+            background: rgba(255,255,255,0.08);
+            transition: background 0.15s;
+        }
+        .sidebar-resizer:hover::after,
+        .sidebar-resizer.resizing::after {
+            background: rgba(255,255,255,0.3);
         }
 
         .sidebar-header {
@@ -649,6 +682,56 @@
             display: flex;
             align-items: center;
             gap: 0.25rem;
+            flex-wrap: wrap;
+        }
+
+        .composer-tools select {
+            width: auto;
+            min-width: 0;
+            max-width: 9.5rem;
+            font-size: 0.72rem;
+            font-weight: 600;
+            padding: 0.2rem 1.6rem 0.2rem 0.5rem;
+            border: 1px solid var(--sidebar-border);
+            border-radius: 6px;
+            background-color: rgba(255, 255, 255, 0.04);
+            color: var(--text-secondary);
+            letter-spacing: 0.01em;
+            cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='%2394a3b8' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 6px center;
+            transition: border-color 0.15s, color 0.15s;
+        }
+
+        .composer-tools select:hover {
+            border-color: rgba(255, 255, 255, 0.15);
+            color: var(--text-primary);
+        }
+
+        .composer-tools select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .composer-tools select option {
+            background: #111827;
+            color: var(--text-primary);
+        }
+
+        #validation-provider-select {
+            font-weight: 500;
+            opacity: 0.75;
+            font-size: 0.68rem;
+            max-width: 8.5rem;
+            padding: 0.2rem 1.4rem 0.2rem 0.4rem;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' fill='%2364748b' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+            background-position: right 5px center;
+        }
+
+        #validation-provider-select:hover {
+            opacity: 1;
         }
 
         .composer-btn {
@@ -842,6 +925,40 @@
         }
 
         .btn-send svg { width: 17px; height: 17px; }
+
+        .btn-stop {
+            flex-shrink: 0;
+            width: 38px;
+            height: 38px;
+            border: none;
+            border-radius: 10px;
+            background: rgba(239, 68, 68, 0.18);
+            color: #f87171;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.15s, background 0.15s;
+        }
+
+        .btn-stop:hover {
+            transform: translateY(-1px);
+            background: rgba(239, 68, 68, 0.28);
+        }
+
+        .btn-stop svg { width: 17px; height: 17px; }
+
+        .composer-run-status {
+            margin-top: 0.35rem;
+            font-size: 0.72rem;
+            line-height: 1.35;
+            color: var(--text-muted);
+        }
+
+        .composer-run-status[data-level="running"] { color: var(--accent); }
+        .composer-run-status[data-level="success"] { color: var(--success); }
+        .composer-run-status[data-level="error"] { color: var(--error); }
+        .composer-run-status[data-level="stopped"] { color: #fbbf24; }
 
         .chat-hint {
             margin-top: 0.45rem;
@@ -1635,12 +1752,14 @@
             .sidebar {
                 width: 100%;
                 max-width: none;
+                min-width: 0;
                 height: auto;
                 max-height: none;
                 border-right: none;
                 border-bottom: 1px solid var(--sidebar-border);
                 overflow: visible;
             }
+            .sidebar-resizer { display: none; }
             .settings-drawer, .settings-backdrop { position: fixed; }
             .diagram-panel { min-height: 50vh; }
             .log-panel.active {
@@ -1755,22 +1874,6 @@
                     <span class="voice-dot"></span><span id="voice-status-text">Listening…</span>
                 </div>
                 <div class="composer">
-                    <div class="composer-model-row">
-                        <select id="provider-select" aria-label="AI provider">
-                            <option value="gemini">Gemini</option>
-                            <option value="openai">GPT-4o</option>
-                            <option value="openrouter">OpenRouter</option>
-                            <option value="claude">Claude</option>
-                            <option value="cursor">Cursor (SDK)</option>
-                            <option value="opencode">OpenCode</option>
-                        </select>
-                        <select id="validation-provider-select" aria-label="Validation model" hidden>
-                            <option value="auto">Validate: Auto</option>
-                            <option value="gemini">Validate: Gemini</option>
-                            <option value="gpt-4o">Validate: GPT-4o</option>
-                            <option value="openrouter">Validate: OpenRouter</option>
-                        </select>
-                    </div>
                     <p id="provider-hint" class="provider-hint" hidden></p>
                     <textarea id="chat-input" rows="1"
                         placeholder="Describe or refine your architecture…"></textarea>
@@ -1781,21 +1884,41 @@
                                     <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
                                 </svg>
                             </button>
-                            <button type="button" id="btn-voice" class="composer-btn btn-voice" onclick="toggleVoiceInput()" title="Speak your instruction" aria-label="Voice input">
+                            <button type="button" id="btn-voice" class="composer-btn btn-voice" onclick="toggleVoiceInput()" title="Dictate with microphone" aria-label="Voice input">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                     <rect x="9" y="2" width="6" height="12" rx="3"/>
                                     <path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3"/>
                                 </svg>
                             </button>
+                            <select id="provider-select" aria-label="AI provider">
+                                <option value="gemini">Gemini</option>
+                                <option value="openai">GPT-4o</option>
+                                <option value="openrouter">OpenRouter</option>
+                                <option value="claude">Claude</option>
+                                <option value="cursor">Cursor (SDK)</option>
+                                <option value="opencode">OpenCode</option>
+                            </select>
+                            <select id="validation-provider-select" aria-label="Validation model" hidden>
+                                <option value="auto">Validate: Auto</option>
+                                <option value="gemini">Validate: Gemini</option>
+                                <option value="gpt-4o">Validate: GPT-4o</option>
+                                <option value="openrouter">Validate: OpenRouter</option>
+                            </select>
                         </div>
                         <button id="send-btn" class="btn-send" onclick="sendMessage()" title="Send (Enter)" aria-label="Send message">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
                             </svg>
                         </button>
+                        <button type="button" id="stop-btn" class="btn-stop" onclick="stopActiveRun()" title="Stop generation" aria-label="Stop generation" hidden>
+                            <svg viewBox="0 0 24 24" fill="currentColor">
+                                <rect x="6" y="6" width="12" height="12" rx="1"/>
+                            </svg>
+                        </button>
                     </div>
                 </div>
-                <p class="chat-hint">Enter to send · Shift+Enter for new line · 🎙 to dictate</p>
+                <p id="composer-run-status" class="composer-run-status" hidden></p>
+                <p class="chat-hint">Enter to send · Shift+Enter for new line · 🎙 to dictate · Stop cancels in-flight requests</p>
                 <div id="progress-track" class="progress-bar-track">
                     <div id="progress-bar" class="progress-bar-fill"></div>
                 </div>
@@ -1884,6 +2007,9 @@
                 </div>
             </div>
         </aside>
+
+        <!-- Resizable handle for sidebar -->
+        <div class="sidebar-resizer" id="sidebar-resizer" role="separator" tabindex="0" aria-label="Resize sidebar"></div>
 
         <!-- Right: full-height Draw.io editor -->
         <main class="diagram-panel">
@@ -1981,6 +2107,8 @@
         let pendingPngExport = null;
         let chatMessages = [];
         let isSending = false;
+        let chatAbortController = null;
+        let runStoppedByUser = false;
         let selectedPlatform = 'aws';
         let drawioReady = false;
         let pendingXml = null;
@@ -2328,6 +2456,8 @@
         let speechRecognition = null;
         let isListening = false;
         let voiceBaseText = '';
+        let voiceManuallyStopping = false;
+        let voiceStatusBeforeListen = '';
 
         function isVoiceSecureContext() {
             // SpeechRecognition only works on https or localhost
@@ -2344,6 +2474,71 @@
             bar.hidden = !visible;
         }
 
+        function setComposerRunStatus(text, level = 'info') {
+            const el = document.getElementById('composer-run-status');
+            if (!el) return;
+            if (!text) {
+                el.hidden = true;
+                el.textContent = '';
+                el.removeAttribute('data-level');
+                return;
+            }
+            el.textContent = text;
+            el.hidden = false;
+            el.dataset.level = level;
+        }
+
+        function updateSendStopButtons() {
+            const sendBtn = document.getElementById('send-btn');
+            const stopBtn = document.getElementById('stop-btn');
+            const voiceBtn = document.getElementById('btn-voice');
+            if (sendBtn) sendBtn.hidden = isSending;
+            if (stopBtn) stopBtn.hidden = !isSending;
+            if (voiceBtn) voiceBtn.disabled = isSending;
+        }
+
+        function stopActiveRun() {
+            if (!isSending || !chatAbortController) return;
+            runStoppedByUser = true;
+            setComposerRunStatus('Stopping…', 'stopped');
+            setDiagramStatus('Stopping generation…');
+            chatAbortController.abort();
+        }
+
+        function finishChatRun({ outcome = 'idle', message = '', diagramMessage = '' } = {}) {
+            setTyping(false);
+            document.getElementById('diagram-loading').classList.remove('active');
+            document.getElementById('progress-track').classList.remove('active');
+            document.getElementById('progress-bar').style.width = '0%';
+
+            if (message) {
+                const level = outcome === 'success' ? 'success'
+                    : outcome === 'error' ? 'error'
+                    : outcome === 'stopped' ? 'stopped'
+                    : 'info';
+                setComposerRunStatus(message, level);
+            } else if (outcome === 'idle') {
+                setComposerRunStatus('');
+            }
+
+            if (diagramMessage) {
+                setDiagramStatus(diagramMessage);
+            } else if (outcome === 'stopped') {
+                setDiagramStatus('Stopped — ready for your next message');
+            } else if (outcome === 'error') {
+                setDiagramStatus('Generation failed');
+            } else if (outcome === 'success' && !diagramMessage) {
+                // Draw.io load handler will refine status when the editor finishes loading
+                setDiagramStatus('Rendering diagram…');
+            } else if (outcome === 'idle' && !isSending) {
+                if (currentXml || currentMermaid) {
+                    setDiagramStatus('Diagram loaded — pan and zoom to explore');
+                } else {
+                    setDiagramStatus('Waiting for generation');
+                }
+            }
+        }
+
         function initVoiceInput() {
             const btn = document.getElementById('btn-voice');
             const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -2355,34 +2550,55 @@
                 return;
             }
             speechRecognition = new SR();
-            speechRecognition.continuous = false;
+            speechRecognition.continuous = true;
             speechRecognition.interimResults = true;
             speechRecognition.maxAlternatives = 1;
             speechRecognition.lang = navigator.language || 'en-US';
 
             speechRecognition.onstart = () => {
                 isListening = true;
+                voiceManuallyStopping = false;
                 voiceBaseText = document.getElementById('chat-input').value.trim();
+                voiceStatusBeforeListen = document.getElementById('diagram-status').textContent;
                 if (btn) btn.classList.add('listening');
                 setVoiceStatus(true, 'Listening… speak now');
+                setComposerRunStatus('Listening… speak your instruction, click mic again to finish', 'running');
                 setDiagramStatus('Listening… speak your instruction');
             };
             speechRecognition.onresult = (event) => {
-                let transcript = '';
+                let interim = '';
+                const finals = [];
                 for (let i = event.resultIndex; i < event.results.length; i++) {
-                    transcript += event.results[i][0].transcript;
+                    const piece = event.results[i][0].transcript;
+                    if (event.results[i].isFinal) {
+                        finals.push(piece);
+                    } else {
+                        interim += piece;
+                    }
+                }
+                if (finals.length) {
+                    const joined = finals.join('').trim();
+                    voiceBaseText = voiceBaseText ? `${voiceBaseText} ${joined}`.trim() : joined;
                 }
                 const input = document.getElementById('chat-input');
-                input.value = (voiceBaseText ? voiceBaseText + ' ' : '') + transcript.trim();
+                const display = voiceBaseText
+                    ? (interim ? `${voiceBaseText} ${interim}`.trim() : voiceBaseText)
+                    : interim.trim();
+                input.value = display;
                 autoResizeChatInput();
             };
             speechRecognition.onerror = (e) => {
+                if (e.error === 'aborted' && voiceManuallyStopping) {
+                    voiceManuallyStopping = false;
+                    stopVoiceInput();
+                    return;
+                }
                 appendVerboseLog('client', `Voice input error: ${e.error}`, 'warn');
                 let msg = '';
                 switch (e.error) {
                     case 'not-allowed':
                     case 'service-not-allowed':
-                        msg = 'Microphone access was blocked. Click the lock/🎙 icon in the address bar and allow the microphone, then try again.';
+                        msg = 'Microphone access was blocked. Click the lock icon in the address bar and allow the microphone, then try again.';
                         break;
                     case 'no-speech':
                         msg = 'No speech detected. Try speaking a bit louder or closer to the mic.';
@@ -2402,6 +2618,14 @@
                 stopVoiceInput();
             };
             speechRecognition.onend = () => {
+                if (isListening && !voiceManuallyStopping) {
+                    try {
+                        speechRecognition.start();
+                    } catch (_) {
+                        stopVoiceInput();
+                    }
+                    return;
+                }
                 stopVoiceInput();
             };
         }
@@ -2411,9 +2635,23 @@
             const btn = document.getElementById('btn-voice');
             if (btn) btn.classList.remove('listening');
             setVoiceStatus(false);
+            if (!isSending) {
+                setComposerRunStatus('Ready — type or dictate your next message', 'info');
+                if (voiceStatusBeforeListen && (currentXml || currentMermaid)) {
+                    setDiagramStatus(voiceStatusBeforeListen);
+                } else if (currentXml || currentMermaid) {
+                    setDiagramStatus('Diagram loaded — pan and zoom to explore');
+                } else {
+                    setDiagramStatus('Waiting for generation');
+                }
+            }
         }
 
         async function toggleVoiceInput() {
+            if (isSending) {
+                showError('Wait for the current generation to finish, or press Stop.');
+                return;
+            }
             const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
             if (!SR || !speechRecognition) {
                 showError('Voice input is not supported in this browser. Please use Chrome, Edge, or Safari.');
@@ -2424,10 +2662,10 @@
                 return;
             }
             if (isListening) {
-                speechRecognition.stop();
+                voiceManuallyStopping = true;
+                try { speechRecognition.stop(); } catch (_) {}
                 return;
             }
-            // Proactively request mic permission so the prompt is clear to the user
             if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
                 try {
                     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -2438,13 +2676,23 @@
                     return;
                 }
             }
-            try {
+            const startRecognition = () => {
                 speechRecognition.start();
                 document.getElementById('chat-input').focus();
+            };
+            try {
+                startRecognition();
             } catch (err) {
-                // start() throws if already started; reset and retry once
                 appendVerboseLog('client', `Voice start failed: ${err.message}`, 'warn');
                 try { speechRecognition.stop(); } catch (_) {}
+                setTimeout(() => {
+                    try {
+                        startRecognition();
+                    } catch (retryErr) {
+                        showError('Could not start voice input. Try again or type your message.');
+                        appendVerboseLog('client', `Voice retry failed: ${retryErr.message}`, 'warn');
+                    }
+                }, 150);
             }
         }
 
@@ -2594,13 +2842,18 @@
             isSending = true;
             sendBtn.disabled = true;
             input.disabled = true;
+            updateSendStopButtons();
             hideValidationBanner();
             setTyping(true);
+            setComposerRunStatus('Auto-fixing layout from validation…', 'running');
             setDiagramStatus('Auto-fixing layout from validation…');
             document.getElementById('diagram-loading').classList.add('active');
 
             chatMessages.push({ role: 'user', content: fixMessage });
             appendChatBubble('user', fixMessage);
+
+            chatAbortController = new AbortController();
+            runStoppedByUser = false;
 
             try {
                 const promptSettings = getPromptSettings();
@@ -2610,6 +2863,7 @@
                 const res = await fetch('/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
+                    signal: chatAbortController.signal,
                     body: JSON.stringify({
                         messages: chatMessages,
                         provider,
@@ -2654,17 +2908,34 @@
 
                 loadDiagramFromResponse(data);
                 setActionButtonsEnabled(true);
-                setDiagramStatus('Diagram reloaded after validation fix');
+                finishChatRun({
+                    outcome: 'success',
+                    message: 'Layout fix complete — diagram updated.',
+                });
             } catch (err) {
-                appendVerboseLog('validation', `VLM auto-retry failed: ${err.message}`, 'error');
-                chatMessages.pop();
-                showError(err.message || 'Auto-fix failed');
-                document.getElementById('diagram-loading').classList.remove('active');
+                if (err.name === 'AbortError' || runStoppedByUser) {
+                    chatMessages.pop();
+                    appendVerboseLog('validation', 'VLM auto-retry stopped by user', 'warn');
+                    finishChatRun({
+                        outcome: 'stopped',
+                        message: 'Stopped — layout fix cancelled.',
+                    });
+                } else {
+                    appendVerboseLog('validation', `VLM auto-retry failed: ${err.message}`, 'error');
+                    chatMessages.pop();
+                    showError(err.message || 'Auto-fix failed');
+                    finishChatRun({
+                        outcome: 'error',
+                        message: err.message || 'Auto-fix failed.',
+                    });
+                }
             } finally {
-                setTyping(false);
+                chatAbortController = null;
+                runStoppedByUser = false;
                 isSending = false;
                 sendBtn.disabled = false;
                 input.disabled = false;
+                updateSendStopButtons();
             }
         }
 
@@ -2767,6 +3038,7 @@
             document.getElementById('xml-panel').classList.remove('open');
             hideError();
             setDiagramStatus('Waiting for generation');
+            setComposerRunStatus('Ready — describe an architecture or ask for changes', 'info');
             document.getElementById('diagram-placeholder').classList.remove('hidden');
 
             const container = document.getElementById('chat-messages');
@@ -2968,6 +3240,9 @@
                     document.getElementById('diagram-loading').classList.remove('active');
                     document.getElementById('diagram-placeholder').classList.add('hidden');
                     setDiagramStatus('Diagram loaded — pan and zoom to explore');
+                    if (!isSending) {
+                        setComposerRunStatus('Ready — ask for changes or try another prompt', 'success');
+                    }
                     setTimeout(() => runVisualValidation(), 600);
                 }
 
@@ -3025,7 +3300,8 @@
                 currentXml = '';
                 document.getElementById('xml-output').textContent = data.mermaid;
                 loadMermaidIntoEditor(data.mermaid);
-                setDiagramStatus('Mermaid diagram loaded');
+                document.getElementById('diagram-loading').classList.add('active');
+                setDiagramStatus('Loading Mermaid into Draw.io…');
                 return;
             }
             currentMermaid = '';
@@ -3091,7 +3367,7 @@
             const hints = {
                 cursor: 'Cursor SDK: set CURSOR_API_KEY. Optional CURSOR_MODEL, CURSOR_RUNTIME=local. For bridge debug: CURSOR_SDK_LOG=debug.',
                 openrouter: 'OpenRouter: set OPENROUTER_API_KEY. Optional OPENROUTER_MODEL and OPENROUTER_BASE_URL.',
-                opencode: 'OpenCode: install opencode CLI with auth configured. Optional OPENCODE_COMMAND and OPENCODE_MODEL.',
+                opencode: 'OpenCode Zen: set OPENCODE_API_KEY. Uses /chat/completions models only (default big-pickle). Optional OPENCODE_MODEL, OPENCODE_BASE_URL.',
             };
             hint.textContent = hints[provider] || '';
             hint.hidden = !hints[provider];
@@ -3209,9 +3485,14 @@
             hideError();
             hideValidationBanner();
             vlmAutoRetryCount = 0;
+            if (isListening) {
+                voiceManuallyStopping = true;
+                try { speechRecognition.stop(); } catch (_) {}
+            }
             isSending = true;
             sendBtn.disabled = true;
             input.disabled = true;
+            updateSendStopButtons();
             setPlatformTabsBusy(true);
 
             if (!options.skipInput) {
@@ -3228,12 +3509,21 @@
 
             setProgress(10);
             setTyping(true);
+            setComposerRunStatus(
+                options.platformConvert
+                    ? `Regenerating for ${selectedPlatform.toUpperCase()}…`
+                    : 'Generating diagram…',
+                'running'
+            );
             setDiagramStatus(
                 options.platformConvert
                     ? `Regenerating for ${selectedPlatform.toUpperCase()}…`
                     : 'Analyzing architecture...'
             );
             document.getElementById('diagram-loading').classList.add('active');
+
+            chatAbortController = new AbortController();
+            runStoppedByUser = false;
 
             if (verboseLogging) {
                 appendVerboseLog('client', 'Sending chat message', 'info', {
@@ -3268,6 +3558,7 @@
                 const res = await fetch('/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
+                    signal: chatAbortController.signal,
                     body: JSON.stringify({
                         messages: chatMessages,
                         provider,
@@ -3341,22 +3632,40 @@
                 loadDiagramFromResponse(data);
                 setActionButtonsEnabled(true);
                 setProgress(100);
+                finishChatRun({
+                    outcome: 'success',
+                    message: 'Done — diagram updated. Pan and zoom in the preview.',
+                });
                 appendVerboseLog('client', 'Chat turn complete', 'success');
             } catch (err) {
                 console.error(err);
                 if (options.platformConvert && options.previousPlatform) {
                     applyPlatformUi(options.previousPlatform);
                 }
-                if (!options.skipInput || !options.platformConvert) chatMessages.pop();
-                setTyping(false);
-                appendVerboseLog('client', err.message || 'Request failed', 'error');
-                showError(err.message || 'Request failed. Check the server logs.');
-                document.getElementById('diagram-loading').classList.remove('active');
-                setDiagramStatus('Generation failed');
+                if (err.name === 'AbortError' || runStoppedByUser) {
+                    if (!options.skipInput || !options.platformConvert) chatMessages.pop();
+                    appendVerboseLog('client', 'Request stopped by user', 'warn');
+                    finishChatRun({
+                        outcome: 'stopped',
+                        message: 'Stopped — edit your message and send again when ready.',
+                    });
+                } else {
+                    if (!options.skipInput || !options.platformConvert) chatMessages.pop();
+                    setTyping(false);
+                    appendVerboseLog('client', err.message || 'Request failed', 'error');
+                    showError(err.message || 'Request failed. Check the server logs.');
+                    finishChatRun({
+                        outcome: 'error',
+                        message: err.message || 'Request failed.',
+                    });
+                }
             } finally {
+                chatAbortController = null;
+                runStoppedByUser = false;
                 isSending = false;
                 sendBtn.disabled = false;
                 input.disabled = false;
+                updateSendStopButtons();
                 setPlatformTabsBusy(false);
                 input.focus();
             }
@@ -3399,6 +3708,60 @@
                 : '▸ View Draw.io XML source';
         }
 
+        // ── Sidebar resizer ──────────────────────
+        (function initSidebarResizer() {
+            const resizer = document.getElementById('sidebar-resizer');
+            const sidebar = document.querySelector('.sidebar');
+            let startX, startWidth;
+
+            function onMouseDown(e) {
+                startX = e.clientX;
+                startWidth = sidebar.getBoundingClientRect().width;
+                resizer.classList.add('resizing');
+                document.body.style.cursor = 'col-resize';
+                document.body.style.userSelect = 'none';
+                document.documentElement.style.pointerEvents = 'none';
+                resizer.style.pointerEvents = 'all';
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', onMouseUp);
+                e.preventDefault();
+            }
+
+            function onMouseMove(e) {
+                const delta = e.clientX - startX;
+                const newWidth = Math.min(Math.max(startWidth + delta, parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-min-width'))), parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-max-width')));
+                document.documentElement.style.setProperty('--sidebar-width', newWidth + 'px');
+            }
+
+            function onMouseUp() {
+                resizer.classList.remove('resizing');
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+                document.documentElement.style.pointerEvents = '';
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+            }
+
+            resizer.addEventListener('mousedown', onMouseDown);
+
+            // Keyboard support
+            resizer.addEventListener('keydown', (e) => {
+                const step = e.shiftKey ? 20 : 10;
+                const min = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-min-width'));
+                const max = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-max-width'));
+                let current = parseFloat(getComputedStyle(sidebar).width);
+                if (e.key === 'ArrowLeft') {
+                    current = Math.max(min, current - step);
+                    document.documentElement.style.setProperty('--sidebar-width', current + 'px');
+                    e.preventDefault();
+                } else if (e.key === 'ArrowRight') {
+                    current = Math.min(max, current + step);
+                    document.documentElement.style.setProperty('--sidebar-width', current + 'px');
+                    e.preventDefault();
+                }
+            });
+        })();
+
         // Boot Draw.io iframe immediately so it is ready when the user sends a message
         initVerboseLogging();
         initPromptSettings();
@@ -3408,6 +3771,8 @@
         hideValidationBanner();
         document.getElementById('provider-select').addEventListener('change', updateProviderHint);
         updateProviderHint();
+        updateSendStopButtons();
+        setComposerRunStatus('Ready — describe an architecture or ask for changes', 'info');
         loadTemplates();
         initVoiceInput();
         ensureDrawioFrame();
