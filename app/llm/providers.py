@@ -29,6 +29,15 @@ def normalize_opencode_model(model_id: str = "") -> str:
     return normalize_gateway_model_id(raw, default="big-pickle", prefix="opencode/")
 
 
+def normalize_gateway_base_url(base_url: str, default: str) -> str:
+    """Normalize OpenAI-compatible gateway base URLs (strip slash, fix known bad hosts)."""
+    url = (base_url or default).strip().rstrip("/")
+    # api.opencode.ai returns HTTP 200 + plain-text "Not Found" for Zen paths.
+    if "api.opencode.ai" in url:
+        url = url.replace("api.opencode.ai", "opencode.ai")
+    return url
+
+
 def _opencode_model() -> str:
     return normalize_opencode_model()
 
@@ -44,8 +53,7 @@ class ProviderSpec:
     kind: str = "langchain"  # langchain | sdk
     base_url_env: str = ""
     base_url_default: str = ""
-    structured_output: str = "inherit"  # inherit | none | json_mode
-    gateway_output_env: str = ""  # when inherit+function_calling, optional override
+    structured_output: str = "function_calling"  # function_calling | json_mode | none
 
 
 def _build_registry() -> dict[str, ProviderSpec]:
@@ -55,6 +63,7 @@ def _build_registry() -> dict[str, ProviderSpec]:
             client_class=ChatOpenAI,
             default_model="gpt-4o",
             api_key_env="OPENAI_API_KEY",
+            structured_output="function_calling",
         ),
         "openrouter": ProviderSpec(
             key="openrouter",
@@ -63,7 +72,7 @@ def _build_registry() -> dict[str, ProviderSpec]:
             api_key_env="OPENROUTER_API_KEY",
             base_url_env="OPENROUTER_BASE_URL",
             base_url_default="https://openrouter.ai/api/v1",
-            gateway_output_env="OPENROUTER_STRUCTURED_OUTPUT",
+            structured_output="none",
         ),
         "gemini": ProviderSpec(
             key="gemini",
@@ -77,6 +86,7 @@ def _build_registry() -> dict[str, ProviderSpec]:
             client_class=ChatAnthropic,
             default_model="claude-sonnet-4-6",
             api_key_env="ANTHROPIC_API_KEY",
+            structured_output="function_calling",
         ),
         "cursor": ProviderSpec(
             key="cursor",
@@ -121,21 +131,10 @@ def require_api_key(spec: ProviderSpec) -> None:
         raise ValueError(f"{spec.api_key_env} environment variable is not set.")
 
 
-def resolve_structured_output_method(provider_key: str) -> str:
-    """Pick structured-output strategy for a provider.
-
-    Gateways without tool support use plain JSON text extraction (``none``).
-    """
-    spec = get_provider(provider_key)
-    global_method = (os.getenv("STRUCTURED_OUTPUT_METHOD", "function_calling") or "function_calling").strip().lower()
-
-    if global_method == "none" or spec.structured_output == "none":
-        return "none"
-    if spec.structured_output == "json_mode":
-        return "json_mode"
-    if spec.gateway_output_env and global_method == "function_calling":
-        return (os.getenv(spec.gateway_output_env, "none") or "none").strip().lower()
-    return global_method
+def resolve_gateway_base_url(spec: ProviderSpec) -> str:
+    if not spec.base_url_env:
+        return spec.base_url_default
+    return normalize_gateway_base_url(os.getenv(spec.base_url_env, spec.base_url_default), spec.base_url_default)
 
 
 def build_langchain_client(spec: ProviderSpec, *, timeout: int) -> BaseChatModel:
@@ -146,5 +145,5 @@ def build_langchain_client(spec: ProviderSpec, *, timeout: int) -> BaseChatModel
     kwargs: dict[str, Any] = {"model": spec.default_model, "temperature": 0, "timeout": timeout}
     if spec.base_url_env:
         kwargs["api_key"] = os.getenv(spec.api_key_env)
-        kwargs["base_url"] = os.getenv(spec.base_url_env, spec.base_url_default)
+        kwargs["base_url"] = resolve_gateway_base_url(spec)
     return spec.client_class(**kwargs)

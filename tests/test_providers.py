@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 
 from app.llm.agent import MODEL_IDS, _normalize_opencode_model
+from app.llm.providers import normalize_gateway_base_url
 
 
 class ProviderTests(unittest.TestCase):
@@ -20,6 +21,10 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(_normalize_opencode_model("big-pickle"), "big-pickle")
         self.assertEqual(_normalize_opencode_model(""), "big-pickle")
         self.assertEqual(_normalize_opencode_model("  opencode/glm-5.2  "), "glm-5.2")
+
+    def test_normalize_gateway_base_url_fixes_opencode_api_host(self) -> None:
+        fixed = normalize_gateway_base_url("https://api.opencode.ai/zen/v1", "https://opencode.ai/zen/v1")
+        self.assertEqual(fixed, "https://opencode.ai/zen/v1")
 
 
 if __name__ == "__main__":

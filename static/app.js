@@ -1482,8 +1482,7 @@ const DRAWIO_ORIGIN = 'https://embed.diagrams.net';
                 const attachPreview = document.getElementById('attachment-preview');
                 if (attachPreview) { attachPreview.hidden = true; attachPreview.textContent = ''; }
 
-                renderNotes(data.flow_steps, data.pattern_id);
-
+              
                 if (data.validation?.feedback) {
                     showValidationBanner(data.validation.structural || data.validation.vlm, data.validation.feedback);
                 } else if (data.validation?.structural && !data.validation.structural.valid) {

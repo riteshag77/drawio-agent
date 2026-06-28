@@ -6,16 +6,17 @@ from typing import TYPE_CHECKING, Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+import os
+
 from app.core.config import LLM_TIMEOUT_SECONDS
 from app.llm.providers import (
-    ProviderSpec,
     build_langchain_client,
     get_provider,
     normalize_provider_key,
     require_api_key,
-    resolve_structured_output_method,
+    resolve_gateway_base_url,
 )
-from app.llm.response_parse import invoke_json
+from app.llm.response_parse import invoke_gateway_json, invoke_json
 from app.llm.sdk_client import call_sdk_provider
 
 if TYPE_CHECKING:
@@ -45,9 +46,27 @@ def call_llm(
             details={"provider": provider_key, "model": spec.default_model, "output_type": output_type.__name__},
         )
 
-    llm = build_langchain_client(spec, timeout=LLM_TIMEOUT_SECONDS)
     messages = [SystemMessage(content=system_prompt), HumanMessage(content=human_content)]
-    method = resolve_structured_output_method(provider_key)
+    method = spec.structured_output
+
+    if method == "none" and spec.base_url_env:
+        base_url = resolve_gateway_base_url(spec)
+        if logger:
+            logger.log(
+                "llm",
+                "Using gateway HTTP JSON extraction",
+                details={"structured_output": method, "base_url": base_url},
+            )
+        return invoke_gateway_json(
+            base_url=base_url,
+            api_key=os.getenv(spec.api_key_env, ""),
+            model=spec.default_model,
+            messages=messages,
+            output_type=output_type,
+            timeout=LLM_TIMEOUT_SECONDS,
+        )
+
+    llm = build_langchain_client(spec, timeout=LLM_TIMEOUT_SECONDS)
 
     if method == "none":
         if logger:

@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from app.core.logging import StepLogger
 
 # Backward-compatible re-exports for tests and diagnostic scripts.
-from app.llm.providers import resolve_structured_output_method as _resolve_structured_output_method
 from app.llm.response_parse import message_text as _message_text
 from app.llm.sdk_client import format_sdk_error as _format_cursor_error
 from app.llm.providers import normalize_opencode_model as _normalize_opencode_model

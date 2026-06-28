@@ -20,6 +20,7 @@ from langchain_core.messages import HumanMessage  # noqa: E402
 from langchain_openai import ChatOpenAI  # noqa: E402
 
 from app.llm.agent import _normalize_opencode_model  # noqa: E402
+from app.llm.providers import normalize_gateway_base_url  # noqa: E402
 
 
 def _fetch_models(api_key: str, base_url: str) -> list[str]:
@@ -42,7 +43,10 @@ def main() -> int:
         print("OPENCODE_API_KEY is not set.")
         return 1
 
-    base_url = os.getenv("OPENCODE_BASE_URL", "https://opencode.ai/zen/v1").strip()
+    base_url = normalize_gateway_base_url(
+        os.getenv("OPENCODE_BASE_URL", "https://opencode.ai/zen/v1"),
+        "https://opencode.ai/zen/v1",
+    )
     model = _normalize_opencode_model(os.getenv("OPENCODE_MODEL", "big-pickle"))
 
     print(f"Base URL: {base_url}")
