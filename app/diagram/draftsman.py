@@ -2,6 +2,7 @@ import html as html_module
 import re
 from typing import TYPE_CHECKING
 
+from app.diagram.edge_router import route_edge
 from app.diagram.styles import build_style
 from app.diagram.xml_tools import validate_and_fix_xml_legacy, wrap_with_mxfile
 from app.models import ArchitectureDiagram
@@ -327,15 +328,31 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
 
         edge_parent = _lca_parent(edge.source_id, edge.target_id, nodes_by_id)
 
+        src_box = (
+            layout.get(edge.source_id, {}).get("x", 0),
+            layout.get(edge.source_id, {}).get("y", 0),
+            layout.get(edge.source_id, {}).get("w", LEAF_W),
+            layout.get(edge.source_id, {}).get("h", LEAF_H),
+        )
+        tgt_box = (
+            layout.get(edge.target_id, {}).get("x", 0),
+            layout.get(edge.target_id, {}).get("y", 0),
+            layout.get(edge.target_id, {}).get("w", LEAF_W),
+            layout.get(edge.target_id, {}).get("h", LEAF_H),
+        )
+        ex, ey, enx, eny, _ = route_edge(src_box, tgt_box)
+
         edge_style_parts = [
             "edgeStyle=orthogonalEdgeStyle",
             "rounded=0",
             "html=1",
             "endArrow=classic",
-            "exitX=1",
-            "exitY=0.5",
-            "entryX=0",
-            "entryY=0.5",
+            f"exitX={ex}",
+            f"exitY={ey}",
+            f"entryX={enx}",
+            f"entryY={eny}",
+            "jumpStyle=arc",
+            "jumpSize=6",
         ]
 
         color = edge.color

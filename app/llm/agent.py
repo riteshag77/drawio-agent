@@ -12,7 +12,6 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from app.core.config import BASE_DIR
 from app.utils.chat import replace_historical_tool_inputs, trim_chat_messages_for_prompt
 from app.models import ArchitectureDiagram, EditResponse, MermaidDiagram
-from dotenv import load_dotenv
 from app.patterns.library import find_matching_patterns, format_patterns_for_prompt
 from app.llm.prompts.simple import MERMAID_SYSTEM_PROMPT
 from app.llm.prompts.system import (
@@ -24,8 +23,6 @@ from app.llm.prompts.system import (
 
 if TYPE_CHECKING:
     from app.core.logging import StepLogger
-
-load_dotenv()
 
 
 def _normalize_opencode_model(model_id: str) -> str:

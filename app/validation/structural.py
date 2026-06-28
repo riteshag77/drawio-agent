@@ -249,16 +249,3 @@ def validate_architecture_structure(diagram: ArchitectureDiagram) -> ValidationR
         issues=issues,
         suggestions=suggestions,
     )
-
-
-def merge_validation_results(*results: ValidationResult) -> ValidationResult:
-    """Combine multiple validation passes into one result."""
-    issues: list[ValidationIssue] = []
-    suggestions: list[str] = []
-    for result in results:
-        issues.extend(result.issues)
-        suggestions.extend(result.suggestions)
-    critical = any(i.severity == "critical" for i in issues)
-    # Deduplicate suggestions
-    unique_suggestions = list(dict.fromkeys(suggestions))
-    return ValidationResult(valid=not critical, issues=issues, suggestions=unique_suggestions)

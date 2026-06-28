@@ -4,22 +4,12 @@ Reference skeletons live in ``templates/`` (e.g. three_tier_web.xml).
 The layout engine applies scaffold sizes before auto-layout runs.
 """
 
-from __future__ import annotations
-
-from pathlib import Path
-
 from app.models import ArchitectureDiagram, Node
-
-_TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 
 def apply_three_tier_scaffold(architecture: ArchitectureDiagram) -> ArchitectureDiagram:
     """Pin standard container sizes for the three-tier pattern before layout."""
     if architecture.pattern_id != "three_tier_web":
-        return architecture
-
-    template_path = _TEMPLATES_DIR / "three_tier_web.xml"
-    if not template_path.is_file():
         return architecture
 
     size_by_role: dict[str, tuple[int, int]] = {

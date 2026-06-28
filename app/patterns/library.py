@@ -328,10 +328,4 @@ def format_patterns_for_prompt(
     return "\n".join(blocks)
 
 
-def get_pattern_by_id(pattern_id: str | None) -> ArchitecturePattern | None:
-    if not pattern_id:
-        return None
-    for pattern in ARCHITECTURE_PATTERNS:
-        if pattern.id == pattern_id:
-            return pattern
-    return None
+

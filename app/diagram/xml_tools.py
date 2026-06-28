@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import base64
 import html
 import re
 import uuid
 import xml.etree.ElementTree as ET
-import zlib
 from dataclasses import dataclass, field
 from typing import Literal
-from urllib.parse import unquote
 
 from app.models import DiagramOperation
 
@@ -42,137 +39,6 @@ class OperationError:
 class ApplyOperationsResult:
     result: str
     errors: list[OperationError] = field(default_factory=list)
-
-
-def is_mxcell_xml_complete(xml: str | None) -> bool:
-    """True if XML ends with a complete mxCell (not truncated mid-stream)."""
-    trimmed = (xml or "").strip()
-    if not trimmed:
-        return False
-    last_self = trimmed.rfind("/>")
-    last_close = trimmed.rfind("</mxCell>")
-    last_valid = max(last_self, last_close)
-    if last_valid == -1:
-        return False
-    end_offset = 9 if last_close > last_self else 2
-    suffix = trimmed[last_valid + end_offset :]
-    return bool(re.match(r"^(\s*</[^>]+>)*\s*$", suffix))
-
-
-def extract_complete_mxcells(xml: str | None) -> str:
-    """Return only complete mxCell elements from partial/streaming XML."""
-    if not xml:
-        return ""
-    cells: list[tuple[int, str]] = []
-    for m in re.finditer(r"<mxCell\s+[^>]*/>", xml):
-        cells.append((m.start(), m.group(0)))
-    for m in re.finditer(r"<mxCell\s+[^>]*>[\s\S]*?</mxCell>", xml):
-        cells.append((m.start(), m.group(0)))
-    cells.sort(key=lambda x: x[0])
-    seen: set[int] = set()
-    unique = []
-    for idx, text in cells:
-        if idx in seen:
-            continue
-        seen.add(idx)
-        unique.append(text)
-    return "\n".join(unique)
-
-
-def format_xml(xml: str, indent: str = "  ") -> str:
-    """Pretty-print XML with indentation."""
-    if not xml or not xml.strip():
-        return ""
-    compact = re.sub(r">\s*<", "><", xml.strip())
-    parts = re.split(r"(?<=>)|(?=<)", compact)
-    parts = [p for p in parts if p]
-    lines: list[str] = []
-    pad = 0
-    for node in parts:
-        if re.match(r"^</\w", node):
-            pad = max(0, pad - 1)
-            lines.append(indent * pad + node)
-        elif re.match(r"^<\w[^>]*/>$", node):
-            lines.append(indent * pad + node)
-        elif re.match(r"^<\w", node) and not node.endswith("/>"):
-            lines.append(indent * pad + node)
-            if not re.match(r"^<\?xml", node):
-                pad += 1
-        elif node.startswith("<"):
-            lines.append(indent * pad + node)
-        else:
-            if lines:
-                lines[-1] += node
-            else:
-                lines.append(node)
-    return "\n".join(lines).strip()
-
-
-def convert_to_legal_xml(xml_string: str) -> str:
-    """Extract complete mxCell blocks into a legal <root> fragment."""
-    regex = re.compile(r"<mxCell\b[^>]*(?:/>|>([\s\S]*?)</mxCell>)")
-    parts = ['<root>\n']
-    for match in regex.finditer(xml_string):
-        cell = match.group(0)
-        if not re.search(r'<Array\s+as="points">', cell):
-            cell = re.sub(
-                r"<mxPoint\b[^>]*/>",
-                lambda m: m.group(0) if re.search(r"\sas=", m.group(0)) else "",
-                cell,
-            )
-        cell = re.sub(
-            r"&(?!lt;|gt;|amp;|quot;|apos;|#[0-9]+;|#x[0-9a-fA-F]+;)",
-            "&amp;",
-            cell,
-        )
-        if re.search(r'=\s*"[^"]*<[^"]*"', cell):
-            cell = re.sub(
-                r'=\s*"([^"]*)"',
-                lambda m: f'="{html.escape(m.group(1), quote=True)}"',
-                cell,
-            )
-        formatted = "\n".join("    " + line.strip() for line in cell.split("\n") if line.strip())
-        parts.append(formatted + "\n")
-    parts.append("</root>")
-    return "".join(parts)
-
-
-def extract_diagram_xml(svg_or_data: str) -> str:
-    """
-    Decode draw.io compressed diagram from SVG export data URL or raw base64 payload.
-    Port of extractDiagramXML (utils.ts).
-    """
-    raw = svg_or_data
-    if raw.startswith("data:"):
-        if "," in raw:
-            raw = raw.split(",", 1)[1]
-        else:
-            raw = raw[26:] if len(raw) > 26 else raw
-
-    if raw.strip().startswith("<"):
-        svg_string = raw
-    else:
-        try:
-            svg_string = base64.b64decode(raw).decode("utf-8", errors="replace")
-        except Exception:
-            svg_string = raw
-
-    content_match = re.search(r'content="([^"]*)"', svg_string)
-    if not content_match:
-        content_match = re.search(r"content='([^']*)'", svg_string)
-    if not content_match:
-        raise ValueError("No content attribute found in SVG export")
-
-    encoded = html.unescape(content_match.group(1))
-    diagram_match = re.search(r"<diagram[^>]*>([^<]+)</diagram>", encoded)
-    if not diagram_match:
-        raise ValueError("No diagram element in encoded content")
-
-    b64_data = diagram_match.group(1).strip()
-    binary = base64.b64decode(b64_data)
-    decompressed = zlib.decompress(binary, wbits=-15)
-    decoded = decompressed.decode("utf-8")
-    return unquote(decoded)
 
 
 def wrap_with_mxfile(graph_xml: str, page_name: str = "Architecture") -> str:
