@@ -24,6 +24,7 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     messages: list[ChatMessage]
     provider: str = "openai"
+    validation_provider: str = "auto"
     platform: str = "aws"
     diagram_mode: str = "auto"
     current_architecture: dict | None = None
@@ -42,6 +43,7 @@ class ChatRequest(BaseModel):
 
 class ValidateDiagramRequest(BaseModel):
     image_data: str
+    validation_provider: str = "auto"
     session_id: str | None = None
 
 

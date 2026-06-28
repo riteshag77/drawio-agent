@@ -6,7 +6,6 @@ Composes role, layout/edge/label rules (next-ai), output contract, and architect
 
 from __future__ import annotations
 
-import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -291,6 +290,22 @@ so the layout engine can route edges without label collisions.
 
 ARCHITECTURE_SCHEMA_FILENAME = "schema.txt"
 
+CURSOR_SLIM_CATALOGUE = """
+## Architecture JSON (compact)
+Output one JSON object: `{"nodes": [...], "edges": [...], "suggestions": [...]}`
+
+Node fields: id, label, shape_type, is_container, parent_id, step_number, x, y, width, height, description.
+Set x, y, width, height to null always. Max 4 container levels (cloud → vpc → subnet → service).
+
+Shape keys — use platform prefix only (never mix aws_/gcp_/azure_ in one diagram):
+- AWS: aws_cloud, aws_vpc, aws_subnet, aws_alb, aws_ec2, aws_lambda, aws_rds, aws_s3, aws_api_gateway, aws_cloudfront, aws_waf, aws_route53, aws_elasticache, aws_sqs, aws_ecs, aws_fargate, aws_cloudwatch, aws_secrets_manager
+- GCP: gcp_project, gcp_vpc, gcp_subnet, gcp_cloud_run, gcp_gke, gcp_cloud_sql, gcp_memorystore, gcp_cloud_cdn, gcp_cloud_armor, gcp_cloud_dns, gcp_pubsub, gcp_cloud_monitoring
+- Azure: azure_subscription, azure_vnet, azure_subnet, azure_app_service, azure_aks, azure_sql_database, azure_redis, azure_front_door, azure_key_vault, azure_monitor
+
+Edge colors: AWS #ED7100, GCP #4285F4, Azure #0078D4. Labels: one word or null.
+Do NOT emit draw.io XML. Return ONLY valid JSON — no markdown fences, no commentary.
+"""
+
 
 @lru_cache(maxsize=1)
 def _load_architecture_schema() -> str:
@@ -344,6 +359,33 @@ def get_system_prompt(
     if include_schema:
         schema = _load_architecture_schema()
         prompt += f"\n\n---\n## Architecture Schema & Platform Catalogue\n\n{schema}"
+
+    if is_edit_mode:
+        prompt += f"\n\n{CHAT_EDIT_INSTRUCTIONS}"
+
+    custom = (custom_system_message or "").strip()
+    if custom:
+        custom = custom[:MAX_CUSTOM_SYSTEM_MESSAGE_LEN]
+        prompt += f"\n\n## Custom Instructions\n{custom}"
+
+    return prompt.replace("{{MODEL_NAME}}", model_name)
+
+
+def get_cursor_system_prompt(
+    model_id: str | None = None,
+    minimal_style: bool = False,
+    *,
+    custom_system_message: str = "",
+    is_edit_mode: bool = False,
+) -> str:
+    """Slim prompt for Cursor SDK local agent — avoids full schema.txt catalogue."""
+    model_name = _resolve_model_name(model_id, "cursor")
+    prompt = DEFAULT_SYSTEM_PROMPT
+
+    if minimal_style:
+        prompt = MINIMAL_STYLE_INSTRUCTION + prompt
+
+    prompt += f"\n\n---\n{CURSOR_SLIM_CATALOGUE.strip()}"
 
     if is_edit_mode:
         prompt += f"\n\n{CHAT_EDIT_INSTRUCTIONS}"

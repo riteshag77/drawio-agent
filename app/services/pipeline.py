@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import time
 
-from app.core.config import MAX_CUSTOM_MESSAGE_LEN, MAX_STRUCTURAL_RETRIES, MAX_VLM_RETRIES
-from app.core.logging import StepLogger
+from app.core.config import (
+    BACKOFF_BASE_SECONDS,
+    BACKOFF_MAX_SECONDS,
+    MAX_CUSTOM_MESSAGE_LEN,
+    MAX_STRUCTURAL_RETRIES,
+    MAX_VLM_RETRIES,
+)
 from app.diagram.draftsman import generate_xml
 from app.diagram.xml_tools import apply_diagram_operations, validate_and_fix_xml, wrap_with_mxfile
 from app.llm.agent import (
@@ -13,7 +19,6 @@ from app.llm.agent import (
     generate_edit_operations,
     generate_mermaid_diagram,
 )
-from app.models import ArchitectureDiagram, ValidationResult
 from app.utils.chat import is_minimal_architecture, is_minimal_diagram
 from app.validation.structural import format_validation_feedback, validate_architecture_structure
 from app.validation.visual import validate_diagram_image
@@ -72,11 +77,13 @@ def _build_response(status="success", diagram_type="cloud", *, xml=None, mermaid
 
 def _run_vlm_retry(user_prompt_or_none, messages, provider, platform, architecture_data,
                    current_architecture, logger, custom_msg, feedback, platform_convert,
-                   previous_platform, current_xml, image_data):
+                   previous_platform, current_xml, image_data, validation_provider="auto"):
     """Run VLM validation retry loop. Returns (architecture_data, xml_output, vlm_validation)."""
     vlm_validation = None
     for vlm_attempt in range(MAX_VLM_RETRIES + 1):
-        vlm_validation = _validate_sync(image_data, logger)
+        if vlm_attempt > 0:
+            _backoff_delay(vlm_attempt - 1)
+        vlm_validation = _validate_sync(image_data, logger, validation_provider)
         if vlm_validation.valid or vlm_attempt >= MAX_VLM_RETRIES:
             break
         feedback = format_validation_feedback(vlm_validation)
@@ -96,14 +103,22 @@ def _run_vlm_retry(user_prompt_or_none, messages, provider, platform, architectu
     return architecture_data, xml_output, vlm_validation
 
 
-def _validate_sync(image_data, logger):
-    return validate_diagram_image(image_data, logger)
+def _validate_sync(image_data, logger, validation_provider="auto"):
+    return validate_diagram_image(image_data, logger, validation_provider)
+
+
+def _backoff_delay(attempt: int) -> None:
+    delay = min(BACKOFF_BASE_SECONDS * (2 ** attempt), BACKOFF_MAX_SECONDS)
+    time.sleep(delay)
 
 
 def _retry_loop_sync(user_prompt_or_none, messages, provider, platform, current_architecture,
                      previous_architecture, logger, minimal_style, custom_msg, feedback,
                      platform_convert, previous_platform, current_xml):
     for attempt in range(MAX_STRUCTURAL_RETRIES + 1):
+        if attempt > 0:
+            _backoff_delay(attempt - 1)
+
         if messages:
             architecture_data, assistant_message = generate_architecture_from_chat(
                 messages, provider, platform, current_architecture, previous_architecture,
@@ -153,7 +168,7 @@ async def run_mermaid_pipeline(*, user_prompt, messages, provider, logger):
 
 async def run_edit_pipeline(*, messages, provider, platform, current_xml, previous_xml=None,
                              logger, custom_system_message="", validation_feedback=None,
-                             image_data=None, context_text=None):
+                             image_data=None, context_text=None, validation_provider="auto"):
     platform = (platform or "aws").strip().lower()
     provider = (provider or "openai").strip().lower()
     custom_msg = sanitize_custom_message(custom_system_message)
@@ -167,6 +182,8 @@ async def run_edit_pipeline(*, messages, provider, platform, current_xml, previo
     logger.log("request", "XML edit request", details={"provider": provider, "xml_chars": len(current_xml)})
 
     for attempt in range(MAX_STRUCTURAL_RETRIES + 1):
+        if attempt > 0:
+            await asyncio.sleep(min(BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)), BACKOFF_MAX_SECONDS))
         retry_count = attempt
         edit_response = await asyncio.to_thread(
             generate_edit_operations, messages, provider, xml_output, previous_xml,
@@ -200,7 +217,7 @@ async def run_edit_pipeline(*, messages, provider, platform, current_xml, previo
 
     if image_data and not is_minimal_diagram(xml_output):
         for vlm_attempt in range(MAX_VLM_RETRIES + 1):
-            vlm_validation = await asyncio.to_thread(validate_diagram_image, image_data, logger)
+            vlm_validation = await asyncio.to_thread(validate_diagram_image, image_data, logger, validation_provider)
             if vlm_validation.valid or vlm_attempt >= MAX_VLM_RETRIES:
                 break
             feedback = format_validation_feedback(vlm_validation)
@@ -224,10 +241,11 @@ async def run_edit_pipeline(*, messages, provider, platform, current_xml, previo
 
 
 async def run_generation_pipeline(*, user_prompt=None, messages=None, provider="openai", platform="aws",
-                                   current_architecture=None, previous_architecture=None, logger=None,
-                                   minimal_style=False, custom_system_message="",
-                                   validation_feedback=None, image_data=None, context_text=None,
-                                   platform_convert=False, previous_platform=None, current_xml=None):
+                                    current_architecture=None, previous_architecture=None, logger=None,
+                                    minimal_style=False, custom_system_message="",
+                                    validation_feedback=None, image_data=None, context_text=None,
+                                    platform_convert=False, previous_platform=None, current_xml=None,
+                                    validation_provider="auto"):
     platform = (platform or "aws").strip().lower()
     provider = (provider or "openai").strip().lower()
 
@@ -262,7 +280,7 @@ async def run_generation_pipeline(*, user_prompt=None, messages=None, provider="
         architecture_data, xml_output, vlm_validation = await asyncio.to_thread(
             _run_vlm_retry, human_prompt, messages, provider, platform, architecture_data,
             current_architecture, logger, custom_msg, feedback, platform_convert,
-            previous_platform, current_xml, image_data,
+            previous_platform, current_xml, image_data, validation_provider,
         )
 
     validation_summary = None

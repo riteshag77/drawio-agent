@@ -5,6 +5,7 @@ VLM-based diagram validation — port of next-ai-draw-io app/api/validate-diagra
 from __future__ import annotations
 
 import base64
+import json
 import os
 import re
 from typing import TYPE_CHECKING
@@ -21,6 +22,24 @@ if TYPE_CHECKING:
 
 MAX_IMAGE_BYTES = 4 * 1024 * 1024  # 4MB decoded
 DEFAULT_TIMEOUT_S = 10
+
+
+def _extract_json_from_text(text: str) -> dict:
+    if not text or not text.strip():
+        raise ValueError("Empty response from model.")
+    stripped = text.strip()
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        pass
+    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", stripped, re.DOTALL)
+    if fenced:
+        return json.loads(fenced.group(1))
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start >= 0 and end > start:
+        return json.loads(stripped[start : end + 1])
+    raise ValueError("Response did not contain valid JSON.")
 
 
 def _parse_image_data(image_data: str) -> bytes:
@@ -46,8 +65,39 @@ def _parse_image_data(image_data: str) -> bytes:
     return decoded
 
 
-def _build_vision_llm():
-    """Pick a vision-capable model (Gemini preferred, then OpenAI)."""
+def _build_vision_llm(provider: str = "auto"):
+    """Pick a vision-capable model based on provider preference."""
+    provider_map = {
+        "gemini": ("google", "gemini-2.5-flash"),
+        "gpt-4o": ("openai", "gpt-4o"),
+        "openrouter": ("openrouter", "openai/gpt-4o-mini"),
+    }
+
+    chosen = provider_map.get(provider)
+    if chosen:
+        kind, default_model = chosen
+        model = os.getenv("VALIDATION_MODEL", default_model)
+        if kind == "google" and os.getenv("GOOGLE_API_KEY"):
+            return ChatGoogleGenerativeAI(model=model, temperature=0)
+        if kind == "openai" and os.getenv("OPENAI_API_KEY"):
+            return ChatOpenAI(model=model, temperature=0)
+        if kind == "openrouter" and os.getenv("OPENROUTER_API_KEY"):
+            return ChatOpenAI(
+                model=model,
+                temperature=0,
+                api_key=os.getenv("OPENROUTER_API_KEY"),
+                base_url=os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
+            )
+
+    if provider == "openrouter" and os.getenv("OPENROUTER_API_KEY"):
+        model = os.getenv("VALIDATION_MODEL", "openai/gpt-4o-mini")
+        return ChatOpenAI(
+            model=model,
+            temperature=0,
+            api_key=os.getenv("OPENROUTER_API_KEY"),
+            base_url=os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
+        )
+
     if os.getenv("GOOGLE_API_KEY"):
         model = os.getenv("VALIDATION_MODEL", "gemini-2.5-flash")
         return ChatGoogleGenerativeAI(model=model, temperature=0)
@@ -62,6 +112,7 @@ def _build_vision_llm():
 def validate_diagram_image(
     image_data: str,
     logger: "StepLogger | None" = None,
+    provider: str = "auto",
 ) -> ValidationResult:
     """
     Analyze a rendered diagram PNG with a vision model.
@@ -72,7 +123,7 @@ def validate_diagram_image(
             logger.log("validation", "VLM validation disabled (ENABLE_VLM_VALIDATION=false)", level="info")
         return DEFAULT_VALID_RESULT.model_copy()
 
-    llm = _build_vision_llm()
+    llm = _build_vision_llm(provider)
     if llm is None:
         if logger:
             logger.log(
@@ -96,7 +147,6 @@ def validate_diagram_image(
             details={"image_bytes": len(image_bytes)},
         )
 
-    structured = llm.with_structured_output(ValidationResult)
     b64 = base64.b64encode(image_bytes).decode("ascii")
 
     # LangChain multimodal content blocks
@@ -112,7 +162,7 @@ def validate_diagram_image(
     ]
 
     try:
-        result: ValidationResult = structured.invoke([
+        result: ValidationResult = llm.with_structured_output(ValidationResult).invoke([
             SystemMessage(content=VALIDATION_SYSTEM_PROMPT),
             HumanMessage(content=human_content),  # type: ignore[arg-type]
         ])
@@ -120,10 +170,24 @@ def validate_diagram_image(
         if logger:
             logger.log(
                 "validation",
-                f"VLM validation error (fail-open): {exc}",
+                f"Structured output failed ({exc}), trying text JSON extraction",
                 "warn",
             )
-        return DEFAULT_VALID_RESULT.model_copy()
+        try:
+            raw = llm.invoke([
+                SystemMessage(content=VALIDATION_SYSTEM_PROMPT),
+                HumanMessage(content=human_content),
+            ])
+            text = _extract_json_from_text(raw.content)
+            result = ValidationResult.model_validate(text)
+        except Exception as fallback_exc:
+            if logger:
+                logger.log(
+                    "validation",
+                    f"VLM validation fallback also failed (fail-open): {fallback_exc}",
+                    "warn",
+                )
+            return DEFAULT_VALID_RESULT.model_copy()
 
     if logger:
         logger.log(

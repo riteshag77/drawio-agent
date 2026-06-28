@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from app.diagram.edge_router import route_edge
 from app.diagram.styles import build_style
 from app.diagram.xml_tools import validate_and_fix_xml_legacy, wrap_with_mxfile
-from app.models import ArchitectureDiagram, Node
+from app.models import ArchitectureDiagram
 from app.patterns.template_merge import apply_three_tier_scaffold
 
 if TYPE_CHECKING:

@@ -574,6 +574,71 @@
             box-shadow: 0 0 0 3px var(--accent-glow);
         }
 
+        .composer-model-row {
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0 0.4rem;
+        }
+
+        .composer-model-row select {
+            width: auto;
+            min-width: 0;
+            font-size: 0.72rem;
+            font-weight: 600;
+            padding: 0.2rem 1.6rem 0.2rem 0.5rem;
+            border: 1px solid var(--sidebar-border);
+            border-radius: 6px;
+            background-color: rgba(255, 255, 255, 0.04);
+            color: var(--text-secondary);
+            letter-spacing: 0.01em;
+            cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='%2394a3b8' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 6px center;
+            transition: border-color 0.15s, color 0.15s;
+        }
+
+        .composer-model-row select:hover {
+            border-color: rgba(255, 255, 255, 0.15);
+            color: var(--text-primary);
+        }
+
+        .composer-model-row select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .composer-model-row select option {
+            background: #111827;
+            color: var(--text-primary);
+        }
+
+        #validation-provider-select {
+            font-weight: 500;
+            opacity: 0.75;
+            font-size: 0.68rem;
+            padding: 0.2rem 1.4rem 0.2rem 0.4rem;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' fill='%2364748b' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+            background-position: right 5px center;
+        }
+
+        #validation-provider-select:hover {
+            opacity: 1;
+        }
+
+        .provider-hint {
+            margin: 0.35rem 0 0;
+            font-size: 0.72rem;
+            line-height: 1.35;
+            color: var(--text-muted);
+        }
+
+        .provider-hint code {
+            font-size: 0.68rem;
+        }
+
         .composer-actions {
             display: flex;
             align-items: center;
@@ -888,19 +953,6 @@
         select option {
             background: #111827;
             color: var(--text-primary);
-        }
-
-        .provider-hint {
-            margin-top: 0.5rem;
-            font-size: 0.72rem;
-            line-height: 1.45;
-            color: var(--text-muted);
-        }
-
-        .provider-hint code {
-            font-family: 'Cascadia Code', 'Consolas', monospace;
-            font-size: 0.68rem;
-            color: var(--text-secondary);
         }
 
         .btn-generate {
@@ -1653,18 +1705,7 @@
                             <option value="simple">Diagram: Simple (Mermaid)</option>
                         </select>
                     </div>
-                    <div class="control-bar-row">
-                        <select id="provider-select" aria-label="AI provider">
-                            <option value="gemini">Google Gemini</option>
-                            <option value="openai">OpenAI GPT-4o</option>
-                            <option value="claude">Claude Sonnet 4</option>
-                            <option value="cursor">Cursor Composer 2.5</option>
-                        </select>
-                    </div>
-                    <p id="cursor-hint" class="provider-hint" hidden>
-                        Requires <code>CURSOR_API_KEY</code> from Cursor Dashboard → API Keys.
-                        Uses the official Cursor SDK (<code>cursor-sdk</code>).
-                    </p>
+
                 </div>
 
                 <div class="chat-panel">
@@ -1714,6 +1755,23 @@
                     <span class="voice-dot"></span><span id="voice-status-text">Listening…</span>
                 </div>
                 <div class="composer">
+                    <div class="composer-model-row">
+                        <select id="provider-select" aria-label="AI provider">
+                            <option value="gemini">Gemini</option>
+                            <option value="openai">GPT-4o</option>
+                            <option value="openrouter">OpenRouter</option>
+                            <option value="claude">Claude</option>
+                            <option value="cursor">Cursor (SDK)</option>
+                            <option value="opencode">OpenCode</option>
+                        </select>
+                        <select id="validation-provider-select" aria-label="Validation model" hidden>
+                            <option value="auto">Validate: Auto</option>
+                            <option value="gemini">Validate: Gemini</option>
+                            <option value="gpt-4o">Validate: GPT-4o</option>
+                            <option value="openrouter">Validate: OpenRouter</option>
+                        </select>
+                    </div>
+                    <p id="provider-hint" class="provider-hint" hidden></p>
                     <textarea id="chat-input" rows="1"
                         placeholder="Describe or refine your architecture…"></textarea>
                     <div class="composer-actions">
@@ -1937,6 +1995,7 @@
         const MINIMAL_STYLE_STORAGE_KEY = 'drawio-agent-minimal-style';
         const CUSTOM_SYSTEM_MESSAGE_KEY = 'drawio-agent-custom-system-message';
         const VLM_VALIDATION_KEY = 'drawio-agent-vlm-validation';
+        const VALIDATION_PROVIDER_KEY = 'drawio-agent-validation-provider';
         const AUTO_LAYOUT_STORAGE_KEY = 'drawio-agent-autolayout-on-load';
         const DIAGRAM_MODE_STORAGE_KEY = 'drawio-agent-diagram-mode';
         const MAX_VLM_CLIENT_RETRIES = 2;
@@ -2007,11 +2066,18 @@
             }
         }
 
+        function updateValidationProviderVisibility() {
+            const vlmOn = document.getElementById('vlm-validation-toggle').checked;
+            const sel = document.getElementById('validation-provider-select');
+            sel.hidden = !vlmOn;
+        }
+
         function getPromptSettings() {
             return {
                 minimal_style: document.getElementById('minimal-style-toggle').checked,
                 custom_system_message: document.getElementById('custom-system-message').value.slice(0, 5000),
                 vlm_validation: document.getElementById('vlm-validation-toggle').checked,
+                validation_provider: document.getElementById('validation-provider-select').value,
             };
         }
 
@@ -2019,9 +2085,12 @@
             const minimal = document.getElementById('minimal-style-toggle').checked;
             const custom = document.getElementById('custom-system-message').value.slice(0, 5000);
             const vlm = document.getElementById('vlm-validation-toggle').checked;
+            const vp = document.getElementById('validation-provider-select').value;
             localStorage.setItem(MINIMAL_STYLE_STORAGE_KEY, minimal ? '1' : '0');
             localStorage.setItem(CUSTOM_SYSTEM_MESSAGE_KEY, custom);
             localStorage.setItem(VLM_VALIDATION_KEY, vlm ? '1' : '0');
+            localStorage.setItem(VALIDATION_PROVIDER_KEY, vp);
+            updateValidationProviderVisibility();
         }
 
         function initPromptSettings() {
@@ -2032,6 +2101,11 @@
             const vlmStored = localStorage.getItem(VLM_VALIDATION_KEY);
             document.getElementById('vlm-validation-toggle').checked =
                 vlmStored === null ? true : vlmStored === '1';
+            const vpStored = localStorage.getItem(VALIDATION_PROVIDER_KEY);
+            if (vpStored) {
+                document.getElementById('validation-provider-select').value = vpStored;
+            }
+            updateValidationProviderVisibility();
         }
 
         function hideValidationBanner() {
@@ -2457,7 +2531,7 @@
                 const res = await fetch('/validate-diagram', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ image_data: imageData }),
+                    body: JSON.stringify({ image_data: imageData, validation_provider: settings.validation_provider }),
                 });
                 const data = await res.json();
                 mergeServerLogs(data.logs);
@@ -2539,6 +2613,7 @@
                     body: JSON.stringify({
                         messages: chatMessages,
                         provider,
+                        validation_provider: promptSettings.validation_provider,
                         platform: selectedPlatform,
                         diagram_mode: getDiagramMode(),
                         current_architecture: currentArchitecture,
@@ -3012,7 +3087,14 @@
 
         function updateProviderHint() {
             const provider = document.getElementById('provider-select').value;
-            document.getElementById('cursor-hint').hidden = provider !== 'cursor';
+            const hint = document.getElementById('provider-hint');
+            const hints = {
+                cursor: 'Cursor SDK: set CURSOR_API_KEY. Optional CURSOR_MODEL, CURSOR_RUNTIME=local. For bridge debug: CURSOR_SDK_LOG=debug.',
+                openrouter: 'OpenRouter: set OPENROUTER_API_KEY. Optional OPENROUTER_MODEL and OPENROUTER_BASE_URL.',
+                opencode: 'OpenCode: install opencode CLI with auth configured. Optional OPENCODE_COMMAND and OPENCODE_MODEL.',
+            };
+            hint.textContent = hints[provider] || '';
+            hint.hidden = !hints[provider];
         }
 
         function setPlatformTabsBusy(busy) {
@@ -3189,6 +3271,7 @@
                     body: JSON.stringify({
                         messages: chatMessages,
                         provider,
+                        validation_provider: promptSettings.validation_provider,
                         platform: selectedPlatform,
                         diagram_mode: options.platformConvert ? 'cloud' : getDiagramMode(),
                         platform_convert: !!options.platformConvert,
@@ -3319,16 +3402,17 @@
         // Boot Draw.io iframe immediately so it is ready when the user sends a message
         initVerboseLogging();
         initPromptSettings();
+        document.getElementById('vlm-validation-toggle').addEventListener('change', updateValidationProviderVisibility);
         initDiagramMode();
         initAutolayoutSetting();
         hideValidationBanner();
+        document.getElementById('provider-select').addEventListener('change', updateProviderHint);
+        updateProviderHint();
         loadTemplates();
         initVoiceInput();
         ensureDrawioFrame();
         const bootTheme = localStorage.getItem(THEME_STORAGE_KEY) || 'kennedy';
         appendVerboseLog('drawio', 'Embed iframe created', 'info', { url: getDrawioUrl(bootTheme) });
-        document.getElementById('provider-select').addEventListener('change', updateProviderHint);
-        updateProviderHint();
         applyPlatformUi('aws');
         renderExampleChips();
 

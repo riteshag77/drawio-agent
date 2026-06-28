@@ -15,7 +15,6 @@ from urllib.parse import unquote
 from app.models import DiagramOperation
 
 MAX_XML_SIZE = 1_000_000
-MIN_REAL_DIAGRAM_LENGTH = 300
 STRUCTURAL_ATTRS = ("edge", "parent", "source", "target", "vertex", "connectable")
 VALID_ENTITIES = frozenset({"lt", "gt", "amp", "quot", "apos"})
 
@@ -43,10 +42,6 @@ class OperationError:
 class ApplyOperationsResult:
     result: str
     errors: list[OperationError] = field(default_factory=list)
-
-
-def is_real_diagram(xml: str | None) -> bool:
-    return bool(xml and len(xml) > MIN_REAL_DIAGRAM_LENGTH)
 
 
 def is_mxcell_xml_complete(xml: str | None) -> bool:

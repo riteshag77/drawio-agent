@@ -3,6 +3,8 @@ import app.core.ssl_trust  # noqa: F401 — trust OS CA store before LangChain H
 import json
 import os
 import re
+import shlex
+import subprocess
 from typing import TYPE_CHECKING, Any
 
 from langchain_openai import ChatOpenAI
@@ -15,7 +17,12 @@ from app.models import ArchitectureDiagram, EditResponse, MermaidDiagram
 from dotenv import load_dotenv
 from app.patterns.library import find_matching_patterns, format_patterns_for_prompt
 from app.llm.prompts.simple import MERMAID_SYSTEM_PROMPT
-from app.llm.prompts.system import get_edit_system_prompt, get_system_prompt, XML_EDIT_VALIDATION_FEEDBACK
+from app.llm.prompts.system import (
+    get_cursor_system_prompt,
+    get_edit_system_prompt,
+    get_system_prompt,
+    XML_EDIT_VALIDATION_FEEDBACK,
+)
 
 if TYPE_CHECKING:
     from app.core.logging import StepLogger
@@ -24,19 +31,21 @@ load_dotenv()
 
 
 class _ProviderConfig:
-    __slots__ = ("klass", "model", "env_key", "is_sdk")
-    def __init__(self, klass=None, model="", env_key="", is_sdk=False):
+    __slots__ = ("klass", "model", "env_key", "kind")
+    def __init__(self, klass=None, model="", env_key="", kind="langchain"):
         self.klass = klass
         self.model = model
         self.env_key = env_key
-        self.is_sdk = is_sdk
+        self.kind = kind
 
 
 _LLM_PROVIDERS: dict[str, _ProviderConfig] = {
-    "openai":  _ProviderConfig(ChatOpenAI,  "gpt-4o",              "OPENAI_API_KEY"),
-    "gemini":  _ProviderConfig(ChatGoogleGenerativeAI, "gemini-2.5-flash", "GOOGLE_API_KEY"),
-    "claude":  _ProviderConfig(ChatAnthropic, "claude-sonnet-4-6", "ANTHROPIC_API_KEY"),
-    "cursor":  _ProviderConfig(is_sdk=True, model=os.getenv("CURSOR_MODEL", "composer-2.5"), env_key="CURSOR_API_KEY"),
+    "openai":     _ProviderConfig(ChatOpenAI, "gpt-4o", "OPENAI_API_KEY"),
+    "openrouter": _ProviderConfig(ChatOpenAI, os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini"), "OPENROUTER_API_KEY"),
+    "gemini":     _ProviderConfig(ChatGoogleGenerativeAI, "gemini-2.5-flash", "GOOGLE_API_KEY"),
+    "claude":     _ProviderConfig(ChatAnthropic, "claude-sonnet-4-6", "ANTHROPIC_API_KEY"),
+    "cursor":     _ProviderConfig(model=os.getenv("CURSOR_MODEL", "composer-2.5"), env_key="CURSOR_API_KEY", kind="cursor"),
+    "opencode":   _ProviderConfig(model=os.getenv("OPENCODE_MODEL", ""), kind="opencode"),
 }
 
 MODEL_IDS = {k: v.model for k, v in _LLM_PROVIDERS.items()}
@@ -47,6 +56,33 @@ PLATFORM_LABELS = {
     "azure": "Microsoft Azure",
     "multi": "Multi-Cloud / Hybrid",
 }
+
+
+def _format_cursor_error(error: Any) -> str:
+    """Surface Connect/bridge metadata hidden behind generic 'internal error' messages."""
+    parts: list[str] = [str(getattr(error, "message", error) or "unknown error")]
+    for label, value in (
+        ("code", getattr(error, "code", None)),
+        ("status", getattr(error, "status", None)),
+        ("request_id", getattr(error, "request_id", None)),
+    ):
+        if value:
+            parts.append(f"{label}={value}")
+    details = getattr(error, "details", None)
+    if details:
+        try:
+            detail_text = json.dumps(details, default=str)
+        except TypeError:
+            detail_text = repr(details)
+        parts.append(f"details={detail_text[:800]}")
+    if getattr(error, "is_retryable", False):
+        parts.append("retryable=true")
+    cause = getattr(error, "cause", None)
+    if cause:
+        parts.append(f"cause={cause!r}")
+    if len(parts) == 1:
+        return f"Cursor SDK error: {parts[0]}"
+    return f"Cursor SDK error: {parts[0]} ({', '.join(parts[1:])})"
 
 
 def _extract_json(text: str) -> dict:
@@ -68,9 +104,15 @@ def _extract_json(text: str) -> dict:
 
 
 def _call_cursor_sdk(system_prompt: str, user_prompt: str, output_type: type, model_id: str, logger=None) -> Any:
-    from app.core.cursor_bridge import apply_windows_bridge_patch
-    from cursor_sdk import Agent, AgentOptions, CloudAgentOptions, LocalAgentOptions
-    from cursor_sdk.errors import CursorAgentError
+    try:
+        from app.core.cursor_bridge import apply_windows_bridge_patch
+        from cursor_sdk import Agent, AgentOptions, CloudAgentOptions, LocalAgentOptions
+        from cursor_sdk.errors import CursorAgentError
+    except ImportError as exc:
+        raise ValueError(
+            "Cursor provider requires the 'cursor-sdk' package. "
+            "Install it with: pip install cursor-sdk"
+        ) from exc
 
     api_key = os.getenv("CURSOR_API_KEY", "").strip()
     if not api_key:
@@ -82,22 +124,66 @@ def _call_cursor_sdk(system_prompt: str, user_prompt: str, output_type: type, mo
     combined = f"{system_prompt}\n\n---\nRespond with ONLY valid JSON.\n\n{user_prompt}"
 
     if runtime == "cloud":
-        options = AgentOptions(api_key=api_key, model=model_id, name="drawio-agent",
-                               cloud=CloudAgentOptions(repos=[]))
+        options = AgentOptions(
+            api_key=api_key,
+            model=model_id,
+            name="drawio-agent",
+            cloud=CloudAgentOptions(repos=[]),
+        )
     else:
-        options = AgentOptions(api_key=api_key, model=model_id, name="drawio-agent",
-                               local=LocalAgentOptions(cwd=str(BASE_DIR)))
+        options = AgentOptions(
+            api_key=api_key,
+            model=model_id,
+            name="drawio-agent",
+            local=LocalAgentOptions(cwd=str(BASE_DIR), setting_sources=[]),
+        )
 
     if logger:
-        logger.log("cursor", f"Calling Cursor SDK ({model_id}, {runtime})")
+        logger.log(
+            "cursor",
+            f"Calling Cursor SDK ({model_id}, {runtime})",
+            details={
+                "model": model_id,
+                "runtime": runtime,
+                "prompt_chars": len(combined),
+                "system_chars": len(system_prompt),
+                "user_chars": len(user_prompt),
+            },
+        )
 
     try:
         result = Agent.prompt(combined, options)
     except CursorAgentError as error:
-        raise ValueError(f"Cursor SDK error: {error.message}") from error
+        if logger:
+            logger.log(
+                "cursor",
+                "Cursor SDK request failed",
+                level="error",
+                details={
+                    "message": error.message,
+                    "code": error.code,
+                    "status": error.status,
+                    "request_id": error.request_id,
+                    "details": error.details,
+                    "is_retryable": error.is_retryable,
+                    "cause": repr(error.cause) if error.cause else None,
+                },
+            )
+        raise ValueError(_format_cursor_error(error)) from error
 
     if result.status != "finished":
-        raise ValueError(f"Cursor agent ended with status={result.status}. Result: {result.result or 'no result text'}")
+        preview = str(result.result or "")[:500]
+        if logger:
+            logger.log(
+                "cursor",
+                f"Cursor agent ended with status={result.status}",
+                level="error",
+                details={"status": result.status, "result_preview": preview},
+            )
+        raise ValueError(
+            f"Cursor agent ended with status={result.status}. "
+            f"Result preview: {preview or 'no result text'}"
+        )
 
     raw_text = str(result.result or "")
     if logger:
@@ -107,14 +193,75 @@ def _call_cursor_sdk(system_prompt: str, user_prompt: str, output_type: type, mo
     return output_type.model_validate(_extract_json(raw_text))
 
 
+def _extract_opencode_response(raw_text: str) -> str:
+    payload = _extract_json(raw_text)
+    for key in ("response", "result", "output", "text"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return json.dumps(payload)
+
+
+def _run_opencode(args: list[str], combined_prompt: str, timeout: int) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        args,
+        input=combined_prompt,
+        capture_output=True,
+        text=True,
+        cwd=str(BASE_DIR),
+        timeout=timeout,
+        check=False,
+    )
+
+
+def _call_opencode_agent(system_prompt: str, user_prompt: str, output_type: type, model_id: str, logger=None) -> Any:
+    command = shlex.split(os.getenv("OPENCODE_COMMAND", "opencode"), posix=os.name != "nt")
+    if not command:
+        raise ValueError("OPENCODE_COMMAND is empty.")
+
+    timeout = int(os.getenv("OPENCODE_TIMEOUT", "120"))
+    combined = f"{system_prompt}\n\n---\nRespond with ONLY valid JSON.\n\n{user_prompt}"
+    base_args = command + ["run", "-p", combined, "-f", "json", "-q"]
+    if model_id:
+        base_args.extend(["-m", model_id])
+
+    if logger:
+        logger.log("opencode", f"Calling OpenCode agent ({model_id or 'configured model'})")
+
+    try:
+        result = _run_opencode(base_args, combined, timeout)
+        stderr = (result.stderr or "").lower()
+        if result.returncode != 0 and ("unknown command" in stderr or "invalid command" in stderr):
+            fallback_args = command + ["-p", combined, "-f", "json", "-q"]
+            if model_id:
+                fallback_args.extend(["-m", model_id])
+            result = _run_opencode(fallback_args, combined, timeout)
+    except FileNotFoundError as error:
+        raise ValueError("OpenCode CLI was not found. Set OPENCODE_COMMAND or install opencode.") from error
+    except subprocess.TimeoutExpired as error:
+        raise ValueError(f"OpenCode agent timed out after {timeout}s.") from error
+
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "no output").strip()
+        raise ValueError(f"OpenCode agent failed: {detail[:1000]}")
+
+    raw_text = result.stdout or ""
+    if logger:
+        logger.log("opencode", "OpenCode agent finished", level="success", details={"chars": len(raw_text)})
+
+    return output_type.model_validate(_extract_json(_extract_opencode_response(raw_text)))
+
+
 def _call_llm(system_prompt: str, human_content: str, provider: str, output_type: type, logger=None) -> Any:
     provider_key = (provider or "openai").strip().lower()
     config = _LLM_PROVIDERS.get(provider_key)
     if not config:
         raise ValueError(f"Unsupported provider: {provider_key}")
 
-    if config.is_sdk:
+    if config.kind == "cursor":
         return _call_cursor_sdk(system_prompt, human_content, output_type, config.model, logger)
+    if config.kind == "opencode":
+        return _call_opencode_agent(system_prompt, human_content, output_type, config.model, logger)
 
     if config.env_key and not os.getenv(config.env_key):
         raise ValueError(f"{config.env_key} environment variable is not set.")
@@ -123,9 +270,40 @@ def _call_llm(system_prompt: str, human_content: str, provider: str, output_type
         logger.log("llm", f"Calling {provider_key} ({config.model})",
                    details={"model": config.model, "temperature": 0, "output_type": output_type.__name__})
 
-    llm = config.klass(model=config.model, temperature=0)
+    from app.core.config import LLM_TIMEOUT_SECONDS
+
+    client_kwargs: dict[str, Any] = {
+        "temperature": 0,
+        "timeout": LLM_TIMEOUT_SECONDS,
+    }
+    if provider_key == "openrouter":
+        client_kwargs.update({
+            "api_key": os.getenv(config.env_key),
+            "base_url": os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
+        })
+
+    llm = config.klass(model=config.model, **client_kwargs)
     messages = [SystemMessage(content=system_prompt), HumanMessage(content=human_content)]
-    return llm.with_structured_output(output_type).invoke(messages)
+
+    so_method = (os.getenv("STRUCTURED_OUTPUT_METHOD", "function_calling") or "function_calling").strip().lower()
+
+    if so_method == "none":
+        raw = llm.invoke(messages)
+        return output_type.model_validate(_extract_json(raw.content))
+
+    try:
+        if so_method == "json_mode":
+            return llm.with_structured_output(output_type, method="json_mode").invoke(messages)
+        return llm.with_structured_output(output_type).invoke(messages)
+    except Exception as exc:
+        if logger:
+            logger.log(
+                "llm",
+                f"Structured output failed ({exc}), falling back to text JSON extraction",
+                "warn",
+            )
+        raw = llm.invoke(messages)
+        return output_type.model_validate(_extract_json(raw.content))
 
 
 def build_platform_conversion_block(previous_platform: str, target_platform: str, *, current_xml: str | None = None) -> str:
@@ -238,12 +416,24 @@ def generate_architecture_json(user_request: str, provider: str = "openai",
             "platform_convert": platform_convert,
         })
 
-    system_prompt = get_system_prompt(
-        model_id=_LLM_PROVIDERS.get(provider_key, _LLM_PROVIDERS["openai"]).model,
-        minimal_style=minimal_style, provider=provider_key,
-        custom_system_message=custom_system_message, is_edit_mode=is_edit,
-        include_schema=True, patterns_block=patterns_block,
-    )
+    model_id = _LLM_PROVIDERS.get(provider_key, _LLM_PROVIDERS["openai"]).model
+    if provider_key == "cursor":
+        system_prompt = get_cursor_system_prompt(
+            model_id=model_id,
+            minimal_style=minimal_style,
+            custom_system_message=custom_system_message,
+            is_edit_mode=is_edit,
+        )
+    else:
+        system_prompt = get_system_prompt(
+            model_id=model_id,
+            minimal_style=minimal_style,
+            provider=provider_key,
+            custom_system_message=custom_system_message,
+            is_edit_mode=is_edit,
+            include_schema=True,
+            patterns_block=patterns_block,
+        )
 
     human_content = _build_chat_prompt(chat_messages, platform_label, current_architecture,
                                         previous_architecture, validation_feedback,

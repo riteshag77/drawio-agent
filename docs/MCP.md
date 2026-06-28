@@ -49,6 +49,41 @@ Use the **Diagram type** selector in the web UI (Auto / Cloud / Simple), or pass
 
 Cloud diagrams also use **Auto-layout on load** (Draw.io `horizontalFlow`) in the embed unless disabled in Settings.
 
+## LLM providers
+
+The web UI provider selector supports:
+
+| Provider | Required setup | Optional model override |
+|----------|----------------|-------------------------|
+| Google Gemini | `GOOGLE_API_KEY` | Built-in `gemini-2.5-flash` |
+| OpenAI | `OPENAI_API_KEY` | Built-in `gpt-4o` |
+| OpenRouter | `OPENROUTER_API_KEY` | `OPENROUTER_MODEL` (default `openai/gpt-4o-mini`) |
+| Claude | `ANTHROPIC_API_KEY` | Built-in `claude-sonnet-4-6` |
+| Cursor | `CURSOR_API_KEY` | `CURSOR_MODEL`, `CURSOR_RUNTIME` |
+| OpenCode Agent | Installed/configured `opencode` CLI | `OPENCODE_COMMAND`, `OPENCODE_MODEL`, `OPENCODE_TIMEOUT` |
+
+### Cursor SDK troubleshooting (local runtime)
+
+The Cursor provider uses the official `cursor-sdk` Python package with **local** runtime by default (`CURSOR_RUNTIME=local`). It runs a bundled Node bridge on your machine against the project directory.
+
+**Setup**
+
+1. Create an API key at [Cursor Dashboard → Integrations](https://cursor.com/dashboard/integrations).
+2. Set `CURSOR_API_KEY` in `.env` (optional: `CURSOR_MODEL=composer-2.5`).
+3. Restart the FastAPI server after changing env vars.
+
+**If you see `Cursor SDK error: internal error`**
+
+1. Enable bridge debug logs: `CURSOR_SDK_LOG=debug` then retry and check the server console.
+2. Run the diagnostic script: `py scripts/diagnose_cursor_sdk.py` — lists models and sends a minimal JSON prompt.
+3. Check the **Diagram Insights** panel — errors now include `request_id` and `details` from the bridge when available.
+4. Confirm `composer-2.5` (or your `CURSOR_MODEL`) appears in `Cursor.models.list()` output.
+
+**Notes**
+
+- The Cursor path uses a **slim system prompt** (not the full `schema.txt` catalogue) to avoid oversized agent prompts on local runtime.
+- Local agents use `setting_sources=[]` so ambient IDE settings are not loaded into the SDK service call.
+
 Example:
 
 ```json

@@ -7,7 +7,6 @@ Includes structural JSON validation (always available) and feedback formatting f
 from __future__ import annotations
 
 from app.models import (
-    DEFAULT_VALID_RESULT,
     ArchitectureDiagram,
     Node,
     ValidationIssue,
