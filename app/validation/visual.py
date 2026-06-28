@@ -178,7 +178,8 @@ def validate_diagram_image(
                 SystemMessage(content=VALIDATION_SYSTEM_PROMPT),
                 HumanMessage(content=human_content),
             ])
-            text = _extract_json_from_text(raw.content)
+            content = raw.content if hasattr(raw, "content") else str(raw)
+            text = _extract_json_from_text(content)
             result = ValidationResult.model_validate(text)
         except Exception as fallback_exc:
             if logger:

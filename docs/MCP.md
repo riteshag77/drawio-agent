@@ -57,7 +57,7 @@ The web UI provider selector supports:
 |----------|----------------|-------------------------|
 | Google Gemini | `GOOGLE_API_KEY` | Built-in `gemini-2.5-flash` |
 | OpenAI | `OPENAI_API_KEY` | Built-in `gpt-4o` |
-| OpenRouter | `OPENROUTER_API_KEY` | `OPENROUTER_MODEL` (default `openai/gpt-4o-mini`) |
+| OpenRouter | `OPENROUTER_API_KEY` | `OPENROUTER_MODEL`, `OPENROUTER_BASE_URL`, `OPENROUTER_STRUCTURED_OUTPUT` |
 | Claude | `ANTHROPIC_API_KEY` | Built-in `claude-sonnet-4-6` |
 | Cursor | `CURSOR_API_KEY` | `CURSOR_MODEL`, `CURSOR_RUNTIME` |
 | OpenCode Zen | `OPENCODE_API_KEY` | `OPENCODE_MODEL` (default `big-pickle`), `OPENCODE_BASE_URL` |
@@ -84,10 +84,22 @@ Claude (`/messages`), GPT 5.x (`/responses`), and Gemini (per-model URLs) are **
 
 Model list: `GET https://opencode.ai/zen/v1/models`
 
+**Structured output**
+
+OpenCode Zen uses **text JSON extraction** (plain `invoke` + parse), not LangChain function calling. Tool-based structured output is not used for this provider.
+
 **Troubleshooting**
 
 1. Run `py scripts/diagnose_opencode.py` — lists models and sends a minimal chat prompt.
-2. If structured output fails on free models, set `STRUCTURED_OUTPUT_METHOD=none` in `.env`.
+
+### OpenRouter structured output
+
+OpenRouter defaults to text JSON extraction (`OPENROUTER_STRUCTURED_OUTPUT=none`) because many routes lack reliable tool calling. To enable function calling or JSON mode on OpenRouter, set:
+
+- `OPENROUTER_STRUCTURED_OUTPUT=function_calling` — LangChain tools (requires model support)
+- `OPENROUTER_STRUCTURED_OUTPUT=json_mode` — OpenAI JSON mode
+
+Global `STRUCTURED_OUTPUT_METHOD` still applies to OpenAI, Claude, and Gemini.
 
 ### Cursor SDK troubleshooting (local runtime)
 
