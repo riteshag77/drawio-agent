@@ -2,7 +2,7 @@ import html as html_module
 import re
 from typing import TYPE_CHECKING
 
-from app.diagram.edge_router import collect_obstacles, route_edge
+from app.diagram.edge_router import route_edge
 from app.diagram.styles import build_style
 from app.diagram.xml_tools import validate_and_fix_xml_legacy, wrap_with_mxfile
 from app.models import ArchitectureDiagram, Node
@@ -12,6 +12,21 @@ if TYPE_CHECKING:
     from app.core.logging import StepLogger
 
 
+LEAF_W = 60
+LEAF_H = 60
+LEAF_CELL_W = 148
+LEAF_CELL_H = 100
+LEAF_GAP = 24
+CONTAINER_PAD = 24
+CONTAINER_PAD_TOP = 44
+CONTAINER_GAP = 40
+ROOT_GAP = 72
+ROOT_TOP = 40
+MAX_COLS = 4
+MAX_CANVAS_W = 1200
+MAX_CANVAS_H = 860
+
+
 def _escape_xml(text: str) -> str:
     if not text:
         return ""
@@ -19,7 +34,6 @@ def _escape_xml(text: str) -> str:
 
 
 def _edge_label(label: str | None) -> str:
-    """Use edge label as-is (draw.io handles placement). Prompt guides brevity."""
     return (label or "").strip()
 
 
@@ -36,17 +50,10 @@ def _platform_accent(platform: str) -> str:
 
 
 def _build_flow_notes(architecture) -> list[tuple[int, str, str]]:
-    """
-    Return ordered (number, title, summary) tuples for the Notes panel.
-
-    Prefers the model-provided `flow_steps`; otherwise synthesizes from the
-    numbered nodes so a Notes section always appears when steps exist.
-    """
     steps = getattr(architecture, "flow_steps", None) or []
     if steps:
         ordered = sorted(steps, key=lambda s: s.number)
         return [(s.number, (s.title or "").strip(), (s.summary or "").strip()) for s in ordered]
-
     numbered = [n for n in architecture.nodes if getattr(n, "step_number", None) is not None]
     numbered.sort(key=lambda n: n.step_number)
     notes: list[tuple[int, str, str]] = []
@@ -58,7 +65,6 @@ def _build_flow_notes(architecture) -> list[tuple[int, str, str]]:
 
 
 def _ancestor_chain(nid: str, nodes_by_id: dict) -> list[str]:
-    """Container ancestors of a node, nearest first (next-ai parent chain)."""
     chain: list[str] = []
     current = nodes_by_id.get(nid)
     while current and current.parent_id and current.parent_id in nodes_by_id:
@@ -68,11 +74,6 @@ def _ancestor_chain(nid: str, nodes_by_id: dict) -> list[str]:
 
 
 def _lca_parent(source_id: str, target_id: str, nodes_by_id: dict) -> str:
-    """Lowest common ancestor container of two nodes, or '1' (root).
-
-    Mirrors next-ai-draw-io: an edge is parented to the container that holds
-    both endpoints so draw.io routes it natively within that coordinate space.
-    """
     source_anc = _ancestor_chain(source_id, nodes_by_id)
     target_set = set(_ancestor_chain(target_id, nodes_by_id))
     for anc in source_anc:
@@ -81,33 +82,7 @@ def _lca_parent(source_id: str, target_id: str, nodes_by_id: dict) -> str:
     return "1"
 
 
-def _connection_points(
-    src_box: tuple[int, int, int, int],
-    tgt_box: tuple[int, int, int, int],
-) -> tuple[float, float, float, float]:
-    """Pick exit/entry connection points from geometry (next-ai style).
-
-    Horizontal flow → right-center to left-center (or reverse).
-    Vertical flow → bottom-center to top-center (or reverse).
-    """
-    scx = src_box[0] + src_box[2] / 2
-    scy = src_box[1] + src_box[3] / 2
-    tcx = tgt_box[0] + tgt_box[2] / 2
-    tcy = tgt_box[1] + tgt_box[3] / 2
-    dx = tcx - scx
-    dy = tcy - scy
-
-    if abs(dx) >= abs(dy):
-        if dx >= 0:
-            return 1.0, 0.5, 0.0, 0.5
-        return 0.0, 0.5, 1.0, 0.5
-    if dy >= 0:
-        return 0.5, 1.0, 0.5, 0.0
-    return 0.5, 0.0, 0.5, 1.0
-
-
 def _is_ops_node(node) -> bool:
-    """Shared services that belong below the main flow band."""
     if node.step_number is not None:
         return False
     shape = (node.shape_type or "").lower()
@@ -172,61 +147,7 @@ def _edge_sort_key(edge, nodes_by_id: dict) -> tuple:
     return (0 if is_adjacent_flow else 1, 1 if edge.style == "dashed" else 0, src_step, tgt_step)
 
 
-def _clamp_children_in_container(
-    parent_id: str,
-    layout: dict,
-    nodes_by_id: dict,
-    pad: int,
-) -> None:
-    """Keep child nodes inside their parent container with padding."""
-    parent_ld = layout.get(parent_id)
-    if not parent_ld:
-        return
-    children_pos = parent_ld.get("children_pos", {})
-    if not children_pos:
-        return
-
-    parent_w = parent_ld["w"]
-    parent_h = parent_ld["h"]
-    max_x = pad
-    max_y = pad
-
-    for child_id, (cx, cy) in list(children_pos.items()):
-        child_ld = layout.get(child_id, {})
-        cw = child_ld.get("w", 48)
-        ch = child_ld.get("h", 48)
-        min_x = pad
-        min_y = CONTAINER_PAD_TOP if parent_id in nodes_by_id and nodes_by_id[parent_id].is_container else pad
-        cx = max(min_x, min(cx, parent_w - cw - pad))
-        cy = max(min_y, min(cy, parent_h - ch - pad))
-        children_pos[child_id] = (cx, cy)
-        max_x = max(max_x, cx + cw + pad)
-        max_y = max(max_y, cy + ch + pad)
-
-    if max_x + pad > parent_w:
-        parent_ld["w"] = max_x + pad
-    if max_y + pad > parent_h:
-        parent_ld["h"] = max_y + pad
-
-
-CONTAINER_PAD_TOP = 48  # used by _clamp_children_in_container before generate_xml locals
-
-
-def _waypoints_to_parent_relative(
-    waypoints: list[tuple[int, int]],
-    edge_parent: str,
-    nodes_by_id: dict,
-    layout: dict,
-) -> list[tuple[int, int]]:
-    """Convert absolute canvas waypoints to coordinates relative to edge parent."""
-    if edge_parent == "1" or not waypoints:
-        return waypoints
-    px, py, _, _ = _get_abs_bounds(edge_parent, nodes_by_id, layout)
-    return [(x - px, y - py) for x, y in waypoints]
-
-
 def sanitize_layout_hints(architecture: ArchitectureDiagram) -> ArchitectureDiagram:
-    """Strip LLM coordinate hints so the layout engine owns all placement."""
     cleaned = [
         node.model_copy(update={"x": None, "y": None, "width": None, "height": None})
         for node in architecture.nodes
@@ -252,20 +173,6 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         default_edge_color = "#ED7100"
         platform_label = "Amazon Web Services"
 
-    LEAF_W = 60
-    LEAF_H = 60
-    LEAF_CELL_W = 148
-    LEAF_CELL_H = 100
-    LEAF_GAP = 40
-    CONTAINER_PAD_TOP = 48
-    CONTAINER_PAD = 40
-    CONTAINER_GAP = 40
-    ROOT_GAP = 72
-    MAX_COLS = 6
-    ROOT_TOP = 40
-    MAX_CANVAS_W = 1200
-    MAX_CANVAS_H = 860
-
     nodes_by_id = {n.id: n for n in architecture.nodes}
     children_map: dict[str, list[str]] = {}
     roots: list[str] = []
@@ -288,89 +195,61 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
             layout[nid] = {"w": w, "h": h, "children_pos": {}}
             return w, h
 
-        kids = sorted(kids, key=lambda k: _flow_sort_key(k, nodes_by_id))
+        kids_sorted = sorted(kids, key=lambda k: _flow_sort_key(k, nodes_by_id))
+        child_sizes = {}
+        for kid in kids_sorted:
+            child_sizes[kid] = calc_size(kid)
+
         sub_containers = sorted(
-            [k for k in kids if nodes_by_id[k].is_container],
+            [k for k in kids_sorted if nodes_by_id[k].is_container],
             key=lambda k: _flow_sort_key(k, nodes_by_id),
         )
         leaf_kids = sorted(
-            [k for k in kids if not nodes_by_id[k].is_container],
+            [k for k in kids_sorted if not nodes_by_id[k].is_container],
             key=lambda k: _flow_sort_key(k, nodes_by_id),
         )
 
-        # Split main flow (step_number or non-ops) vs ops/support band below
-        flow_leaves = [
-            k for k in leaf_kids
-            if nodes_by_id[k].step_number is not None or not _is_ops_node(nodes_by_id[k])
-        ]
-        ops_leaves = [k for k in leaf_kids if k not in flow_leaves]
-        flow_leaves.sort(key=lambda k: nodes_by_id[k].step_number or 999)
-        ops_leaves.sort(key=lambda k: _flow_sort_key(k, nodes_by_id))
-
-        child_sizes = {}
-        for kid in kids:
-            child_sizes[kid] = calc_size(kid)
-
         children_pos: dict[str, tuple[int, int]] = {}
-
         cx = CONTAINER_PAD
         cy = CONTAINER_PAD_TOP + 10
         row_max_h = 0
-        parent_shape = node.shape_type.lower()
-        network_parent = any(
-            token in parent_shape
-            for token in ("vpc", "vnet", "subnet", "region", "project", "resource_group")
-        )
-        container_cols = len(sub_containers) if network_parent and sub_containers else max(2, MAX_COLS - 1)
+        max_right = CONTAINER_PAD
 
         for i, kid in enumerate(sub_containers):
             kw, kh = child_sizes[kid]
-            if i > 0 and i % container_cols == 0:
+            if i > 0 and i % MAX_COLS == 0:
                 cx = CONTAINER_PAD
                 cy += row_max_h + CONTAINER_GAP
                 row_max_h = 0
             children_pos[kid] = (cx, cy)
             cx += kw + CONTAINER_GAP
             row_max_h = max(row_max_h, kh)
+            max_right = max(max_right, cx)
 
         containers_bottom = cy + row_max_h + CONTAINER_GAP if sub_containers else CONTAINER_PAD_TOP + 10
-        containers_right = cx if sub_containers else CONTAINER_PAD
-
-        def _place_leaf_row(leaves: list[str], start_x: int, start_y: int) -> tuple[int, int, int]:
-            """Place leaves left→right (next-ai flow band). Returns (right_x, bottom_y, row_h)."""
-            lx = start_x
-            ly = start_y
-            row_h = 0
-            for i, kid in enumerate(leaves):
-                kw, kh = child_sizes[kid]
-                cell_w = max(LEAF_CELL_W, kw + 10)
-                cell_h = max(LEAF_CELL_H, kh + 10)
-                if i > 0 and i % MAX_COLS == 0:
-                    lx = start_x
-                    ly += row_h + LEAF_GAP
-                    row_h = 0
-                offset_x = (cell_w - kw) // 2
-                offset_y = (cell_h - kh) // 2
-                children_pos[kid] = (lx + offset_x, ly + offset_y)
-                lx += cell_w + LEAF_GAP
-                row_h = max(row_h, cell_h)
-            return lx, ly + row_h, row_h
 
         lx = CONTAINER_PAD
         ly = containers_bottom
-        if flow_leaves:
-            right_x, bottom_y, _ = _place_leaf_row(flow_leaves, lx, ly)
-            lx, ly = right_x, bottom_y + LEAF_GAP
-        if ops_leaves:
-            _, bottom_y, _ = _place_leaf_row(ops_leaves, CONTAINER_PAD, ly)
-            ly = bottom_y
-        leaf_row_max_h = ly - containers_bottom
+        row_h = 0
+        for i, kid in enumerate(leaf_kids):
+            kw, kh = child_sizes[kid]
+            cell_w = max(LEAF_CELL_W, kw + 10)
+            cell_h = max(LEAF_CELL_H, kh + 10)
+            if i > 0 and i % MAX_COLS == 0:
+                lx = CONTAINER_PAD
+                ly += row_h + LEAF_GAP
+                row_h = 0
+            offset_x = (cell_w - kw) // 2
+            offset_y = (cell_h - kh) // 2
+            children_pos[kid] = (lx + offset_x, ly + offset_y)
+            lx += cell_w + LEAF_GAP
+            row_h = max(row_h, cell_h)
+            max_right = max(max_right, lx)
 
-        leaf_right = lx if leaf_kids else CONTAINER_PAD
-        leaf_bottom = (ly + CONTAINER_PAD) if leaf_kids else containers_bottom
+        leaf_bottom = ly + row_h + CONTAINER_PAD if leaf_kids else containers_bottom
 
-        total_w = max(containers_right, leaf_right) + CONTAINER_PAD
-        total_h = max(leaf_bottom, containers_bottom) + CONTAINER_PAD
+        total_w = max(max_right, CONTAINER_PAD + 200)
+        total_h = max(leaf_bottom + CONTAINER_PAD, containers_bottom + CONTAINER_PAD)
 
         if node.width is not None:
             total_w = max(total_w, node.width)
@@ -381,7 +260,6 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         total_h = max(total_h, 140)
 
         layout[nid] = {"w": total_w, "h": total_h, "children_pos": children_pos}
-        _clamp_children_in_container(nid, layout, nodes_by_id, CONTAINER_PAD)
         return total_w, total_h
 
     for rid in roots:
@@ -390,20 +268,10 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
     root_containers = [r for r in roots if nodes_by_id[r].is_container]
     root_leaves = [r for r in roots if not nodes_by_id[r].is_container]
 
-    main_containers = []
-    group_containers = []
-
-    for rid in root_containers:
-        node = nodes_by_id[rid]
-        label = node.label.lower()
-        if any(w in label for w in ["monitoring", "logging", "security", "compliance", "operations", "ops", "database", "storage"]):
-            group_containers.append(rid)
-        else:
-            main_containers.append(rid)
-
+    main_containers = [r for r in root_containers if not _is_ops_node(nodes_by_id[r])]
+    group_containers = [r for r in root_containers if _is_ops_node(nodes_by_id[r])]
     if not main_containers and group_containers:
-        main_containers = group_containers
-        group_containers = []
+        main_containers, group_containers = group_containers, []
 
     left_leaves = []
     right_leaves = []
@@ -413,45 +281,33 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         node = nodes_by_id[rid]
         label = node.label.lower()
         shape = node.shape_type.lower()
+        combined = f"{label} {shape}"
 
-        if any(w in label for w in ["payment", "processor", "third party", "external", "saas", "api key", "merchant"]):
+        if any(w in combined for w in ["external", "saas", "third party", "payment", "merchant"]):
             right_leaves.append(rid)
-        elif any(w in label for w in ["dynamodb", "s3", "database", "bucket", "storage", "blob", "gcs", "sql", "spanner", "cosmos"]) or any(s in shape for s in ["dynamodb", "s3", "blob", "gcs", "sql", "spanner", "cosmos"]):
+        elif any(w in combined for w in ["dynamodb", "s3", "database", "bucket", "storage", "blob", "gcs", "sql", "spanner", "cosmos"]) or any(s in combined for s in ["dynamodb", "s3", "blob", "gcs", "sql", "spanner", "cosmos"]):
+            bottom_leaves.append(rid)
+        elif _is_ops_node(node):
             bottom_leaves.append(rid)
         else:
             left_leaves.append(rid)
 
-    left_leaves = sorted(
-        left_leaves,
-        key=lambda k: (nodes_by_id[k].step_number or 999, k),
-    )
+    left_leaves = sorted(left_leaves, key=lambda k: (nodes_by_id[k].step_number or 999, k))
     main_containers = sorted(main_containers, key=lambda k: _flow_sort_key(k, nodes_by_id))
 
-    # Entry nodes: horizontal row by step_number (next-ai left-to-right flow)
     lx = 40
-    for i, rid in enumerate(left_leaves):
-        node = nodes_by_id[rid]
-        if node.x is not None:
-            layout[rid]["global_x"] = node.x
-            layout[rid]["global_y"] = node.y if node.y is not None else ROOT_TOP
-            continue
+    for rid in left_leaves:
         layout[rid]["global_x"] = lx
         layout[rid]["global_y"] = ROOT_TOP
-        lx += LEAF_CELL_W + LEAF_GAP
+        lx += layout[rid].get("w", LEAF_W) + LEAF_GAP
 
     left_max_x = 40
     if left_leaves:
-        left_max_x = max(layout[rid].get("global_x", 0) + layout[rid]["w"] for rid in left_leaves) + 100
+        left_max_x = max(layout[rid].get("global_x", 0) + layout[rid].get("w", LEAF_W) for rid in left_leaves) + 100
 
     cx = max(left_max_x, 360)
     cy = ROOT_TOP
     for rid in main_containers:
-        node = nodes_by_id[rid]
-        if node.x is not None:
-            layout[rid]["global_x"] = node.x
-            layout[rid]["global_y"] = node.y if node.y is not None else cy
-            cx = node.x + layout[rid]["w"] + ROOT_GAP
-            continue
         layout[rid]["global_x"] = cx
         layout[rid]["global_y"] = cy
         cx += layout[rid]["w"] + ROOT_GAP
@@ -461,55 +317,26 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         rid0 = main_containers[0]
         main_flow_y = layout[rid0]["global_y"] + layout[rid0]["h"] // 2
         for rid in left_leaves:
-            if nodes_by_id[rid].x is None:
-                layout[rid]["global_y"] = main_flow_y - layout[rid]["h"] // 2
+            layout[rid]["global_y"] = main_flow_y - layout[rid].get("h", LEAF_H) // 2
 
     rx = cx + 60
-    ry = ROOT_TOP
-    for i, rid in enumerate(right_leaves):
-        node = nodes_by_id[rid]
-        if node.x is not None:
-            layout[rid]["global_x"] = node.x
-            layout[rid]["global_y"] = node.y if node.y is not None else ry
-            continue
+    for rid in right_leaves:
         if main_flow_y is not None:
-            ry = main_flow_y - layout[rid]["h"] // 2
-        if i > 0 and i % 4 == 0:
-            rx += LEAF_CELL_W + 20
-            ry = main_flow_y - layout[rid]["h"] // 2 if main_flow_y else ROOT_TOP
+            layout[rid]["global_y"] = main_flow_y - layout[rid].get("h", LEAF_H) // 2
+        else:
+            layout[rid]["global_y"] = ROOT_TOP
         layout[rid]["global_x"] = rx
-        layout[rid]["global_y"] = ry
-        if main_flow_y is None:
-            ry += LEAF_CELL_H + 30
+        rx += layout[rid].get("w", LEAF_W) + LEAF_GAP
 
     max_main_h = max([layout[rid]["h"] for rid in main_containers]) if main_containers else 0
     group_y = ROOT_TOP + max_main_h + 120
 
-    blx = max(left_max_x, 360)
-    for rid in bottom_leaves:
-        node = nodes_by_id[rid]
-        if node.x is not None:
-            layout[rid]["global_x"] = node.x
-            layout[rid]["global_y"] = node.y if node.y is not None else group_y
-            blx = node.x + LEAF_CELL_W + LEAF_GAP
-            continue
-        layout[rid]["global_x"] = blx
+    gx = max(left_max_x, 360)
+    for rid in bottom_leaves + group_containers:
         layout[rid]["global_y"] = group_y
-        blx += LEAF_CELL_W + LEAF_GAP
+        layout[rid]["global_x"] = gx
+        gx += layout[rid].get("w", LEAF_W) + ROOT_GAP
 
-    gcx = blx + 40 if bottom_leaves else 400
-    for rid in group_containers:
-        node = nodes_by_id[rid]
-        if node.x is not None:
-            layout[rid]["global_x"] = node.x
-            layout[rid]["global_y"] = node.y if node.y is not None else group_y
-            gcx = node.x + layout[rid]["w"] + ROOT_GAP
-            continue
-        layout[rid]["global_x"] = gcx
-        layout[rid]["global_y"] = group_y
-        gcx += layout[rid]["w"] + ROOT_GAP
-
-    # ── Calculate total canvas extent ──
     all_bounds = []
     for node in architecture.nodes:
         nid = node.id
@@ -529,7 +356,6 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
     canvas_w = max(min(content_right + 60, MAX_CANVAS_W), 900)
     canvas_h = max(min(content_bottom + 60, MAX_CANVAS_H), 600)
 
-    # ── Reserve space for the Notes / Legend panel (below the diagram) ──
     flow_notes = _build_flow_notes(architecture)
     accent = _platform_accent(platform)
     notes_geom = None
@@ -537,7 +363,6 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         notes_x = 40
         notes_w = max(min(canvas_w - 80, 760), 440)
         notes_y = content_bottom + 24
-        # Header + one row per step (rows wrap, so budget generously).
         notes_h = 52 + len(flow_notes) * 30
         notes_geom = (notes_x, notes_y, notes_w, notes_h)
         canvas_h = max(canvas_h, notes_y + notes_h + 40)
@@ -551,8 +376,6 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         '    <mxCell id="0" />',
         '    <mxCell id="1" parent="0" />',
     ]
-
-    cell_id = 100
 
     for node in architecture.nodes:
         nid = node.id
@@ -594,7 +417,6 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
             )
             xml.append('    </mxCell>')
 
-            # Numbered sequence badge on flow nodes (top-left corner of the icon).
             step = getattr(node, "step_number", None)
             if step is not None:
                 badge_x = x - 6
@@ -617,10 +439,10 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         for nid in nodes_by_id
     }
 
-    container_ids = {n.id for n in architecture.nodes if n.is_container}
     source_slot_counts: dict[str, int] = {}
     target_slot_counts: dict[str, int] = {}
 
+    cell_id = 100
     for edge in sorted_edges:
         if edge.source_id not in nodes_by_id or edge.target_id not in nodes_by_id:
             continue
@@ -631,12 +453,6 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         src_box = node_bounds[edge.source_id]
         tgt_box = node_bounds[edge.target_id]
 
-        obstacles = collect_obstacles(
-            node_bounds,
-            exclude={edge.source_id, edge.target_id},
-            include_containers=False,
-            container_ids=container_ids,
-        )
         exit_slot = source_slot_counts.get(edge.source_id, 0)
         entry_slot = target_slot_counts.get(edge.target_id, 0)
         source_slot_counts[edge.source_id] = exit_slot + 1
@@ -648,20 +464,13 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
         tcy = tgt_box[1] + tgt_box[3] / 2
         prefer_horizontal = abs(tcx - scx) >= abs(tcy - scy)
 
-        exit_x, exit_y, entry_x, entry_y, waypoints = route_edge(
-            src_box,
-            tgt_box,
-            obstacles,
-            exit_slot=exit_slot,
-            entry_slot=entry_slot,
-            lane=exit_slot,
-            prefer_horizontal=prefer_horizontal,
+        exit_x, exit_y, entry_x, entry_y, _ = route_edge(
+            src_box, tgt_box, [],
+            exit_slot=exit_slot, entry_slot=entry_slot,
+            lane=exit_slot, prefer_horizontal=prefer_horizontal,
         )
 
         edge_parent = _lca_parent(edge.source_id, edge.target_id, nodes_by_id)
-        rel_waypoints = _waypoints_to_parent_relative(
-            waypoints, edge_parent, nodes_by_id, layout
-        )
 
         edge_style_parts = [
             "edgeStyle=orthogonalEdgeStyle",
@@ -697,22 +506,12 @@ def generate_xml(architecture, platform: str = "aws", logger: "StepLogger | None
             f'style="{edge_style}" edge="1" parent="{edge_parent}" '
             f'source="{edge.source_id}" target="{edge.target_id}">'
         )
-        if rel_waypoints:
-            xml.append('      <mxGeometry relative="1" as="geometry">')
-            xml.append('        <Array as="points">')
-            for wx, wy in rel_waypoints:
-                xml.append(f'          <mxPoint x="{wx}" y="{wy}" />')
-            xml.append('        </Array>')
-            xml.append('      </mxGeometry>')
-        else:
-            xml.append('      <mxGeometry relative="1" as="geometry" />')
+        xml.append('      <mxGeometry relative="1" as="geometry" />')
         xml.append('    </mxCell>')
 
-    # ── Notes / Legend panel (numbered, point-wise step summaries) ──
     if notes_geom and flow_notes:
         nx, ny, nw, nh = notes_geom
         diagram_title = (getattr(architecture, "title", None) or "").strip()
-        # Text content is HTML-escaped here; the whole value is XML-attribute-escaped below.
         heading_text = html_module.escape(diagram_title) if diagram_title else ""
         heading = f"{heading_text} — Flow Notes" if heading_text else "Flow Notes"
         rows = [

@@ -99,19 +99,5 @@ class MultiturnEditingTest(unittest.TestCase):
         self.assertNotIn('id="apigw"', xml_turn3)
         self.assertNotIn('id="lambda1"', xml_turn3)
 
-    def test_cached_wrap_and_minimal_detection(self):
-        from app.patterns.cache import find_cached_response
-
-        prompt = (
-            "Highly available web app with API Gateway, Fargate in public/private subnets, "
-            "Aurora, ElastiCache, CloudFront, Route 53, WAF, and CloudWatch"
-        )
-        cached = find_cached_response(prompt, has_image=False)
-        self.assertIsNotNone(cached)
-        wrapped = wrap_with_mxfile(cached.xml, "Amazon Web Services")
-        self.assertFalse(is_minimal_diagram(wrapped))
-        self.assertIn('id="cloud"', wrapped)
-
-
 if __name__ == "__main__":
     unittest.main()

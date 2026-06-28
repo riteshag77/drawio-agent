@@ -37,7 +37,7 @@ class HybridDiagramTests(unittest.TestCase):
 
     def test_classify_simple_vs_cloud(self) -> None:
         self.assertEqual(
-            classify_diagram_intent("Simple flowchart: login → validate → dashboard"),
+            classify_diagram_intent("Simple flowchart: login -> validate -> dashboard"),
             "simple",
         )
         self.assertEqual(
@@ -49,18 +49,15 @@ class HybridDiagramTests(unittest.TestCase):
             "simple",
         )
 
-    def test_edge_router_adds_waypoints_when_obstacle_blocks(self) -> None:
+    def test_edge_router_returns_empty_waypoints_by_default(self) -> None:
         src = (40, 40, 60, 60)
         tgt = (400, 40, 60, 60)
-        obstacle = (200, 20, 80, 80)
-        obstacles = collect_obstacles(
-            {"a": src, "b": tgt, "obs": obstacle},
-            exclude={"a", "b"},
-        )
-        _, _, _, _, waypoints = route_edge(src, tgt, obstacles, prefer_horizontal=True)
-        self.assertTrue(len(waypoints) >= 2)
+        exit_x, exit_y, entry_x, entry_y, waypoints = route_edge(src, tgt, [], prefer_horizontal=True)
+        self.assertEqual(len(waypoints), 0)
+        self.assertEqual(exit_x, 1.0)
+        self.assertEqual(entry_x, 0.0)
 
-    def test_generate_xml_with_obstacle_produces_waypoint_array(self) -> None:
+    def test_generate_xml_produces_valid_edges(self) -> None:
         arch = ArchitectureDiagram(
             nodes=[
                 Node(id="a", label="A", shape_type="generic_server", step_number=1),
@@ -76,7 +73,34 @@ class HybridDiagramTests(unittest.TestCase):
         self.assertIn("<mxGraphModel", xml)
         self.assertIn('source="a"', xml)
         self.assertIn('target="c"', xml)
-        self.assertIn('<Array as="points">', xml)
+        self.assertNotIn('<Array as="points">', xml)
+
+    def test_generate_xml_with_container_hierarchy(self) -> None:
+        arch = ArchitectureDiagram(
+            nodes=[
+                Node(id="vpc", label="VPC", shape_type="aws_vpc", is_container=True),
+                Node(id="ec2", label="EC2", shape_type="aws_ec2", step_number=1, parent_id="vpc"),
+                Node(id="rds", label="RDS", shape_type="aws_rds", step_number=2, parent_id="vpc"),
+            ],
+            edges=[Edge(source_id="ec2", target_id="rds")],
+            suggestions=[],
+        )
+        xml = generate_xml(arch, platform="aws")
+        self.assertIn('parent="vpc"', xml)
+        self.assertIn('source="ec2"', xml)
+        self.assertIn('target="rds"', xml)
+
+    def test_generate_xml_includes_step_badges(self) -> None:
+        arch = ArchitectureDiagram(
+            nodes=[
+                Node(id="a", label="A", shape_type="generic_server", step_number=1),
+            ],
+            edges=[],
+            suggestions=[],
+        )
+        xml = generate_xml(arch, platform="aws")
+        self.assertIn('id="badge_a"', xml)
+        self.assertIn('value="1"', xml)
 
 
 if __name__ == "__main__":

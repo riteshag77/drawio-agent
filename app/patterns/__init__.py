@@ -1,1 +1,1 @@
-"""Reusable architecture patterns and cached example diagrams."""
+"""Reusable architecture pattern library for cloud diagram generation."""
