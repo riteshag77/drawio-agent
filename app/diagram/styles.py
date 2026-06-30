@@ -16,6 +16,7 @@ AZURE_LIB = "img/lib/azure2"       # SVG path prefix for Azure icons
 # ── AWS shape names that don't follow the direct snake_case pattern ──────────
 _AWS_ICON_EXCEPTIONS: dict[str, str] = {
     "route53": "route_53",
+    "shield_advanced": "shield",
     "iam": "identity_and_access_management",
     "kms": "key_management_service",
     "ebs": "elastic_block_store",
@@ -142,6 +143,7 @@ _AZURE_ALIASES: dict[str, str] = {
 # Legacy / pattern-library keys → canonical AWS suffix (after stripping aws_).
 _AWS_ALIASES: dict[str, str] = {
     "route_53": "route53",
+    "shield_advanced": "shield",
     "application_load_balancer": "alb",
     "elastic_load_balancer": "alb",
     "network_load_balancer": "nlb",
@@ -321,12 +323,9 @@ def _aws_service(name: str) -> str:
     icon = _AWS_ICON_EXCEPTIONS.get(name, name)
     category = _aws_category(name)
     color = _AWS_COLORS[category]
-    extra = ""
-    if name in {"waf", "shield"}:
-        extra = "strokeWidth=2;strokeColor=#232F3E;"
     return (f"outlineConnect=0;dashed=0;html=1;"
             f"shape={AWS_LIB}.resourceIcon;resIcon={AWS_LIB}.{icon};"
-            f"sketch=0;shadow=1;fillColor={color};strokeColor=#ffffff;{extra}{_ICON_LABEL}")
+            f"sketch=0;shadow=1;fillColor={color};strokeColor=#ffffff;{_ICON_LABEL}")
 
 
 def _gcp_container(name: str) -> str:

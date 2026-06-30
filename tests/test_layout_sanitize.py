@@ -6,7 +6,9 @@ import re
 import unittest
 
 from app.diagram.draftsman import generate_xml, sanitize_layout_hints
+from app.diagram.edge_router import route_edge
 from app.diagram.layout import build_children_map, build_layout
+from app.diagram.styles import build_style
 from app.diagram.xml_tools import auto_fix_xml, validate_and_fix_xml
 from app.models import ArchitectureDiagram, Edge, Node
 from app.validation.structural import validate_architecture_structure
@@ -226,6 +228,8 @@ class LayoutSanitizeTests(unittest.TestCase):
                 Node(id="data_a", label="Data Subnet", shape_type="aws_private_subnet", is_container=True, parent_id="az_a"),
                 Node(id="pub_b", label="Public Subnet", shape_type="aws_public_subnet", is_container=True, parent_id="az_b"),
                 Node(id="data_b", label="Data Subnet", shape_type="aws_private_subnet", is_container=True, parent_id="az_b"),
+                Node(id="api", label="API Gateway", shape_type="aws_api_gateway", step_number=6, parent_id="pub_a"),
+                Node(id="fargate_b", label="Fargate", shape_type="aws_fargate", step_number=8, parent_id="pub_b"),
             ],
             edges=[],
             suggestions=[],
@@ -234,9 +238,13 @@ class LayoutSanitizeTests(unittest.TestCase):
         layout = build_layout(nodes_by_id, children_map, roots)
         self.assertEqual(layout["az_a"]["y"], layout["az_b"]["y"])
         self.assertLess(layout["az_a"]["x"], layout["az_b"]["x"])
-        # Within an AZ, subnets stack vertically (public above data).
+        # Public always above data in both AZs, synced Y bands.
         self.assertLess(layout["pub_a"]["y"], layout["data_a"]["y"])
-        self.assertEqual(layout["pub_a"]["x"], layout["data_a"]["x"])
+        self.assertLess(layout["pub_b"]["y"], layout["data_b"]["y"])
+        self.assertEqual(layout["pub_a"]["y"], layout["pub_b"]["y"])
+        self.assertEqual(layout["data_a"]["y"], layout["data_b"]["y"])
+        self.assertEqual(layout["pub_a"]["h"], layout["pub_b"]["h"])
+        self.assertEqual(layout["data_a"]["h"], layout["data_b"]["h"])
 
     def test_entry_actor_stays_left_of_cloud(self) -> None:
         arch = ArchitectureDiagram(
@@ -263,6 +271,21 @@ class LayoutSanitizeTests(unittest.TestCase):
         )
         xml = generate_xml(arch, platform="aws")
         self.assertLess(xml.find('id="cloud"'), xml.find('id="svc"'))
+
+    def test_shield_advanced_resolves_to_shield_icon(self) -> None:
+        style = build_style("aws_shield_advanced")
+        self.assertIn("resIcon=mxgraph.aws4.shield", style)
+        self.assertNotIn("shield_advanced", style)
+
+    def test_edge_anchors_connect_face_to_face(self) -> None:
+        exit_x, exit_y, entry_x, entry_y, _ = route_edge((0, 0, 60, 60), (220, 0, 60, 60))
+        self.assertEqual(exit_x, 1.0)
+        self.assertEqual(entry_x, 0.0)
+        self.assertEqual(exit_y, entry_y)
+
+        _, exit_y2, _, entry_y2, _ = route_edge((0, 0, 60, 60), (0, 220, 60, 60))
+        self.assertEqual(exit_y2, 1.0)
+        self.assertEqual(entry_y2, 0.0)
 
     def test_parallel_edges_use_distinct_exit_anchors(self) -> None:
         arch = ArchitectureDiagram(

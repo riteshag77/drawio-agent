@@ -7,9 +7,8 @@ and renders correctly in any Draw.io client (no reliance on editor auto-layout).
 from __future__ import annotations
 
 LEAF_W, LEAF_H = 60, 60
-SECURITY_LEAF_W, SECURITY_LEAF_H = 72, 72
-LEAF_CELL_W, LEAF_GAP = 148, 24
-CONTAINER_PAD, CONTAINER_PAD_TOP, CONTAINER_GAP = 24, 44, 40
+LEAF_CELL_W, LEAF_GAP = 168, 32
+CONTAINER_PAD, CONTAINER_PAD_TOP, CONTAINER_GAP = 28, 48, 48
 ROOT_TOP, MAX_COLS = 40, 4
 DEFAULT_CONTAINER_W, DEFAULT_CONTAINER_H = 320, 240
 TIER_COLUMN_W = 300
@@ -140,12 +139,14 @@ def service_stack_key(node_id: str, nodes_by_id: dict, children_map: dict[str, l
     return (role, effective_step(node_id, nodes_by_id, children_map), node_id)
 
 
+def subnet_tier_key(node_id: str, nodes_by_id: dict, children_map: dict[str, list[str]]) -> tuple:
+    """Stable public → compute → data ordering inside an AZ (ignores child step numbers)."""
+    return (node_tier(nodes_by_id[node_id]), node_id)
+
+
 def node_size(node) -> tuple[int, int]:
     if node.is_container:
         return node.width or DEFAULT_CONTAINER_W, node.height or DEFAULT_CONTAINER_H
-    text = _node_text(node)
-    if any(token in text for token in ("waf", "shield", "cloud_armor")):
-        return node.width or SECURITY_LEAF_W, node.height or SECURITY_LEAF_H
     return node.width or LEAF_W, node.height or LEAF_H
 
 
@@ -221,21 +222,65 @@ def _tier_columns(parent_id, child_ids, nodes_by_id, children_map, layout) -> No
 
 
 def _az_columns(parent_id, child_ids, nodes_by_id, children_map, layout) -> None:
-    """Place AZ containers side-by-side; subnets stack vertically inside each."""
-    x = CONTAINER_PAD
-    max_height = 0
+    """Place AZ containers side-by-side with synchronized subnet tier bands."""
     az_ids = sorted(child_ids, key=lambda key: sort_key(key, nodes_by_id, children_map))
-    for child_id in az_ids:
-        node = nodes_by_id[child_id]
-        layout[child_id] = {"x": x, "y": CONTAINER_PAD_TOP, "w": node.width or AZ_COLUMN_W, "h": node.height or DEFAULT_CONTAINER_H}
-        grandchildren = children_map.get(child_id, [])
-        if grandchildren:
-            _vertical_stack(child_id, grandchildren, nodes_by_id, children_map, layout)
-            fit_container_bounds(child_id, layout, children_map, nodes_by_id)
-        max_height = max(max_height, layout[child_id]["h"])
-        x += layout[child_id]["w"] + CONTAINER_GAP
-    for child_id in az_ids:
-        layout[child_id]["h"] = max_height
+    tier_heights: dict[int, int] = {}
+    az_subnets: dict[str, list[str]] = {}
+
+    for az_id in az_ids:
+        subnets = [
+            cid for cid in children_map.get(az_id, [])
+            if is_subnet_container(nodes_by_id[cid])
+        ]
+        az_subnets[az_id] = sorted(subnets, key=lambda key: subnet_tier_key(key, nodes_by_id, children_map))
+        for subnet_id in az_subnets[az_id]:
+            node = nodes_by_id[subnet_id]
+            width, height = node_size(node)
+            layout[subnet_id] = {"x": CONTAINER_PAD, "y": 0, "w": width, "h": height}
+            _place_children(subnet_id, layout, children_map, nodes_by_id)
+            fit_container_bounds(subnet_id, layout, children_map, nodes_by_id)
+            tier = node_tier(nodes_by_id[subnet_id])
+            tier_heights[tier] = max(tier_heights.get(tier, 0), layout[subnet_id]["h"])
+
+    tier_y: dict[int, int] = {}
+    y_cursor = CONTAINER_PAD_TOP
+    for tier in sorted(tier_heights):
+        tier_y[tier] = y_cursor
+        y_cursor += tier_heights[tier] + LEAF_GAP
+
+    x = CONTAINER_PAD
+    max_az_height = 0
+    for az_id in az_ids:
+        node = nodes_by_id[az_id]
+        az_width = max(node.width or AZ_COLUMN_W, AZ_COLUMN_W)
+        for subnet_id in az_subnets.get(az_id, []):
+            tier = node_tier(nodes_by_id[subnet_id])
+            layout[subnet_id]["x"] = CONTAINER_PAD
+            layout[subnet_id]["y"] = tier_y[tier]
+            layout[subnet_id]["h"] = tier_heights[tier]
+
+        extras = [
+            cid for cid in children_map.get(az_id, [])
+            if not is_subnet_container(nodes_by_id[cid])
+        ]
+        extra_y = y_cursor
+        for extra_id in sorted(extras, key=lambda key: sort_key(key, nodes_by_id, children_map)):
+            enode = nodes_by_id[extra_id]
+            width, height = node_size(enode)
+            layout[extra_id] = {"x": CONTAINER_PAD, "y": extra_y, "w": width, "h": height}
+            if enode.is_container:
+                _place_children(extra_id, layout, children_map, nodes_by_id)
+                fit_container_bounds(extra_id, layout, children_map, nodes_by_id)
+            extra_y += layout[extra_id]["h"] + LEAF_GAP
+
+        az_height = max(extra_y, y_cursor) - CONTAINER_PAD_TOP + CONTAINER_PAD
+        layout[az_id] = {"x": x, "y": CONTAINER_PAD_TOP, "w": az_width, "h": az_height}
+        fit_container_bounds(az_id, layout, children_map, nodes_by_id)
+        max_az_height = max(max_az_height, layout[az_id]["h"])
+        x += layout[az_id]["w"] + CONTAINER_GAP
+
+    for az_id in az_ids:
+        layout[az_id]["h"] = max_az_height
     fit_container_bounds(parent_id, layout, children_map, nodes_by_id)
 
 
@@ -298,8 +343,10 @@ def layout_siblings(parent_id, child_ids, nodes_by_id, children_map, layout) -> 
         return
 
     if is_az_container(parent):
-        ordered = sorted(child_ids, key=lambda key: (node_tier(nodes_by_id[key]), sort_key(key, nodes_by_id, children_map)))
-        _vertical_stack(parent_id, ordered, nodes_by_id, children_map, layout)
+        _vertical_stack(
+            parent_id, child_ids, nodes_by_id, children_map, layout,
+            sort_fn=subnet_tier_key,
+        )
         return
 
     if is_vpc_like(parent):
@@ -342,6 +389,27 @@ def build_layout(nodes_by_id: dict, children_map: dict[str, list[str]], roots: l
             width, height = node_size(node)
             layout[node_id] = {"x": 0, "y": 0, "w": width, "h": height}
     return layout
+
+
+def absolute_box(
+    node_id: str,
+    layout: dict[str, dict],
+    nodes_by_id: dict,
+) -> tuple[int, int, int, int]:
+    """Return ``(x, y, w, h)`` in root-canvas coordinates."""
+    x = y = 0
+    chain: list[str] = []
+    current: str | None = node_id
+    while current and current in nodes_by_id:
+        chain.append(current)
+        parent = nodes_by_id[current].parent_id
+        current = parent if parent and parent in nodes_by_id else None
+    for nid in reversed(chain):
+        nl = layout.get(nid, {})
+        x += nl.get("x", 0)
+        y += nl.get("y", 0)
+    nl = layout.get(node_id, {})
+    return x, y, nl.get("w", LEAF_W), nl.get("h", LEAF_H)
 
 
 def absolute_layout_bounds(layout, nodes_by_id, children_map, roots) -> tuple[int, int, int, int]:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import html as html_module
 
 from app.diagram.edge_router import route_edge
-from app.diagram.layout import LEAF_H, LEAF_W, lowest_common_ancestor_parent
+from app.diagram.layout import LEAF_H, LEAF_W, absolute_box, lowest_common_ancestor_parent
 from app.diagram.styles import build_style
 
 
@@ -56,21 +56,11 @@ def append_edge(
     exit_slot: int = 0,
     entry_slot: int = 0,
 ) -> None:
-    source_layout = layout.get(edge.source_id, {})
-    target_layout = layout.get(edge.target_id, {})
+    src_box = absolute_box(edge.source_id, layout, nodes_by_id)
+    tgt_box = absolute_box(edge.target_id, layout, nodes_by_id)
     exit_x, exit_y, entry_x, entry_y, _ = route_edge(
-        (
-            source_layout.get("x", 0),
-            source_layout.get("y", 0),
-            source_layout.get("w", LEAF_W),
-            source_layout.get("h", LEAF_H),
-        ),
-        (
-            target_layout.get("x", 0),
-            target_layout.get("y", 0),
-            target_layout.get("w", LEAF_W),
-            target_layout.get("h", LEAF_H),
-        ),
+        src_box,
+        tgt_box,
         exit_slot=exit_slot,
         entry_slot=entry_slot,
     )
