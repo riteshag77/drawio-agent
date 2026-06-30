@@ -51,11 +51,10 @@ Do NOT set x, y, width, or height on any node. The layout engine assigns all coo
 
 ---
 ━━━ SECTION 2 · LAYOUT & VISUAL QUALITY ━━━
-2.1 Single-page compact canvas (next-ai-draw-io standard)
-- Viewport ~900–1200×600–800px; no page breaks.
-- Icons ~60×60px in ~168px cells; containers max ~700×500px.
-- Left-to-right main flow; bottom band for ops/shared services.
-- Minimum ~150px between sibling icons in the same tier.
+2.1 Placement (instruction-based — no coordinates in JSON)
+- **Never set `x`, `y`, `width`, or `height` on nodes.**
+- Layout = **`parent_id` hierarchy + `step_number` sibling order** (Section 4). Draw.io arranges cells on load.
+- Left-to-right main flow via step numbers; shared services in a bottom band (`step_number: null`).
 
 2.2 Layout zones
 ```
@@ -65,6 +64,21 @@ Do NOT set x, y, width, or height on any node. The layout engine assigns all coo
 [BOTTOM — step_number null, wide spacing]
 Monitoring · Logging · Secrets · KMS · Audit
 ```
+
+HA / multi-AZ (required for "highly available", "2 AZ", "multi-AZ" requests):
+```
+VPC
+├── Availability Zone A          ├── Availability Zone B
+│   ├── Public Subnet A          │   ├── Public Subnet B
+│   ├── App/Private Subnet A     │   ├── App/Private Subnet B
+│   └── Data Subnet A            │   └── Data Subnet B
+```
+- Use `aws_az` / `gcp_zone` containers under the VPC — never flat tier subnets when HA is requested.
+- Within each AZ: stack public → app → data subnets **vertically** (top to bottom).
+- Place AZ columns **side-by-side** (A left, B right).
+- Inside each subnet: stack services **vertically** (API GW → ALB → NAT in public; cache above DB in data).
+- Edge services (Route 53, CloudFront, WAF) live in region/cloud **above** the VPC band, left-to-right by step.
+- Include `aws_shield` alongside `aws_waf` when DDoS protection is implied.
 
 2.3 Step numbering
 - Steps 1–8 on primary sync path only (left → right).
@@ -124,8 +138,9 @@ Generic (any platform): `user_client` `user_mobile` `user_users` `external_servi
 
 ---
 ━━━ SECTION 4 · CONTAINER HIERARCHY ━━━
-AWS: aws_cloud → aws_region → aws_vpc → subnets (public left, compute middle, data right)
-Global to cloud/account: route53, cloudfront, waf, s3, iam, kms, cloudwatch
+AWS: aws_cloud → aws_region → aws_vpc → aws_az → subnets (public/app/data stacked vertically per AZ)
+Global to cloud/account: route53, cloudfront, waf, shield, s3, iam, kms, cloudwatch
+Single-AZ fallback: aws_vpc → tier subnets horizontally (public left, compute middle, data right)
 
 GCP: gcp_project → gcp_vpc → gcp_subnet per tier
 Regional/global: cloud_dns, cdn, cloud_armor, cloud_monitoring, secret_manager

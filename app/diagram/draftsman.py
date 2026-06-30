@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
-from app.diagram.layout import build_children_map, build_layout, edge_sort_key
+from app.diagram.layout import absolute_layout_bounds, build_children_map, build_layout, edge_sort_key
 from app.diagram.xml_render import append_edge, append_flow_notes, append_vertex
 from app.diagram.xml_tools import validate_and_fix_xml_legacy, wrap_with_mxfile
 from app.models import ArchitectureDiagram
@@ -56,8 +56,6 @@ def _prepare_architecture(architecture, logger: StepLogger | None) -> Architectu
         return architecture
     prepared = sanitize_layout_hints(architecture)
     prepared = apply_three_tier_scaffold(prepared)
-    if logger and prepared.pattern_id == "three_tier_web":
-        logger.log("template", "Applied three_tier_web container scaffold", level="info")
     return prepared
 
 
@@ -73,7 +71,7 @@ def _open_graph_model(page_width: int, page_height: int) -> list[str]:
 
 
 def generate_xml(architecture, platform: str = "aws", logger: StepLogger | None = None) -> str:
-    """Render architecture nodes/edges as Draw.io XML."""
+    """Render architecture nodes/edges as Draw.io XML with computed coordinates."""
     architecture = _prepare_architecture(architecture, logger)
     platform_key, platform_label, accent = _platform_meta(platform)
 
@@ -114,7 +112,18 @@ def generate_xml(architecture, platform: str = "aws", logger: StepLogger | None 
 
     if flow_notes:
         title = (getattr(architecture, "title", None) or "").strip()
-        page_height = max(page_height, append_flow_notes(xml, flow_notes, accent, title))
+        _, _, max_x, max_y = absolute_layout_bounds(layout, nodes_by_id, children_map, roots)
+        notes_width = min(760, max(520, max_x - 40))
+        notes_x, notes_y = 40, max_y + 48
+        page_width, page_height = append_flow_notes(
+            xml, flow_notes, accent, title,
+            notes_x=notes_x, notes_y=notes_y, notes_width=notes_width,
+        )
+        page_width = max(page_width, max_x + 40, notes_x + notes_width + 40)
+        xml[0] = xml[0].replace(
+            f'pageWidth="{DEFAULT_PAGE_W}" pageHeight="{DEFAULT_PAGE_H}"',
+            f'pageWidth="{page_width}" pageHeight="{page_height}"',
+        )
 
     xml.extend(["  </root>", "</mxGraphModel>"])
     graph_xml = "\n".join(xml)

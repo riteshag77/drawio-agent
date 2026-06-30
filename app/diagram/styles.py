@@ -321,9 +321,12 @@ def _aws_service(name: str) -> str:
     icon = _AWS_ICON_EXCEPTIONS.get(name, name)
     category = _aws_category(name)
     color = _AWS_COLORS[category]
+    extra = ""
+    if name in {"waf", "shield"}:
+        extra = "strokeWidth=2;strokeColor=#232F3E;"
     return (f"outlineConnect=0;dashed=0;html=1;"
             f"shape={AWS_LIB}.resourceIcon;resIcon={AWS_LIB}.{icon};"
-            f"sketch=0;shadow=1;fillColor={color};strokeColor=#ffffff;{_ICON_LABEL}")
+            f"sketch=0;shadow=1;fillColor={color};strokeColor=#ffffff;{extra}{_ICON_LABEL}")
 
 
 def _gcp_container(name: str) -> str:

@@ -1,1 +1,1 @@
-"""Deterministic diagram rendering: layout engine, styles, and XML tooling."""
+"""Deterministic diagram rendering: hierarchy XML, styles, and XML tooling."""

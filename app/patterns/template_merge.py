@@ -1,22 +1,16 @@
-"""Container template scaffolds for known architecture patterns.
-
-Reference skeletons live in ``templates/`` (e.g. three_tier_web.xml).
-The layout engine applies scaffold sizes before auto-layout runs.
-"""
+"""Container size scaffolds applied before deterministic layout."""
 
 from app.models import ArchitectureDiagram, Node
 
 
 def apply_three_tier_scaffold(architecture: ArchitectureDiagram) -> ArchitectureDiagram:
-    """Pin standard container sizes for the three-tier pattern before layout."""
-    if architecture.pattern_id != "three_tier_web":
-        return architecture
-
+    """Give containers sensible base sizes; the layout engine grows them to fit children."""
     size_by_role: dict[str, tuple[int, int]] = {
         "cloud": (920, 540),
-        "vpc": (820, 400),
-        "public": (380, 220),
-        "private": (380, 220),
+        "vpc": (980, 420),
+        "az": (320, 380),
+        "public": (300, 260),
+        "private": (300, 260),
     }
 
     updated_nodes: list[Node] = []
@@ -24,20 +18,20 @@ def apply_three_tier_scaffold(architecture: ArchitectureDiagram) -> Architecture
         if not node.is_container:
             updated_nodes.append(node)
             continue
-        combined = f"{node.label} {node.shape_type} {node.id}".lower()
-        w, h = None, None
-        if "cloud" in combined or "account" in combined or "subscription" in combined:
+        combined = f" {node.label} {node.shape_type} {node.id} ".lower()
+        w = h = None
+        if any(t in combined for t in ("cloud", "account", "subscription")):
             w, h = size_by_role["cloud"]
-        elif "vpc" in combined or "vnet" in combined or "project" in combined:
+        elif any(t in combined for t in ("vpc", "vnet", "project")):
             w, h = size_by_role["vpc"]
-        elif "public" in combined or "ingress" in combined or "dmz" in combined:
+        elif "availability zone" in combined or "_az" in combined or " az " in combined or " az_" in combined:
+            w, h = size_by_role["az"]
+        elif any(t in combined for t in ("public", "ingress", "dmz")):
             w, h = size_by_role["public"]
-        elif "private" in combined or "data" in combined or "compute" in combined:
+        elif any(t in combined for t in ("private", "data", "compute", "app")):
             w, h = size_by_role["private"]
-        if w is not None and h is not None:
-            updated_nodes.append(
-                node.model_copy(update={"width": w, "height": h, "x": None, "y": None})
-            )
+        if w is not None:
+            updated_nodes.append(node.model_copy(update={"width": w, "height": h, "x": None, "y": None}))
         else:
             updated_nodes.append(node)
 

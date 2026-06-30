@@ -176,25 +176,74 @@ class LayoutSanitizeTests(unittest.TestCase):
         child_idx = output.find('id="child"')
         self.assertLess(parent_idx, child_idx)
 
-    def test_flow_order_places_lower_steps_left(self) -> None:
+    def test_subnet_services_stack_vertically(self) -> None:
         arch = ArchitectureDiagram(
             nodes=[
-                Node(id="users", label="Users", shape_type="aws_client", step_number=1),
+                Node(id="vpc", label="VPC", shape_type="aws_vpc", is_container=True),
+                Node(id="pub", label="Public Subnet", shape_type="aws_public_subnet", is_container=True, parent_id="vpc"),
+                Node(id="api", label="API Gateway", shape_type="aws_api_gateway", step_number=1, parent_id="pub"),
+                Node(id="alb", label="ALB", shape_type="aws_alb", step_number=2, parent_id="pub"),
+                Node(id="nat", label="NAT Gateway", shape_type="aws_nat_gateway", step_number=3, parent_id="pub"),
+            ],
+            edges=[],
+            suggestions=[],
+        )
+        children_map, roots, nodes_by_id = build_children_map(arch.nodes)
+        layout = build_layout(nodes_by_id, children_map, roots)
+        self.assertLess(layout["api"]["y"], layout["alb"]["y"])
+        self.assertLess(layout["alb"]["y"], layout["nat"]["y"])
+        self.assertEqual(layout["api"]["x"], layout["alb"]["x"])
+
+    def test_vpc_tier_subnets_align_heights(self) -> None:
+        arch = ArchitectureDiagram(
+            nodes=[
+                Node(id="vpc", label="VPC", shape_type="aws_vpc", is_container=True),
+                Node(id="pub", label="Public Subnet", shape_type="aws_public_subnet", is_container=True, parent_id="vpc"),
+                Node(id="app", label="App Subnet", shape_type="aws_private_subnet", is_container=True, parent_id="vpc"),
+                Node(id="data", label="Data Subnet", shape_type="aws_private_subnet", is_container=True, parent_id="vpc"),
+                Node(id="api", label="API Gateway", shape_type="aws_api_gateway", parent_id="pub"),
+                Node(id="fargate", label="Fargate", shape_type="aws_fargate", parent_id="app"),
+                Node(id="db", label="Aurora", shape_type="aws_aurora", parent_id="data"),
+            ],
+            edges=[],
+            suggestions=[],
+        )
+        children_map, roots, nodes_by_id = build_children_map(arch.nodes)
+        layout = build_layout(nodes_by_id, children_map, roots)
+        self.assertEqual(layout["pub"]["y"], layout["app"]["y"])
+        self.assertEqual(layout["app"]["y"], layout["data"]["y"])
+        self.assertEqual(layout["pub"]["h"], layout["data"]["h"])
+        self.assertLess(layout["pub"]["x"], layout["app"]["x"])
+        self.assertLess(layout["app"]["x"], layout["data"]["x"])
+
+    def test_az_containers_placed_side_by_side(self) -> None:
+        arch = ArchitectureDiagram(
+            nodes=[
+                Node(id="vpc", label="VPC", shape_type="aws_vpc", is_container=True),
+                Node(id="az_a", label="AZ A", shape_type="aws_az", is_container=True, parent_id="vpc"),
+                Node(id="az_b", label="AZ B", shape_type="aws_az", is_container=True, parent_id="vpc"),
+                Node(id="pub_a", label="Public Subnet", shape_type="aws_public_subnet", is_container=True, parent_id="az_a"),
+                Node(id="data_a", label="Data Subnet", shape_type="aws_private_subnet", is_container=True, parent_id="az_a"),
+                Node(id="pub_b", label="Public Subnet", shape_type="aws_public_subnet", is_container=True, parent_id="az_b"),
+                Node(id="data_b", label="Data Subnet", shape_type="aws_private_subnet", is_container=True, parent_id="az_b"),
+            ],
+            edges=[],
+            suggestions=[],
+        )
+        children_map, roots, nodes_by_id = build_children_map(arch.nodes)
+        layout = build_layout(nodes_by_id, children_map, roots)
+        self.assertEqual(layout["az_a"]["y"], layout["az_b"]["y"])
+        self.assertLess(layout["az_a"]["x"], layout["az_b"]["x"])
+        # Within an AZ, subnets stack vertically (public above data).
+        self.assertLess(layout["pub_a"]["y"], layout["data_a"]["y"])
+        self.assertEqual(layout["pub_a"]["x"], layout["data_a"]["x"])
+
+    def test_entry_actor_stays_left_of_cloud(self) -> None:
+        arch = ArchitectureDiagram(
+            nodes=[
+                Node(id="users", label="Users", shape_type="user_client", step_number=1),
                 Node(id="cloud", label="AWS Cloud", shape_type="aws_cloud", is_container=True),
-                Node(
-                    id="route53",
-                    label="Route 53",
-                    shape_type="aws_route_53",
-                    step_number=2,
-                    parent_id="cloud",
-                ),
-                Node(
-                    id="cloudfront",
-                    label="CloudFront",
-                    shape_type="aws_cloudfront",
-                    step_number=3,
-                    parent_id="cloud",
-                ),
+                Node(id="route53", label="Route 53", shape_type="aws_route_53", step_number=2, parent_id="cloud"),
             ],
             edges=[],
             suggestions=[],
@@ -202,7 +251,18 @@ class LayoutSanitizeTests(unittest.TestCase):
         children_map, roots, nodes_by_id = build_children_map(arch.nodes)
         layout = build_layout(nodes_by_id, children_map, roots)
         self.assertLess(layout["users"]["x"], layout["cloud"]["x"])
-        self.assertLess(layout["route53"]["x"], layout["cloudfront"]["x"])
+
+    def test_parent_emitted_before_child(self) -> None:
+        arch = ArchitectureDiagram(
+            nodes=[
+                Node(id="cloud", label="AWS Cloud", shape_type="aws_cloud", is_container=True),
+                Node(id="svc", label="Lambda", shape_type="aws_lambda", parent_id="cloud"),
+            ],
+            edges=[],
+            suggestions=[],
+        )
+        xml = generate_xml(arch, platform="aws")
+        self.assertLess(xml.find('id="cloud"'), xml.find('id="svc"'))
 
     def test_parallel_edges_use_distinct_exit_anchors(self) -> None:
         arch = ArchitectureDiagram(

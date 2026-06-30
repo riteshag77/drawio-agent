@@ -116,9 +116,12 @@ def append_flow_notes(
     flow_notes: list[tuple[int, str, str]],
     accent: str,
     title: str,
-) -> int:
-    """Append the flow-notes panel and return the minimum canvas height needed."""
-    notes_x, notes_y, notes_width = 40, 680, 760
+    *,
+    notes_x: int = 40,
+    notes_y: int = 680,
+    notes_width: int = 760,
+) -> tuple[int, int]:
+    """Append the flow-notes panel and return ``(page_width, page_height)``."""
     notes_height = 52 + len(flow_notes) * 30
     heading = f"{html_module.escape(title)} — Flow Notes" if title else "Flow Notes"
 
@@ -149,4 +152,6 @@ def append_flow_notes(
         f'height="{notes_height}" as="geometry" />'
     )
     xml.append("    </mxCell>")
-    return notes_y + notes_height + 40
+    page_width = max(notes_x + notes_width + 40, 1169)
+    page_height = notes_y + notes_height + 40
+    return page_width, page_height
