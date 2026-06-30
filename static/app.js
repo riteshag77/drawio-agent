@@ -19,6 +19,7 @@ const DRAWIO_ORIGIN = 'https://embed.diagrams.net';
         let lastValidationFeedback = null;
         let pendingPngExport = null;
         let chatMessages = [];
+        let appliedSuggestionTexts = [];
         let isSending = false;
         let chatAbortController = null;
         let runStoppedByUser = false;
@@ -842,6 +843,76 @@ const DRAWIO_ORIGIN = 'https://embed.diagrams.net';
             });
         }
 
+        function normalizeSuggestion(text) {
+            return (text || '').trim().toLowerCase().replace(/\s+/g, ' ');
+        }
+
+        function registerAppliedSuggestions(texts) {
+            (texts || []).forEach(text => {
+                const normalized = normalizeSuggestion(text);
+                const exists = appliedSuggestionTexts.some(item => normalizeSuggestion(item) === normalized);
+                if (!exists) appliedSuggestionTexts.push(text);
+            });
+        }
+
+        function isSuggestionApplied(text) {
+            const normalized = normalizeSuggestion(text);
+            return appliedSuggestionTexts.some(item => normalizeSuggestion(item) === normalized);
+        }
+
+        function parseImplementedSuggestions(text) {
+            const trimmed = (text || '').trim();
+            if (!/^Implement these suggestions:/i.test(trimmed)) return [];
+            return trimmed.split('\n')
+                .slice(1)
+                .map(line => line.replace(/^\d+\.\s*/, '').trim())
+                .filter(Boolean);
+        }
+
+        function getAppliedSuggestionsPayload() {
+            return appliedSuggestionTexts.slice();
+        }
+
+        function updateSuggestionWrapActions(suggWrap) {
+            const pending = suggWrap.querySelectorAll('.item-checkbox:not(:disabled)');
+            const actionRow = suggWrap.querySelector('.suggestion-actions');
+            if (actionRow) actionRow.hidden = pending.length === 0;
+            const selectAll = suggWrap.querySelector('.suggestion-select-all');
+            if (selectAll) {
+                selectAll.disabled = pending.length === 0;
+                if (pending.length === 0) selectAll.checked = false;
+            }
+        }
+
+        function markSuggestionWrapApplied(suggWrap, texts) {
+            if (!suggWrap || !texts?.length) return;
+            const appliedSet = new Set(texts.map(normalizeSuggestion));
+            suggWrap.querySelectorAll('.chat-suggestion-item').forEach(label => {
+                const text = label.dataset.suggestionText || '';
+                if (!appliedSet.has(normalizeSuggestion(text))) return;
+                label.classList.add('is-applied');
+                const cb = label.querySelector('.item-checkbox');
+                if (cb) { cb.checked = false; cb.disabled = true; }
+                const badge = label.querySelector('.suggestion-applied-badge');
+                if (badge) badge.hidden = false;
+            });
+            updateSuggestionWrapActions(suggWrap);
+        }
+
+        function markAllMatchingSuggestionsApplied(texts) {
+            if (!texts?.length) return;
+            document.querySelectorAll('.chat-suggestions').forEach(wrap => markSuggestionWrapApplied(wrap, texts));
+        }
+
+        function setSuggestionPanelsBusy(busy) {
+            document.querySelectorAll('.chat-suggestions').forEach(wrap => {
+                wrap.querySelectorAll('.suggestion-actions button, .suggestion-checkbox').forEach(el => {
+                    if (el.closest('.chat-suggestion-item.is-applied')) return;
+                    el.disabled = busy;
+                });
+            });
+        }
+
         function hideWelcome() {
             const welcome = document.getElementById('chat-welcome');
             if (welcome) welcome.remove();
@@ -861,16 +932,96 @@ const DRAWIO_ORIGIN = 'https://embed.diagrams.net';
             if (role === 'assistant' && suggestions && suggestions.length) {
                 const suggWrap = document.createElement('div');
                 suggWrap.className = 'chat-suggestions';
+                suggWrap._suggestions = suggestions.slice();
+
+                const header = document.createElement('div');
+                header.className = 'chat-suggestions-header';
                 const title = document.createElement('div');
                 title.className = 'chat-suggestions-title';
                 title.textContent = 'Suggestions';
-                suggWrap.appendChild(title);
-                suggestions.forEach(s => {
-                    const item = document.createElement('div');
-                    item.className = 'chat-suggestion-item';
-                    item.textContent = s;
-                    suggWrap.appendChild(item);
+                header.appendChild(title);
+
+                const selectAllLabel = document.createElement('label');
+                selectAllLabel.className = 'chat-suggestions-select-all';
+                const selectAllCb = document.createElement('input');
+                selectAllCb.type = 'checkbox';
+                selectAllCb.className = 'suggestion-checkbox suggestion-select-all';
+                selectAllCb.title = 'Select all pending suggestions';
+                const selectAllText = document.createElement('span');
+                selectAllText.textContent = 'Select all';
+                selectAllLabel.appendChild(selectAllCb);
+                selectAllLabel.appendChild(selectAllText);
+                header.appendChild(selectAllLabel);
+                suggWrap.appendChild(header);
+
+                const suggList = document.createElement('div');
+                suggList.className = 'chat-suggestions-list';
+                suggestions.forEach((s, idx) => {
+                    const alreadyApplied = isSuggestionApplied(s);
+                    const label = document.createElement('label');
+                    label.className = 'chat-suggestion-item' + (alreadyApplied ? ' is-applied' : '');
+                    label.dataset.suggestionText = s;
+
+                    const cb = document.createElement('input');
+                    cb.type = 'checkbox';
+                    cb.className = 'suggestion-checkbox item-checkbox';
+                    cb.dataset.index = String(idx);
+                    cb.disabled = alreadyApplied;
+
+                    const span = document.createElement('span');
+                    span.textContent = s;
+
+                    const badge = document.createElement('span');
+                    badge.className = 'suggestion-applied-badge';
+                    badge.textContent = 'Applied';
+                    badge.hidden = !alreadyApplied;
+
+                    cb.addEventListener('change', () => {
+                        const pending = suggList.querySelectorAll('.item-checkbox:not(:disabled)');
+                        const checked = suggList.querySelectorAll('.item-checkbox:not(:disabled):checked');
+                        selectAllCb.checked = pending.length > 0 && checked.length === pending.length;
+                        selectAllCb.indeterminate = checked.length > 0 && checked.length < pending.length;
+                    });
+
+                    label.appendChild(cb);
+                    label.appendChild(span);
+                    label.appendChild(badge);
+                    suggList.appendChild(label);
                 });
+                suggWrap.appendChild(suggList);
+
+                selectAllCb.addEventListener('change', () => {
+                    suggList.querySelectorAll('.item-checkbox:not(:disabled)').forEach(cb => {
+                        cb.checked = selectAllCb.checked;
+                    });
+                    selectAllCb.indeterminate = false;
+                });
+
+                const actionRow = document.createElement('div');
+                actionRow.className = 'suggestion-actions';
+                const selBtn = document.createElement('button');
+                selBtn.type = 'button';
+                selBtn.className = 'suggestion-btn';
+                selBtn.textContent = 'Apply Selected';
+                selBtn.onclick = () => {
+                    const checked = suggWrap.querySelectorAll('.item-checkbox:checked:not(:disabled)');
+                    if (checked.length === 0) { showError('Select at least one suggestion to apply.'); return; }
+                    const texts = Array.from(checked).map(cb => suggWrap._suggestions[Number(cb.dataset.index)]);
+                    implementSuggestions(texts, suggWrap);
+                };
+                const allBtn = document.createElement('button');
+                allBtn.type = 'button';
+                allBtn.className = 'suggestion-btn suggestion-btn-primary';
+                allBtn.textContent = 'Apply All';
+                allBtn.onclick = () => {
+                    const pending = suggWrap._suggestions.filter(item => !isSuggestionApplied(item));
+                    if (pending.length === 0) { showError('All suggestions are already applied.'); return; }
+                    implementSuggestions(pending, suggWrap);
+                };
+                actionRow.appendChild(selBtn);
+                actionRow.appendChild(allBtn);
+                suggWrap.appendChild(actionRow);
+                updateSuggestionWrapActions(suggWrap);
                 msg.appendChild(suggWrap);
             }
 
@@ -881,6 +1032,16 @@ const DRAWIO_ORIGIN = 'https://embed.diagrams.net';
 
             container.appendChild(msg);
             container.scrollTop = container.scrollHeight;
+        }
+
+        function implementSuggestions(suggestions, suggWrap) {
+            if (!suggestions || suggestions.length === 0) return;
+            registerAppliedSuggestions(suggestions);
+            markSuggestionWrapApplied(suggWrap, suggestions);
+            const msg = 'Implement these suggestions:\n' + suggestions.map((s, i) => `${i + 1}. ${s}`).join('\n');
+            document.getElementById('chat-input').value = msg;
+            autoResizeChatInput();
+            sendMessage();
         }
 
         function setTyping(active) {
@@ -900,6 +1061,7 @@ const DRAWIO_ORIGIN = 'https://embed.diagrams.net';
         function clearChat() {
             if (isSending) return;
             chatMessages = [];
+            appliedSuggestionTexts = [];
             currentArchitecture = null;
             previousArchitecture = null;
             currentXml = '';
@@ -1199,7 +1361,7 @@ const DRAWIO_ORIGIN = 'https://embed.diagrams.net';
                 maxFitScale: 1.25,
                 border: 20
             };
-            if (isAutolayoutOnLoadEnabled()) {
+            if (isAutolayoutOnLoadEnabled() && !/container=1|shape=mxgraph\.aws4\.group/.test(xml) && !/id="flow_notes"/.test(xml)) {
                 payload.layout = 'horizontalFlow';
             }
 
@@ -1360,6 +1522,13 @@ const DRAWIO_ORIGIN = 'https://embed.diagrams.net';
             input.disabled = true;
             updateSendStopButtons();
             setPlatformTabsBusy(true);
+            setSuggestionPanelsBusy(true);
+
+            const parsedApplied = parseImplementedSuggestions(text);
+            if (parsedApplied.length) {
+                registerAppliedSuggestions(parsedApplied);
+                markAllMatchingSuggestionsApplied(parsedApplied);
+            }
 
             if (!options.skipInput) {
                 chatMessages.push({ role: 'user', content: text });
@@ -1443,6 +1612,7 @@ const DRAWIO_ORIGIN = 'https://embed.diagrams.net';
                         context_text: contextText || null,
                         image_data: attachmentImageData,
                         has_image_input: hasImageAttachment,
+                        applied_suggestions: getAppliedSuggestionsPayload(),
                     }),
                 });
 
@@ -1532,6 +1702,7 @@ const DRAWIO_ORIGIN = 'https://embed.diagrams.net';
                 input.disabled = false;
                 updateSendStopButtons();
                 setPlatformTabsBusy(false);
+                setSuggestionPanelsBusy(false);
                 input.focus();
             }
         }

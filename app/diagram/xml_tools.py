@@ -344,7 +344,11 @@ def _fix_xml_with_elementtree(graph_xml: str) -> tuple[str, list[str]]:
     parent_map = {cid: cell.get("parent") for cid, cell in cell_map.items()}
     ordered = sorted(
         cells,
-        key=lambda c: (_cell_depth(c.get("id") or "", parent_map), c.get("id") or ""),
+        key=lambda c: (
+            1 if c.get("edge") == "1" else 0,
+            _cell_depth(c.get("id") or "", parent_map),
+            c.get("id") or "",
+        ),
     )
     if [c.get("id") for c in cells] != [c.get("id") for c in ordered]:
         for cell in cells:

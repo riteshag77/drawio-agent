@@ -53,6 +53,8 @@ def append_edge(
     nodes_by_id: dict,
     default_edge_color: str,
     platform_key: str,
+    exit_slot: int = 0,
+    entry_slot: int = 0,
 ) -> None:
     source_layout = layout.get(edge.source_id, {})
     target_layout = layout.get(edge.target_id, {})
@@ -69,6 +71,8 @@ def append_edge(
             target_layout.get("w", LEAF_W),
             target_layout.get("h", LEAF_H),
         ),
+        exit_slot=exit_slot,
+        entry_slot=entry_slot,
     )
 
     color = edge.color
@@ -138,7 +142,7 @@ def append_flow_notes(
         f'    <mxCell id="flow_notes" value="{escape_xml("".join(rows))}" '
         f'style="rounded=1;arcSize=4;whiteSpace=wrap;html=1;fillColor=#FBFCFE;'
         f'strokeColor={accent};strokeWidth=1.5;align=left;verticalAlign=top;shadow=1;spacing=2;" '
-        f'vertex="1" parent="1">'
+        f'vertex="1" parent="1" movable="0" resizable="0" deletable="0">'
     )
     xml.append(
         f'      <mxGeometry x="{notes_x}" y="{notes_y}" width="{notes_width}" '

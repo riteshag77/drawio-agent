@@ -292,7 +292,7 @@ ARCHITECTURE_SCHEMA_FILENAME = "schema.txt"
 
 CURSOR_SLIM_CATALOGUE = """
 ## Architecture JSON (compact)
-Output one JSON object: `{"nodes": [...], "edges": [...], "suggestions": [...]}`
+Output one JSON object: `{"nodes": [...], "edges": [...], "suggestions": [...], "flow_steps": [...], "title": "..."}`
 
 Node fields: id, label, shape_type, is_container, parent_id, step_number, x, y, width, height, description.
 Set x, y, width, height to null always. Max 4 container levels (cloud → vpc → subnet → service).

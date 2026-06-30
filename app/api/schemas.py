@@ -39,6 +39,7 @@ class ChatRequest(BaseModel):
     has_image_input: bool = False
     platform_convert: bool = False
     previous_platform: str | None = None
+    applied_suggestions: list[str] = []
 
 
 class ValidateDiagramRequest(BaseModel):

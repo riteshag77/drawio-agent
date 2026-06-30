@@ -475,21 +475,152 @@
             text-transform: uppercase;
             letter-spacing: 0.06em;
             color: var(--text-muted);
+            margin-bottom: 0;
+        }
+
+        .chat-suggestions-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
             margin-bottom: 0.45rem;
         }
 
+        .chat-suggestions-select-all {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            font-size: 0.68rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+        }
+
+        .chat-suggestions-select-all:hover {
+            color: var(--text-primary);
+        }
+
+        .chat-suggestions-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
         .chat-suggestion-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.5rem;
             font-size: 0.78rem;
             color: var(--text-secondary);
             line-height: 1.45;
             padding: 0.35rem 0;
+            cursor: pointer;
+            transition: color 0.15s;
         }
 
-        .chat-suggestion-item::before {
-            content: '→';
-            color: var(--accent);
+        .chat-suggestion-item:hover {
+            color: var(--text-primary);
+        }
+
+        .chat-suggestion-item.is-applied {
+            opacity: 0.65;
+            cursor: default;
+        }
+
+        .chat-suggestion-item.is-applied span:not(.suggestion-applied-badge) {
+            text-decoration: line-through;
+            color: var(--text-muted);
+        }
+
+        .suggestion-applied-badge {
+            margin-left: auto;
+            flex-shrink: 0;
+            font-size: 0.62rem;
             font-weight: 700;
-            margin-right: 0.4rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #34d399;
+        }
+
+        .suggestion-checkbox:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+
+        .suggestion-btn:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+
+        .suggestion-checkbox {
+            appearance: none;
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            flex-shrink: 0;
+            margin-top: 0.15rem;
+            border: 2px solid var(--text-muted);
+            border-radius: 4px;
+            background: transparent;
+            cursor: pointer;
+            transition: border-color 0.15s, background 0.15s;
+        }
+
+        .suggestion-checkbox:checked {
+            border-color: var(--accent);
+            background: var(--accent);
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'%3E%3C/polyline%3E%3C/svg%3E");
+            background-size: 10px;
+            background-repeat: no-repeat;
+            background-position: center;
+        }
+
+        .suggestion-checkbox:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+        }
+
+        .suggestion-actions {
+            display: flex;
+            gap: 0.4rem;
+            margin-top: 0.5rem;
+            padding-top: 0.5rem;
+            border-top: 1px solid rgba(255,255,255,0.06);
+        }
+
+        .suggestion-btn {
+            flex: 1;
+            padding: 0.45rem 0.6rem;
+            border: 1px solid var(--sidebar-border);
+            border-radius: 8px;
+            background: rgba(255,255,255,0.04);
+            color: var(--text-secondary);
+            font-family: inherit;
+            font-size: 0.72rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s, border-color 0.15s;
+            text-align: center;
+        }
+
+        .suggestion-btn:hover {
+            background: rgba(255,255,255,0.08);
+            color: var(--text-primary);
+            border-color: rgba(255,255,255,0.15);
+        }
+
+        .suggestion-btn-primary {
+            background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+            color: white;
+            border-color: transparent;
+        }
+
+        .suggestion-btn-primary:hover {
+            filter: brightness(1.08);
+            color: white;
+            border-color: transparent;
         }
 
         .chat-typing {

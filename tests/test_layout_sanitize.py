@@ -6,6 +6,7 @@ import re
 import unittest
 
 from app.diagram.draftsman import generate_xml, sanitize_layout_hints
+from app.diagram.layout import build_children_map, build_layout
 from app.diagram.xml_tools import auto_fix_xml, validate_and_fix_xml
 from app.models import ArchitectureDiagram, Edge, Node
 from app.validation.structural import validate_architecture_structure
@@ -174,6 +175,78 @@ class LayoutSanitizeTests(unittest.TestCase):
         parent_idx = output.find('id="parent"')
         child_idx = output.find('id="child"')
         self.assertLess(parent_idx, child_idx)
+
+    def test_flow_order_places_lower_steps_left(self) -> None:
+        arch = ArchitectureDiagram(
+            nodes=[
+                Node(id="users", label="Users", shape_type="aws_client", step_number=1),
+                Node(id="cloud", label="AWS Cloud", shape_type="aws_cloud", is_container=True),
+                Node(
+                    id="route53",
+                    label="Route 53",
+                    shape_type="aws_route_53",
+                    step_number=2,
+                    parent_id="cloud",
+                ),
+                Node(
+                    id="cloudfront",
+                    label="CloudFront",
+                    shape_type="aws_cloudfront",
+                    step_number=3,
+                    parent_id="cloud",
+                ),
+            ],
+            edges=[],
+            suggestions=[],
+        )
+        children_map, roots, nodes_by_id = build_children_map(arch.nodes)
+        layout = build_layout(nodes_by_id, children_map, roots)
+        self.assertLess(layout["users"]["x"], layout["cloud"]["x"])
+        self.assertLess(layout["route53"]["x"], layout["cloudfront"]["x"])
+
+    def test_parallel_edges_use_distinct_exit_anchors(self) -> None:
+        arch = ArchitectureDiagram(
+            nodes=[
+                Node(id="src", label="Source", shape_type="generic_server", step_number=1),
+                Node(id="t1", label="T1", shape_type="generic_server", step_number=2),
+                Node(id="t2", label="T2", shape_type="generic_server", step_number=3),
+                Node(id="t3", label="T3", shape_type="generic_server", step_number=4),
+            ],
+            edges=[
+                Edge(source_id="src", target_id="t1"),
+                Edge(source_id="src", target_id="t2"),
+                Edge(source_id="src", target_id="t3"),
+            ],
+            suggestions=[],
+        )
+        xml = generate_xml(arch, platform="aws")
+        exit_ys: list[float] = []
+        for match in re.finditer(r'<mxCell id="edge_\d+"[^>]*style="([^"]*)"[^>]*source="src"', xml):
+            slot = re.search(r"exitY=([\d.]+)", match.group(1))
+            if slot:
+                exit_ys.append(float(slot.group(1)))
+        self.assertEqual(len(exit_ys), 3)
+        self.assertEqual(len(set(exit_ys)), 3)
+
+    def test_edges_emitted_after_vertices(self) -> None:
+        arch = ArchitectureDiagram(
+            nodes=[
+                Node(id="a", label="A", shape_type="generic_server", step_number=1),
+                Node(id="b", label="B", shape_type="generic_server", step_number=2),
+            ],
+            edges=[Edge(source_id="a", target_id="b")],
+            suggestions=[],
+        )
+        xml = generate_xml(arch, platform="aws")
+        vertex_positions = [
+            m.start()
+            for m in re.finditer(r'<mxCell id="(?!edge_|badge_|0|1|flow_)[^"]+"[^>]*vertex="1"', xml)
+        ]
+        edge_positions = [m.start() for m in re.finditer(r'<mxCell id="edge_', xml)]
+        self.assertTrue(vertex_positions)
+        self.assertTrue(edge_positions)
+        last_vertex = max(vertex_positions)
+        self.assertTrue(all(pos > last_vertex for pos in edge_positions))
 
 
 if __name__ == "__main__":

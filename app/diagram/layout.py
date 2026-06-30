@@ -61,10 +61,21 @@ def node_tier(node) -> int:
     return 2
 
 
-def sort_key(node_id: str, nodes_by_id: dict) -> tuple:
+def effective_step(node_id: str, nodes_by_id: dict, children_map: dict[str, list[str]]) -> int:
+    """Flow order for layout: own step_number, else earliest descendant step."""
     node = nodes_by_id[node_id]
-    step = node.step_number if node.step_number is not None else 500
-    return (node_tier(node), step, node_id)
+    if node.step_number is not None:
+        return node.step_number
+    child_steps = [
+        effective_step(child_id, nodes_by_id, children_map)
+        for child_id in children_map.get(node_id, [])
+    ]
+    return min(child_steps) if child_steps else 10_000
+
+
+def sort_key(node_id: str, nodes_by_id: dict, children_map: dict[str, list[str]]) -> tuple:
+    node = nodes_by_id[node_id]
+    return (effective_step(node_id, nodes_by_id, children_map), node_tier(node), node_id)
 
 
 def node_size(node) -> tuple[int, int]:
@@ -107,7 +118,7 @@ def layout_siblings(
     row_height = 0
     column = 0
 
-    for child_id in sorted(child_ids, key=lambda key: sort_key(key, nodes_by_id)):
+    for child_id in sorted(child_ids, key=lambda key: sort_key(key, nodes_by_id, children_map)):
         node = nodes_by_id[child_id]
         width, height = node_size(node)
 

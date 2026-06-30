@@ -62,6 +62,32 @@ def replace_historical_tool_inputs(messages: list[dict[str, str]]) -> list[dict[
     return result
 
 
+def normalize_suggestion(text: str) -> str:
+    return " ".join((text or "").strip().lower().split())
+
+
+def filter_applied_suggestions(
+    suggestions: list[str] | None,
+    applied: list[str] | None,
+) -> list[str]:
+    if not suggestions:
+        return []
+    if not applied:
+        return list(suggestions)
+    applied_norm = {normalize_suggestion(item) for item in applied}
+    return [item for item in suggestions if normalize_suggestion(item) not in applied_norm]
+
+
+def build_applied_suggestions_block(applied: list[str] | None) -> str:
+    if not applied:
+        return ""
+    lines = [
+        "Already implemented suggestions (do NOT repeat these in `suggestions`; propose new improvements only):"
+    ]
+    lines.extend(f"- {item}" for item in applied)
+    return "\n".join(lines)
+
+
 def trim_chat_messages_for_prompt(
     messages: list[dict[str, str]],
     *,

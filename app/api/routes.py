@@ -100,6 +100,7 @@ async def chat_diagram(body: ChatRequest, request: Request):
     try:
         messages = [m.model_dump() for m in body.messages]
         last_user = messages[-1]["content"] if messages else ""
+        applied_suggestions = body.applied_suggestions or []
 
         use_xml_edit = bool(body.current_xml and body.current_xml.strip() and not is_minimal_diagram(body.current_xml))
 
@@ -113,6 +114,7 @@ async def chat_diagram(body: ChatRequest, request: Request):
                 context_text=body.context_text, platform_convert=True,
                 previous_platform=body.previous_platform, current_xml=body.current_xml,
                 validation_provider=body.validation_provider,
+                applied_suggestions=applied_suggestions,
             )
 
         if use_xml_edit:
@@ -123,12 +125,14 @@ async def chat_diagram(body: ChatRequest, request: Request):
                 validation_feedback=body.validation_feedback, image_data=body.image_data,
                 context_text=body.context_text,
                 validation_provider=body.validation_provider,
+                applied_suggestions=applied_suggestions,
             )
 
         intent = classify_diagram_intent(last_user, diagram_mode=body.diagram_mode, platform=platform)
         if intent == "simple" and not use_xml_edit and current_architecture is None:
             return await run_mermaid_pipeline(
                 user_prompt=None, messages=messages, provider=provider, logger=logger,
+                applied_suggestions=applied_suggestions,
             )
 
         return await run_generation_pipeline(
@@ -139,6 +143,7 @@ async def chat_diagram(body: ChatRequest, request: Request):
             validation_feedback=body.validation_feedback, image_data=body.image_data,
             context_text=body.context_text,
             validation_provider=body.validation_provider,
+            applied_suggestions=applied_suggestions,
         )
     except Exception as exc:
         logger.log("error", str(exc), level="error")

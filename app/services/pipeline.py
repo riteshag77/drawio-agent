@@ -19,7 +19,7 @@ from app.llm.agent import (
     generate_edit_operations,
     generate_mermaid_diagram,
 )
-from app.utils.chat import is_minimal_architecture, is_minimal_diagram
+from app.utils.chat import filter_applied_suggestions, is_minimal_architecture, is_minimal_diagram
 from app.validation.structural import format_validation_feedback, validate_architecture_structure
 from app.validation.visual import validate_diagram_image
 
@@ -77,7 +77,8 @@ def _build_response(status="success", diagram_type="cloud", *, xml=None, mermaid
 
 def _run_vlm_retry(user_prompt_or_none, messages, provider, platform, architecture_data,
                    current_architecture, logger, custom_msg, feedback, platform_convert,
-                   previous_platform, current_xml, image_data, validation_provider="auto"):
+                   previous_platform, current_xml, image_data, validation_provider="auto",
+                   applied_suggestions=None):
     """Run VLM validation retry loop. Returns (architecture_data, xml_output, vlm_validation)."""
     vlm_validation = None
     for vlm_attempt in range(MAX_VLM_RETRIES + 1):
@@ -91,11 +92,16 @@ def _run_vlm_retry(user_prompt_or_none, messages, provider, platform, architectu
             architecture_data, _ = generate_architecture_from_chat(
                 messages, provider, platform, architecture_data, current_architecture,
                 logger, False, custom_msg, feedback, platform_convert, previous_platform, current_xml,
+                applied_suggestions,
             )
         else:
             architecture_data = generate_architecture_json(
                 user_prompt_or_none or "", provider, platform, logger, None,
                 architecture_data, current_architecture, False, custom_msg, feedback,
+                platform_convert=platform_convert,
+                previous_platform=previous_platform,
+                current_xml=current_xml,
+                applied_suggestions=applied_suggestions,
             )
         xml_output = generate_xml(architecture_data, platform, logger)
         check = validate_and_fix_xml(xml_output)
@@ -114,7 +120,7 @@ def _backoff_delay(attempt: int) -> None:
 
 def _retry_loop_sync(user_prompt_or_none, messages, provider, platform, current_architecture,
                      previous_architecture, logger, minimal_style, custom_msg, feedback,
-                     platform_convert, previous_platform, current_xml):
+                     platform_convert, previous_platform, current_xml, applied_suggestions=None):
     for attempt in range(MAX_STRUCTURAL_RETRIES + 1):
         if attempt > 0:
             _backoff_delay(attempt - 1)
@@ -123,12 +129,16 @@ def _retry_loop_sync(user_prompt_or_none, messages, provider, platform, current_
             architecture_data, assistant_message = generate_architecture_from_chat(
                 messages, provider, platform, current_architecture, previous_architecture,
                 logger, minimal_style, custom_msg, feedback,
-                platform_convert, previous_platform, current_xml,
+                platform_convert, previous_platform, current_xml, applied_suggestions,
             )
         else:
             architecture_data = generate_architecture_json(
                 user_prompt_or_none or "", provider, platform, logger, None,
                 current_architecture, previous_architecture, minimal_style, custom_msg, feedback,
+                platform_convert=platform_convert,
+                previous_platform=previous_platform,
+                current_xml=current_xml,
+                applied_suggestions=applied_suggestions,
             )
             assistant_message = (
                 f"Generated diagram with {len(architecture_data.nodes)} nodes "
@@ -147,20 +157,22 @@ def _retry_loop_sync(user_prompt_or_none, messages, provider, platform, current_
     return architecture_data, assistant_message, structural_validation
 
 
-async def run_mermaid_pipeline(*, user_prompt, messages, provider, logger):
+async def run_mermaid_pipeline(*, user_prompt, messages, provider, logger, applied_suggestions=None):
     provider = (provider or "openai").strip().lower()
     human_prompt = user_prompt or (messages[-1]["content"] if messages else "")
 
     logger.log("request", "Mermaid request", details={"provider": provider})
 
-    result = await asyncio.to_thread(generate_mermaid_diagram, human_prompt, provider, logger, messages)
+    result = await asyncio.to_thread(
+        generate_mermaid_diagram, human_prompt, provider, logger, messages, applied_suggestions,
+    )
 
     logger.log("complete", "Mermaid pipeline finished", level="success", details={"chars": len(result.mermaid)})
 
     return _build_response(
         diagram_type="mermaid",
         mermaid=result.mermaid,
-        suggestions=result.suggestions,
+        suggestions=filter_applied_suggestions(result.suggestions, applied_suggestions),
         assistant_message=result.assistant_message or "Generated Mermaid diagram.",
         logger=logger,
     )
@@ -168,7 +180,8 @@ async def run_mermaid_pipeline(*, user_prompt, messages, provider, logger):
 
 async def run_edit_pipeline(*, messages, provider, platform, current_xml, previous_xml=None,
                              logger, custom_system_message="", validation_feedback=None,
-                             image_data=None, context_text=None, validation_provider="auto"):
+                             image_data=None, context_text=None, validation_provider="auto",
+                             applied_suggestions=None):
     platform = (platform or "aws").strip().lower()
     provider = (provider or "openai").strip().lower()
     custom_msg = sanitize_custom_message(custom_system_message)
@@ -187,7 +200,7 @@ async def run_edit_pipeline(*, messages, provider, platform, current_xml, previo
         retry_count = attempt
         edit_response = await asyncio.to_thread(
             generate_edit_operations, messages, provider, xml_output, previous_xml,
-            logger, custom_msg, feedback, context_text,
+            logger, custom_msg, feedback, context_text, applied_suggestions,
         )
         assistant_message = edit_response.assistant_message or assistant_message
         suggestions = edit_response.suggestions or []
@@ -223,7 +236,7 @@ async def run_edit_pipeline(*, messages, provider, platform, current_xml, previo
             feedback = format_validation_feedback(vlm_validation)
             edit_response = await asyncio.to_thread(
                 generate_edit_operations, messages, provider, xml_output, previous_xml,
-                logger, custom_msg, feedback, context_text,
+                logger, custom_msg, feedback, context_text, applied_suggestions,
             )
             if edit_response.operations:
                 xml_output = apply_diagram_operations(xml_output, edit_response.operations).result
@@ -233,7 +246,9 @@ async def run_edit_pipeline(*, messages, provider, platform, current_xml, previo
     logger.log("complete", "XML edit finished", level="success", details={"xml_chars": len(xml_output)})
 
     return _build_response(
-        xml=xml_output, suggestions=suggestions, assistant_message=assistant_message,
+        xml=xml_output,
+        suggestions=filter_applied_suggestions(suggestions, applied_suggestions),
+        assistant_message=assistant_message,
         edit_mode=True, validation={"structural": None, "vlm": vlm_validation.model_dump() if vlm_validation else None,
                                      "retries": retry_count, "feedback": validation_summary},
         logger=logger,
@@ -245,7 +260,7 @@ async def run_generation_pipeline(*, user_prompt=None, messages=None, provider="
                                     minimal_style=False, custom_system_message="",
                                     validation_feedback=None, image_data=None, context_text=None,
                                     platform_convert=False, previous_platform=None, current_xml=None,
-                                    validation_provider="auto"):
+                                    validation_provider="auto", applied_suggestions=None):
     platform = (platform or "aws").strip().lower()
     provider = (provider or "openai").strip().lower()
 
@@ -267,7 +282,7 @@ async def run_generation_pipeline(*, user_prompt=None, messages=None, provider="
     architecture_data, assistant_message, structural_validation = await asyncio.to_thread(
         _retry_loop_sync, human_prompt, messages, provider, platform, current_architecture,
         previous_architecture, logger, minimal_style, custom_msg, feedback,
-        platform_convert, previous_platform, current_xml,
+        platform_convert, previous_platform, current_xml, applied_suggestions,
     )
 
     logger.log("layout", "Running auto-layout and XML builder")
@@ -280,7 +295,7 @@ async def run_generation_pipeline(*, user_prompt=None, messages=None, provider="
         architecture_data, xml_output, vlm_validation = await asyncio.to_thread(
             _run_vlm_retry, human_prompt, messages, provider, platform, architecture_data,
             current_architecture, logger, custom_msg, feedback, platform_convert,
-            previous_platform, current_xml, image_data, validation_provider,
+            previous_platform, current_xml, image_data, validation_provider, applied_suggestions,
         )
 
     validation_summary = None
@@ -298,7 +313,7 @@ async def run_generation_pipeline(*, user_prompt=None, messages=None, provider="
         flow_steps=[s.model_dump() for s in architecture_data.flow_steps],
         pattern_id=architecture_data.pattern_id,
         title=architecture_data.title,
-        suggestions=architecture_data.suggestions,
+        suggestions=filter_applied_suggestions(architecture_data.suggestions, applied_suggestions),
         assistant_message=assistant_message,
         validation={
             "structural": structural_validation.model_dump() if structural_validation else None,

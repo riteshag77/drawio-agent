@@ -87,6 +87,7 @@ def generate_architecture_json(
     platform_convert: bool = False,
     previous_platform: str | None = None,
     current_xml: str | None = None,
+    applied_suggestions: list[str] | None = None,
 ) -> ArchitectureDiagram:
     platform_key = (platform or "aws").strip().lower()
     provider_key = normalize_provider_key(provider)
@@ -132,6 +133,7 @@ def generate_architecture_json(
         previous_platform=previous_platform,
         target_platform=platform_key,
         current_xml=current_xml,
+        applied_suggestions=applied_suggestions,
     )
 
     result = call_llm(system_prompt, human_content, provider_key, ArchitectureDiagram, logger)
@@ -160,6 +162,7 @@ def generate_architecture_from_chat(
     platform_convert: bool = False,
     previous_platform: str | None = None,
     current_xml: str | None = None,
+    applied_suggestions: list[str] | None = None,
 ) -> tuple[ArchitectureDiagram, str]:
     if not messages or messages[-1].get("role") != "user":
         raise ValueError("Chat must end with a user message.")
@@ -178,6 +181,7 @@ def generate_architecture_from_chat(
         platform_convert=platform_convert,
         previous_platform=previous_platform,
         current_xml=current_xml,
+        applied_suggestions=applied_suggestions,
     )
     summary = _diagram_summary(diagram, platform_convert=platform_convert, platform=platform)
     return diagram, summary
@@ -192,6 +196,7 @@ def generate_edit_operations(
     custom_system_message: str = "",
     validation_feedback: str | None = None,
     context_text: str | None = None,
+    applied_suggestions: list[str] | None = None,
 ) -> EditResponse:
     provider_key = normalize_provider_key(provider)
     spec = get_provider(provider_key)
@@ -200,7 +205,9 @@ def generate_edit_operations(
         provider=provider_key,
         custom_system_message=custom_system_message,
     )
-    human_content = build_edit_prompt(messages, current_xml, previous_xml, validation_feedback, context_text)
+    human_content = build_edit_prompt(
+        messages, current_xml, previous_xml, validation_feedback, context_text, applied_suggestions,
+    )
 
     if logger:
         logger.log(
@@ -216,6 +223,7 @@ def generate_mermaid_diagram(
     provider: str = "openai",
     logger: StepLogger | None = None,
     messages: list[dict[str, str]] | None = None,
+    applied_suggestions: list[str] | None = None,
 ) -> MermaidDiagram:
     provider_key = normalize_provider_key(provider)
     chat_messages = messages or [{"role": "user", "content": user_request}]
@@ -227,7 +235,9 @@ def generate_mermaid_diagram(
             details={"provider": provider_key, "turns": len(chat_messages)},
         )
 
-    human_content = build_chat_prompt(chat_messages, "Generic (Mermaid)", None, None, None)
+    human_content = build_chat_prompt(
+        chat_messages, "Generic (Mermaid)", None, None, None, applied_suggestions=applied_suggestions,
+    )
     parsed = call_llm(MERMAID_SYSTEM_PROMPT, human_content, provider_key, MermaidDiagram, logger)
     parsed.mermaid = extract_mermaid(parsed.mermaid)
     if not parsed.assistant_message:

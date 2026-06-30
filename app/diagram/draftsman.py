@@ -90,9 +90,15 @@ def generate_xml(architecture, platform: str = "aws", logger: StepLogger | None 
         append_vertex(xml, node, layout, parent_cell, accent)
 
     cell_id = 100
+    exit_counts: dict[str, int] = {}
+    entry_counts: dict[str, int] = {}
     for edge in sorted(architecture.edges, key=lambda item: edge_sort_key(item, nodes_by_id)):
         if edge.source_id not in nodes_by_id or edge.target_id not in nodes_by_id:
             continue
+        exit_slot = exit_counts.get(edge.source_id, 0)
+        entry_slot = entry_counts.get(edge.target_id, 0)
+        exit_counts[edge.source_id] = exit_slot + 1
+        entry_counts[edge.target_id] = entry_slot + 1
         cell_id += 1
         append_edge(
             xml,
@@ -102,6 +108,8 @@ def generate_xml(architecture, platform: str = "aws", logger: StepLogger | None 
             nodes_by_id=nodes_by_id,
             default_edge_color=accent,
             platform_key=platform_key,
+            exit_slot=exit_slot,
+            entry_slot=entry_slot,
         )
 
     if flow_notes:

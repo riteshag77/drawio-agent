@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from app.llm.prompts.system import XML_EDIT_VALIDATION_FEEDBACK
-from app.utils.chat import replace_historical_tool_inputs, trim_chat_messages_for_prompt
+from app.utils.chat import (
+    build_applied_suggestions_block,
+    replace_historical_tool_inputs,
+    trim_chat_messages_for_prompt,
+)
 
 PLATFORM_LABELS = {
     "aws": "Amazon Web Services (AWS)",
@@ -76,9 +80,14 @@ def build_chat_prompt(
     previous_platform: str | None = None,
     target_platform: str = "aws",
     current_xml: str | None = None,
+    applied_suggestions: list[str] | None = None,
 ) -> str:
     trimmed = trim_chat_messages(messages)
     parts: list[str] = []
+
+    applied_block = build_applied_suggestions_block(applied_suggestions)
+    if applied_block:
+        parts.append(applied_block)
 
     if platform_convert:
         parts.append(
@@ -116,9 +125,14 @@ def build_edit_prompt(
     previous_xml: str | None = None,
     validation_feedback: str | None = None,
     context_text: str | None = None,
+    applied_suggestions: list[str] | None = None,
 ) -> str:
     trimmed = trim_chat_messages(messages)
     parts: list[str] = []
+
+    applied_block = build_applied_suggestions_block(applied_suggestions)
+    if applied_block:
+        parts.append(applied_block)
 
     if previous_xml:
         parts.append(

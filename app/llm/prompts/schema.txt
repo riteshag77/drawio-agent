@@ -4,7 +4,10 @@ Output a single valid JSON object only:
 {
   "nodes": [ /* Node — see 1.1 */ ],
   "edges": [ /* Edge — see 1.2 */ ],
-  "suggestions": [ /* 3–5 actionable strings */ ]
+  "suggestions": [ /* 3–5 actionable strings */ ],
+  "flow_steps": [ /* FlowStep — see 1.3; one per step_number */ ],
+  "title": "string — short architecture name (e.g. 'HA Web App on AWS')",
+  "pattern_id": "string | null — reference pattern id if applicable"
 }
 ```
 
@@ -34,6 +37,15 @@ Do NOT set x, y, width, or height on any node. The layout engine assigns all coo
   "label":     "string | null — ONE word or null; see Section 5.4",
   "style":     "solid | dashed | bold",
   "color":     "string — hex; platform theme Section 2.3"
+}
+```
+
+1.3 FlowStep schema (one per step_number, ascending order)
+```json
+{
+  "number":  "integer — matches a node's step_number (1, 2, 3, ...)",
+  "title":   "string — 2–4 words (e.g. 'Edge security', 'Stateless compute')",
+  "summary": "string — one concise sentence explaining what happens at this step"
 }
 ```
 
@@ -181,6 +193,11 @@ Labels (VLM validation):
 [ ] Node labels ≤3 words; no slash phrases ("Logs/Metrics")
 [ ] Edge labels null or ONE word — no "SQL HTTPS" style combinations
 [ ] ≤1 labeled edge per source node; monitoring edge label is null
+
+Flow Notes:
+[ ] flow_steps populated: one entry per step_number, in ascending order
+[ ] Each flow_step has number, title (2–4 words), and summary (one sentence)
+[ ] title field set to a short architecture name
 
 Structure:
 [ ] Valid parent_id hierarchy; unique ids; valid shape_type keys
