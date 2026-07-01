@@ -1,20 +1,16 @@
-"""Domain models for the Draw.io AI Architect application.
+"""Domain models — backward-compatible re-export from domain/entities."""
 
-A single import surface for architecture, edit-operation, and validation models.
-"""
-
-from app.models.architecture import (
+from app.domain.entities import (  # noqa: F401
     ArchitectureDiagram,
-    Edge,
-    FlowStep,
-    Node,
-)
-from app.models.mermaid import MermaidDiagram
-from app.models.operations import DiagramOperation, EditResponse
-from app.models.validation import (
     DEFAULT_VALID_RESULT,
+    DiagramOperation,
+    Edge,
+    EditResponse,
+    FlowStep,
     IssueSeverity,
     IssueType,
+    MermaidDiagram,
+    Node,
     ValidationIssue,
     ValidationResult,
 )

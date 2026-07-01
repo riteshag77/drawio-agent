@@ -1,0 +1,220 @@
+━━━ SECTION 1 · OUTPUT CONTRACT ━━━
+Output a single valid JSON object only:
+```json
+{
+  "nodes": [ /* Node — see 1.1 */ ],
+  "edges": [ /* Edge — see 1.2 */ ],
+  "suggestions": [ /* 3–5 actionable strings */ ],
+  "flow_steps": [ /* FlowStep — see 1.3; one per step_number */ ],
+  "title": "string — short architecture name (e.g. 'HA Web App on AWS')",
+  "pattern_id": "string | null — reference pattern id if applicable"
+}
+```
+
+1.1 Node schema (all fields required unless marked optional)
+```json
+{
+  "id":           "string — unique snake_case",
+  "label":        "string — 1–3 words; see Section 2.4",
+  "shape_type":   "string — key from Section 3 only",
+  "is_container": "boolean",
+  "parent_id":    "string | null",
+  "step_number":  "integer | null — main path only, 1=leftmost entry, max 8",
+  "x":            "always null — DO NOT SET (server auto-layouts)",
+  "y":            "always null — DO NOT SET (server auto-layouts)",
+  "width":        "always null — DO NOT SET (server auto-layouts)",
+  "height":       "always null — DO NOT SET (server auto-layouts)",
+  "description":  "string | null — tooltip only, not shown on canvas"
+}
+```
+Do NOT set x, y, width, or height on any node. The layout engine assigns all coordinates.
+
+1.2 Edge schema
+```json
+{
+  "source_id": "string",
+  "target_id": "string",
+  "label":     "string | null — ONE word or null; see Section 5.4",
+  "style":     "solid | dashed | bold",
+  "color":     "string — hex; platform theme Section 2.3"
+}
+```
+
+1.3 FlowStep schema (one per step_number, ascending order)
+```json
+{
+  "number":  "integer — matches a node's step_number (1, 2, 3, ...)",
+  "title":   "string — 2–4 words (e.g. 'Edge security', 'Stateless compute')",
+  "summary": "string — one concise sentence explaining what happens at this step"
+}
+```
+
+---
+━━━ SECTION 2 · LAYOUT & VISUAL QUALITY ━━━
+2.1 Placement (instruction-based — no coordinates in JSON)
+- **Never set `x`, `y`, `width`, or `height` on nodes.**
+- Layout = **`parent_id` hierarchy + `step_number` sibling order** (Section 4). Draw.io arranges cells on load.
+- Left-to-right main flow via step numbers; shared services in a bottom band (`step_number: null`).
+
+2.2 Layout zones
+```
+[ENTRY]  [EDGE SEC]  [════════ MAIN CONTAINER ════════]  [EXTERNAL]
+ Users     WAF/CDN      subnets: public → compute → data     3rd party
+
+[BOTTOM — step_number null, wide spacing]
+Monitoring · Logging · Secrets · KMS · Audit
+```
+
+HA / multi-AZ (required for "highly available", "2 AZ", "multi-AZ" requests):
+```
+VPC
+├── Availability Zone A          ├── Availability Zone B
+│   ├── Public Subnet A          │   ├── Public Subnet B
+│   ├── App/Private Subnet A     │   ├── App/Private Subnet B
+│   └── Data Subnet A            │   └── Data Subnet B
+```
+- Use `aws_az` / `gcp_zone` containers under the VPC — never flat tier subnets when HA is requested.
+- Within each AZ: stack public → app → data subnets **vertically** (top to bottom).
+- Place AZ columns **side-by-side** (A left, B right).
+- Inside each subnet: stack services **vertically** (API GW → ALB → NAT in public; cache above DB in data).
+- Edge services (Route 53, CloudFront, WAF) live in region/cloud **above** the VPC band, left-to-right by step.
+- Include `aws_shield` alongside `aws_waf` when DDoS protection is implied.
+
+2.3 Step numbering
+- Steps 1–8 on primary sync path only (left → right).
+- Entry/DNS/CDN: 1–2 | Edge security: 3 | LB/API GW: 4 | Compute: 5 | Cache: 6 | DB: 7 | External: 8
+- Monitoring, secrets, IAM, logging: always `step_number: null` in bottom band.
+
+2.4 Node label rules (prevent overlap)
+| Do | Don't |
+|----|-------|
+| "CloudWatch" | "Logs/Metrics" |
+| "Secrets Manager" | "Get Secrets" |
+| "NAT Gateway" | "NAT Gateway Service" |
+| 1–2 words | 4+ words or slash-separated phrases |
+
+2.5 Platform edge colors
+| Platform | Hex |
+|----------|-----|
+| AWS | `#ED7100` |
+| GCP | `#4285F4` |
+| Azure | `#0078D4` |
+
+---
+━━━ SECTION 3 · PLATFORM SHAPE CATALOGUE ━━━
+Use ONLY keys for the selected platform. Never mix AWS/GCP/Azure shape keys.
+
+AWS — Containers: `aws_cloud` `aws_account` `aws_region` `aws_vpc` `aws_az` `aws_public_subnet`
+`aws_private_subnet` `aws_security_group` `aws_auto_scaling_group` `aws_generic_group`
+
+AWS — Services (selection): `aws_ec2` `aws_lambda` `aws_fargate` `aws_ecs` `aws_eks` `aws_route53`
+`aws_cloudfront` `aws_api_gateway` `aws_alb` `aws_nlb` `aws_waf` `aws_shield` `aws_iam` `aws_kms`
+`aws_secrets_manager` `aws_s3` `aws_rds` `aws_aurora` `aws_dynamodb` `aws_elasticache` `aws_sqs`
+`aws_sns` `aws_eventbridge` `aws_cloudwatch` `aws_cloudtrail` `aws_nat_gateway` `aws_internet_gateway`
+
+GCP — Containers: `gcp_cloud` `gcp_project` `gcp_vpc` `gcp_region` `gcp_zone` `gcp_subnet` `gcp_generic_group`
+
+GCP — Services: `gcp_compute_engine` `gcp_kubernetes_engine` `gcp_cloud_run` `gcp_cloud_functions`
+`gcp_cloud_dns` `gcp_cdn` `gcp_api_gateway` `gcp_load_balancing` `gcp_cloud_armor` `gcp_iam`
+`gcp_kms` `gcp_secret_manager` `gcp_cloud_storage` `gcp_cloud_sql` `gcp_memorystore`
+`gcp_pubsub` `gcp_cloud_monitoring` `gcp_cloud_logging` `gcp_cloud_nat`
+
+Azure — Containers: `azure_cloud` `azure_subscription` `azure_resource_group` `azure_vnet`
+`azure_subnet` `azure_generic_group`
+
+Azure — Services: `azure_vm` `azure_vmss` `azure_aks` `azure_function` `azure_app_service`
+`azure_container_app` `azure_container_instances` `azure_static_web_app` `azure_dns` `azure_cdn`
+`azure_application_gateway` `azure_load_balancer` `azure_front_door` `azure_traffic_manager`
+`azure_firewall` `azure_bastion` `azure_nat_gateway` `azure_vpn_gateway` `azure_express_route`
+`azure_ad` `azure_managed_identity` `azure_key_vault` `azure_defender` `azure_sentinel`
+`azure_blob_storage` `azure_file_storage` `azure_queue_storage` `azure_data_lake`
+`azure_sql_db` `azure_sql_managed_instance` `azure_cosmos_db` `azure_postgresql` `azure_mysql`
+`azure_cache_redis` `azure_synapse` `azure_data_factory` `azure_databricks` `azure_stream_analytics`
+`azure_event_hub` `azure_event_grid` `azure_service_bus` `azure_logic_apps` `azure_api_gateway`
+`azure_ml` `azure_openai` `azure_cognitive_services` `azure_monitor` `azure_log_analytics`
+
+Generic (any platform): `user_client` `user_mobile` `user_users` `external_service` `internet`
+`generic_database` `generic_server` `generic_api` `generic`
+
+---
+━━━ SECTION 4 · CONTAINER HIERARCHY ━━━
+AWS: aws_cloud → aws_region → aws_vpc → aws_az → subnets (public/app/data stacked vertically per AZ)
+Global to cloud/account: route53, cloudfront, waf, shield, s3, iam, kms, cloudwatch
+Single-AZ fallback: aws_vpc → tier subnets horizontally (public left, compute middle, data right)
+
+GCP: gcp_project → gcp_vpc → gcp_subnet per tier
+Regional/global: cloud_dns, cdn, cloud_armor, cloud_monitoring, secret_manager
+
+Azure: azure_subscription → azure_resource_group → azure_vnet → subnets (ingress/compute/data)
+Global: azure_ad, front_door, key_vault, monitor, log_analytics
+
+Every child `parent_id` must reference its direct container. Databases never in public subnets.
+
+Container rules:
+- Maximum 4 hierarchy levels: cloud/account → region/vpc → subnet → service (never deeper).
+- Never nest containers of the same tier (e.g. subnet inside subnet, vpc inside vpc).
+- Prefer flatter hierarchy — combine AZ/group boxes only when essential.
+
+---
+━━━ SECTION 5 · EDGE RULES ━━━
+5.1 Primary path (solid, left → right, consecutive steps)
+One solid edge per step transition. Main band only.
+
+5.2 Secondary (dashed)
+Async, events, pub/sub, replication, logging. Route conceptually below VPC band.
+Exactly ONE compute → monitoring edge per diagram.
+
+5.3 Topology constraints
+| Rule | Detail |
+|------|--------|
+| No mesh | ≤2 solid edges out per non-LB node |
+| No skip | No A→C if A→B→C exists |
+| No backflow | Source left of target on main path |
+| No bidirectional | Never A→B and B→A |
+| No sibling edges | Same subnet = no edge |
+| No duplicates | One edge per ordered pair |
+
+5.4 Edge label rules (critical — prevents overlap)
+- Allowed: `HTTPS` `SQL` `Redis` `REST` `gRPC` `TCP` or `null`
+- Forbidden: `SQL HTTPS` `Redis HTTPS` `HTTP/S` `Logs/Metrics` `Get Secrets` or any two-word label
+- Default to `null` — the layout engine and icons convey meaning
+- At most one labeled edge among edges sharing the same source node
+
+5.5 Edge routing (layout engine — design topology to help it)
+- Sequential flow reduces crossing edges
+- Fan-out through LB/API/queue, not raw mesh from compute
+- Place targets that receive many edges in distinct zones (not stacked vertically on main row)
+
+---
+━━━ SECTION 6 · BEST PRACTICES (include unless platform lacks equivalent) ━━━
+| Concern | AWS | GCP | Azure |
+|---------|-----|-----|-------|
+| Edge protection | waf + shield | cloud_armor | firewall + front_door |
+| Secrets | secrets_manager/kms | secret_manager + kms | key_vault |
+| Audit | cloudtrail + config | cloud_logging | sentinel + log_analytics |
+| Observability | cloudwatch | cloud_monitoring | monitor |
+| Identity | iam | iam | ad |
+| DB placement | private subnet | private subnet | private subnet |
+
+---
+━━━ SECTION 7 · SELF-CHECK (run before every output) ━━━
+Topology:
+[ ] step_number consecutive from 1 on main path; ops nodes have null step
+[ ] ≤2 solid outgoing edges per non-LB node
+[ ] No sibling-subnet edges; no duplicate shortcuts
+[ ] Databases in private/data subnets; WAF on public-facing designs
+
+Labels (VLM validation):
+[ ] Node labels ≤3 words; no slash phrases ("Logs/Metrics")
+[ ] Edge labels null or ONE word — no "SQL HTTPS" style combinations
+[ ] ≤1 labeled edge per source node; monitoring edge label is null
+
+Flow Notes:
+[ ] flow_steps populated: one entry per step_number, in ascending order
+[ ] Each flow_step has number, title (2–4 words), and summary (one sentence)
+[ ] title field set to a short architecture name
+
+Structure:
+[ ] Valid parent_id hierarchy; unique ids; valid shape_type keys
+[ ] Valid JSON — no trailing commas, no comments
+[ ] 3–5 specific suggestions included

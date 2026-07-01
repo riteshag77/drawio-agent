@@ -1,0 +1,18 @@
+{
+  "id": "microservices_k8s",
+  "name": "Microservices on Managed Kubernetes",
+  "summary": "Containerized microservices run on a managed Kubernetes cluster behind an ingress/load balancer, backed by a managed database and a container registry, with centralized observability.",
+  "keywords": ["microservices", "kubernetes", "k8s", "containers", "eks", "gke", "aks", "cluster", "docker", "ingress", "service mesh", "pods"],
+  "platforms": ["aws", "gcp", "azure", "multi"],
+  "flow": ["Users", "Ingress / Load Balancer", "Kubernetes Cluster", "Container Registry", "Database", "Monitoring"],
+  "services": {
+    "aws": ["user_client", "aws_alb", "aws_eks", "aws_ecr", "aws_rds", "aws_cloudwatch"],
+    "gcp": ["user_client", "gcp_load_balancing", "gcp_kubernetes_engine", "gcp_container_registry", "gcp_cloud_sql", "gcp_cloud_monitoring"],
+    "azure": ["user_client", "azure_application_gateway", "azure_aks", "azure_container_registry", "azure_sql_db", "azure_monitor"]
+  },
+  "best_practices": [
+    "Use private node pools; expose only the ingress publicly.",
+    "Store images in a private registry and scan them on push.",
+    "Export metrics/logs/traces to a central observability stack."
+  ]
+}

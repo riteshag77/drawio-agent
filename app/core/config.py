@@ -1,4 +1,4 @@
-"""Central application configuration and filesystem paths.
+"""Central application configuration — delegates to the EnvConfigAdapter.
 
 All environment-driven settings are resolved here so the rest of the codebase
 imports typed constants instead of reading ``os.getenv`` in scattered places.
@@ -9,8 +9,9 @@ side effects. Call ``init_config()`` explicitly at application startup.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
+
+from app.adapters.outbound.config.env_config import EnvConfigAdapter, get_config
 
 _config_initialized: bool = False
 
@@ -20,44 +21,44 @@ def init_config() -> None:
     global _config_initialized
     if _config_initialized:
         return
-    from dotenv import load_dotenv
-    load_dotenv()
+    EnvConfigAdapter()
     _config_initialized = True
 
 
 # ── Filesystem ──────────────────────────────────────────────────────────────
-# config.py lives at <root>/app/core/config.py, so the project root is three up.
-BASE_DIR: Path = Path(__file__).resolve().parent.parent.parent
-STATIC_DIR: Path = BASE_DIR / "static"
+BASE_DIR: Path = EnvConfigAdapter.base_dir()
+STATIC_DIR: Path = EnvConfigAdapter.static_dir()
 
 # ── Application metadata ────────────────────────────────────────────────────
 APP_TITLE: str = "Draw.io AI Architect"
 
-# ── Pipeline tuning ─────────────────────────────────────────────────────────
-MAX_STRUCTURAL_RETRIES: int = 1
-MAX_VLM_RETRIES: int = 2
-MAX_CUSTOM_MESSAGE_LEN: int = 5000
-BACKOFF_BASE_SECONDS: float = 1.0
-BACKOFF_MAX_SECONDS: float = 16.0
-LLM_TIMEOUT_SECONDS: int = 120
+# ── Pipeline tuning (overridable via env) ───────────────────────────────────
+def _cached_config():
+    return get_config()
+
+MAX_STRUCTURAL_RETRIES: int = _cached_config().max_structural_retries
+MAX_VLM_RETRIES: int = _cached_config().max_vlm_retries
+MAX_CUSTOM_MESSAGE_LEN: int = _cached_config().max_custom_message_len
+BACKOFF_BASE_SECONDS: float = _cached_config().backoff_base_seconds
+BACKOFF_MAX_SECONDS: float = _cached_config().backoff_max_seconds
+LLM_TIMEOUT_SECONDS: int = _cached_config().llm_timeout_seconds
 
 # ── Server ──────────────────────────────────────────────────────────────────
-HOST: str = "0.0.0.0"
-PORT: int = 8000
-CORS_ORIGINS: list[str] = ["*"]
+HOST: str = _cached_config().host
+PORT: int = _cached_config().port
+CORS_ORIGINS: list[str] = _cached_config().cors_origins
 
 
 def _resolve_config() -> None:
-    """Called once after init_config() to override defaults from env."""
+    """Called once after init_config() to re-read env overrides."""
     global MAX_STRUCTURAL_RETRIES, MAX_VLM_RETRIES, HOST, PORT, CORS_ORIGINS
     global LLM_TIMEOUT_SECONDS, BACKOFF_BASE_SECONDS, BACKOFF_MAX_SECONDS
-    MAX_STRUCTURAL_RETRIES = int(os.getenv("MAX_VALIDATION_RETRIES", str(MAX_STRUCTURAL_RETRIES)))
-    MAX_VLM_RETRIES = int(os.getenv("MAX_VLM_RETRIES", str(MAX_VLM_RETRIES)))
-    HOST = os.getenv("HOST", HOST)
-    PORT = int(os.getenv("PORT", str(PORT)))
-    LLM_TIMEOUT_SECONDS = int(os.getenv("LLM_TIMEOUT", str(LLM_TIMEOUT_SECONDS)))
-    BACKOFF_BASE_SECONDS = float(os.getenv("BACKOFF_BASE", str(BACKOFF_BASE_SECONDS)))
-    BACKOFF_MAX_SECONDS = float(os.getenv("BACKOFF_MAX", str(BACKOFF_MAX_SECONDS)))
-    origins = os.getenv("CORS_ORIGINS")
-    if origins:
-        CORS_ORIGINS = [o.strip() for o in origins.split(",") if o.strip()]
+    cfg = get_config()
+    MAX_STRUCTURAL_RETRIES = cfg.max_structural_retries
+    MAX_VLM_RETRIES = cfg.max_vlm_retries
+    HOST = cfg.host
+    PORT = cfg.port
+    LLM_TIMEOUT_SECONDS = cfg.llm_timeout_seconds
+    BACKOFF_BASE_SECONDS = cfg.backoff_base_seconds
+    BACKOFF_MAX_SECONDS = cfg.backoff_max_seconds
+    CORS_ORIGINS = cfg.cors_origins

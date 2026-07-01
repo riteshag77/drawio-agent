@@ -1,0 +1,19 @@
+{
+  "id": "three_tier_web",
+  "name": "Highly Available 3-Tier Web Application",
+  "summary": "Internet-facing web app: DNS + CDN + WAF at the edge, a load balancer in public subnets, stateless compute in private subnets, and a managed relational database in isolated data subnets, spread across two Availability Zones.",
+  "keywords": ["web app", "web application", "3-tier", "three tier", "highly available", "ha", "load balancer", "alb", "frontend", "backend", "website", "scalable web"],
+  "platforms": ["aws", "gcp", "azure", "multi"],
+  "flow": ["Users", "DNS", "CDN", "WAF", "Load Balancer", "Compute (private)", "Cache", "Database (data tier)"],
+  "services": {
+    "aws": ["user_client", "aws_route53", "aws_cloudfront", "aws_waf", "aws_alb", "aws_ecs", "aws_elasticache", "aws_aurora", "aws_cloudwatch"],
+    "gcp": ["user_client", "gcp_cloud_dns", "gcp_cdn", "gcp_cloud_armor", "gcp_load_balancing", "gcp_compute_engine", "gcp_memorystore", "gcp_cloud_sql", "gcp_cloud_monitoring"],
+    "azure": ["user_client", "azure_dns", "azure_front_door", "azure_application_gateway", "azure_load_balancer", "azure_app_service", "azure_cache_redis", "azure_sql_db", "azure_monitor"]
+  },
+  "best_practices": [
+    "Spread compute and database across 2+ Availability Zones for HA.",
+    "Keep databases in private/isolated data subnets — never public.",
+    "Terminate TLS and filter traffic at the WAF/CDN edge.",
+    "Put a cache (Redis) between compute and the database to reduce read load."
+  ]
+}

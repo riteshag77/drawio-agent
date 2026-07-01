@@ -1,0 +1,51 @@
+"""Edge anchor points from absolute node positions. Draw.io routes the path natively."""
+
+from __future__ import annotations
+
+# Spread parallel edges along the connecting face (center first, then offset).
+_FACE_SLOTS = (0.5, 0.35, 0.65, 0.25, 0.75)
+
+
+def _slot_value(slot: int) -> float:
+    return _FACE_SLOTS[slot % len(_FACE_SLOTS)]
+
+
+def _box_center(box: tuple[int, int, int, int]) -> tuple[float, float]:
+    x, y, w, h = box
+    return x + w / 2, y + h / 2
+
+
+def route_edge(
+    src_box: tuple[int, int, int, int],
+    tgt_box: tuple[int, int, int, int],
+    obstacles: list[tuple[int, int, int, int]] | None = None,
+    *,
+    exit_slot: int = 0,
+    entry_slot: int = 0,
+    lane: int = 0,
+    prefer_horizontal: bool = True,
+) -> tuple[float, float, float, float, list[tuple[int, int]]]:
+    """Return (exitX, exitY, entryX, entryY, waypoints).
+
+    Anchors connect face-to-face: right\u2192left for L\u2192R flow, bottom\u2192top for T\u2192B, etc.
+    Parallel edges fan out along the connecting face via *exit_slot* / *entry_slot*.
+    """
+    scx, scy = _box_center(src_box)
+    tcx, tcy = _box_center(tgt_box)
+    dx, dy = tcx - scx, tcy - scy
+    exit_off = _slot_value(exit_slot)
+    entry_off = _slot_value(entry_slot)
+
+    if abs(dx) >= abs(dy):
+        if dx >= 0:
+            return 1.0, exit_off, 0.0, entry_off, []
+        return 0.0, exit_off, 1.0, entry_off, []
+
+    if dy >= 0:
+        return exit_off, 1.0, entry_off, 0.0, []
+    return exit_off, 0.0, entry_off, 1.0, []
+
+
+def collect_obstacles(node_bounds, *, exclude, include_containers=True, container_ids=None):
+    """No-op kept for API compatibility."""
+    return []

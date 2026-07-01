@@ -1,1 +1,2 @@
-"""HTTP API layer: request/response schemas and route handlers."""
+"""Backward-compatible re-export."""
+from app.adapters.inbound.web import *  # noqa: F401, F403

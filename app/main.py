@@ -10,30 +10,26 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routes import router
-from app.core.config import (
-    APP_TITLE,
-    CORS_ORIGINS,
-    STATIC_DIR,
-    init_config,
-    _resolve_config,
-)
-from app.core.logging import get_logger
+from app.adapters.inbound.web.routes import router
+from app.adapters.outbound.config.env_config import get_config
+from app.core.config import APP_TITLE, STATIC_DIR, init_config, _resolve_config
 
 # Initialize configuration before any other imports.
 init_config()
 _resolve_config()
 
-logger = get_logger()
+cfg = get_config()
+
+logger = None  # lazy import to avoid circular dependency
 
 
 def create_app() -> FastAPI:
     """Construct the FastAPI application with routes and static assets mounted."""
-    application = FastAPI(title=APP_TITLE)
+    application = FastAPI(title=cfg.app_title)
 
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=CORS_ORIGINS,
+        allow_origins=cfg.cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

@@ -1,0 +1,18 @@
+{
+  "id": "data_analytics",
+  "name": "Data Lake & Analytics Pipeline",
+  "summary": "Raw data lands in object storage, is transformed by an ETL/processing job, loaded into a data warehouse, and served to BI/analytics consumers. Encryption protects data at rest throughout.",
+  "keywords": ["data pipeline", "etl", "data lake", "analytics", "warehouse", "redshift", "bigquery", "synapse", "ingest", "transform", "reporting", "bi", "data"],
+  "platforms": ["aws", "gcp", "azure", "multi"],
+  "flow": ["Source", "Object Storage (lake)", "ETL / Processing", "Data Warehouse", "Analytics / BI", "Encryption"],
+  "services": {
+    "aws": ["aws_s3", "aws_lambda", "aws_redshift", "aws_athena", "aws_kms", "aws_cloudwatch"],
+    "gcp": ["gcp_cloud_storage", "gcp_dataflow", "gcp_bigquery", "gcp_cloud_kms", "gcp_cloud_monitoring"],
+    "azure": ["azure_blob_storage", "azure_data_factory", "azure_synapse", "azure_key_vault", "azure_monitor"]
+  },
+  "best_practices": [
+    "Partition the lake by date/source for efficient scans.",
+    "Encrypt data at rest with a managed KMS/Key Vault key.",
+    "Keep raw, curated, and serving layers separated."
+  ]
+}

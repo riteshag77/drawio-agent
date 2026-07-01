@@ -1,0 +1,17 @@
+{
+  "id": "static_site_cdn",
+  "name": "Static Site / SPA with CDN",
+  "summary": "A static website or single-page app served from object storage through a global CDN with DNS and TLS, optionally calling a serverless API for dynamic data.",
+  "keywords": ["static site", "static website", "spa", "single page", "cdn", "jamstack", "frontend hosting", "s3 website", "cloudfront", "hosting"],
+  "platforms": ["aws", "gcp", "azure", "multi"],
+  "flow": ["Users", "DNS", "CDN", "Object Storage (static)", "Serverless API"],
+  "services": {
+    "aws": ["user_client", "aws_route53", "aws_cloudfront", "aws_s3", "aws_api_gateway", "aws_lambda"],
+    "gcp": ["user_client", "gcp_cloud_dns", "gcp_cdn", "gcp_cloud_storage", "gcp_api_gateway", "gcp_cloud_functions"],
+    "azure": ["user_client", "azure_dns", "azure_front_door", "azure_blob_storage", "azure_api_gateway", "azure_function"]
+  },
+  "best_practices": [
+    "Serve everything over HTTPS with a CDN-managed certificate.",
+    "Cache static assets aggressively; version filenames for cache-busting."
+  ]
+}
