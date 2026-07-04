@@ -5,27 +5,26 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
-from app.adapters.outbound.diagram.layout import absolute_layout_bounds, build_children_map, build_layout, edge_sort_key
+from app.adapters.outbound.diagram.diagram_normalize import normalize_architecture
+from app.adapters.outbound.diagram.layout import (
+    absolute_layout_bounds,
+    build_children_map,
+    build_layout,
+    edge_sort_key,
+)
+from app.adapters.outbound.diagram.layout_settings import layout_settings, platform_meta
+from app.adapters.outbound.diagram.quality_gates import all_gates_passed, run_quality_gates
+from app.adapters.outbound.diagram.service_bands import layout_bands
+from app.adapters.outbound.diagram.template_merge import apply_three_tier_scaffold
 from app.adapters.outbound.diagram.xml_render import append_edge, append_flow_notes, append_vertex
 from app.adapters.outbound.diagram.xml_tools import validate_and_fix_xml_legacy, wrap_with_mxfile
 from app.domain.entities import ArchitectureDiagram
-from app.adapters.outbound.diagram.template_merge import apply_three_tier_scaffold
 
 if TYPE_CHECKING:
     from app.core.logging import StepLogger
 
-DEFAULT_PAGE_W, DEFAULT_PAGE_H = 1169, 827
-
-_PLATFORM_META = {
-    "aws": ("Amazon Web Services", "#ED7100"),
-    "gcp": ("Google Cloud Platform", "#4285F4"),
-    "azure": ("Microsoft Azure", "#0078D4"),
-    "multi": ("Multi-Cloud / Hybrid", "#8C4FFF"),
-}
-
 
 def sanitize_layout_hints(architecture: ArchitectureDiagram) -> ArchitectureDiagram:
-    """Strip LLM-supplied coordinates so layout is computed server-side."""
     cleaned = [
         node.model_copy(update={"x": None, "y": None, "width": None, "height": None})
         for node in architecture.nodes
@@ -33,17 +32,10 @@ def sanitize_layout_hints(architecture: ArchitectureDiagram) -> ArchitectureDiag
     return architecture.model_copy(update={"nodes": cleaned})
 
 
-def _platform_meta(platform: str) -> tuple[str, str, str]:
-    key = (platform or "aws").lower()
-    label, accent = _PLATFORM_META.get(key, _PLATFORM_META["aws"])
-    return key, label, accent
-
-
 def _build_flow_notes(architecture) -> list[tuple[int, str, str]]:
     if steps := getattr(architecture, "flow_steps", None):
         ordered = sorted(steps, key=lambda step: step.number)
         return [(step.number, (step.title or "").strip(), (step.summary or "").strip()) for step in ordered]
-
     numbered = sorted(
         (node for node in architecture.nodes if getattr(node, "step_number", None) is not None),
         key=lambda node: node.step_number,
@@ -56,7 +48,7 @@ def _prepare_architecture(architecture, logger: StepLogger | None) -> Architectu
         return architecture
     prepared = sanitize_layout_hints(architecture)
     prepared = apply_three_tier_scaffold(prepared)
-    return prepared
+    return normalize_architecture(prepared)
 
 
 def _open_graph_model(page_width: int, page_height: int) -> list[str]:
@@ -71,16 +63,27 @@ def _open_graph_model(page_width: int, page_height: int) -> list[str]:
 
 
 def generate_xml(architecture, platform: str = "aws", logger: StepLogger | None = None) -> str:
-    """Render architecture nodes/edges as Draw.io XML with computed coordinates."""
+    settings = layout_settings()
     architecture = _prepare_architecture(architecture, logger)
-    platform_key, platform_label, accent = _platform_meta(platform)
+    platform_key, platform_label, accent = platform_meta(platform)
 
     children_map, roots, nodes_by_id = build_children_map(architecture.nodes)
     layout = build_layout(nodes_by_id, children_map, roots)
     flow_notes = _build_flow_notes(architecture)
 
-    page_width = DEFAULT_PAGE_W
-    page_height = DEFAULT_PAGE_H
+    _, _, max_x, max_y = absolute_layout_bounds(layout, nodes_by_id, children_map, roots)
+    notes_y = max_y + settings.flow_notes_gap
+    notes_height = (52 + len(flow_notes) * settings.flow_notes_row_h) if flow_notes else 0
+    band_start = notes_y + notes_height + settings.band_gap if flow_notes else max_y + settings.band_gap
+
+    diagram_width = max(max_x + settings.page_margin, settings.default_page_w)
+    layout_bands(layout, nodes_by_id, children_map, start_y=band_start, diagram_width=diagram_width)
+
+    all_roots = roots + [nid for nid in nodes_by_id if nid.startswith("band_")]
+    _, _, max_x, max_y = absolute_layout_bounds(layout, nodes_by_id, children_map, all_roots)
+
+    page_width = max(diagram_width, settings.default_page_w)
+    page_height = max(max_y + settings.page_margin, settings.default_page_h)
     xml = _open_graph_model(page_width, page_height)
 
     for node in architecture.nodes:
@@ -99,31 +102,38 @@ def generate_xml(architecture, platform: str = "aws", logger: StepLogger | None 
         entry_counts[edge.target_id] = entry_slot + 1
         cell_id += 1
         append_edge(
-            xml,
-            edge,
-            cell_id=cell_id,
-            layout=layout,
-            nodes_by_id=nodes_by_id,
-            default_edge_color=accent,
-            platform_key=platform_key,
-            exit_slot=exit_slot,
-            entry_slot=entry_slot,
+            xml, edge, cell_id=cell_id, layout=layout, nodes_by_id=nodes_by_id,
+            default_edge_color=accent, platform_key=platform_key,
+            exit_slot=exit_slot, entry_slot=entry_slot,
         )
 
     if flow_notes:
         title = (getattr(architecture, "title", None) or "").strip()
-        _, _, max_x, max_y = absolute_layout_bounds(layout, nodes_by_id, children_map, roots)
-        notes_width = min(760, max(520, max_x - 40))
-        notes_x, notes_y = 40, max_y + 48
-        page_width, page_height = append_flow_notes(
-            xml, flow_notes, accent, title,
-            notes_x=notes_x, notes_y=notes_y, notes_width=notes_width,
+        notes_width = min(settings.flow_notes_max_w, max(settings.flow_notes_min_w, max_x - settings.flow_notes_x))
+        page_width, notes_bottom = append_flow_notes(
+            xml, flow_notes, accent, title, notes_y=notes_y, notes_width=notes_width,
         )
-        page_width = max(page_width, max_x + 40, notes_x + notes_width + 40)
-        xml[0] = xml[0].replace(
-            f'pageWidth="{DEFAULT_PAGE_W}" pageHeight="{DEFAULT_PAGE_H}"',
-            f'pageWidth="{page_width}" pageHeight="{page_height}"',
-        )
+        page_height = max(page_height, notes_bottom + settings.page_margin, max_y + settings.page_margin)
+    else:
+        notes_bottom = band_start
+
+    page_width = max(page_width, max_x + settings.page_margin)
+    page_height = max(page_height, max_y + settings.page_margin)
+
+    gate_results = run_quality_gates(
+        architecture, layout, nodes_by_id, children_map,
+        page_w=page_width, page_h=page_height, max_x=max_x, max_y=max_y,
+    )
+    if settings.quality_gates_blocking and not all_gates_passed(gate_results) and logger:
+        logger.log("quality_gates", "Quality gate failures", level="warning", details={
+            "failed": [{"gate": g.gate, "message": g.message} for g in gate_results if not g.passed],
+        })
+
+    xml[0] = re.sub(
+        r'pageWidth="\d+"\s+pageHeight="\d+"',
+        f'pageWidth="{page_width}" pageHeight="{page_height}"',
+        xml[0],
+    )
 
     xml.extend(["  </root>", "</mxGraphModel>"])
     graph_xml = "\n".join(xml)
@@ -131,17 +141,14 @@ def generate_xml(architecture, platform: str = "aws", logger: StepLogger | None 
     wrapped = wrap_with_mxfile(graph_xml, f"{platform_label} Architecture")
 
     if logger:
-        page_match = re.search(r'pageWidth="(\d+)"\s+pageHeight="(\d+)"', graph_xml)
         details = {
             "platform": platform_key,
             "mx_cells": graph_xml.count("<mxCell"),
             "edges": len(architecture.edges),
             "xml_chars": len(wrapped),
             "xml_fixes": fixes,
+            "quality_gates": {g.gate: g.passed for g in gate_results},
         }
-        if page_match:
-            details["page_width"] = int(page_match.group(1))
-            details["page_height"] = int(page_match.group(2))
         logger.log("xml", "Draw.io XML generated", level="success", details=details)
 
     return wrapped

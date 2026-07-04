@@ -8,7 +8,7 @@ from app.diagram.draftsman import generate_xml
 from app.diagram.edge_router import collect_obstacles, route_edge
 from app.diagram.styles import build_style, normalize_shape_type
 from app.models import ArchitectureDiagram, Edge, Node
-from app.patterns.library import ARCHITECTURE_PATTERNS
+from app.patterns import ARCHITECTURE_PATTERNS
 from app.services.pipeline import classify_diagram_intent
 
 

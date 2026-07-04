@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import html as html_module
 
+from app.adapters.outbound.diagram.diagram_classify import ATTACHED_LABELS
 from app.adapters.outbound.diagram.edge_router import route_edge
-from app.adapters.outbound.diagram.layout import LEAF_H, LEAF_W, absolute_box, lowest_common_ancestor_parent
+from app.adapters.outbound.diagram.layout import absolute_box, lowest_common_ancestor_parent
+from app.adapters.outbound.diagram.layout_settings import layout_settings
+from app.adapters.outbound.diagram.service_bands import build_band_style, is_band_container
 from app.adapters.outbound.diagram.styles import build_style
 
 
@@ -14,13 +17,19 @@ def escape_xml(text: str) -> str:
 
 
 def append_vertex(xml: list[str], node, layout: dict, parent_cell: str, accent: str) -> None:
-    node_layout = layout.get(node.id, {"w": LEAF_W, "h": LEAF_H, "x": 0, "y": 0})
+    s = layout_settings()
+    node_layout = layout.get(node.id, {"w": s.leaf_w, "h": s.leaf_h, "x": 0, "y": 0})
     x = node_layout.get("x", 0)
     y = node_layout.get("y", 0)
     width = node_layout["w"]
     height = node_layout["h"]
 
-    style = build_style(node.shape_type)
+    if is_band_container(node):
+        band_key = node.id.replace("band_", "")
+        empty = "(not yet in scope)" in (node.label or "")
+        style = build_band_style(band_key, empty=empty)
+    else:
+        style = build_style(node.shape_type)
     if "fontFamily=" not in style:
         style += ";fontFamily=Helvetica,Arial,sans-serif;"
 
@@ -40,7 +49,10 @@ def append_vertex(xml: list[str], node, layout: dict, parent_cell: str, accent: 
             f'fontColor=#ffffff;fontSize=11;fontStyle=1;align=center;verticalAlign=middle;shadow=1;" '
             f'vertex="1" parent="{parent_cell}">'
         )
-        xml.append(f'      <mxGeometry x="{x - 6}" y="{y - 6}" width="22" height="22" as="geometry" />')
+        xml.append(
+            f'      <mxGeometry x="{x + s.badge_offset}" y="{y + s.badge_offset}" '
+            f'width="{s.badge_size}" height="{s.badge_size}" as="geometry" />'
+        )
         xml.append("    </mxCell>")
 
 
@@ -65,16 +77,19 @@ def append_edge(
         entry_slot=entry_slot,
     )
 
+    s = layout_settings()
     color = edge.color
-    if color == "#ED7100" and platform_key != "aws":
+    if color == s.edge_color_aws and platform_key != "aws":
         color = default_edge_color
 
     label = (edge.label or "").strip()
+    is_attached = edge.style == "dashed" or label.lower() in ATTACHED_LABELS
     style_parts = [
         "edgeStyle=orthogonalEdgeStyle",
         "rounded=0",
         "html=1",
-        "endArrow=classic",
+        "endArrow=none" if is_attached else "endArrow=classic",
+        "startArrow=none",
         f"exitX={exit_x}",
         f"exitY={exit_y}",
         f"entryX={entry_x}",
@@ -84,7 +99,7 @@ def append_edge(
         f"strokeColor={color}",
         f"fontColor={color}",
     ]
-    if edge.style == "dashed":
+    if edge.style == "dashed" or is_attached:
         style_parts.append("dashed=1")
     if edge.style == "bold":
         style_parts.append("strokeWidth=3")
@@ -107,12 +122,16 @@ def append_flow_notes(
     accent: str,
     title: str,
     *,
-    notes_x: int = 40,
-    notes_y: int = 680,
-    notes_width: int = 760,
+    notes_x: int | None = None,
+    notes_y: int | None = None,
+    notes_width: int | None = None,
 ) -> tuple[int, int]:
     """Append the flow-notes panel and return ``(page_width, page_height)``."""
-    notes_height = 52 + len(flow_notes) * 30
+    s = layout_settings()
+    notes_x = s.flow_notes_x if notes_x is None else notes_x
+    notes_y = notes_y if notes_y is not None else 680
+    notes_width = notes_width if notes_width is not None else s.flow_notes_max_w
+    notes_height = 52 + len(flow_notes) * s.flow_notes_row_h
     heading = f"{html_module.escape(title)} \u2014 Flow Notes" if title else "Flow Notes"
 
     rows = [
@@ -142,6 +161,6 @@ def append_flow_notes(
         f'height="{notes_height}" as="geometry" />'
     )
     xml.append("    </mxCell>")
-    page_width = max(notes_x + notes_width + 40, 1169)
-    page_height = notes_y + notes_height + 40
+    page_width = max(notes_x + notes_width + s.page_margin, s.default_page_w)
+    page_height = notes_y + notes_height + s.page_margin
     return page_width, page_height

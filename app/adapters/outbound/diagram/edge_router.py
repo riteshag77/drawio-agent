@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-# Spread parallel edges along the connecting face (center first, then offset).
-_FACE_SLOTS = (0.5, 0.35, 0.65, 0.25, 0.75)
+from app.adapters.outbound.diagram.layout_settings import layout_settings
 
 
 def _slot_value(slot: int) -> float:
-    return _FACE_SLOTS[slot % len(_FACE_SLOTS)]
+    slots = layout_settings().face_slots
+    return slots[slot % len(slots)]
 
 
 def _box_center(box: tuple[int, int, int, int]) -> tuple[float, float]:
@@ -27,8 +27,7 @@ def route_edge(
 ) -> tuple[float, float, float, float, list[tuple[int, int]]]:
     """Return (exitX, exitY, entryX, entryY, waypoints).
 
-    Anchors connect face-to-face: right\u2192left for L\u2192R flow, bottom\u2192top for T\u2192B, etc.
-    Parallel edges fan out along the connecting face via *exit_slot* / *entry_slot*.
+    Anchors connect face-to-face: right→left for L→R flow, bottom→top for T→B, etc.
     """
     scx, scy = _box_center(src_box)
     tcx, tcy = _box_center(tgt_box)

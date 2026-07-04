@@ -1,16 +1,17 @@
 """Container size scaffolds applied before deterministic layout."""
 
+from app.adapters.outbound.diagram.layout_settings import layout_settings
 from app.domain.entities import ArchitectureDiagram, Node
 
 
 def apply_three_tier_scaffold(architecture: ArchitectureDiagram) -> ArchitectureDiagram:
-    """Give containers sensible base sizes; the layout engine grows them to fit children."""
-    size_by_role: dict[str, tuple[int, int]] = {
-        "cloud": (920, 540),
-        "vpc": (980, 420),
-        "az": (320, 380),
-        "public": (300, 260),
-        "private": (300, 260),
+    s = layout_settings()
+    size_by_role = {
+        "cloud": s.scaffold_cloud,
+        "vpc": s.scaffold_vpc,
+        "az": s.scaffold_az,
+        "public": s.scaffold_subnet,
+        "private": s.scaffold_subnet,
     }
 
     updated_nodes: list[Node] = []
