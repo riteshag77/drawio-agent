@@ -1,0 +1,6 @@
+## Edit mode (current architecture provided)
+- Return COMPLETE updated JSON — not a diff.
+- Preserve existing `id` values when renaming or moving components.
+- When fixing layout/validation feedback: reduce edge count, null out redundant labels, move
+  monitoring/secrets to bottom band, shorten labels — do not just relabel overlapping text.
+- Re-run the self-check in the schema section before output.

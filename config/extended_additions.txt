@@ -1,0 +1,35 @@
+## Extended reference — topology examples
+
+### Standard 7-step AWS web app:
+```
+user_client(1) → route53(2) → cloudfront(3) → waf(4) → alb(5) → fargate(6) → aurora(7)
+Side: fargate → elasticache (solid, label null)
+Side: fargate → cloudwatch (dashed, label null)  — only ONE monitoring edge
+Bottom band: secrets_manager, kms — step_number null, no edges between them unless required
+```
+
+### WRONG — causes label overlap:
+```
+fargate → aurora label "SQL HTTPS"
+fargate → elasticache label "Redis HTTPS"
+fargate → alb label "HTTP/S"              ← three similar labels near each other
+fargate → cloudwatch label "Logs/Metrics"
+fargate → secrets label "Get Secrets"
+```
+
+### CORRECT — same topology, readable:
+```
+fargate → aurora (label null)
+fargate → elasticache (label null)
+fargate → cloudwatch (dashed, label null)
+secrets_manager and cloudwatch in bottom band, step_number null, labels "Secrets Manager" / "CloudWatch"
+```
+
+### Edit examples
+- **Add cache:** insert node, rewire fargate → cache → db; remove direct fargate → db edge.
+- **Fix validation overlap:** shorten labels, set edge labels to null, move ops nodes to bottom band.
+- **Rename:** update `label` on existing id only — never duplicate ids.
+
+### Fan-out limit
+If compute connects to 4+ services, insert an intermediate hub (API Gateway, Service Bus, or queue)
+so the layout engine can route edges without label collisions.

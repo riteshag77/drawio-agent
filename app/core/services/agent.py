@@ -12,7 +12,7 @@ from app.adapters.outbound.llm.prompt_builders import (
     build_platform_conversion_block,
 )
 from app.adapters.outbound.llm.prompts.simple import MERMAID_SYSTEM_PROMPT
-from app.adapters.outbound.llm.prompts.system import get_cursor_system_prompt, get_edit_system_prompt, get_system_prompt
+from app.adapters.outbound.llm.prompts.system import get_edit_system_prompt, get_system_prompt
 from app.adapters.outbound.llm.providers import MODEL_IDS, get_provider, normalize_provider_key
 from app.adapters.outbound.llm.response_parse import extract_mermaid
 from app.domain.entities import ArchitectureDiagram, EditResponse, MermaidDiagram
@@ -23,7 +23,6 @@ if TYPE_CHECKING:
 
 # Backward-compatible re-exports for tests and diagnostic scripts.
 from app.adapters.outbound.llm.response_parse import message_text as _message_text
-from app.adapters.outbound.llm.sdk_client import format_sdk_error as _format_cursor_error
 from app.adapters.outbound.llm.providers import normalize_opencode_model as _normalize_opencode_model
 
 
@@ -41,13 +40,6 @@ def _build_system_prompt(
     is_edit: bool,
     patterns_block: str,
 ) -> str:
-    if provider_key == "cursor":
-        return get_cursor_system_prompt(
-            model_id=model_id,
-            minimal_style=minimal_style,
-            custom_system_message=custom_system_message,
-            is_edit_mode=is_edit,
-        )
     return get_system_prompt(
         model_id=model_id,
         minimal_style=minimal_style,

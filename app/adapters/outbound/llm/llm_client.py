@@ -17,8 +17,6 @@ from app.adapters.outbound.llm.providers import (
     resolve_gateway_base_url,
 )
 from app.adapters.outbound.llm.response_parse import invoke_gateway_json, invoke_json
-from app.adapters.outbound.llm.sdk_client import call_sdk_provider
-
 if TYPE_CHECKING:
     from app.core.logging import StepLogger
 
@@ -33,10 +31,6 @@ def call_llm(
     """Run a structured LLM request for any registered provider."""
     provider_key = normalize_provider_key(provider)
     spec = get_provider(provider_key)
-
-    if spec.kind == "sdk":
-        return call_sdk_provider(spec, system_prompt, human_content, output_type, logger)
-
     require_api_key(spec)
 
     if logger:

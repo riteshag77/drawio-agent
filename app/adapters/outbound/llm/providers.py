@@ -88,12 +88,6 @@ def _build_registry() -> dict[str, ProviderSpec]:
             api_key_env="ANTHROPIC_API_KEY",
             structured_output="function_calling",
         ),
-        "cursor": ProviderSpec(
-            key="cursor",
-            default_model=os.getenv("CURSOR_MODEL", "composer-2.5"),
-            api_key_env="CURSOR_API_KEY",
-            kind="sdk",
-        ),
         "opencode": ProviderSpec(
             key="opencode",
             client_class=ChatOpenAI,
@@ -123,10 +117,6 @@ def get_provider(provider: str) -> ProviderSpec:
 
 
 def require_api_key(spec: ProviderSpec) -> None:
-    if spec.kind == "sdk":
-        if spec.api_key_env and not os.getenv(spec.api_key_env, "").strip():
-            raise ValueError(f"{spec.api_key_env} environment variable is not set.")
-        return
     if spec.api_key_env and not os.getenv(spec.api_key_env):
         raise ValueError(f"{spec.api_key_env} environment variable is not set.")
 
