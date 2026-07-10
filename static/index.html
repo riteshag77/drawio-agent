@@ -73,10 +73,15 @@
 
                     <div id="chat-messages" class="chat-messages">
                         <div id="chat-welcome" class="chat-welcome">
-                            <h3>Describe your architecture</h3>
-                            <p>Chat naturally to create or refine diagrams — like next-ai-draw-io. Follow up to add services, change layout, or fix connections.</p>
-                            <div class="example-chips" id="example-chips"></div>
-                        </div>
+                             <div class="patterns-gallery" id="patterns-gallery">
+                                 <div class="gallery-header">
+                                     <h3>Architecture Patterns</h3>
+                                     <p>Choose a foundation for your diagram</p>
+                                 </div>
+                                 <div class="gallery-grid" id="gallery-grid"></div>
+                             </div>
+                             <div class="example-chips" id="example-chips"></div>
+                         </div>
                         <div id="chat-typing" class="chat-typing">
                             <span></span><span></span><span></span>
                         </div>
@@ -312,7 +317,15 @@
         </aside>
     </div>
 
-    <div class="copy-feedback" id="copy-toast">Copied to clipboard!</div>    <script src="/static/app.js"></script>
+    <div class="copy-feedback" id="copy-toast">Copied to clipboard!</div>
+    <script src="/static/js/state.js"></script>
+    <script src="/static/js/resizer.js"></script>
+    <script src="/static/js/settings.js"></script>
+    <script src="/static/js/diagram.js"></script>
+    <script src="/static/js/voice.js"></script>
+    <script src="/static/js/chat.js"></script>
+    <script src="/static/js/validation.js"></script>
+    <script src="/static/js/app.js"></script>
 </body>
 
 </html>
