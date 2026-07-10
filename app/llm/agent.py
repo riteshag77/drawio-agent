@@ -4,7 +4,6 @@ from app.core.services.agent import (  # noqa: F401
     PLATFORM_LABELS,
     _diagram_summary,
     _message_text,
-    _normalize_opencode_model,
     _platform_label,
     build_platform_conversion_block,
     generate_architecture_from_chat,

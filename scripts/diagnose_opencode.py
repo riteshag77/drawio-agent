@@ -19,7 +19,6 @@ if ROOT not in sys.path:
 from langchain_core.messages import HumanMessage  # noqa: E402
 from langchain_openai import ChatOpenAI  # noqa: E402
 
-from app.llm.agent import _normalize_opencode_model  # noqa: E402
 from app.llm.providers import normalize_gateway_base_url  # noqa: E402
 
 
@@ -47,7 +46,7 @@ def main() -> int:
         os.getenv("OPENCODE_BASE_URL", "https://opencode.ai/zen/v1"),
         "https://opencode.ai/zen/v1",
     )
-    model = _normalize_opencode_model(os.getenv("OPENCODE_MODEL", "big-pickle"))
+    model = os.getenv("OPENCODE_MODEL", "big-pickle").strip()
 
     print(f"Base URL: {base_url}")
     print(f"Model: {model}")

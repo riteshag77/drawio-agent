@@ -23,23 +23,9 @@ def normalize_gateway_model_id(model_id: str, *, default: str, prefix: str = "")
     return model_id or default
 
 
-def normalize_opencode_model(model_id: str = "") -> str:
-    """Backward-compatible helper for OpenCode model env values."""
-    raw = model_id or os.getenv("OPENCODE_MODEL", "big-pickle")
-    return normalize_gateway_model_id(raw, default="big-pickle", prefix="opencode/")
-
-
 def normalize_gateway_base_url(base_url: str, default: str) -> str:
-    """Normalize OpenAI-compatible gateway base URLs (strip slash, fix known bad hosts)."""
-    url = (base_url or default).strip().rstrip("/")
-    # api.opencode.ai returns HTTP 200 + plain-text "Not Found" for Zen paths.
-    if "api.opencode.ai" in url:
-        url = url.replace("api.opencode.ai", "opencode.ai")
-    return url
-
-
-def _opencode_model() -> str:
-    return normalize_opencode_model()
+    """Normalize OpenAI-compatible gateway base URLs (strip trailing slash)."""
+    return (base_url or default).strip().rstrip("/")
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,7 +77,7 @@ def _build_registry() -> dict[str, ProviderSpec]:
         "opencode": ProviderSpec(
             key="opencode",
             client_class=ChatOpenAI,
-            default_model=_opencode_model(),
+            default_model=os.getenv("OPENCODE_MODEL", "big-pickle"),
             api_key_env="OPENCODE_API_KEY",
             base_url_env="OPENCODE_BASE_URL",
             base_url_default="https://opencode.ai/zen/v1",

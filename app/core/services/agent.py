@@ -23,7 +23,6 @@ if TYPE_CHECKING:
 
 # Backward-compatible re-exports for tests and diagnostic scripts.
 from app.adapters.outbound.llm.response_parse import message_text as _message_text
-from app.adapters.outbound.llm.providers import normalize_opencode_model as _normalize_opencode_model
 
 
 def _platform_label(platform: str) -> str:
