@@ -39,6 +39,9 @@ Important groups:
 ```env
 # LLM
 OPENAI_API_KEY=
+OPENROUTER_API_KEY=
+BAZAARLINK_API_KEY=
+BAZAARLINK_MODEL=auto:free
 PROVIDER_DEFAULT=openai
 
 # Server

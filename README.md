@@ -206,12 +206,13 @@ Edit and Mermaid paths also live in the same pipeline module (ID-based XML ops; 
 
 ### Step 4: LLM Integration (`app/adapters/outbound/llm/`)
 
-Shim: `app/llm/`. Provider registry (`providers.py`) supports OpenAI, OpenRouter, Gemini, Claude, Cursor SDK, and OpenCode.
+Shim: `app/llm/`. Provider registry (`providers.py`) supports OpenAI, OpenRouter, BazaarLink, Gemini, Claude, Cursor SDK, and OpenCode.
 
 | Provider | Client Class | Default Model | Key Env Var |
 |----------|-------------|---------------|-------------|
 | openai | `ChatOpenAI` | `gpt-4o` | `OPENAI_API_KEY` |
 | openrouter | `ChatOpenAI` | `openai/gpt-4o-mini` | `OPENROUTER_API_KEY` |
+| bazaarlink | `ChatOpenAI` | `auto:free` | `BAZAARLINK_API_KEY` |
 | gemini | `ChatGoogleGenerativeAI` | `gemini-2.5-flash` | `GOOGLE_API_KEY` |
 | claude | `ChatAnthropic` | `claude-sonnet-4-6` | `ANTHROPIC_API_KEY` |
 | cursor | SDK (direct) | `composer-2.5` | `CURSOR_API_KEY` |

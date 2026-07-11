@@ -71,6 +71,7 @@ def _build_vision_llm(provider: str = "auto"):
         "gemini": ("google", "gemini-2.5-flash"),
         "gpt-4o": ("openai", "gpt-4o"),
         "openrouter": ("openrouter", "openai/gpt-4o-mini"),
+        "bazaarlink": ("bazaarlink", "openai/gpt-4o-mini"),
     }
 
     chosen = provider_map.get(provider)
@@ -88,6 +89,13 @@ def _build_vision_llm(provider: str = "auto"):
                 api_key=os.getenv("OPENROUTER_API_KEY"),
                 base_url=os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
             )
+        if kind == "bazaarlink" and os.getenv("BAZAARLINK_API_KEY"):
+            return ChatOpenAI(
+                model=model,
+                temperature=0,
+                api_key=os.getenv("BAZAARLINK_API_KEY"),
+                base_url=os.getenv("BAZAARLINK_BASE_URL", "https://bazaarlink.ai/api/v1"),
+            )
 
     if provider == "openrouter" and os.getenv("OPENROUTER_API_KEY"):
         model = os.getenv("VALIDATION_MODEL", "openai/gpt-4o-mini")
@@ -96,6 +104,15 @@ def _build_vision_llm(provider: str = "auto"):
             temperature=0,
             api_key=os.getenv("OPENROUTER_API_KEY"),
             base_url=os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
+        )
+
+    if provider == "bazaarlink" and os.getenv("BAZAARLINK_API_KEY"):
+        model = os.getenv("VALIDATION_MODEL", "openai/gpt-4o-mini")
+        return ChatOpenAI(
+            model=model,
+            temperature=0,
+            api_key=os.getenv("BAZAARLINK_API_KEY"),
+            base_url=os.getenv("BAZAARLINK_BASE_URL", "https://bazaarlink.ai/api/v1"),
         )
 
     if os.getenv("GOOGLE_API_KEY"):

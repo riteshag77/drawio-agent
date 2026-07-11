@@ -20,6 +20,10 @@ class StructuredOutputRegistryTests(unittest.TestCase):
     def test_openrouter_uses_text_json(self) -> None:
         self.assertEqual(get_provider("openrouter").structured_output, "none")
 
+    def test_bazaarlink_uses_text_json(self) -> None:
+        self.assertEqual(get_provider("bazaarlink").structured_output, "none")
+        self.assertEqual(get_provider("bazaarlink").base_url_default, "https://bazaarlink.ai/api/v1")
+
     def test_openai_uses_function_calling(self) -> None:
         self.assertEqual(get_provider("openai").structured_output, "function_calling")
 

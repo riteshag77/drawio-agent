@@ -39,8 +39,8 @@ function initAutolayoutSetting() {
 
 function updateValidationProviderVisibility() {
     const vlmOn = document.getElementById('vlm-validation-toggle').checked;
-    const sel = document.getElementById('validation-provider-select');
-    sel.hidden = !vlmOn;
+    const row = document.getElementById('validation-provider-row');
+    if (row) row.hidden = !vlmOn;
 }
 
 function isErrorPanelEnabled() {
@@ -138,7 +138,10 @@ function updateSendStopButtons() {
     const sendBtn = document.getElementById('send-btn');
     const stopBtn = document.getElementById('stop-btn');
     const voiceBtn = document.getElementById('btn-voice');
-    if (sendBtn) sendBtn.hidden = isSending;
+    if (sendBtn) {
+        sendBtn.hidden = isSending;
+        sendBtn.disabled = isSending;
+    }
     if (stopBtn) stopBtn.hidden = !isSending;
     if (voiceBtn) voiceBtn.disabled = isSending;
 }
@@ -244,8 +247,9 @@ function setDiagramStatus(text) {
 }
 
 function setActionButtonsEnabled(enabled) {
-    ['btn-download', 'btn-copy', 'btn-open'].forEach(id => {
-        document.getElementById(id).disabled = !enabled;
+    ['btn-download', 'btn-copy', 'btn-open', 'btn-xml'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) btn.disabled = !enabled;
     });
 }
 
@@ -463,11 +467,12 @@ function openInDrawio() {
 
 function toggleXML() {
     const panel = document.getElementById('xml-panel');
-    const toggle = document.getElementById('xml-toggle');
-    panel.classList.toggle('open');
-    toggle.textContent = panel.classList.contains('open')
-        ? '▾ Hide Draw.io XML source'
-        : '▸ View Draw.io XML source';
+    const btn = document.getElementById('btn-xml');
+    if (!panel || !btn || btn.disabled) return;
+    const isOpen = panel.classList.toggle('open');
+    btn.setAttribute('aria-pressed', isOpen ? 'true' : 'false');
+    btn.title = isOpen ? 'Hide Draw.io XML source' : 'View Draw.io XML source';
+    btn.setAttribute('aria-label', btn.title);
 }
 
 async function sendMessage(options = {}) {
@@ -617,7 +622,6 @@ async function sendMessage(options = {}) {
         } else {
             currentArchitecture = data.architecture || null;
         }
-        document.getElementById('xml-toggle').classList.add('active');
 
         attachmentContext = '';
         attachmentImageData = null;

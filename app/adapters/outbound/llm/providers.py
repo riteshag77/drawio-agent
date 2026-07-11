@@ -83,6 +83,15 @@ def _build_registry() -> dict[str, ProviderSpec]:
             base_url_default="https://opencode.ai/zen/v1",
             structured_output="none",
         ),
+        "bazaarlink": ProviderSpec(
+            key="bazaarlink",
+            client_class=ChatOpenAI,
+            default_model=os.getenv("BAZAARLINK_MODEL", "auto:free"),
+            api_key_env="BAZAARLINK_API_KEY",
+            base_url_env="BAZAARLINK_BASE_URL",
+            base_url_default="https://bazaarlink.ai/api/v1",
+            structured_output="none",
+        ),
     }
 
 

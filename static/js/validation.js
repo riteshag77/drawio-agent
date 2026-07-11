@@ -195,7 +195,6 @@ async function autoRetryWithVlm(imageData, feedback) {
             currentArchitecture = data.architecture || null;
         }
         document.getElementById('xml-output').textContent = data.xml;
-        document.getElementById('xml-toggle').classList.add('active');
 
         if (data.validation?.feedback && data.validation?.vlm && !data.validation.vlm.valid) {
             showValidationBanner(data.validation.vlm, data.validation.feedback);

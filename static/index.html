@@ -28,7 +28,6 @@
                     </div>
                     <div class="brand-text">
                         <h1>Cloud Architect AI</h1>
-                        <p>Pattern-aware diagrams with numbered flows &amp; notes.</p>
                     </div>
                     <button type="button" class="icon-btn settings-trigger" onclick="openSettings()" title="Settings" aria-label="Settings">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -55,14 +54,6 @@
                             <span class="platform-icon">🌐</span><span class="platform-name">Multi</span>
                         </div>
                     </div>
-                    <div class="control-bar-row">
-                        <select id="diagram-mode-select" aria-label="Diagram type" onchange="saveDiagramMode()">
-                            <option value="auto">Diagram: Auto</option>
-                            <option value="cloud">Diagram: Cloud</option>
-                            <option value="simple">Diagram: Simple (Mermaid)</option>
-                        </select>
-                    </div>
-
                 </div>
 
                 <div class="chat-panel">
@@ -87,15 +78,6 @@
                         </div>
                     </div>
                 </div>
-
-                <div class="chat-extras">
-                    <div id="xml-toggle" class="xml-toggle" onclick="toggleXML()">
-                        ▸ View Draw.io XML source
-                    </div>
-                    <div id="xml-panel" class="xml-panel">
-                        <pre id="xml-output"></pre>
-                    </div>
-                </div>
             </div>
 
             <div class="sidebar-footer">
@@ -105,7 +87,7 @@
                     <span class="voice-dot"></span><span id="voice-status-text">Listening…</span>
                 </div>
                 <div class="composer">
-                    <textarea id="chat-input" rows="1"
+                    <textarea id="chat-input" rows="2"
                         placeholder="Describe or refine your architecture…"></textarea>
                     <div class="composer-actions">
                         <div class="composer-tools">
@@ -124,19 +106,9 @@
                                 <option value="gemini">Gemini</option>
                                 <option value="openai">GPT-4o</option>
                                 <option value="openrouter">OpenRouter</option>
+                                <option value="bazaarlink">BazaarLink</option>
                                 <option value="claude">Claude</option>
                                 <option value="opencode">OpenCode</option>
-                            </select>
-                            <select id="diagram-renderer-select" aria-label="Diagram renderer" title="Local layout vs Draw.io MCP icon enrichment">
-                                <option value="auto">Render: Auto (MCP)</option>
-                                <option value="mcp">Render: MCP</option>
-                                <option value="local">Render: Local</option>
-                            </select>
-                            <select id="validation-provider-select" aria-label="Validation model" hidden>
-                                <option value="auto">Validate: Auto</option>
-                                <option value="gemini">Validate: Gemini</option>
-                                <option value="gpt-4o">Validate: GPT-4o</option>
-                                <option value="openrouter">Validate: OpenRouter</option>
                             </select>
                         </div>
                         <div class="btn-group">
@@ -171,6 +143,21 @@
                 <div class="drawer-body">
                     <div class="drawer-group">
                         <div class="drawer-group-title">Generation</div>
+
+                        <label for="diagram-mode-select">Diagram type</label>
+                        <select id="diagram-mode-select" aria-label="Diagram type" onchange="saveDiagramMode()">
+                            <option value="auto">Auto</option>
+                            <option value="cloud">Cloud architecture</option>
+                            <option value="simple">Simple (Mermaid)</option>
+                        </select>
+
+                        <label for="diagram-renderer-select">Render</label>
+                        <select id="diagram-renderer-select" aria-label="Diagram renderer" title="Local layout vs Draw.io MCP icon enrichment">
+                            <option value="auto">Auto (MCP)</option>
+                            <option value="mcp">MCP</option>
+                            <option value="local">Local</option>
+                        </select>
+
                         <div class="verbose-toggle-row">
                             <div>
                                 <span>Auto-layout on load</span>
@@ -200,6 +187,16 @@
                                 <input type="checkbox" id="vlm-validation-toggle" checked onchange="savePromptSettings()">
                                 <span class="toggle-slider"></span>
                             </label>
+                        </div>
+                        <div id="validation-provider-row" class="settings-field-row" hidden>
+                            <label for="validation-provider-select">Validation model</label>
+                            <select id="validation-provider-select" aria-label="Validation model">
+                                <option value="auto">Auto</option>
+                                <option value="gemini">Gemini</option>
+                                <option value="gpt-4o">GPT-4o</option>
+                                <option value="openrouter">OpenRouter</option>
+                                <option value="bazaarlink">BazaarLink</option>
+                            </select>
                         </div>
                         <div class="verbose-toggle-row">
                             <div>
@@ -272,11 +269,19 @@
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
                         Copy XML
                     </button>
+                    <button type="button" id="btn-xml" class="btn-action" onclick="toggleXML()" disabled aria-pressed="false" title="View Draw.io XML source" aria-label="View Draw.io XML source">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg>
+                        XML
+                    </button>
                     <button id="btn-open" class="btn-action" onclick="openInDrawio()" disabled>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>
                         Open
                     </button>
                 </div>
+            </div>
+
+            <div id="xml-panel" class="xml-panel">
+                <pre id="xml-output"></pre>
             </div>
 
             <div class="diagram-viewport">
@@ -329,7 +334,7 @@
                 </button>
             </div>
             <div id="verbose-log-body" class="log-panel-body">
-                <div class="log-empty">Turn on <strong>Pipeline logs</strong> in the left sidebar, then generate a diagram to see each step here with full details.</div>
+                <div class="log-empty">Turn on <strong>Pipeline logs</strong> in Settings, then generate a diagram to see each step here with full details.</div>
             </div>
         </aside>
     </div>

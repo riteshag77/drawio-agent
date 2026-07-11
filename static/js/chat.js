@@ -18,7 +18,7 @@ function formatDetails(details) {
 function autoResizeChatInput() {
     const el = document.getElementById('chat-input');
     el.style.height = 'auto';
-    el.style.height = Math.min(el.scrollHeight, 180) + 'px';
+    el.style.height = Math.min(Math.max(el.scrollHeight, 64), 180) + 'px';
 }
 
 function renderExampleChips() {
@@ -288,8 +288,14 @@ function clearChat() {
     hideValidationBanner();
     setActionButtonsEnabled(false);
     document.getElementById('xml-output').textContent = '';
-    document.getElementById('xml-toggle').classList.remove('active');
-    document.getElementById('xml-panel').classList.remove('open');
+    const xmlPanel = document.getElementById('xml-panel');
+    const xmlBtn = document.getElementById('btn-xml');
+    if (xmlPanel) xmlPanel.classList.remove('open');
+    if (xmlBtn) {
+        xmlBtn.setAttribute('aria-pressed', 'false');
+        xmlBtn.title = 'View Draw.io XML source';
+        xmlBtn.setAttribute('aria-label', xmlBtn.title);
+    }
     hideError();
     setDiagramStatus('Waiting for generation');
     document.getElementById('diagram-placeholder').classList.remove('hidden');
