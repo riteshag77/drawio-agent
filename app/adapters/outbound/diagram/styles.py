@@ -404,20 +404,21 @@ def _generic_fallback(name: str) -> str:
             "strokeColor=#6c8ebf;strokeWidth=1.5;fontSize=12;fontColor=#232F3E;")
 
 
-# Optional MCP / runtime style overrides (shape_type → full style string)
-_STYLE_OVERRIDES: dict[str, str] = {}
+# Optional per-call style overrides (shape_type → full style string). Prefer passing
+# ``overrides=`` into build_style / generate_xml — no module-global request state.
 
 
 def set_style_overrides(mapping: dict[str, str]) -> None:
-    _STYLE_OVERRIDES.clear()
-    _STYLE_OVERRIDES.update(mapping or {})
+    """Deprecated no-op kept for older tests; pass overrides into build_style instead."""
+    _ = mapping
 
 
 def clear_style_overrides() -> None:
-    _STYLE_OVERRIDES.clear()
+    """Deprecated no-op kept for older tests."""
+    return
 
 
-def build_style(shape_type: str) -> str:
+def build_style(shape_type: str, overrides: dict[str, str] | None = None) -> str:
     """Derive a draw.io style string from a shape_type key.
 
     Supports AWS (``aws_*``), GCP (``gcp_*``), Azure (``azure_*``),
@@ -427,11 +428,11 @@ def build_style(shape_type: str) -> str:
         return _generic_fallback("")
 
     shape_type = normalize_shape_type(shape_type)
+    mapping = overrides or {}
 
-    if shape_type in _STYLE_OVERRIDES:
-        return _STYLE_OVERRIDES[shape_type]
-    # Also try raw key before normalize for MCP maps
-    for key, style in _STYLE_OVERRIDES.items():
+    if shape_type in mapping:
+        return mapping[shape_type]
+    for key, style in mapping.items():
         if normalize_shape_type(key) == shape_type:
             return style
 

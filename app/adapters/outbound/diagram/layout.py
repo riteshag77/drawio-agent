@@ -56,16 +56,32 @@ def ancestor_ids(node_id: str, nodes_by_id: dict) -> set[str]:
     seen: set[str] = set()
     current = nodes_by_id.get(node_id)
     while current and current.parent_id and current.parent_id in nodes_by_id:
+        if current.parent_id in seen:
+            break  # cycle guard
         seen.add(current.parent_id)
         current = nodes_by_id[current.parent_id]
     return seen
 
 
 def lowest_common_ancestor_parent(source_id: str, target_id: str, nodes_by_id: dict) -> str:
+    """Deprecated: prefer edge_parent_cell. Kept for callers/tests."""
     target_ancestors = ancestor_ids(target_id, nodes_by_id)
     for ancestor in ancestor_ids(source_id, nodes_by_id):
         if ancestor in target_ancestors:
             return ancestor
+    return "1"
+
+
+def edge_parent_cell(source_id: str, target_id: str, nodes_by_id: dict) -> str:
+    """Same direct parent → that container; otherwise root layer 1 (cross-container)."""
+    src = nodes_by_id.get(source_id)
+    tgt = nodes_by_id.get(target_id)
+    if not src or not tgt:
+        return "1"
+    src_parent = src.parent_id
+    tgt_parent = tgt.parent_id
+    if src_parent and src_parent == tgt_parent and src_parent in nodes_by_id:
+        return src_parent
     return "1"
 
 
@@ -295,6 +311,12 @@ def _az_columns(parent_id, child_ids, nodes_by_id, children_map, layout, s: Layo
         for subnet_id in az_subnets.get(az_id, []):
             tier = node_tier(nodes_by_id[subnet_id])
             layout[subnet_id].update(x=s.container_pad, y=tier_y[tier], h=tier_heights[tier])
+
+        # Non-subnet AZ children (NAT, workload groups, loose icons) on a bottom rail
+        extras = [c for c in children_map.get(az_id, []) if not is_subnet_container(nodes_by_id[c])]
+        if extras:
+            _horizontal_flow(az_id, extras, nodes_by_id, children_map, layout, s, origin_y=y_cursor)
+
         layout[az_id] = {
             "x": x, "y": s.container_pad_top,
             "w": s.container_pad * 2,
@@ -366,8 +388,8 @@ def _grid_fallback(parent_id, child_ids, nodes_by_id, children_map, layout, s: L
         node = nodes_by_id[child_id]
         w, h = node_size(node, s)
         if col and col % s.max_cols == 0:
-            x, row_h, col = s.container_pad, 0, 0
             y += row_h + s.leaf_gap
+            x, row_h, col = s.container_pad, 0, 0
         layout[child_id] = {"x": x, "y": y, "w": w, "h": h}
         if node.is_container:
             w, h = _place_children(child_id, layout, children_map, nodes_by_id, s)

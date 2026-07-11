@@ -105,6 +105,11 @@ async function runVisualValidation() {
         const validation = data.validation;
         appendVerboseLog('validation', 'VLM validation result', validation?.valid ? 'success' : 'warn', validation);
 
+        if (validation?.skipped) {
+            appendVerboseLog('validation', 'VLM validation skipped', 'warn', validation);
+            return;
+        }
+
         if (validation && !validation.valid) {
             const feedback = buildClientValidationFeedback(validation);
             if (vlmAutoRetryCount < MAX_VLM_CLIENT_RETRIES && feedback) {

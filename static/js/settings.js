@@ -23,7 +23,9 @@ function loadTemplates() {
     templates.forEach(t => {
         const row = document.createElement('div');
         row.className = 'template-row';
-        row.innerHTML = `<span>${t.title}</span>`;
+        const titleSpan = document.createElement('span');
+        titleSpan.textContent = t.title || '';
+        row.appendChild(titleSpan);
         const useBtn = document.createElement('button');
         useBtn.type = 'button';
         useBtn.className = 'btn-chat-clear';

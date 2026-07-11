@@ -1,4 +1,4 @@
-"""Post-LLM topology repair for AWS reference-architecture conventions."""
+"""Post-LLM topology repair — platform-aware reference-architecture conventions."""
 
 from __future__ import annotations
 
@@ -17,6 +17,10 @@ from app.adapters.outbound.diagram.diagram_classify import (
 )
 from app.adapters.outbound.diagram.layout import build_children_map
 from app.domain.entities import ArchitectureDiagram, Edge, Node
+
+
+def _normalize_platform(platform: str | None) -> str:
+    return (platform or "aws").strip().lower()
 
 
 def _find_first(nodes: list[Node], pred) -> Node | None:
@@ -247,9 +251,12 @@ def ensure_az_hierarchy(architecture: ArchitectureDiagram) -> ArchitectureDiagra
     return architecture.model_copy(update={"nodes": updated})
 
 
-def repair_topology(architecture: ArchitectureDiagram) -> ArchitectureDiagram:
-    return mirror_multi_az(
-        ensure_az_hierarchy(
-            reparent_edge_services(reparent_entry_actors(ensure_igw(architecture)))
-        )
-    )
+def repair_topology(
+    architecture: ArchitectureDiagram,
+    platform: str | None = "aws",
+) -> ArchitectureDiagram:
+    """Apply neutral reparents always; AWS-only IGW/AZ invent and multi-AZ mirror."""
+    repaired = reparent_edge_services(reparent_entry_actors(architecture))
+    if _normalize_platform(platform) != "aws":
+        return repaired
+    return mirror_multi_az(ensure_az_hierarchy(ensure_igw(repaired)))

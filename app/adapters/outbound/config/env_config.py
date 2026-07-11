@@ -82,6 +82,24 @@ class EnvConfigAdapter(ConfigPort):
         return self.get_list("CORS_ORIGINS", ["*"])
 
     @property
+    def api_key(self) -> str | None:
+        """When set, require matching X-API-Key (or Authorization: Bearer) on API routes."""
+        key = (self.get("API_KEY") or "").strip()
+        return key or None
+
+    @property
+    def max_request_body_bytes(self) -> int:
+        return self.get_int("MAX_REQUEST_BODY_BYTES", 2_000_000)
+
+    @property
+    def max_xml_chars(self) -> int:
+        return self.get_int("MAX_XML_CHARS", 500_000)
+
+    @property
+    def max_message_chars(self) -> int:
+        return self.get_int("MAX_MESSAGE_CHARS", 20_000)
+
+    @property
     def max_structural_retries(self) -> int:
         return self.get_int("MAX_STRUCTURAL_RETRIES", 1)
 

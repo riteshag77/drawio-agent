@@ -151,7 +151,8 @@ Global: azure_ad, front_door, key_vault, monitor, log_analytics
 Every child `parent_id` must reference its direct container. Databases never in public subnets.
 
 Container rules:
-- Maximum 4 hierarchy levels: cloud/account → region/vpc → subnet → service (never deeper).
+- AWS nesting: cloud → region → vpc → az → subnet → service (up to 6 levels when AZs are used).
+- GCP/Azure: prefer cloud/project → vpc/vnet → subnet → service (flatter when possible).
 - Never nest containers of the same tier (e.g. subnet inside subnet, vpc inside vpc).
 - Prefer flatter hierarchy — combine AZ/group boxes only when essential.
 

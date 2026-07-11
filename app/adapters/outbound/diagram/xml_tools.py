@@ -99,7 +99,10 @@ def _find_diagram_root(tree: ET.Element) -> ET.Element | None:
 
 def _parse_mxcell_fragment(new_xml: str) -> ET.Element:
     wrapped = f"<wrapper>{new_xml.strip()}</wrapper>"
-    doc = ET.fromstring(wrapped)
+    try:
+        doc = ET.fromstring(wrapped)
+    except ET.ParseError as exc:
+        raise ValueError(f"Invalid mxCell XML: {exc}") from exc
     cell = doc.find("mxCell")
     if cell is None:
         raise ValueError("new_xml must contain an mxCell element")
@@ -230,7 +233,42 @@ def apply_diagram_operations(
 
 
 def _strip_llm_wrapper_tags(xml: str) -> tuple[str, bool]:
-    fixed = xml
+    """Remove spurious LLM wrapper tags only when the document does not already parse.
+
+    Never strip a well-formed ``mxfile`` / ``mxGraphModel`` — that leaves bare
+    ``mxCell`` siblings, which draw.io rejects as "Extra content at the end of
+    the document" (line 2, column 5).
+    """
+    trimmed = (xml or "").strip()
+    if not trimmed:
+        return trimmed, False
+
+    # Prefer an embedded well-formed diagram if LLM prefixed junk
+    for tag, end in (("<mxfile", "</mxfile>"), ("<mxGraphModel", "</mxGraphModel>")):
+        start = trimmed.find(tag)
+        if start < 0:
+            continue
+        stop = trimmed.find(end, start)
+        if stop < 0:
+            continue
+        candidate = trimmed[start:stop + len(end)].strip()
+        try:
+            ET.fromstring(candidate)
+            return candidate, candidate != trimmed
+        except ET.ParseError:
+            continue
+
+    try:
+        if "<mxfile" in trimmed:
+            ET.fromstring(trimmed)
+            return trimmed, False
+        if re.match(r"\s*<mxGraphModel[\s>]", trimmed, flags=re.IGNORECASE):
+            ET.fromstring(trimmed)
+            return trimmed, False
+    except ET.ParseError:
+        pass
+
+    fixed = trimmed
     changed = False
     for tag in ("mxfile", "diagram", "mxGraphModel", "root"):
         pattern = re.compile(rf"</?{tag}[^>]*>", re.IGNORECASE)
@@ -239,6 +277,31 @@ def _strip_llm_wrapper_tags(xml: str) -> tuple[str, bool]:
             changed = True
             fixed = new
     return fixed.strip(), changed
+
+
+def _is_diagram_document(xml: str) -> bool:
+    text = (xml or "").strip()
+    return bool(text) and ("<mxfile" in text or "<mxGraphModel" in text)
+
+
+def ensure_diagram_document(xml: str, page_name: str = "Architecture") -> str:
+    """Guarantee a single-root mxfile/mxGraphModel document for draw.io load."""
+    trimmed = (xml or "").strip()
+    if not trimmed:
+        return wrap_with_mxfile("", page_name)
+    if "<mxfile" in trimmed:
+        try:
+            ET.fromstring(trimmed)
+            return trimmed
+        except ET.ParseError:
+            pass
+    if re.match(r"\s*<mxGraphModel[\s>]", trimmed, flags=re.IGNORECASE):
+        try:
+            ET.fromstring(trimmed)
+            return wrap_with_mxfile(trimmed, page_name)
+        except ET.ParseError:
+            pass
+    return wrap_with_mxfile(trimmed, page_name)
 
 
 def validate_mxcell_structure(graph_xml: str) -> str | None:
@@ -278,8 +341,12 @@ def validate_mxcell_structure(graph_xml: str) -> str | None:
 
 def _cell_depth(cell_id: str, parent_map: dict[str, str | None]) -> int:
     depth = 0
+    seen: set[str] = set()
     current = parent_map.get(cell_id)
     while current and current in parent_map:
+        if current in seen:
+            break
+        seen.add(current)
         depth += 1
         current = parent_map.get(current)
     return depth
@@ -436,36 +503,36 @@ def auto_fix_xml(graph_xml: str) -> tuple[str, list[str]]:
             fixes.append("Added missing space between attributes")
 
     seen: dict[str, int] = {}
-    dup_ids: set[str] = set()
+    has_dup = False
 
-    def _rename_dup_id(match: re.Match[str]) -> str:
+    def _count_dup_id(match: re.Match[str]) -> str:
+        nonlocal has_dup
         cid = match.group(1)
-        if cid not in dup_ids:
-            count = seen.get(cid, 0)
-            seen[cid] = count + 1
-            if count == 0:
-                return match.group(0)
-            dup_ids.add(cid)
-            return f'id="{cid}_dup{count}"'
-        count = seen.get(cid, 0) + 1
-        seen[cid] = count
-        return f'id="{cid}_dup{count}"'
+        count = seen.get(cid, 0)
+        seen[cid] = count + 1
+        if count > 0:
+            has_dup = True
+        return match.group(0)
 
-    renamed = re.sub(r'\bid="([^"]+)"', _rename_dup_id, fixed)
-    if renamed != fixed:
-        fixes.append("Renamed duplicate ID(s)")
-        fixed = renamed
+    re.sub(r'\bid="([^"]+)"', _count_dup_id, fixed)
+    if has_dup:
+        # Reject duplicate IDs rather than renaming without rewriting parent/source/target refs
+        return ensure_diagram_document(fixed), fixes + [
+            "Duplicate mxCell id(s) detected — reject rather than silent rename"
+        ]
 
     struct_fixed, struct_fixes = _fix_xml_with_elementtree(fixed)
     if struct_fixes:
         fixes.extend(struct_fixes)
         fixed = struct_fixed
 
-    return fixed, fixes
+    return ensure_diagram_document(fixed), fixes
 
 
 def validate_and_fix_xml(graph_xml: str) -> XmlValidationResult:
     struct_fixed, struct_fixes = _fix_xml_with_elementtree(graph_xml)
+    if struct_fixed and struct_fixes:
+        struct_fixed = ensure_diagram_document(struct_fixed)
     struct_error = validate_mxcell_structure(struct_fixed)
     if not struct_error:
         return XmlValidationResult(
@@ -476,15 +543,20 @@ def validate_and_fix_xml(graph_xml: str) -> XmlValidationResult:
         )
 
     fixed, fixes = auto_fix_xml(graph_xml)
+    fixed = ensure_diagram_document(fixed)
     all_fixes = struct_fixes + [f for f in fixes if f not in struct_fixes]
+    if fixed != (graph_xml or "").strip() and "Re-wrapped as mxfile document" not in all_fixes:
+        if not _is_diagram_document(graph_xml or "") or "<mxfile" not in (graph_xml or ""):
+            all_fixes.append("Re-wrapped as mxfile document")
     retry_error = validate_mxcell_structure(fixed)
     if not retry_error:
         return XmlValidationResult(valid=True, error=None, fixed=fixed, fixes=all_fixes)
 
+    # Never hand bare mxCells to the client — keep a document shell even when invalid
     return XmlValidationResult(
         valid=False,
         error=retry_error or struct_error,
-        fixed=fixed if all_fixes else None,
+        fixed=fixed if all_fixes else ensure_diagram_document(graph_xml or ""),
         fixes=all_fixes,
     )
 
@@ -494,4 +566,18 @@ def validate_and_fix_xml_legacy(graph_xml: str) -> tuple[str, list[str]]:
     output = result.fixed if result.fixed is not None else graph_xml
     if result.valid and not result.fixed:
         output = graph_xml
+    if not _is_diagram_document(output):
+        output = ensure_diagram_document(output)
     return output, result.fixes
+
+
+def choose_fixed_xml(original: str, result: XmlValidationResult) -> str:
+    """Prefer a fixed document only when it remains a loadable diagram file."""
+    candidate = result.fixed if result.fixed is not None else original
+    if _is_diagram_document(candidate):
+        try:
+            ET.fromstring(candidate if "<mxfile" in candidate or candidate.lstrip().startswith("<mxGraphModel") else f"<root>{candidate}</root>")
+            return ensure_diagram_document(candidate)
+        except ET.ParseError:
+            pass
+    return ensure_diagram_document(original)

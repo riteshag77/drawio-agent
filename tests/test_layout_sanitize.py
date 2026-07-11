@@ -72,7 +72,8 @@ class LayoutSanitizeTests(unittest.TestCase):
         xml = generate_xml(arch, platform="aws")
         self.assertLess(_max_x_from_xml(xml), 1200)
 
-    def test_container_depth_over_five_is_critical(self) -> None:
+    def test_container_depth_over_six_is_critical(self) -> None:
+        # cloud→vpc→az→subnet→subnet→tier→extra→svc = depth 7
         nodes = [
             Node(id="l0", label="Cloud", shape_type="aws_cloud", is_container=True),
             Node(id="l1", label="VPC", shape_type="aws_vpc", is_container=True, parent_id="l0"),
@@ -80,7 +81,8 @@ class LayoutSanitizeTests(unittest.TestCase):
             Node(id="l3", label="Subnet A", shape_type="aws_subnet", is_container=True, parent_id="l2"),
             Node(id="l4", label="Subnet B", shape_type="aws_subnet", is_container=True, parent_id="l3"),
             Node(id="l5", label="Tier", shape_type="aws_subnet", is_container=True, parent_id="l4"),
-            Node(id="svc", label="EC2", shape_type="aws_ec2", parent_id="l5"),
+            Node(id="l6", label="Extra", shape_type="aws_subnet", is_container=True, parent_id="l5"),
+            Node(id="svc", label="EC2", shape_type="aws_ec2", parent_id="l6"),
         ]
         arch = ArchitectureDiagram(nodes=nodes, edges=[], suggestions=[])
         result = validate_architecture_structure(arch)
@@ -293,11 +295,12 @@ class LayoutSanitizeTests(unittest.TestCase):
         self.assertEqual(exit_y2, 1.0)
         self.assertEqual(entry_y2, 0.0)
 
-    def test_edges_use_fixed_mid_face_anchors(self) -> None:
-        """Local edge math stays dumb — MCP libavoid / Draw.io owns path spreading."""
+    def test_edges_use_face_slot_offsets(self) -> None:
+        """Different exit slots offset along the shared face so fan-out edges diverge."""
         a = route_edge((0, 0, 60, 60), (220, 0, 60, 60), exit_slot=0)
         b = route_edge((0, 0, 60, 60), (220, 0, 60, 60), exit_slot=1)
-        self.assertEqual(a[:4], b[:4])
+        self.assertEqual(a[0], b[0])  # same exit face (right)
+        self.assertNotEqual(a[1], b[1])  # different Y along that face
         self.assertEqual(a[4], [])
 
     def test_edges_emitted_after_vertices(self) -> None:

@@ -4,9 +4,14 @@ import asyncio
 import time
 
 from app.adapters.outbound.config.env_config import get_config
-from app.adapters.outbound.diagram.draftsman import generate_xml
+from app.adapters.outbound.diagram.draftsman import prepare_and_generate_xml
 from app.adapters.outbound.diagram.mcp_renderer import render_architecture_xml
-from app.adapters.outbound.diagram.xml_tools import apply_diagram_operations, validate_and_fix_xml, wrap_with_mxfile
+from app.adapters.outbound.diagram.xml_tools import (
+    apply_diagram_operations,
+    choose_fixed_xml,
+    validate_and_fix_xml,
+    wrap_with_mxfile,
+)
 from app.adapters.outbound.llm.prompt_builders import PLATFORM_LABELS
 from app.adapters.outbound.utils.chat import filter_applied_suggestions, is_minimal_architecture, is_minimal_diagram
 from app.adapters.outbound.validation.structural import format_validation_feedback, validate_architecture_structure
@@ -17,6 +22,16 @@ from app.core.services.agent import (
     generate_edit_operations,
     generate_mermaid_diagram,
 )
+from app.domain.entities import ValidationResult
+
+
+class StructuralValidationError(Exception):
+    """Raised when architecture remains structurally invalid after retries."""
+
+    def __init__(self, validation: ValidationResult, feedback: str):
+        self.validation = validation
+        self.feedback = feedback
+        super().__init__(feedback or "Architecture failed structural validation")
 
 
 def sanitize_custom_message(text: str) -> str:
@@ -83,7 +98,7 @@ def _run_vlm_retry(user_prompt_or_none, messages, provider, platform, architectu
         if vlm_attempt > 0:
             _backoff_delay(vlm_attempt - 1)
         vlm_validation = _validate_sync(image_data, logger, validation_provider)
-        if vlm_validation.valid or vlm_attempt >= config.max_vlm_retries:
+        if vlm_validation.skipped or vlm_validation.valid or vlm_attempt >= config.max_vlm_retries:
             break
         feedback = format_validation_feedback(vlm_validation)
         if messages:
@@ -101,9 +116,9 @@ def _run_vlm_retry(user_prompt_or_none, messages, provider, platform, architectu
                 current_xml=current_xml,
                 applied_suggestions=applied_suggestions,
             )
-        xml_output = generate_xml(architecture_data, platform, logger)
+        _, xml_output = prepare_and_generate_xml(architecture_data, platform, logger)
         check = validate_and_fix_xml(xml_output)
-        xml_output = check.fixed if check.fixed else xml_output
+        xml_output = choose_fixed_xml(xml_output, check)
     return architecture_data, xml_output, vlm_validation
 
 
@@ -121,6 +136,9 @@ def _retry_loop_sync(user_prompt_or_none, messages, provider, platform, current_
                      previous_architecture, logger, minimal_style, custom_msg, feedback,
                      platform_convert, previous_platform, current_xml, applied_suggestions=None):
     config = get_config()
+    architecture_data = None
+    assistant_message = ""
+    structural_validation = None
     for attempt in range(config.max_structural_retries + 1):
         if attempt > 0:
             _backoff_delay(attempt - 1)
@@ -151,10 +169,15 @@ def _retry_loop_sync(user_prompt_or_none, messages, provider, platform, current_
                        details={"valid": structural_validation.valid, "issues": len(structural_validation.issues),
                                 "attempt": attempt + 1})
 
-        if structural_validation.valid or attempt >= config.max_structural_retries:
+        if structural_validation.valid:
             return architecture_data, assistant_message, structural_validation
         feedback = format_validation_feedback(structural_validation)
-    return architecture_data, assistant_message, structural_validation
+
+    assert architecture_data is not None and structural_validation is not None
+    raise StructuralValidationError(
+        structural_validation,
+        format_validation_feedback(structural_validation),
+    )
 
 
 async def run_mermaid_pipeline(*, user_prompt, messages, provider, logger, applied_suggestions=None):
@@ -224,7 +247,7 @@ async def run_edit_pipeline(*, messages, provider, platform, current_xml, previo
             break
 
         check = validate_and_fix_xml(xml_output)
-        xml_output = check.fixed if check.fixed else xml_output
+        xml_output = choose_fixed_xml(xml_output, check)
         if check.valid or attempt >= config.max_structural_retries:
             break
         feedback = f"XML validation failed: {check.error}"
@@ -232,7 +255,7 @@ async def run_edit_pipeline(*, messages, provider, platform, current_xml, previo
     if image_data and not is_minimal_diagram(xml_output):
         for vlm_attempt in range(config.max_vlm_retries + 1):
             vlm_validation = await asyncio.to_thread(validate_diagram_image, image_data, logger, validation_provider)
-            if vlm_validation.valid or vlm_attempt >= config.max_vlm_retries:
+            if vlm_validation.skipped or vlm_validation.valid or vlm_attempt >= config.max_vlm_retries:
                 break
             feedback = format_validation_feedback(vlm_validation)
             edit_response = await asyncio.to_thread(
@@ -243,7 +266,7 @@ async def run_edit_pipeline(*, messages, provider, platform, current_xml, previo
                 xml_output = apply_diagram_operations(xml_output, edit_response.operations).result
             assistant_message = edit_response.assistant_message or assistant_message
 
-    validation_summary = format_validation_feedback(vlm_validation) if vlm_validation and not vlm_validation.valid else None
+    validation_summary = format_validation_feedback(vlm_validation) if vlm_validation and not vlm_validation.valid and not vlm_validation.skipped else None
     logger.log("complete", "XML edit finished", level="success", details={"xml_chars": len(xml_output)})
 
     return _build_response(
@@ -289,12 +312,12 @@ async def run_generation_pipeline(*, user_prompt=None, messages=None, provider="
     )
 
     logger.log("layout", "Running auto-layout and XML builder")
-    xml_output, renderer_used, mcp_preview_url = await render_architecture_xml(
+    xml_output, renderer_used, mcp_preview_url, architecture_data = await render_architecture_xml(
         architecture_data, platform, logger, diagram_renderer=diagram_renderer,
     )
 
     final_check = validate_and_fix_xml(xml_output)
-    xml_output = final_check.fixed if final_check.fixed else xml_output
+    xml_output = choose_fixed_xml(xml_output, final_check)
 
     if image_data and not is_minimal_architecture(architecture_data):
         architecture_data, xml_output, vlm_validation = await asyncio.to_thread(
@@ -303,16 +326,16 @@ async def run_generation_pipeline(*, user_prompt=None, messages=None, provider="
             previous_platform, current_xml, image_data, validation_provider, applied_suggestions,
         )
         # Re-apply MCP styles after VLM regen if still in mcp/auto mode
-        xml_output, renderer_used, mcp_preview_url = await render_architecture_xml(
+        xml_output, renderer_used, mcp_preview_url, architecture_data = await render_architecture_xml(
             architecture_data, platform, logger, diagram_renderer=diagram_renderer,
         )
         final_check = validate_and_fix_xml(xml_output)
-        xml_output = final_check.fixed if final_check.fixed else xml_output
+        xml_output = choose_fixed_xml(xml_output, final_check)
 
     validation_summary = None
     if structural_validation and not structural_validation.valid:
         validation_summary = format_validation_feedback(structural_validation)
-    if vlm_validation and not vlm_validation.valid:
+    if vlm_validation and not vlm_validation.skipped and not vlm_validation.valid:
         validation_summary = format_validation_feedback(vlm_validation)
 
     logger.log("complete", "Pipeline finished", level="success",

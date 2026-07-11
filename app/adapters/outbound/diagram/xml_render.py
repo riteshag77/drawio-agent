@@ -6,7 +6,7 @@ import html as html_module
 
 from app.adapters.outbound.diagram.diagram_classify import is_attached_edge, is_band_container
 from app.adapters.outbound.diagram.edge_router import route_edge
-from app.adapters.outbound.diagram.layout import absolute_box, lowest_common_ancestor_parent
+from app.adapters.outbound.diagram.layout import absolute_box, edge_parent_cell
 from app.adapters.outbound.diagram.layout_settings import layout_settings
 from app.adapters.outbound.diagram.service_bands import build_band_style
 from app.adapters.outbound.diagram.styles import build_style
@@ -16,7 +16,15 @@ def escape_xml(text: str) -> str:
     return html_module.escape(str(text or ""), quote=True)
 
 
-def append_vertex(xml: list[str], node, layout: dict, parent_cell: str, accent: str) -> None:
+def append_vertex(
+    xml: list[str],
+    node,
+    layout: dict,
+    parent_cell: str,
+    accent: str,
+    *,
+    style_overrides: dict[str, str] | None = None,
+) -> None:
     s = layout_settings()
     node_layout = layout.get(node.id, {"w": s.leaf_w, "h": s.leaf_h, "x": 0, "y": 0})
     x = node_layout.get("x", 0)
@@ -29,7 +37,7 @@ def append_vertex(xml: list[str], node, layout: dict, parent_cell: str, accent: 
         empty = "(not yet in scope)" in (node.label or "")
         style = build_band_style(band_key, empty=empty)
     else:
-        style = build_style(node.shape_type)
+        style = build_style(node.shape_type, overrides=style_overrides)
     if "fontFamily=" not in style:
         style += ";fontFamily=Helvetica,Arial,sans-serif;"
 
@@ -110,7 +118,7 @@ def append_edge(
         style_parts.append("labelBackgroundColor=#ffffff")
 
     edge_style = ";".join(style_parts) + ";"
-    parent = lowest_common_ancestor_parent(edge.source_id, edge.target_id, nodes_by_id)
+    parent = edge_parent_cell(edge.source_id, edge.target_id, nodes_by_id)
     xml.append(
         f'    <mxCell id="edge_{cell_id}" value="{escape_xml(label)}" style="{edge_style}" edge="1" '
         f'parent="{parent}" source="{edge.source_id}" target="{edge.target_id}">'

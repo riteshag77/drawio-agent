@@ -14,7 +14,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
-from app.domain.entities import DEFAULT_VALID_RESULT, ValidationResult
+from app.domain.entities import DEFAULT_SKIPPED_RESULT, DEFAULT_VALID_RESULT, ValidationResult
 from app.adapters.outbound.llm.prompts.validation import VALIDATION_SYSTEM_PROMPT
 
 if TYPE_CHECKING:
@@ -138,7 +138,7 @@ def validate_diagram_image(
     if os.getenv("ENABLE_VLM_VALIDATION", "true").lower() == "false":
         if logger:
             logger.log("validation", "VLM validation disabled (ENABLE_VLM_VALIDATION=false)", level="info")
-        return DEFAULT_VALID_RESULT.model_copy()
+        return DEFAULT_SKIPPED_RESULT.model_copy()
 
     llm = _build_vision_llm(provider)
     if llm is None:
@@ -148,7 +148,7 @@ def validate_diagram_image(
                 "No vision model configured — skipping VLM validation",
                 "warn",
             )
-        return DEFAULT_VALID_RESULT.model_copy()
+        return DEFAULT_SKIPPED_RESULT.model_copy()
 
     try:
         image_bytes = _parse_image_data(image_data)

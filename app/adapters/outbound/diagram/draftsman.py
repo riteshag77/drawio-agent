@@ -50,14 +50,19 @@ def _build_flow_notes(architecture) -> list[tuple[int, str, str]]:
     return [(node.step_number, (node.label or "").strip(), (node.description or "").strip()) for node in numbered]
 
 
-def _prepare_architecture(architecture, platform: str = "aws") -> ArchitectureDiagram:
+def prepare_architecture(architecture, platform: str = "aws") -> ArchitectureDiagram:
+    """Sanitize, repair, scaffold, and normalize — canonical architecture for XML + API."""
     if not isinstance(architecture, ArchitectureDiagram):
         return architecture
     prepared = sanitize_layout_hints(architecture)
     prepared = apply_pattern_blueprint(prepared, prepared.pattern_id, platform)
-    prepared = repair_topology(prepared)
+    prepared = repair_topology(prepared, platform=platform)
     prepared = apply_three_tier_scaffold(prepared)
     return normalize_architecture(prepared)
+
+
+# Backward-compatible alias for tests
+_prepare_architecture = prepare_architecture
 
 
 def _finalize_page(
@@ -94,9 +99,17 @@ def _finalize_page(
     return xml, page_width, page_height, max_x, max_y, notes_y
 
 
-def generate_xml(architecture, platform: str = "aws", logger: StepLogger | None = None) -> str:
+def generate_xml(
+    architecture,
+    platform: str = "aws",
+    logger: StepLogger | None = None,
+    *,
+    prepare: bool = True,
+    style_overrides: dict[str, str] | None = None,
+) -> str:
     settings = layout_settings()
-    architecture = _prepare_architecture(architecture, platform=platform)
+    if prepare:
+        architecture = prepare_architecture(architecture, platform=platform)
     platform_key, platform_label, accent = platform_meta(platform)
 
     children_map, roots, nodes_by_id = build_children_map(architecture.nodes)
@@ -109,7 +122,7 @@ def generate_xml(architecture, platform: str = "aws", logger: StepLogger | None 
 
     for node in architecture.nodes:
         parent_cell = node.parent_id if node.parent_id in nodes_by_id else "1"
-        append_vertex(xml, node, layout, parent_cell, accent)
+        append_vertex(xml, node, layout, parent_cell, accent, style_overrides=style_overrides)
 
     cell_id = 100
     exit_counts: dict[str, int] = {}
@@ -179,3 +192,18 @@ def generate_xml(architecture, platform: str = "aws", logger: StepLogger | None 
         })
 
     return wrapped
+
+
+def prepare_and_generate_xml(
+    architecture,
+    platform: str = "aws",
+    logger: StepLogger | None = None,
+    *,
+    style_overrides: dict[str, str] | None = None,
+) -> tuple[ArchitectureDiagram, str]:
+    """Return (canonical prepared architecture, draw.io XML)."""
+    prepared = prepare_architecture(architecture, platform=platform)
+    xml = generate_xml(
+        prepared, platform, logger, prepare=False, style_overrides=style_overrides,
+    )
+    return prepared, xml

@@ -12,6 +12,7 @@ from app.adapters.outbound.diagram.draftsman import generate_xml
 from app.core.services.agent import generate_architecture_json
 from app.domain.entities import ArchitectureDiagram
 from app.core.services.pipeline import (
+    StructuralValidationError,
     classify_diagram_intent,
     run_edit_pipeline,
     run_generation_pipeline,
@@ -65,6 +66,17 @@ async def generate_diagram(body: PromptRequest, request: Request):
             custom_system_message=sanitize_custom_message(body.custom_system_message),
             context_text=body.context_text, image_data=body.image_data,
             diagram_renderer=body.diagram_renderer,
+        )
+    except StructuralValidationError as exc:
+        logger.log("validation", str(exc), level="error")
+        return JSONResponse(
+            status_code=422,
+            content={
+                "status": "error",
+                "detail": str(exc),
+                "validation": {"structural": exc.validation.model_dump(), "feedback": exc.feedback},
+                "logs": logger.to_list(),
+            },
         )
     except Exception as exc:
         logger.log("error", str(exc), level="error")
@@ -147,6 +159,17 @@ async def chat_diagram(body: ChatRequest, request: Request):
             validation_provider=body.validation_provider,
             applied_suggestions=applied_suggestions,
             diagram_renderer=body.diagram_renderer,
+        )
+    except StructuralValidationError as exc:
+        logger.log("validation", str(exc), level="error")
+        return JSONResponse(
+            status_code=422,
+            content={
+                "status": "error",
+                "detail": str(exc),
+                "validation": {"structural": exc.validation.model_dump(), "feedback": exc.feedback},
+                "logs": logger.to_list(),
+            },
         )
     except Exception as exc:
         logger.log("error", str(exc), level="error")
