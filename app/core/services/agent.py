@@ -16,7 +16,10 @@ from app.adapters.outbound.llm.prompts.system import get_edit_system_prompt, get
 from app.adapters.outbound.llm.providers import MODEL_IDS, get_provider, normalize_provider_key
 from app.adapters.outbound.llm.response_parse import extract_mermaid
 from app.domain.entities import ArchitectureDiagram, EditResponse, MermaidDiagram
-from app.adapters.outbound.patterns.file_repository import FilePatternRepository, format_patterns_for_prompt
+from app.adapters.outbound.patterns.file_repository import (
+    format_patterns_for_prompt,
+    get_pattern_repository,
+)
 
 if TYPE_CHECKING:
     from app.core.logging import StepLogger
@@ -91,7 +94,7 @@ def generate_architecture_json(
     matched_pattern_id: str | None = None
     if not is_edit:
         match_text = user_request or chat_messages[-1]["content"]
-        repo = FilePatternRepository()
+        repo = get_pattern_repository()
         matched = repo.find_matching(match_text, platform_key, limit=1)
         if matched:
             matched_pattern_id = matched[0].id

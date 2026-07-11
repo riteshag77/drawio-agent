@@ -63,23 +63,23 @@ async def render_architecture_xml(
             architecture, platform, logger, style_overrides=overrides or None,
         )
 
-        # Libavoid only helps when MCP returns updated mxGraph XML (preview-only = skip)
-        preview_url, routed_xml = await create_diagram(xml, routing="libavoid")
-        if routed_xml and ("<mxGraphModel" in routed_xml or "<mxfile" in routed_xml):
-            xml = force_waypoint_edges_to_root(ensure_diagram_document(routed_xml))
-            if logger:
-                logger.log("mcp", "create_diagram libavoid XML applied", details={
-                    "preview": (preview_url or "")[:200],
-                })
-            return xml, "mcp", preview_url, prepared
-
-        if logger and preview_url:
-            logger.log(
-                "mcp",
-                "create_diagram returned preview only (no XML); keeping local edges",
-                level="warning",
-                details={"preview": preview_url[:200]},
-            )
+        # Libavoid is an optional second MCP hop (often preview-only). Off by default.
+        if get_config().drawio_mcp_libavoid:
+            preview_url, routed_xml = await create_diagram(xml, routing="libavoid")
+            if routed_xml and ("<mxGraphModel" in routed_xml or "<mxfile" in routed_xml):
+                xml = force_waypoint_edges_to_root(ensure_diagram_document(routed_xml))
+                if logger:
+                    logger.log("mcp", "create_diagram libavoid XML applied", details={
+                        "preview": (preview_url or "")[:200],
+                    })
+                return xml, "mcp", preview_url, prepared
+            if logger and preview_url:
+                logger.log(
+                    "mcp",
+                    "create_diagram returned preview only (no XML); keeping local edges",
+                    level="warning",
+                    details={"preview": preview_url[:200]},
+                )
         return xml, "mcp", None, prepared
     except DrawioMcpError as exc:
         if logger:

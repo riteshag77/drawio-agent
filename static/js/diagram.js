@@ -120,7 +120,7 @@ function bindDrawioMessages(iframe) {
             if (!isSending) {
                 setComposerRunStatus('Ready — ask for changes or try another prompt', 'success');
             }
-            setTimeout(() => runVisualValidation(), 600);
+            setTimeout(() => runVisualValidation(), 2500);
         }
 
         if (msg.event === 'export' && msg.data) {

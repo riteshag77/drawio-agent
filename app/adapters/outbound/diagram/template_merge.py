@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from app.adapters.outbound.diagram.diagram_classify import scaffold_role
 from app.adapters.outbound.diagram.layout_settings import layout_settings
-from app.adapters.outbound.patterns.file_repository import FilePatternRepository
+from app.adapters.outbound.patterns.file_repository import get_pattern_repository
 from app.domain.entities import ArchitectureDiagram, Edge, Node
 
 
@@ -49,7 +49,7 @@ def _edge_from_blueprint(raw: dict) -> Edge:
 
 
 def blueprint_diagram(pattern_id: str, platform: str = "aws") -> ArchitectureDiagram | None:
-    pattern = FilePatternRepository().get_by_id(pattern_id)
+    pattern = get_pattern_repository().get_by_id(pattern_id)
     if not pattern:
         return None
     platform = (platform or "aws").lower()

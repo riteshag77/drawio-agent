@@ -262,6 +262,11 @@ class EnvConfigAdapter(ConfigPort):
     def drawio_mcp_timeout(self) -> int:
         return self.get_int("DRAWIO_MCP_TIMEOUT", 30)
 
+    @property
+    def drawio_mcp_libavoid(self) -> bool:
+        """When true, call create_diagram(libavoid) after style resolve (extra MCP hop)."""
+        return self.get_bool("DRAWIO_MCP_LIBAVOID", False)
+
 
 # Singleton for app-wide use
 _config_instance: EnvConfigAdapter | None = None

@@ -41,6 +41,30 @@ _FLOW_SUMMARIES = {
 
 _SINGLETON_SUFFIXES = frozenset({"route53", "cloudfront", "api_gateway", "internet_gateway"})
 
+# Obvious primary-path labels that add clutter (vidanov "when NOT to label").
+_OBVIOUS_EDGE_LABELS = frozenset({
+    "write", "read", "query", "call", "invoke", "request", "data", "flow",
+    "to", "uses", "use", "access", "accesses", "connect", "connects",
+})
+
+
+def _strip_obvious_edge_labels(edges: list[Edge]) -> list[Edge]:
+    """Null redundant solid-edge labels; keep protocol/attached labels."""
+    out: list[Edge] = []
+    for edge in edges:
+        label = (edge.label or "").strip()
+        if not label:
+            out.append(edge)
+            continue
+        if edge.style == "dashed":
+            out.append(edge)
+            continue
+        if label.lower() in _OBVIOUS_EDGE_LABELS:
+            out.append(edge.model_copy(update={"label": None}))
+        else:
+            out.append(edge)
+    return out
+
 
 def _edge_key(edge: Edge) -> tuple[str, str, str]:
     return (edge.source_id, edge.target_id, (edge.label or "").strip().lower())
@@ -301,5 +325,6 @@ def normalize_architecture(architecture: ArchitectureDiagram) -> ArchitectureDia
     edges = _dedupe_edges(_add_band_attached_edges(
         _convert_attached_edges(edges, nodes_by_id), nodes_by_id, band_members,
     ))
+    edges = _strip_obvious_edge_labels(edges)
     nodes, flow_steps = _renumber_data_path(nodes)
     return architecture.model_copy(update={"nodes": nodes, "edges": edges, "flow_steps": flow_steps})

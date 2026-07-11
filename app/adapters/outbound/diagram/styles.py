@@ -24,10 +24,24 @@ _AWS_ICON_EXCEPTIONS: dict[str, str] = {
     "elb": "elastic_load_balancing",
     "alb": "application_load_balancer",
     "nlb": "network_load_balancer",
-    "opensearch": "opensearch_service",
+    # draw.io still uses the pre-rename OpenSearch stencil id
+    "opensearch": "elasticsearch_service",
+    "opensearch_service": "elasticsearch_service",
     "privatelink": "vpc_privatelink",
     "xray": "x_ray",
     "ecs_task": "ecs",
+    "msk": "managed_streaming_for_kafka",
+    "kinesis_data_streams": "kinesis",
+    "kinesis_data_stream": "kinesis",
+}
+
+# Known-broken / empty-square resIcons → working substitutes (vidanov skill denylist).
+_AWS_BROKEN_RESICONS: dict[str, str] = {
+    "dynamodb_table": "dynamodb",
+    "dynamodb_stream": "dynamodb",
+    "general_saml_token": "traditional_server",
+    "endpoint": "endpoints",
+    "kinesis_data_streams": "kinesis",
 }
 
 _AWS_GROUP_ICONS: dict[str, str] = {
@@ -303,16 +317,16 @@ def _aws_container(name: str) -> str:
     base = _AWS_GROUP + f"grIcon={AWS_LIB}.{icon};"
 
     configs = {
-        "vpc": "strokeColor=#8C4FFF;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#8C4FFF;dashed=0;strokeWidth=2;",
-        "region": "strokeColor=#00A4A6;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#00A4A6;dashed=1;strokeWidth=1.5;",
-        "az": "strokeColor=#545B64;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#545B64;dashed=1;strokeWidth=1.5;",
-        "public_subnet": f"grStroke=0;strokeColor=#7AA116;fillColor=#F2F6E8;verticalAlign=top;align=left;spacingLeft=30;fontColor=#248814;dashed=0;strokeWidth=1.5;",
-        "private_subnet": f"grStroke=0;strokeColor=#00A4A6;fillColor=#E6F6F7;verticalAlign=top;align=left;spacingLeft=30;fontColor=#147EBA;dashed=0;strokeWidth=1.5;",
-        "security_group": f"grStroke=0;strokeColor=#DD3522;fillColor=#FFEBEE;verticalAlign=top;align=left;spacingLeft=30;fontColor=#DD3522;dashed=0;strokeWidth=1.5;",
-        "account": "strokeColor=#CD2264;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#CD2264;dashed=0;strokeWidth=2;",
-        "cloud": "strokeColor=#232F3E;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#232F3E;dashed=0;strokeWidth=2;",
-        "generic_group": "strokeColor=#232F3E;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#232F3E;dashed=1;strokeWidth=1.5;",
-        "auto_scaling_group": f"grStroke=0;strokeColor=#D86613;fillColor=#FFF4E8;verticalAlign=top;align=left;spacingLeft=30;fontColor=#D86613;dashed=1;strokeWidth=1.5;",
+        "vpc": "strokeColor=#8C4FFF;fillColor=none;verticalAlign=top;align=left;spacingLeft=40;spacingTop=-4;fontColor=#8C4FFF;dashed=0;strokeWidth=2;",
+        "region": "strokeColor=#00A4A6;fillColor=none;verticalAlign=top;align=left;spacingLeft=40;spacingTop=-4;fontColor=#00A4A6;dashed=1;strokeWidth=1.5;",
+        "az": "strokeColor=#545B64;fillColor=none;verticalAlign=top;align=left;spacingLeft=40;spacingTop=-4;fontColor=#545B64;dashed=1;strokeWidth=1.5;",
+        "public_subnet": f"grStroke=0;strokeColor=#7AA116;fillColor=#F2F6E8;verticalAlign=top;align=left;spacingLeft=40;spacingTop=-4;fontColor=#248814;dashed=0;strokeWidth=1.5;",
+        "private_subnet": f"grStroke=0;strokeColor=#00A4A6;fillColor=#E6F6F7;verticalAlign=top;align=left;spacingLeft=40;spacingTop=-4;fontColor=#147EBA;dashed=0;strokeWidth=1.5;",
+        "security_group": f"grStroke=0;strokeColor=#DD3522;fillColor=#FFEBEE;verticalAlign=top;align=left;spacingLeft=40;spacingTop=-4;fontColor=#DD3522;dashed=0;strokeWidth=1.5;",
+        "account": "strokeColor=#CD2264;fillColor=none;verticalAlign=top;align=left;spacingLeft=40;spacingTop=-4;fontColor=#CD2264;dashed=0;strokeWidth=2;",
+        "cloud": "strokeColor=#232F3E;fillColor=none;verticalAlign=top;align=left;spacingLeft=40;spacingTop=-4;fontColor=#232F3E;dashed=0;strokeWidth=2;",
+        "generic_group": "strokeColor=#232F3E;fillColor=none;verticalAlign=top;align=left;spacingLeft=40;spacingTop=-4;fontColor=#232F3E;dashed=1;strokeWidth=1.5;",
+        "auto_scaling_group": f"grStroke=0;strokeColor=#D86613;fillColor=#FFF4E8;verticalAlign=top;align=left;spacingLeft=40;spacingTop=-4;fontColor=#D86613;dashed=1;strokeWidth=1.5;",
     }
     return base + configs.get(name, configs["generic_group"])
 
@@ -321,11 +335,35 @@ def _aws_service(name: str) -> str:
     """Build style for an AWS service icon."""
     name = _AWS_ALIASES.get(name, name)
     icon = _AWS_ICON_EXCEPTIONS.get(name, name)
+    icon = _AWS_BROKEN_RESICONS.get(icon, icon)
+    # Resource-level silhouettes use shape=mxgraph.aws4.<name> + strokeColor=none
+    # (not resourceIcon). Confusing the two yields empty/broken glyphs.
+    if icon in _AWS_RESOURCE_LEVEL_SHAPES:
+        category = _aws_category(name)
+        color = _AWS_COLORS[category]
+        return (
+            f"outlineConnect=0;dashed=0;html=1;sketch=0;shadow=1;aspect=fixed;"
+            f"shape={AWS_LIB}.{icon};fillColor={color};strokeColor=none;{_ICON_LABEL}"
+        )
     category = _aws_category(name)
     color = _AWS_COLORS[category]
     return (f"outlineConnect=0;dashed=0;html=1;"
             f"shape={AWS_LIB}.resourceIcon;resIcon={AWS_LIB}.{icon};"
             f"sketch=0;shadow=1;fillColor={color};strokeColor=#ffffff;{_ICON_LABEL}")
+
+
+# Standalone AWS4 shapes (not resourceIcon frames) — strokeColor=none required.
+_AWS_RESOURCE_LEVEL_SHAPES = frozenset({
+    "application_load_balancer",
+    "network_load_balancer",
+    "endpoints",
+    "peering",
+    "client",
+    "traditional_server",
+    "internet_alt2",
+    "users",
+    "mobile_client",
+})
 
 
 def _gcp_container(name: str) -> str:

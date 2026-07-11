@@ -52,6 +52,7 @@ PORT=8000
 DIAGRAM_RENDERER=auto
 DRAWIO_MCP_URL=https://mcp.draw.io/mcp
 DRAWIO_MCP_TIMEOUT=30
+DRAWIO_MCP_LIBAVOID=false
 
 # Layout (local domain placement — do not delete)
 LEAF_NODE_W=48
@@ -61,7 +62,7 @@ IGW_VPC_Y=-30
 QUALITY_GATES_BLOCKING=true
 ```
 
-- **`DIAGRAM_RENDERER=auto`** — MCP styles + try libavoid XML; fall back to local styles/edges.
+- **`DIAGRAM_RENDERER=auto`** — MCP icon styles (parallel + cached); local edges by default. Set `DRAWIO_MCP_LIBAVOID=true` for an extra create_diagram hop.
 - **`local`** — never call MCP (offline).
 - **`mcp`** — same as auto for styles/routing; still falls back if MCP errors.
 

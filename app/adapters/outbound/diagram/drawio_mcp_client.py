@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -73,8 +74,32 @@ def _shape_query(shape_type: str, platform: str) -> str:
     return st.replace("_", " ")
 
 
-async def search_shapes(query: str, *, limit: int = 5) -> list[str]:
-    """Return candidate draw.io style strings for a keyword query."""
+def _pick_style(styles: list[str]) -> str | None:
+    if not styles:
+        return None
+    pick = styles[0]
+    for style in styles:
+        low = style.lower()
+        if "resourceicon" in low or "mxgraph.aws4" in low or "mxgraph.gcp" in low or "azure" in low:
+            pick = style
+            break
+    if not pick.endswith(";"):
+        pick += ";"
+    return pick
+
+
+# Process-level style cache: (platform, shape_type) → style string
+_STYLE_CACHE: dict[tuple[str, str], str] = {}
+_STYLE_CACHE_MAX = 512
+
+
+def clear_style_cache() -> None:
+    """Test helper."""
+    _STYLE_CACHE.clear()
+
+
+async def _mcp_call_tool(tool_name: str, arguments: dict[str, Any]) -> str:
+    """One MCP session, one tool call, with configured timeout."""
     try:
         from mcp import ClientSession
         from mcp.client.streamable_http import streamablehttp_client
@@ -82,56 +107,88 @@ async def search_shapes(query: str, *, limit: int = 5) -> list[str]:
         raise DrawioMcpError("mcp package not installed; pip install mcp") from exc
 
     cfg = get_config()
-    try:
+    timeout = max(5, int(cfg.drawio_mcp_timeout))
+
+    async def _run() -> str:
         async with streamablehttp_client(cfg.drawio_mcp_url) as streams:
             read_stream, write_stream = streams[0], streams[1]
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
-                result = await session.call_tool(
-                    "search_shapes",
-                    {"query": query, "limit": limit},
-                )
-                return _extract_styles(_content_to_text(result))
+                result = await session.call_tool(tool_name, arguments)
+                return _content_to_text(result)
+
+    try:
+        return await asyncio.wait_for(_run(), timeout=timeout)
+    except asyncio.TimeoutError as exc:
+        raise DrawioMcpError(f"Draw.io MCP {tool_name} timed out after {timeout}s") from exc
     except DrawioMcpError:
         raise
     except Exception as exc:
-        raise DrawioMcpError(f"Draw.io MCP search_shapes failed: {exc}") from exc
+        raise DrawioMcpError(f"Draw.io MCP {tool_name} failed: {exc}") from exc
+
+
+async def search_shapes(query: str, *, limit: int = 5) -> list[str]:
+    """Return candidate draw.io style strings for a keyword query."""
+    text = await _mcp_call_tool("search_shapes", {"query": query, "limit": limit})
+    return _extract_styles(text)
+
+
+async def _resolve_one(shape_type: str, platform: str) -> tuple[str, str | None]:
+    cache_key = (platform, shape_type)
+    if cache_key in _STYLE_CACHE:
+        return shape_type, _STYLE_CACHE[cache_key]
+
+    query = _shape_query(shape_type, platform)
+    try:
+        styles = await search_shapes(query, limit=5)
+    except DrawioMcpError:
+        raise
+    pick = _pick_style(styles)
+    if pick:
+        if len(_STYLE_CACHE) >= _STYLE_CACHE_MAX:
+            # ponytail: drop arbitrary oldest-ish entry; upgrade to OrderedDict LRU if needed
+            _STYLE_CACHE.pop(next(iter(_STYLE_CACHE)))
+        _STYLE_CACHE[cache_key] = pick
+        logger.info("MCP resolved %s via %r", shape_type, query)
+    else:
+        logger.info("MCP no style for %s (%r)", shape_type, query)
+    return shape_type, pick
 
 
 async def resolve_shape_styles(
     shape_types: list[str],
     platform: str = "aws",
 ) -> dict[str, str]:
-    """Map shape_type → best MCP style string (sizes stay LEAF_NODE_* defaults)."""
+    """Map shape_type → best MCP style string (parallel lookups, process cache)."""
+    platform = (platform or "aws").lower()
+    unique = sorted({(st or "").strip() for st in shape_types if (st or "").strip()})
+    if not unique:
+        return {}
+
+    # Cap concurrency so we don't open dozens of MCP sessions at once.
+    sem = asyncio.Semaphore(6)
+
+    async def _guarded(st: str) -> tuple[str, str | None]:
+        async with sem:
+            return await _resolve_one(st, platform)
+
+    results = await asyncio.gather(*[_guarded(st) for st in unique], return_exceptions=True)
     resolved: dict[str, str] = {}
-    seen_queries: dict[str, str] = {}
-
-    for shape_type in shape_types:
-        if not shape_type or shape_type in resolved:
+    first_error: DrawioMcpError | None = None
+    for item in results:
+        if isinstance(item, DrawioMcpError):
+            first_error = first_error or item
             continue
-        query = _shape_query(shape_type, platform)
-        if query in seen_queries:
-            resolved[shape_type] = seen_queries[query]
+        if isinstance(item, BaseException):
+            first_error = first_error or DrawioMcpError(str(item))
             continue
-        try:
-            styles = await search_shapes(query, limit=5)
-        except DrawioMcpError:
-            raise
-        if styles:
-            pick = styles[0]
-            for style in styles:
-                low = style.lower()
-                if "resourceicon" in low or "mxgraph.aws4" in low or "mxgraph.gcp" in low or "azure" in low:
-                    pick = style
-                    break
-            if not pick.endswith(";"):
-                pick += ";"
-            resolved[shape_type] = pick
-            seen_queries[query] = pick
-            logger.info("MCP resolved %s via %r", shape_type, query)
-        else:
-            logger.info("MCP no style for %s (%r)", shape_type, query)
+        shape_type, style = item
+        if style:
+            resolved[shape_type] = style
 
+    # If nothing resolved and MCP is hard-failing, surface the error for fallback.
+    if not resolved and first_error is not None and not _STYLE_CACHE:
+        raise first_error
     return resolved
 
 
@@ -168,26 +225,23 @@ def _extract_xml(payload: str) -> str | None:
 async def create_diagram(xml: str, *, routing: str = "libavoid") -> tuple[str | None, str | None]:
     """Call create_diagram; return (preview_url_or_text, updated_xml_or_none)."""
     try:
-        from mcp import ClientSession
-        from mcp.client.streamable_http import streamablehttp_client
+        from mcp import ClientSession  # noqa: F401 — availability check
+        from mcp.client.streamable_http import streamablehttp_client  # noqa: F401
     except ImportError:
         return None, None
 
-    cfg = get_config()
     args: dict[str, Any] = {"xml": xml}
     if routing:
         args["routing"] = routing
     try:
-        async with streamablehttp_client(cfg.drawio_mcp_url) as streams:
-            read_stream, write_stream = streams[0], streams[1]
-            async with ClientSession(read_stream, write_stream) as session:
-                await session.initialize()
-                result = await session.call_tool("create_diagram", args)
-                text = _content_to_text(result)
-                updated = _extract_xml(text or "")
-                match = re.search(r"https?://[^\s\"']+", text or "")
-                preview = match.group(0) if match else (text[:500] if text and not updated else None)
-                return preview, updated
+        text = await _mcp_call_tool("create_diagram", args)
+        updated = _extract_xml(text or "")
+        match = re.search(r"https?://[^\s\"']+", text or "")
+        preview = match.group(0) if match else (text[:500] if text and not updated else None)
+        return preview, updated
+    except DrawioMcpError as exc:
+        logger.warning("create_diagram skipped: %s", exc)
+        return None, None
     except Exception as exc:
         logger.warning("create_diagram skipped: %s", exc)
         return None, None

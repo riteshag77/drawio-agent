@@ -96,7 +96,9 @@ def append_edge(
     label = (edge.label or "").strip()
     style_parts = [
         "edgeStyle=orthogonalEdgeStyle",
-        "rounded=0",
+        "rounded=1",
+        "orthogonalLoop=1",
+        "jettySize=auto",
         "html=1",
         "endArrow=none" if attached else "endArrow=classic",
         "startArrow=none",
@@ -108,6 +110,7 @@ def append_edge(
         "jumpSize=6",
         f"strokeColor={color}",
         f"fontColor={color}",
+        "strokeWidth=2",
     ]
     if attached:
         style_parts.append("dashed=1")
@@ -116,11 +119,14 @@ def append_edge(
         style_parts.append("strokeWidth=3")
     if label:
         style_parts.append("labelBackgroundColor=#ffffff")
+        style_parts.append("fontSize=11")
 
     edge_style = ";".join(style_parts) + ";"
     parent = edge_parent_cell(edge.source_id, edge.target_id, nodes_by_id)
+    # Omit empty value= — cleaner XML and matches draw.io best practice.
+    value_attr = f' value="{escape_xml(label)}"' if label else ""
     xml.append(
-        f'    <mxCell id="edge_{cell_id}" value="{escape_xml(label)}" style="{edge_style}" edge="1" '
+        f'    <mxCell id="edge_{cell_id}"{value_attr} style="{edge_style}" edge="1" '
         f'parent="{parent}" source="{edge.source_id}" target="{edge.target_id}">'
     )
     if waypoints:

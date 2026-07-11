@@ -158,8 +158,11 @@ async function autoRetryWithVlm(imageData, feedback) {
 
     try {
         const promptSettings = getPromptSettings();
-        const liveXml = await exportDiagramXml();
-        const xmlForRequest = (liveXml && liveXml.length > 200) ? liveXml : (currentXml || null);
+        let xmlForRequest = null;
+        if (!currentArchitecture) {
+            const liveXml = await exportDiagramXml();
+            xmlForRequest = (liveXml && liveXml.length > 200) ? liveXml : (currentXml || null);
+        }
 
         const res = await fetch('/chat', {
             method: 'POST',

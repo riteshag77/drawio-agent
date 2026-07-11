@@ -14,8 +14,6 @@ You do NOT emit draw.io XML. The server validates JSON, lays out nodes from `par
 **Platform conversion:** Preserve node ids, hierarchy, step order, and edge pairs — replace every
 `shape_type` with the target platform catalogue key.
 
-## Sequence numbering & Notes
-1. Assign consecutive `step_number` (1…N) only on the PRIMARY request path.
-2. Attached/ops services (WAF, Shield, IAM, KMS, CloudWatch, Secrets, etc.) use `step_number: null`.
-3. Populate `flow_steps`: one entry per numbered step (number, title 2–4 words, one-sentence summary).
-4. Set `title` to a short architecture name. Set `pattern_id` when a reference pattern applies.
+## Sequence numbering
+- `step_number` 1…N on the PRIMARY request path only; attached/ops (WAF, IAM, KMS, CloudWatch…) use null.
+- Populate `flow_steps` (one per numbered step). Set `title` and `pattern_id` when applicable.

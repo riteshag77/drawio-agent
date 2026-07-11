@@ -81,14 +81,18 @@ class PatternBlueprintTests(unittest.TestCase):
         self.assertIn("aws_vpc", ids)
         self.assertEqual(merged.nodes[0].id, "user_client")  # LLM nodes preserved first
 
-    def test_format_patterns_includes_skeleton_json(self) -> None:
+    def test_format_patterns_is_compact_without_skeleton_json(self) -> None:
         repo = FilePatternRepository()
         pattern = repo.get_by_id("three_tier_web")
         self.assertIsNotNone(pattern)
         block = format_patterns_for_prompt([pattern], "aws")
-        self.assertIn("Skeleton JSON", block)
+        self.assertNotIn("Skeleton JSON", block)
+        self.assertIn("Blueprint node ids", block)
         self.assertIn("aws_az_a", block)
-        self.assertIn("protects", block)
+        self.assertIn("aws_waf", block)
+        # Must stay well under the old ~1.8k-token skeleton dump.
+        from app.adapters.outbound.llm.prompts.system import estimate_prompt_tokens
+        self.assertLessEqual(estimate_prompt_tokens(block), 500)
 
 
 class TopologyRepairTests(unittest.TestCase):

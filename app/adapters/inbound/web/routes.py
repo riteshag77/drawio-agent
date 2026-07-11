@@ -115,7 +115,11 @@ async def chat_diagram(body: ChatRequest, request: Request):
         last_user = messages[-1]["content"] if messages else ""
         applied_suggestions = body.applied_suggestions or []
 
-        use_xml_edit = bool(body.current_xml and body.current_xml.strip() and not is_minimal_diagram(body.current_xml))
+        # Prefer JSON architecture edits when available — XML edit path is heavier.
+        use_xml_edit = (
+            bool(body.current_xml and body.current_xml.strip() and not is_minimal_diagram(body.current_xml))
+            and current_architecture is None
+        )
 
         if body.platform_convert:
             return await run_generation_pipeline(

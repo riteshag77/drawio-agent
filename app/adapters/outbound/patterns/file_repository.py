@@ -216,6 +216,19 @@ class FilePatternRepository(PatternRepository):
         return [p for _, p in scored[:limit]]
 
 
+_DEFAULT_PATTERN_REPO: FilePatternRepository | None = None
+
+
+def get_pattern_repository(data_dir: Path | None = None) -> FilePatternRepository:
+    """Process-level pattern repo (reload only when a custom data_dir is passed)."""
+    global _DEFAULT_PATTERN_REPO
+    if data_dir is not None:
+        return FilePatternRepository(data_dir)
+    if _DEFAULT_PATTERN_REPO is None:
+        _DEFAULT_PATTERN_REPO = FilePatternRepository()
+    return _DEFAULT_PATTERN_REPO
+
+
 def _resolve_services(pattern: ArchitecturePattern, platform: str) -> tuple[str, ...]:
     platform = (platform or "aws").lower()
     if platform in pattern.services:
@@ -224,42 +237,40 @@ def _resolve_services(pattern: ArchitecturePattern, platform: str) -> tuple[str,
 
 
 def format_patterns_for_prompt(patterns: list[ArchitecturePattern], platform: str = "aws") -> str:
-    """Render matched patterns as a compact blueprint block for the system prompt."""
+    """Render matched patterns as a compact hint block (no full skeleton JSON).
+
+    Server-side ``apply_pattern_blueprint`` fills HA containers; the LLM only needs
+    flow, shape keys, and a short id checklist.
+    """
     if not patterns:
         return ""
 
     platform = (platform or "aws").lower()
     blocks: list[str] = [
-        "## Reference pattern (extend this skeleton — do not flatten hierarchy)",
-        "Reuse the topology below. Keep AZ symmetry and parent_id nesting. "
-        "Customize labels/services for the request; keep WAF/Shield as attached (null step).",
+        "## Reference pattern (server merges full HA blueprint — emit matching ids)",
+        "Set pattern_id. Keep parent_id nesting and AZ symmetry. "
+        "Edge/CDN outside VPC; WAF/Shield attached (step_number null).",
     ]
     for pattern in patterns[:1]:
         services = _resolve_services(pattern, platform)
         blocks.append(
             f"\n### {pattern.name} (`{pattern.id}`)\n"
             f"{pattern.summary}\n"
-            f"- Flow (primary path step_number order): {' → '.join(pattern.flow)}\n"
+            f"- Flow (primary step_number order): {' → '.join(pattern.flow)}\n"
             f"- Shape keys ({platform}): {', '.join(services)}\n"
-            f"- Best practices:\n"
-            + "\n".join(f"  - {bp}" for bp in pattern.best_practices)
+            f"- Practices: " + "; ".join(pattern.best_practices)
         )
         bp = pattern.blueprint.get(platform) or pattern.blueprint.get("aws")
         if bp and bp.get("nodes"):
-            import json
-            skeleton = {
-                "pattern_id": pattern.id,
-                "nodes": [
-                    {k: n.get(k) for k in ("id", "label", "shape_type", "is_container", "parent_id", "step_number")}
-                    for n in bp["nodes"]
-                ],
-                "edges": [
-                    {k: e.get(k) for k in ("source_id", "target_id", "label", "style")}
-                    for e in bp.get("edges", [])
-                ],
-            }
+            # Compact id list only — full skeleton lives in apply_pattern_blueprint.
+            ids = [str(n.get("id")) for n in bp["nodes"] if n.get("id")]
+            attached = [
+                str(n.get("id"))
+                for n in bp["nodes"]
+                if n.get("id") and n.get("step_number") is None and not n.get("is_container")
+            ]
             blocks.append(
-                "\nSkeleton JSON (AUTHORITATIVE starting topology — extend/customize, keep hierarchy):\n"
-                + json.dumps(skeleton, separators=(",", ":"))
+                f"- Blueprint node ids (reuse when present): {', '.join(ids)}\n"
+                f"- Attached (null step): {', '.join(attached) if attached else '(none)'}"
             )
     return "\n".join(blocks)

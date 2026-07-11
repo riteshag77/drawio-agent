@@ -548,15 +548,26 @@ async function sendMessage(options = {}) {
 
     try {
         const promptSettings = getPromptSettings();
-        const liveXml = await exportDiagramXml();
-        const xmlForRequest = (liveXml && liveXml.length > 200) ? liveXml : (currentXml || null);
+        // With architecture JSON, skip iframe XML export (up to 5s) and stay on JSON edit path.
+        let xmlForRequest = null;
+        if (!currentArchitecture) {
+            const liveXml = await exportDiagramXml();
+            xmlForRequest = (liveXml && liveXml.length > 200) ? liveXml : (currentXml || null);
+        }
         previousXml = currentXml || null;
 
         let contextText = attachmentContext || '';
         const urlMatch = text.match(/https?:\/\/[^\s<>"']+/);
+        // Don't block first-gen on URL fetch when we already have attachment context.
         if (urlMatch && !contextText.includes(urlMatch[0])) {
             try {
-                contextText = (contextText ? contextText + '\n' : '') + await parseUrlContext(urlMatch[0]);
+                const urlCtxPromise = parseUrlContext(urlMatch[0]);
+                // Race with a short timeout so a slow URL does not stall /chat.
+                const timed = await Promise.race([
+                    urlCtxPromise,
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('URL parse timeout')), 2500)),
+                ]);
+                contextText = (contextText ? contextText + '\n' : '') + timed;
             } catch (urlErr) {
                 appendVerboseLog('client', `URL parse skipped: ${urlErr.message}`, 'warn');
             }

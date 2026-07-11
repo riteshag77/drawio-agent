@@ -11,7 +11,7 @@ const ERROR_PANEL_KEY = 'drawio-agent-error-panel';
 const VALIDATION_PROVIDER_KEY = 'drawio-agent-validation-provider';
 const AUTO_LAYOUT_STORAGE_KEY = 'drawio-agent-autolayout-on-load';
 const DIAGRAM_MODE_STORAGE_KEY = 'drawio-agent-diagram-mode';
-const MAX_VLM_CLIENT_RETRIES = 2;
+const MAX_VLM_CLIENT_RETRIES = 0; // Show banner only — auto /chat regen feels like endless loading
 
 let currentXml = '';
 let previousXml = null;

@@ -4,7 +4,6 @@ import asyncio
 import time
 
 from app.adapters.outbound.config.env_config import get_config
-from app.adapters.outbound.diagram.draftsman import prepare_and_generate_xml
 from app.adapters.outbound.diagram.mcp_renderer import render_architecture_xml
 from app.adapters.outbound.diagram.xml_tools import (
     apply_diagram_operations,
@@ -91,11 +90,11 @@ def _run_vlm_retry(user_prompt_or_none, messages, provider, platform, architectu
                    current_architecture, logger, custom_msg, feedback, platform_convert,
                    previous_platform, current_xml, image_data, validation_provider="auto",
                    applied_suggestions=None):
-    """Validate once with the provided screenshot.
+    """Validate once with the provided screenshot (legacy helper for tests).
 
     Without headless re-render we cannot refresh ``image_data`` after regen, so
-    looping would re-score the same stale PNG and burn tokens. Fail-fast after
-    one visual check; client-side auto-retry can export a fresh PNG if needed.
+    looping would re-score the same stale PNG. Prefer inline validate in
+    ``run_generation_pipeline`` (no second XML/MCP pass).
     """
     _ = (
         user_prompt_or_none, messages, provider, platform, current_architecture,
@@ -110,10 +109,8 @@ def _run_vlm_retry(user_prompt_or_none, messages, provider, platform, architectu
             level="warn",
             details={"issues": len(vlm_validation.issues)},
         )
-    xml_output = prepare_and_generate_xml(architecture_data, platform, logger)[1]
-    check = validate_and_fix_xml(xml_output)
-    xml_output = choose_fixed_xml(xml_output, check)
-    return architecture_data, xml_output, vlm_validation
+    # Keep existing XML path out of this helper — caller already has MCP-rendered XML.
+    return architecture_data, None, vlm_validation
 
 
 def _validate_sync(image_data, logger, validation_provider="auto"):
@@ -311,17 +308,17 @@ async def run_generation_pipeline(*, user_prompt=None, messages=None, provider="
     xml_output = choose_fixed_xml(xml_output, final_check)
 
     if image_data and not is_minimal_architecture(architecture_data):
-        architecture_data, xml_output, vlm_validation = await asyncio.to_thread(
-            _run_vlm_retry, human_prompt, messages, provider, platform, architecture_data,
-            current_architecture, logger, custom_msg, feedback, platform_convert,
-            previous_platform, current_xml, image_data, validation_provider, applied_suggestions,
+        # Validate only — do not rebuild XML or re-hit MCP (same architecture, stale PNG).
+        vlm_validation = await asyncio.to_thread(
+            validate_diagram_image, image_data, logger, validation_provider,
         )
-        # Re-apply MCP styles after VLM regen if still in mcp/auto mode
-        xml_output, renderer_used, mcp_preview_url, architecture_data = await render_architecture_xml(
-            architecture_data, platform, logger, diagram_renderer=diagram_renderer,
-        )
-        final_check = validate_and_fix_xml(xml_output)
-        xml_output = choose_fixed_xml(xml_output, final_check)
+        if logger and vlm_validation and not vlm_validation.skipped and not vlm_validation.valid:
+            logger.log(
+                "validation",
+                "VLM issues reported; skipping server-side regen loop (stale screenshot)",
+                level="warn",
+                details={"issues": len(vlm_validation.issues)},
+            )
 
     validation_summary = None
     if structural_validation and not structural_validation.valid:
