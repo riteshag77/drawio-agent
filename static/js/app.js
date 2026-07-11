@@ -542,6 +542,7 @@ async function sendMessage(options = {}) {
                 diagram_mode: options.platformConvert ? 'cloud' : getDiagramMode(),
                 platform_convert: !!options.platformConvert,
                 previous_platform: options.previousPlatform || null,
+                diagram_renderer: document.getElementById('diagram-renderer-select')?.value || 'auto',
                 current_architecture: currentArchitecture,
                 previous_architecture: previousArchitecture,
                 current_xml: xmlForRequest,

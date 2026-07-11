@@ -2,6 +2,23 @@
 
 An AI-powered cloud architecture diagram generator. Describe your infrastructure in natural language and get a live, editable Draw.io diagram with numbered flows, multi-cloud support, and visual validation.
 
+## Run locally
+
+1. Copy settings into [`.env`](.env) (see [`.env.example`](.env.example) and **[docs/ENV_AND_MCP.md](docs/ENV_AND_MCP.md)**).
+2. Set at least one LLM API key (`OPENAI_API_KEY`, etc.).
+3. Install and start:
+
+```powershell
+pip install -r requirements.txt
+python run.py
+```
+
+Open `http://localhost:8000/`. Use the **Render** dropdown for `Auto (MCP)` / `MCP` / `Local`.
+
+- **LLM** → architecture JSON  
+- **Draw.io MCP** → icon styles (when Auto/MCP)  
+- **Cursor skills** → optional publish-quality `.drawio` in agent chat ([docs/CLOUD_DIAGRAM_SKILLS.md](docs/CLOUD_DIAGRAM_SKILLS.md))
+
 ---
 
 ## Architecture Overview

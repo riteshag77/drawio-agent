@@ -5,6 +5,7 @@ import time
 
 from app.adapters.outbound.config.env_config import get_config
 from app.adapters.outbound.diagram.draftsman import generate_xml
+from app.adapters.outbound.diagram.mcp_renderer import render_architecture_xml
 from app.adapters.outbound.diagram.xml_tools import apply_diagram_operations, validate_and_fix_xml, wrap_with_mxfile
 from app.adapters.outbound.llm.prompt_builders import PLATFORM_LABELS
 from app.adapters.outbound.utils.chat import filter_applied_suggestions, is_minimal_architecture, is_minimal_diagram
@@ -51,7 +52,7 @@ def classify_diagram_intent(prompt: str, *, diagram_mode: str = "auto", platform
 def _build_response(status="success", diagram_type="cloud", *, xml=None, mermaid=None,
                     architecture=None, flow_steps=None, pattern_id=None, title=None,
                     suggestions=None, assistant_message="", edit_mode=False,
-                    validation=None, logger=None):
+                    validation=None, logger=None, renderer_used=None, mcp_preview_url=None):
     return {
         "status": status,
         "diagram_type": diagram_type,
@@ -64,6 +65,8 @@ def _build_response(status="success", diagram_type="cloud", *, xml=None, mermaid
         "title": title,
         "assistant_message": assistant_message,
         "edit_mode": edit_mode,
+        "renderer_used": renderer_used,
+        "mcp_preview_url": mcp_preview_url,
         "validation": validation or {"structural": None, "vlm": None, "retries": 0, "feedback": None},
         "logs": logger.to_list() if logger else [],
     }
@@ -258,13 +261,15 @@ async def run_generation_pipeline(*, user_prompt=None, messages=None, provider="
                                     minimal_style=False, custom_system_message="",
                                     validation_feedback=None, image_data=None, context_text=None,
                                     platform_convert=False, previous_platform=None, current_xml=None,
-                                    validation_provider="auto", applied_suggestions=None):
+                                    validation_provider="auto", applied_suggestions=None,
+                                    diagram_renderer=None):
     platform = (platform or "aws").strip().lower()
     provider = (provider or "openai").strip().lower()
 
     logger.log("request", "Generation request", details={
         "platform": platform, "provider": provider, "chat_turns": len(messages) if messages else 1,
         "platform_convert": platform_convert,
+        "diagram_renderer": diagram_renderer or get_config().diagram_renderer,
     })
 
     human_prompt = user_prompt or (messages[-1]["content"] if messages else "")
@@ -284,7 +289,9 @@ async def run_generation_pipeline(*, user_prompt=None, messages=None, provider="
     )
 
     logger.log("layout", "Running auto-layout and XML builder")
-    xml_output = await asyncio.to_thread(generate_xml, architecture_data, platform, logger)
+    xml_output, renderer_used, mcp_preview_url = await render_architecture_xml(
+        architecture_data, platform, logger, diagram_renderer=diagram_renderer,
+    )
 
     final_check = validate_and_fix_xml(xml_output)
     xml_output = final_check.fixed if final_check.fixed else xml_output
@@ -295,6 +302,12 @@ async def run_generation_pipeline(*, user_prompt=None, messages=None, provider="
             current_architecture, logger, custom_msg, feedback, platform_convert,
             previous_platform, current_xml, image_data, validation_provider, applied_suggestions,
         )
+        # Re-apply MCP styles after VLM regen if still in mcp/auto mode
+        xml_output, renderer_used, mcp_preview_url = await render_architecture_xml(
+            architecture_data, platform, logger, diagram_renderer=diagram_renderer,
+        )
+        final_check = validate_and_fix_xml(xml_output)
+        xml_output = final_check.fixed if final_check.fixed else xml_output
 
     validation_summary = None
     if structural_validation and not structural_validation.valid:
@@ -303,7 +316,7 @@ async def run_generation_pipeline(*, user_prompt=None, messages=None, provider="
         validation_summary = format_validation_feedback(vlm_validation)
 
     logger.log("complete", "Pipeline finished", level="success",
-               details={"xml_chars": len(xml_output), "retries": 0})
+               details={"xml_chars": len(xml_output), "retries": 0, "renderer_used": renderer_used})
 
     return _build_response(
         xml=xml_output,
@@ -313,6 +326,8 @@ async def run_generation_pipeline(*, user_prompt=None, messages=None, provider="
         title=architecture_data.title,
         suggestions=filter_applied_suggestions(architecture_data.suggestions, applied_suggestions),
         assistant_message=assistant_message,
+        renderer_used=renderer_used,
+        mcp_preview_url=mcp_preview_url,
         validation={
             "structural": structural_validation.model_dump() if structural_validation else None,
             "vlm": vlm_validation.model_dump() if vlm_validation else None,

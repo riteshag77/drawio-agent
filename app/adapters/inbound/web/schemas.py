@@ -14,6 +14,7 @@ class PromptRequest(BaseModel):
     custom_system_message: str = ""
     context_text: str | None = None
     image_data: str | None = None
+    diagram_renderer: str | None = None
 
 
 class ChatMessage(BaseModel):
@@ -40,6 +41,7 @@ class ChatRequest(BaseModel):
     platform_convert: bool = False
     previous_platform: str | None = None
     applied_suggestions: list[str] = []
+    diagram_renderer: str | None = None
 
 
 class ValidateDiagramRequest(BaseModel):

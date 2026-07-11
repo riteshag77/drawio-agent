@@ -404,6 +404,19 @@ def _generic_fallback(name: str) -> str:
             "strokeColor=#6c8ebf;strokeWidth=1.5;fontSize=12;fontColor=#232F3E;")
 
 
+# Optional MCP / runtime style overrides (shape_type → full style string)
+_STYLE_OVERRIDES: dict[str, str] = {}
+
+
+def set_style_overrides(mapping: dict[str, str]) -> None:
+    _STYLE_OVERRIDES.clear()
+    _STYLE_OVERRIDES.update(mapping or {})
+
+
+def clear_style_overrides() -> None:
+    _STYLE_OVERRIDES.clear()
+
+
 def build_style(shape_type: str) -> str:
     """Derive a draw.io style string from a shape_type key.
 
@@ -414,6 +427,13 @@ def build_style(shape_type: str) -> str:
         return _generic_fallback("")
 
     shape_type = normalize_shape_type(shape_type)
+
+    if shape_type in _STYLE_OVERRIDES:
+        return _STYLE_OVERRIDES[shape_type]
+    # Also try raw key before normalize for MCP maps
+    for key, style in _STYLE_OVERRIDES.items():
+        if normalize_shape_type(key) == shape_type:
+            return style
 
     generic = _generic_shapes(shape_type)
     if generic:

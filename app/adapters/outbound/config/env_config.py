@@ -22,7 +22,9 @@ class EnvConfigAdapter(ConfigPort):
 
     def __init__(self, env_file: str | None = None) -> None:
         if not EnvConfigAdapter._initialized:
-            load_dotenv(env_file)
+            # Prefer project-root .env so keys load regardless of cwd
+            path = env_file or str(EnvConfigAdapter.base_dir() / ".env")
+            load_dotenv(path)
             EnvConfigAdapter._initialized = True
 
     # ── Base directory ─────────────────────────────────────────────────
@@ -227,6 +229,20 @@ class EnvConfigAdapter(ConfigPort):
     @property
     def max_chat_turns_full_history(self) -> int:
         return self.get_int("MAX_CHAT_TURNS_FULL_HISTORY", 4)
+
+    @property
+    def diagram_renderer(self) -> str:
+        """local | mcp | auto — how Draw.io XML is enriched after LLM architecture."""
+        value = (self.get("DIAGRAM_RENDERER", "auto") or "auto").strip().lower()
+        return value if value in ("local", "mcp", "auto") else "auto"
+
+    @property
+    def drawio_mcp_url(self) -> str:
+        return self.get("DRAWIO_MCP_URL", "https://mcp.draw.io/mcp")
+
+    @property
+    def drawio_mcp_timeout(self) -> int:
+        return self.get_int("DRAWIO_MCP_TIMEOUT", 30)
 
 
 # Singleton for app-wide use

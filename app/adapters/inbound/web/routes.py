@@ -64,6 +64,7 @@ async def generate_diagram(body: PromptRequest, request: Request):
             logger=logger, minimal_style=body.minimal_style,
             custom_system_message=sanitize_custom_message(body.custom_system_message),
             context_text=body.context_text, image_data=body.image_data,
+            diagram_renderer=body.diagram_renderer,
         )
     except Exception as exc:
         logger.log("error", str(exc), level="error")
@@ -115,6 +116,7 @@ async def chat_diagram(body: ChatRequest, request: Request):
                 previous_platform=body.previous_platform, current_xml=body.current_xml,
                 validation_provider=body.validation_provider,
                 applied_suggestions=applied_suggestions,
+                diagram_renderer=body.diagram_renderer,
             )
 
         if use_xml_edit:
@@ -144,6 +146,7 @@ async def chat_diagram(body: ChatRequest, request: Request):
             context_text=body.context_text,
             validation_provider=body.validation_provider,
             applied_suggestions=applied_suggestions,
+            diagram_renderer=body.diagram_renderer,
         )
     except Exception as exc:
         logger.log("error", str(exc), level="error")

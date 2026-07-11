@@ -166,6 +166,7 @@ async function autoRetryWithVlm(imageData, feedback) {
                 validation_provider: promptSettings.validation_provider,
                 platform: selectedPlatform,
                 diagram_mode: getDiagramMode(),
+                diagram_renderer: document.getElementById('diagram-renderer-select')?.value || 'auto',
                 current_architecture: currentArchitecture,
                 previous_architecture: previousArchitecture,
                 current_xml: xmlForRequest,
