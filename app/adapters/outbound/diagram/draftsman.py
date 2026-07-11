@@ -120,7 +120,20 @@ def generate_xml(
         layout, nodes_by_id, children_map, roots, flow_notes, settings=settings,
     )
 
-    for node in architecture.nodes:
+    def _node_depth(node_id: str) -> int:
+        depth = 0
+        seen: set[str] = set()
+        current = nodes_by_id.get(node_id)
+        while current and current.parent_id and current.parent_id in nodes_by_id:
+            if current.parent_id in seen:
+                break
+            seen.add(current.parent_id)
+            depth += 1
+            current = nodes_by_id[current.parent_id]
+        return depth
+
+    # Parents before children so draw.io nesting is valid without a post-sort pass
+    for node in sorted(architecture.nodes, key=lambda n: (_node_depth(n.id), n.id)):
         parent_cell = node.parent_id if node.parent_id in nodes_by_id else "1"
         append_vertex(xml, node, layout, parent_cell, accent, style_overrides=style_overrides)
 

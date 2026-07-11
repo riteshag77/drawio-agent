@@ -20,13 +20,15 @@ from app.domain.entities import ArchitectureDiagram, Edge, Node
 
 
 class LeanPromptBudgetTests(unittest.TestCase):
-    def test_aws_new_diagram_system_prompt_under_2k_tokens(self) -> None:
+    def test_aws_new_diagram_system_prompt_under_1500_tokens(self) -> None:
         prompt = get_system_prompt(platform="aws", is_edit_mode=False, include_schema=True)
         tokens = estimate_prompt_tokens(prompt)
-        self.assertLessEqual(tokens, 2000, f"system prompt ~{tokens} tokens exceeds 2k budget")
+        self.assertLessEqual(tokens, 1500, f"system prompt ~{tokens} tokens exceeds 1500 budget")
         self.assertNotIn("Draw.io stack/autolayout", prompt)
         self.assertNotIn("GCP — Containers", prompt)
         self.assertIn("attached", prompt.lower())
+        # Must-include lives only in topology (checklist.txt removed).
+        self.assertEqual(prompt.lower().count("must-include"), 1)
 
     def test_edit_mode_skips_topology_essay(self) -> None:
         prompt = get_system_prompt(platform="aws", is_edit_mode=True, include_schema=False)
@@ -37,10 +39,15 @@ class LeanPromptBudgetTests(unittest.TestCase):
     def test_platform_catalogue_is_filtered(self) -> None:
         aws = get_system_prompt(platform="aws", include_schema=True)
         gcp = get_system_prompt(platform="gcp", include_schema=True)
+        azure = get_system_prompt(platform="azure", include_schema=True)
         self.assertIn("aws_fargate", aws)
         self.assertNotIn("azure_vm", aws)
         self.assertIn("gcp_cloud_run", gcp)
         self.assertNotIn("aws_fargate", gcp)
+        for non_aws in (gcp, azure):
+            self.assertNotIn("AWS REFERENCE TOPOLOGY", non_aws)
+            self.assertNotIn("Route 53", non_aws)
+            self.assertIn("REFERENCE TOPOLOGY", non_aws)
 
 
 class PatternBlueprintTests(unittest.TestCase):

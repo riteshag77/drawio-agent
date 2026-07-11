@@ -12,4 +12,4 @@ Services: `azure_vm` `azure_vmss` `azure_aks` `azure_function` `azure_app_servic
 `azure_service_bus` `azure_api_gateway` `azure_monitor` `azure_log_analytics`
 
 Hierarchy: azure_subscription → azure_resource_group → azure_vnet → subnets.
-Edge colors: `#0078D4`. Front Door / Firewall / Key Vault / Monitor = attached (step_number null).
+Front Door / Firewall / Key Vault / Monitor = attached (step_number null).

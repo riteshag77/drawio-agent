@@ -237,7 +237,7 @@ Canonical modules under `app/adapters/outbound/llm/` (shim: `app/llm/`):
 - `llm_client.py` — `call_llm()` with structured-output method resolution and text-JSON fallback
 - `response_parse.py` — `extract_json`, `message_text`, gateway JSON helpers
 - `prompt_builders.py` — chat/edit human prompts (history trim, conversion block, validation feedback)
-- `prompts/system.py` — system prompts (schema, shape catalogue, hierarchy rules; slim Cursor variant)
+- `prompts/system.py` — lean system prompts from `config/*.txt` (catalogue, topology, contract; no Cursor-specific variant)
 
 ### Step 5: Architecture Models (`app/domain/entities/`)
 

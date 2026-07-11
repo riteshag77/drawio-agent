@@ -9,5 +9,5 @@ Services: `gcp_compute_engine` `gcp_kubernetes_engine` `gcp_cloud_run` `gcp_clou
 `gcp_kms` `gcp_secret_manager` `gcp_cloud_storage` `gcp_cloud_sql` `gcp_memorystore` `gcp_pubsub`
 `gcp_cloud_monitoring` `gcp_cloud_logging` `gcp_cloud_nat`
 
-Hierarchy: gcp_project → gcp_vpc → gcp_subnet (or zone). Edge colors: `#4285F4`.
+Hierarchy: gcp_project → gcp_vpc → gcp_subnet (or zone).
 Cloud Armor / IAM / monitoring = attached (step_number null), not primary-path hops.

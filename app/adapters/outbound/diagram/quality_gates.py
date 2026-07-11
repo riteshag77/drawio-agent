@@ -136,10 +136,8 @@ def gate_e_multi_az(nodes_by_id: dict[str, Node]) -> GateResult:
         if node.is_container:
             continue
         suffix = shape_suffix(node)
-        for key in singletons:
-            if key == suffix or key in suffix or key.replace("_", " ") in (node.label or "").lower():
-                counts[key] = counts.get(key, 0) + 1
-                break
+        if suffix in singletons:
+            counts[suffix] = counts.get(suffix, 0) + 1
     violations = [f"{k} duplicated {v}x" for k, v in counts.items() if v > 1 and k != "internet_gateway"]
     return GateResult("E", not violations, "; ".join(violations) or "multi-AZ convention OK", violations)
 

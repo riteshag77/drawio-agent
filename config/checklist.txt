@@ -1,5 +1,0 @@
-## Must-include (when no reference pattern matched)
-- Private DB placement; edge protection as attached (not inline hops).
-- Observability (one monitoring link); secrets/KMS when credentials exist.
-- Multi-AZ when the user asks for HA / highly available / 2 AZ.
-- Prefer managed services; keep hierarchy flat (≤4 levels).

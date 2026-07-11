@@ -100,5 +100,41 @@ class DiagramNormalizeTests(unittest.TestCase):
         self.assertNotIn('id="band_integration"', xml)
 
 
+class SingletonDedupeTests(unittest.TestCase):
+    def test_dedupe_duplicate_api_gateway_rewrites_edges(self) -> None:
+        arch = ArchitectureDiagram(
+            nodes=[
+                Node(id="cloud", label="AWS", shape_type="aws_cloud", is_container=True),
+                Node(id="cf", label="CloudFront", shape_type="aws_cloudfront", parent_id="cloud", step_number=1),
+                Node(id="api_gw", label="API GW", shape_type="aws_api_gateway", parent_id="cloud", step_number=2),
+                Node(id="aws_api_gateway", label="API Gateway", shape_type="aws_api_gateway", parent_id="cloud", step_number=3),
+                Node(id="alb", label="ALB", shape_type="aws_alb", parent_id="cloud", step_number=4),
+            ],
+            edges=[
+                Edge(source_id="cf", target_id="api_gw", label="HTTPS"),
+                Edge(source_id="api_gw", target_id="alb", label="HTTPS"),
+                Edge(source_id="aws_api_gateway", target_id="alb", label="HTTPS"),
+            ],
+            suggestions=[],
+        )
+        norm = normalize_architecture(arch)
+        apis = [n for n in norm.nodes if n.shape_type == "aws_api_gateway"]
+        self.assertEqual(len(apis), 1)
+        self.assertEqual(apis[0].id, "aws_api_gateway")
+        self.assertFalse(any(e.source_id == "api_gw" or e.target_id == "api_gw" for e in norm.edges))
+        self.assertTrue(any(e.source_id == "cf" and e.target_id == "aws_api_gateway" for e in norm.edges))
+
+    def test_gate_e_ignores_api_gateway_in_unrelated_label(self) -> None:
+        from app.adapters.outbound.diagram.quality_gates import gate_e_multi_az
+
+        nodes = [
+            Node(id="aws_api_gateway", label="API Gateway", shape_type="aws_api_gateway"),
+            Node(id="fn", label="calls API Gateway", shape_type="aws_lambda"),
+        ]
+        nodes_by_id = {n.id: n for n in nodes}
+        result = gate_e_multi_az(nodes_by_id)
+        self.assertTrue(result.passed, result.message)
+
+
 if __name__ == "__main__":
     unittest.main()

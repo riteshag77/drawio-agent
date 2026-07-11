@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 import uuid
 
 import app.core.ssl_trust  # noqa: F401 — trust the OS CA store before any HTTPS clients
@@ -24,8 +25,6 @@ cfg = get_config()
 
 logger = None  # lazy import to avoid circular dependency
 
-_PUBLIC_PATHS = {"/", "/health", "/static"}
-
 
 class ApiKeyMiddleware(BaseHTTPMiddleware):
     """Optional API key gate when API_KEY is configured."""
@@ -41,7 +40,7 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
         auth = request.headers.get("Authorization") or ""
         if auth.lower().startswith("bearer "):
             provided = provided or auth[7:].strip()
-        if provided != api_key:
+        if not provided or not secrets.compare_digest(provided, api_key):
             return JSONResponse(status_code=401, content={"status": "error", "detail": "Unauthorized"})
         return await call_next(request)
 

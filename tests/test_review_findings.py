@@ -156,6 +156,44 @@ class SsrfTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             assert_public_http_url("file:///etc/passwd")
 
+    def test_pins_literal_public_ip(self) -> None:
+        url, host, port, ip = assert_public_http_url("https://1.1.1.1/")
+        self.assertEqual(host, "1.1.1.1")
+        self.assertEqual(ip, "1.1.1.1")
+        self.assertEqual(port, 443)
+        self.assertEqual(url, "https://1.1.1.1/")
+
+
+class WaypointParentTests(unittest.TestCase):
+    def test_waypoint_edges_forced_to_root(self) -> None:
+        from app.adapters.outbound.diagram.mcp_xml_normalize import force_waypoint_edges_to_root
+
+        xml = (
+            '<mxfile host="embed.diagrams.net"><diagram name="t" id="1">'
+            '<mxGraphModel><root>'
+            '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            '<mxCell id="box" vertex="1" parent="1">'
+            '<mxGeometry x="10" y="10" width="100" height="80" as="geometry"/></mxCell>'
+            '<mxCell id="edge_1" edge="1" parent="box" source="a" target="b">'
+            '<mxGeometry relative="1" as="geometry">'
+            '<Array as="points"><mxPoint x="50" y="50"/></Array>'
+            "</mxGeometry></mxCell>"
+            "</root></mxGraphModel></diagram></mxfile>"
+        )
+        out = force_waypoint_edges_to_root(xml)
+        self.assertIn('id="edge_1"', out)
+        self.assertRegex(out, r'id="edge_1"[^>]*parent="1"')
+
+
+class ConfigPathTests(unittest.TestCase):
+    def test_prompt_config_dir_resolves(self) -> None:
+        from app.adapters.outbound.llm.prompts.system import CONFIG_DIR, _load_prompt
+
+        self.assertTrue((CONFIG_DIR / "architect_default.txt").is_file())
+        self.assertTrue((CONFIG_DIR / "contract.txt").is_file())
+        text = _load_prompt("contract.txt")
+        self.assertIn("EDGE", text.upper())
+
 
 class XmlDocumentGuardTests(unittest.TestCase):
     def test_auto_fix_does_not_strip_valid_mxfile_to_bare_cells(self) -> None:

@@ -11,6 +11,8 @@ from app.adapters.outbound.diagram.drawio_mcp_client import (
     create_diagram,
     resolve_shape_styles,
 )
+from app.adapters.outbound.diagram.mcp_xml_normalize import force_waypoint_edges_to_root
+from app.adapters.outbound.diagram.xml_tools import ensure_diagram_document
 
 if TYPE_CHECKING:
     from app.core.logging import StepLogger
@@ -64,9 +66,7 @@ async def render_architecture_xml(
         # Libavoid only helps when MCP returns updated mxGraph XML (preview-only = skip)
         preview_url, routed_xml = await create_diagram(xml, routing="libavoid")
         if routed_xml and ("<mxGraphModel" in routed_xml or "<mxfile" in routed_xml):
-            from app.adapters.outbound.diagram.xml_tools import ensure_diagram_document
-
-            xml = ensure_diagram_document(routed_xml)
+            xml = force_waypoint_edges_to_root(ensure_diagram_document(routed_xml))
             if logger:
                 logger.log("mcp", "create_diagram libavoid XML applied", details={
                     "preview": (preview_url or "")[:200],

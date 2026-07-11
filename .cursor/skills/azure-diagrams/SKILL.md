@@ -9,6 +9,13 @@ metadata:
   repository: https://github.com/cmb211087/azure-diagrams-skill
 ---
 
+## Routing (Cursor chat only)
+
+- **Use this skill** for Azure architecture via Python `diagrams`+Graphviz (PNG deliverable).
+- **aws-architecture-diagram** for AWS-only hand-authored `.drawio` XML.
+- **drawio-skill** for general / multi-cloud draw.io XML.
+- Do **not** paste skill content into the FastAPI app custom system message (runtime emits ArchitectureDiagram JSON via `config/*.txt`).
+
 # Azure Architecture Diagrams Skill
 
 A comprehensive technical diagramming toolkit for solutions architects, presales engineers, and developers. Generate professional diagrams for proposals, documentation, and architecture reviews.

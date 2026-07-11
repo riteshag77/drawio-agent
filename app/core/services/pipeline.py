@@ -91,34 +91,28 @@ def _run_vlm_retry(user_prompt_or_none, messages, provider, platform, architectu
                    current_architecture, logger, custom_msg, feedback, platform_convert,
                    previous_platform, current_xml, image_data, validation_provider="auto",
                    applied_suggestions=None):
-    """Run VLM validation retry loop. Returns (architecture_data, xml_output, vlm_validation)."""
-    config = get_config()
-    vlm_validation = None
-    for vlm_attempt in range(config.max_vlm_retries + 1):
-        if vlm_attempt > 0:
-            _backoff_delay(vlm_attempt - 1)
-        vlm_validation = _validate_sync(image_data, logger, validation_provider)
-        if vlm_validation.skipped or vlm_validation.valid or vlm_attempt >= config.max_vlm_retries:
-            break
-        feedback = format_validation_feedback(vlm_validation)
-        if messages:
-            architecture_data, _ = generate_architecture_from_chat(
-                messages, provider, platform, architecture_data, current_architecture,
-                logger, False, custom_msg, feedback, platform_convert, previous_platform, current_xml,
-                applied_suggestions,
-            )
-        else:
-            architecture_data = generate_architecture_json(
-                user_prompt_or_none or "", provider, platform, logger, None,
-                architecture_data, current_architecture, False, custom_msg, feedback,
-                platform_convert=platform_convert,
-                previous_platform=previous_platform,
-                current_xml=current_xml,
-                applied_suggestions=applied_suggestions,
-            )
-        _, xml_output = prepare_and_generate_xml(architecture_data, platform, logger)
-        check = validate_and_fix_xml(xml_output)
-        xml_output = choose_fixed_xml(xml_output, check)
+    """Validate once with the provided screenshot.
+
+    Without headless re-render we cannot refresh ``image_data`` after regen, so
+    looping would re-score the same stale PNG and burn tokens. Fail-fast after
+    one visual check; client-side auto-retry can export a fresh PNG if needed.
+    """
+    _ = (
+        user_prompt_or_none, messages, provider, platform, current_architecture,
+        custom_msg, feedback, platform_convert, previous_platform, current_xml,
+        applied_suggestions,
+    )
+    vlm_validation = _validate_sync(image_data, logger, validation_provider)
+    if logger and vlm_validation and not vlm_validation.skipped and not vlm_validation.valid:
+        logger.log(
+            "validation",
+            "VLM issues reported; skipping server-side regen loop (stale screenshot)",
+            level="warn",
+            details={"issues": len(vlm_validation.issues)},
+        )
+    xml_output = prepare_and_generate_xml(architecture_data, platform, logger)[1]
+    check = validate_and_fix_xml(xml_output)
+    xml_output = choose_fixed_xml(xml_output, check)
     return architecture_data, xml_output, vlm_validation
 
 
@@ -253,18 +247,15 @@ async def run_edit_pipeline(*, messages, provider, platform, current_xml, previo
         feedback = f"XML validation failed: {check.error}"
 
     if image_data and not is_minimal_diagram(xml_output):
-        for vlm_attempt in range(config.max_vlm_retries + 1):
-            vlm_validation = await asyncio.to_thread(validate_diagram_image, image_data, logger, validation_provider)
-            if vlm_validation.skipped or vlm_validation.valid or vlm_attempt >= config.max_vlm_retries:
-                break
-            feedback = format_validation_feedback(vlm_validation)
-            edit_response = await asyncio.to_thread(
-                generate_edit_operations, messages, provider, xml_output, previous_xml,
-                logger, custom_msg, feedback, context_text, applied_suggestions,
+        # Fail-fast: same screenshot cannot validate post-edit XML without headless re-render
+        vlm_validation = await asyncio.to_thread(validate_diagram_image, image_data, logger, validation_provider)
+        if logger and vlm_validation and not vlm_validation.skipped and not vlm_validation.valid:
+            logger.log(
+                "validation",
+                "VLM issues on edit; skipping server regen loop (stale screenshot)",
+                level="warn",
+                details={"issues": len(vlm_validation.issues)},
             )
-            if edit_response.operations:
-                xml_output = apply_diagram_operations(xml_output, edit_response.operations).result
-            assistant_message = edit_response.assistant_message or assistant_message
 
     validation_summary = format_validation_feedback(vlm_validation) if vlm_validation and not vlm_validation.valid and not vlm_validation.skipped else None
     logger.log("complete", "XML edit finished", level="success", details={"xml_chars": len(xml_output)})

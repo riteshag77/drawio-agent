@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from pathlib import Path
+
+from app.adapters.outbound.config.env_config import EnvConfigAdapter
 
 MAX_CUSTOM_SYSTEM_MESSAGE_LEN = 5000
 
@@ -15,7 +16,7 @@ When VALIDATION FEEDBACK is provided, fix visual issues with minimal operations:
 - Do NOT regenerate the entire diagram unless replace mode is truly necessary.
 """
 
-CONFIG_DIR = Path(__file__).resolve().parents[5] / "config"
+CONFIG_DIR = EnvConfigAdapter.base_dir() / "config"
 
 _CATALOGUE_BY_PLATFORM = {
     "aws": "catalogue_aws.txt",
@@ -26,8 +27,8 @@ _CATALOGUE_BY_PLATFORM = {
 
 _TOPOLOGY_BY_PLATFORM = {
     "aws": "topology_aws_reference.txt",
-    "gcp": "topology_aws_reference.txt",  # same structural rules; catalogue differs
-    "azure": "topology_aws_reference.txt",
+    "gcp": "topology_generic.txt",
+    "azure": "topology_generic.txt",
     "multi": "topology_aws_reference.txt",
 }
 
@@ -71,7 +72,6 @@ def _assemble_prompt(
     is_edit_mode: bool = False,
     include_schema: bool = True,
     patterns_block: str = "",
-    has_pattern: bool = False,
 ) -> str:
     model_name = _resolve_model_name(model_id, provider)
     parts: list[str] = [_load_prompt("architect_default.txt")]
@@ -86,8 +86,6 @@ def _assemble_prompt(
     if include_schema:
         parts.append(_load_prompt(_catalogue_file(platform)))
         parts.append(_load_prompt(_topology_file(platform)))
-        if not has_pattern:
-            parts.append(_load_prompt("checklist.txt"))
     else:
         # Edit turns: catalogue only so new nodes use valid shape keys.
         parts.append(_load_prompt(_catalogue_file(platform)))
@@ -126,7 +124,6 @@ def get_system_prompt(
         is_edit_mode=is_edit_mode,
         include_schema=include_schema,
         patterns_block=patterns_block,
-        has_pattern=bool((patterns_block or "").strip()),
     )
 
 

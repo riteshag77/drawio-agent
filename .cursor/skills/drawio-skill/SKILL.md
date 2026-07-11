@@ -9,6 +9,13 @@ platforms: [macos, linux, windows]
 metadata: {"openclaw":{"requires":{"anyBins":["draw.io","drawio"]},"emoji":"📐","os":["darwin","linux","win32"],"install":[{"id":"brew-drawio","kind":"brew","formula":"drawio","bins":["drawio"],"label":"Install draw.io via Homebrew","os":["darwin"]},{"id":"brew-graphviz","kind":"brew","formula":"graphviz","bins":["dot"],"label":"Install Graphviz for optional autolayout.py","os":["darwin"],"optional":true}]},"hermes":{"tags":["drawio","diagram","flowchart","architecture","visualization","uml"],"category":"design","requires_tools":["drawio","draw.io"],"related_skills":["mermaid","excalidraw","plantuml"]},"author":"Agents365-ai","version":"1.19.0"}
 ---
 
+## Routing (Cursor chat only)
+
+- **Use this skill** for general / multi-cloud / GCP draw.io XML, Mermaid→draw.io, and bundled import scripts.
+- **aws-architecture-diagram** for AWS-only AWS4 reference-style diagrams.
+- **azure-diagrams** for Azure architecture via Python `diagrams`+Graphviz (PNG).
+- Do **not** paste these XML rules into the FastAPI app custom system message (runtime emits ArchitectureDiagram JSON via `config/*.txt`).
+
 # Draw.io Diagrams
 
 ## Overview
@@ -193,9 +200,7 @@ Always lowercase the user-provided name before any file operation — the schema
 
 ## Authoring .drawio XML
 
-**Before hand-writing any `.drawio` XML (step 3), read `references/xml-authoring.md`** — file skeleton, shape/edge cell forms, containers, connection-point distribution, color palette, and spacing/grid rules all live there. Skip it only when a bundled generator writes the XML for you (`autolayout.py` + importers, `seqlayout.py`).
-
-Two rules worth stating even here: never reuse ids `0`/`1` (reserved root cells), and every edge `mxCell` needs a `<mxGeometry relative="1" as="geometry" />` child — self-closing edge cells do not render.
+When hand-writing XML in step 3, read `references/xml-authoring.md` first (skeleton, cells, spacing). Skip when a bundled generator writes the file.
 
 ## Export
 

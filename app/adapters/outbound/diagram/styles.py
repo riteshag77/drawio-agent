@@ -157,7 +157,7 @@ _GCP_ALIASES: dict[str, str] = {
 
 
 def normalize_shape_type(shape_type: str) -> str:
-    """Map legacy pattern-library keys to canonical schema.txt keys."""
+    """Map legacy pattern-library keys to canonical catalogue shape keys."""
     if not shape_type:
         return shape_type
     if shape_type.startswith("aws_"):

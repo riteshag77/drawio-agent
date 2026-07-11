@@ -234,9 +234,58 @@ def _renumber_data_path(nodes: list[Node]) -> tuple[list[Node], list[FlowStep]]:
     return updated, flow_steps
 
 
+def _canonical_singleton_id(nodes: list[Node], suffix: str) -> str:
+    """Prefer blueprint-style ids (e.g. aws_api_gateway) then shortest id."""
+    scored = sorted(
+        nodes,
+        key=lambda n: (
+            0 if n.id.endswith(suffix) or n.id == f"aws_{suffix}" or n.id == suffix else 1,
+            len(n.id),
+            n.id,
+        ),
+    )
+    return scored[0].id
+
+
+def _dedupe_singleton_nodes(architecture: ArchitectureDiagram) -> ArchitectureDiagram:
+    """Collapse duplicate singleton leaf shapes (LLM + blueprint different ids)."""
+    by_suffix: dict[str, list[Node]] = {}
+    for node in architecture.nodes:
+        if node.is_container:
+            continue
+        suffix = shape_suffix(node)
+        if suffix in _SINGLETON_SUFFIXES:
+            by_suffix.setdefault(suffix, []).append(node)
+
+    id_map: dict[str, str] = {}
+    drop: set[str] = set()
+    for suffix, group in by_suffix.items():
+        if len(group) < 2:
+            continue
+        keep = _canonical_singleton_id(group, suffix)
+        for node in group:
+            if node.id != keep:
+                id_map[node.id] = keep
+                drop.add(node.id)
+
+    if not drop:
+        return architecture
+
+    nodes = [n for n in architecture.nodes if n.id not in drop]
+    edges: list[Edge] = []
+    for edge in architecture.edges:
+        src = id_map.get(edge.source_id, edge.source_id)
+        tgt = id_map.get(edge.target_id, edge.target_id)
+        if src == tgt:
+            continue
+        edges.append(edge.model_copy(update={"source_id": src, "target_id": tgt}))
+    return architecture.model_copy(update={"nodes": nodes, "edges": _dedupe_edges(edges)})
+
+
 def normalize_architecture(architecture: ArchitectureDiagram) -> ArchitectureDiagram:
     # Only create bands that have members — no empty full-width strips
     keep_empty = False
+    architecture = _dedupe_singleton_nodes(architecture)
     nodes_by_id = {n.id: n for n in architecture.nodes}
 
     edges = _dedupe_edges(_add_protects_edges(
