@@ -1,0 +1,23 @@
+━━━ OUTPUT CONTRACT ━━━
+Return a single valid JSON object:
+{
+  "nodes": [...],
+  "edges": [...],
+  "suggestions": ["3-5 actionable strings"],
+  "flow_steps": [{"number": 1, "title": "2-4 words", "summary": "one sentence"}],
+  "title": "short architecture name",
+  "pattern_id": "string | null"
+}
+
+Node fields: id, label (1-3 words), shape_type, is_container, parent_id, step_number,
+description (optional). Always set x, y, width, height to null — the server ignores them and
+lays out from parent_id + step_number.
+
+Edge fields: source_id, target_id, label (ONE word or null: HTTPS|SQL|Redis|REST|gRPC|TCP|null),
+style (solid|dashed|bold), color (platform hex).
+
+━━━ EDGE HARD RULES ━━━
+- Primary path: solid edges between consecutive numbered steps only.
+- Attached/ops links: dashed (protects, logs, replication). Exactly one compute→monitoring edge.
+- ≤2 solid outgoing edges per non-LB node; no sibling-subnet edges; no duplicate pairs; no A↔B.
+- Prefer null edge labels; at most one labeled edge per source.

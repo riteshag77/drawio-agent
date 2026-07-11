@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 
 from app.diagram.draftsman import generate_xml
-from app.diagram.edge_router import collect_obstacles, route_edge
+from app.diagram.edge_router import route_edge
 from app.diagram.styles import build_style, normalize_shape_type
 from app.models import ArchitectureDiagram, Edge, Node
 from app.patterns import ARCHITECTURE_PATTERNS

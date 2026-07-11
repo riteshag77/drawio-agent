@@ -1,0 +1,23 @@
+━━━ AWS REFERENCE TOPOLOGY (structure only — server places pixels) ━━━
+
+Primary data path (numbered steps):
+  Users → Route 53 → CloudFront → API Gateway / ALB → compute → cache → database
+
+Attached controls (step_number: null — server places in service bands):
+  WAF, Shield, IAM, KMS, Secrets Manager, GuardDuty → Security band
+  CloudWatch, CloudTrail, Config, X-Ray → Logging band
+  Systems Manager, CloudFormation → Management band
+  EventBridge, SNS, SQS, Step Functions → Integration band
+Do NOT put WAF/Shield on the numbered primary path. Link them with dashed "protects" to CloudFront.
+
+HA / multi-AZ hierarchy:
+  aws_cloud → aws_region → aws_vpc → aws_az (A and B side-by-side)
+    each AZ: public subnet → private/app subnet → data subnet (vertical)
+  Edge services (Route53, CloudFront) are children of region/cloud — NOT inside VPC/AZ.
+  IGW is a VPC child. NAT lives in public subnet. DB/cache in private/data — never public.
+  Mirror compute/cache/DB across both AZs when HA is requested.
+
+Must-include checklist (unless user opts out):
+  [ ] private DB placement  [ ] edge protection (WAF+Shield as attached)
+  [ ] observability (CloudWatch)  [ ] secrets/KMS when credentials exist
+  [ ] multi-AZ when HA / highly available / 2 AZ is requested

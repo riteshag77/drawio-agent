@@ -1,25 +1,13 @@
-"""
-System prompt builder — loads prompts from external .txt files.
-
-Composes role, layout/edge/label rules (next-ai), output contract, architecture schema catalogue,
-and expert architect principles.
-"""
+"""System prompt builder — lean topology-only prompts from config/*.txt."""
 
 from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
 
-EXTENDED_PROMPT_MODEL_PATTERNS = (
-    "claude-opus-4-5",
-    "claude-haiku-4-5",
-)
-
 MAX_CUSTOM_SYSTEM_MESSAGE_LEN = 5000
 
-ARCHITECTURE_SCHEMA_FILENAME = "schema.txt"
-
-# Kept as a Python constant because prompt_builders.py imports it for human-prompt assembly.
+# Kept for prompt_builders.py (XML edit validation feedback).
 XML_EDIT_VALIDATION_FEEDBACK = """
 When VALIDATION FEEDBACK is provided, fix visual issues with minimal operations:
 - Move overlapping nodes apart (update geometry x/y).
@@ -27,24 +15,29 @@ When VALIDATION FEEDBACK is provided, fix visual issues with minimal operations:
 - Do NOT regenerate the entire diagram unless replace mode is truly necessary.
 """
 
-
 CONFIG_DIR = Path(__file__).resolve().parents[5] / "config"
 
+_CATALOGUE_BY_PLATFORM = {
+    "aws": "catalogue_aws.txt",
+    "gcp": "catalogue_gcp.txt",
+    "azure": "catalogue_azure.txt",
+    "multi": "catalogue_aws.txt",
+}
 
-@lru_cache(maxsize=12)
+_TOPOLOGY_BY_PLATFORM = {
+    "aws": "topology_aws_reference.txt",
+    "gcp": "topology_aws_reference.txt",  # same structural rules; catalogue differs
+    "azure": "topology_aws_reference.txt",
+    "multi": "topology_aws_reference.txt",
+}
+
+
+@lru_cache(maxsize=24)
 def _load_prompt(filename: str) -> str:
     path = CONFIG_DIR / filename
     if not path.is_file():
         raise FileNotFoundError(f"Prompt file not found: {path}")
     return path.read_text(encoding="utf-8")
-
-
-@lru_cache(maxsize=1)
-def _load_architecture_schema() -> str:
-    schema_path = CONFIG_DIR / ARCHITECTURE_SCHEMA_FILENAME
-    if not schema_path.is_file():
-        raise FileNotFoundError(f"Architecture schema not found: {schema_path}")
-    return schema_path.read_text(encoding="utf-8")
 
 
 def _resolve_model_name(model_id: str | None, provider: str | None) -> str:
@@ -55,57 +48,62 @@ def _resolve_model_name(model_id: str | None, provider: str | None) -> str:
     return "AI"
 
 
-def _uses_extended_prompt(model_id: str | None) -> bool:
-    if not model_id:
-        return False
-    lowered = model_id.lower()
-    return any(pattern in lowered for pattern in EXTENDED_PROMPT_MODEL_PATTERNS)
+def _catalogue_file(platform: str) -> str:
+    return _CATALOGUE_BY_PLATFORM.get((platform or "aws").lower(), "catalogue_aws.txt")
+
+
+def _topology_file(platform: str) -> str:
+    return _TOPOLOGY_BY_PLATFORM.get((platform or "aws").lower(), "topology_aws_reference.txt")
+
+
+def estimate_prompt_tokens(text: str) -> int:
+    """Rough token estimate (~4 chars/token) for budget tests."""
+    return max(1, len(text) // 4)
 
 
 def _assemble_prompt(
     *,
     model_id: str | None = None,
     provider: str | None = None,
+    platform: str = "aws",
     minimal_style: bool = False,
     custom_system_message: str = "",
     is_edit_mode: bool = False,
     include_schema: bool = True,
     patterns_block: str = "",
-    use_extended: bool = False,
-
-
-
+    has_pattern: bool = False,
 ) -> str:
     model_name = _resolve_model_name(model_id, provider)
-    prompt = _load_prompt("architect_default.txt")
+    parts: list[str] = [_load_prompt("architect_default.txt")]
 
     if minimal_style:
-        prompt = _load_prompt("minimal_style.txt") + "\n\n" + prompt
+        parts.insert(0, _load_prompt("minimal_style.txt"))
     else:
-        prompt += "\n\n" + _load_prompt("style_instructions.txt")
+        parts.append(_load_prompt("style_instructions.txt"))
 
-    if use_extended:
-        prompt += "\n\n" + _load_prompt("extended_additions.txt")
+    parts.append(_load_prompt("contract.txt"))
 
-    prompt += "\n\n" + _load_prompt("principles.txt")
+    if include_schema:
+        parts.append(_load_prompt(_catalogue_file(platform)))
+        parts.append(_load_prompt(_topology_file(platform)))
+        if not has_pattern:
+            parts.append(_load_prompt("checklist.txt"))
+    else:
+        # Edit turns: catalogue only so new nodes use valid shape keys.
+        parts.append(_load_prompt(_catalogue_file(platform)))
 
     block = (patterns_block or "").strip()
     if block:
-        prompt += f"\n\n---\n{block}"
-
-    if include_schema:
-        schema = _load_architecture_schema()
-        prompt += f"\n\n---\n## Architecture Schema & Platform Catalogue\n\n{schema}"
+        parts.append(f"---\n{block}")
 
     if is_edit_mode:
-        prompt += "\n\n" + _load_prompt("chat_edit_instructions.txt")
+        parts.append(_load_prompt("chat_edit_instructions.txt"))
 
     custom = (custom_system_message or "").strip()
     if custom:
-        custom = custom[:MAX_CUSTOM_SYSTEM_MESSAGE_LEN]
-        prompt += f"\n\n## Custom Instructions\n{custom}"
+        parts.append(f"## Custom Instructions\n{custom[:MAX_CUSTOM_SYSTEM_MESSAGE_LEN]}")
 
-    return prompt.replace("{{MODEL_NAME}}", model_name)
+    return "\n\n".join(parts).replace("{{MODEL_NAME}}", model_name)
 
 
 def get_system_prompt(
@@ -113,6 +111,7 @@ def get_system_prompt(
     minimal_style: bool = False,
     *,
     provider: str | None = None,
+    platform: str = "aws",
     custom_system_message: str = "",
     is_edit_mode: bool = False,
     include_schema: bool = True,
@@ -121,12 +120,13 @@ def get_system_prompt(
     return _assemble_prompt(
         model_id=model_id,
         provider=provider,
+        platform=platform,
         minimal_style=minimal_style,
         custom_system_message=custom_system_message,
         is_edit_mode=is_edit_mode,
         include_schema=include_schema,
         patterns_block=patterns_block,
-        use_extended=_uses_extended_prompt(model_id),
+        has_pattern=bool((patterns_block or "").strip()),
     )
 
 
@@ -140,6 +140,5 @@ def get_edit_system_prompt(
     prompt = _load_prompt("xml_edit_prompt.txt").replace("{{MODEL_NAME}}", model_name)
     custom = (custom_system_message or "").strip()
     if custom:
-        custom = custom[:MAX_CUSTOM_SYSTEM_MESSAGE_LEN]
-        prompt += f"\n\n## Custom Instructions\n{custom}"
+        prompt += f"\n\n## Custom Instructions\n{custom[:MAX_CUSTOM_SYSTEM_MESSAGE_LEN]}"
     return prompt

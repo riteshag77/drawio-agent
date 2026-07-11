@@ -97,7 +97,9 @@ def build_chat_prompt(
                 current_xml=current_xml if current_architecture is None else None,
             )
         )
-    if previous_architecture is not None:
+    # On edits, current architecture is authoritative — skip redundant previous dump
+    # unless converting platforms (diff context helps).
+    if previous_architecture is not None and platform_convert:
         parts.append(
             "Previous architecture JSON (before the user's last message — for comparison only):\n"
             f"{previous_architecture.model_dump_json()}"

@@ -96,7 +96,7 @@ def layout_settings() -> LayoutSettings:
         scaffold_vpc=(c.get_int("SCAFFOLD_VPC_W", 980), c.get_int("SCAFFOLD_VPC_H", 420)),
         scaffold_az=(c.get_int("SCAFFOLD_AZ_W", 320), c.get_int("SCAFFOLD_AZ_H", 380)),
         scaffold_subnet=(c.get_int("SCAFFOLD_SUBNET_W", 300), c.get_int("SCAFFOLD_SUBNET_H", 260)),
-        keep_empty_bands_default=c.get_bool("KEEP_EMPTY_BANDS_DEFAULT", True),
+        keep_empty_bands_default=c.get_bool("KEEP_EMPTY_BANDS_DEFAULT", False),
         quality_gates_blocking=c.get_bool("QUALITY_GATES_BLOCKING", True),
     )
 

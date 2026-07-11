@@ -33,6 +33,7 @@ def _pattern_from_dict(data: dict[str, Any]) -> ArchitecturePattern:
         flow=tuple(data.get("flow", [])),
         services={k: tuple(v) for k, v in data.get("services", {}).items()},
         best_practices=tuple(data.get("best_practices", [])),
+        blueprint=dict(data.get("blueprint") or {}),
     )
 
 
@@ -192,7 +193,7 @@ class FilePatternRepository(PatternRepository):
                 return p
         return None
 
-    def find_matching(self, prompt: str, platform: str = "aws", *, limit: int = 2, min_score: int = 1) -> list[ArchitecturePattern]:
+    def find_matching(self, prompt: str, platform: str = "aws", *, limit: int = 1, min_score: int = 1) -> list[ArchitecturePattern]:
         prompt_lower = (prompt or "").lower()
         prompt_tokens = _tokenize(prompt)
         platform = (platform or "aws").lower()
@@ -227,20 +228,38 @@ def format_patterns_for_prompt(patterns: list[ArchitecturePattern], platform: st
     if not patterns:
         return ""
 
+    platform = (platform or "aws").lower()
     blocks: list[str] = [
-        "## Reference patterns (reuse these proven blueprints)",
-        "The user's request matches the following curated architecture pattern(s). "
-        "Reuse the topology, ordering, and best practices. Adapt names/services to the "
-        "request, but keep the proven structure and the left-to-right flow ordering.",
+        "## Reference pattern (extend this skeleton — do not flatten hierarchy)",
+        "Reuse the topology below. Keep AZ symmetry and parent_id nesting. "
+        "Customize labels/services for the request; keep WAF/Shield as attached (null step).",
     ]
-    for pattern in patterns:
+    for pattern in patterns[:1]:
         services = _resolve_services(pattern, platform)
         blocks.append(
-            f"\n### {pattern.name}\n"
+            f"\n### {pattern.name} (`{pattern.id}`)\n"
             f"{pattern.summary}\n"
-            f"- Flow (assign step_number in this order): {' → '.join(pattern.flow)}\n"
-            f"- Suggested shape_type keys ({platform}): {', '.join(services)}\n"
+            f"- Flow (primary path step_number order): {' → '.join(pattern.flow)}\n"
+            f"- Shape keys ({platform}): {', '.join(services)}\n"
             f"- Best practices:\n"
             + "\n".join(f"  - {bp}" for bp in pattern.best_practices)
         )
+        bp = pattern.blueprint.get(platform) or pattern.blueprint.get("aws")
+        if bp and bp.get("nodes"):
+            import json
+            skeleton = {
+                "pattern_id": pattern.id,
+                "nodes": [
+                    {k: n.get(k) for k in ("id", "label", "shape_type", "is_container", "parent_id", "step_number")}
+                    for n in bp["nodes"]
+                ],
+                "edges": [
+                    {k: e.get(k) for k in ("source_id", "target_id", "label", "style")}
+                    for e in bp.get("edges", [])
+                ],
+            }
+            blocks.append(
+                "\nSkeleton JSON (AUTHORITATIVE starting topology — extend/customize, keep hierarchy):\n"
+                + json.dumps(skeleton, separators=(",", ":"))
+            )
     return "\n".join(blocks)

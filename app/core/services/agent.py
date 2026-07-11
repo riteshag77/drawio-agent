@@ -34,6 +34,7 @@ def _build_system_prompt(
     provider_key: str,
     *,
     model_id: str,
+    platform: str,
     minimal_style: bool,
     custom_system_message: str,
     is_edit: bool,
@@ -43,9 +44,10 @@ def _build_system_prompt(
         model_id=model_id,
         minimal_style=minimal_style,
         provider=provider_key,
+        platform=platform,
         custom_system_message=custom_system_message,
         is_edit_mode=is_edit,
-        include_schema=True,
+        include_schema=not is_edit,
         patterns_block=patterns_block,
     )
 
@@ -86,11 +88,13 @@ def generate_architecture_json(
     is_edit = bool(current_architecture or len(chat_messages) > 1 or platform_convert)
 
     patterns_block = ""
+    matched_pattern_id: str | None = None
     if not is_edit:
         match_text = user_request or chat_messages[-1]["content"]
         repo = FilePatternRepository()
-        matched = repo.find_matching(match_text, platform_key)
+        matched = repo.find_matching(match_text, platform_key, limit=1)
         if matched:
+            matched_pattern_id = matched[0].id
             patterns_block = format_patterns_for_prompt(matched, platform_key)
 
     if logger:
@@ -103,6 +107,7 @@ def generate_architecture_json(
                 "turns": len(chat_messages),
                 "is_edit": is_edit,
                 "platform_convert": platform_convert,
+                "pattern_id": matched_pattern_id,
             },
         )
 
@@ -110,6 +115,7 @@ def generate_architecture_json(
     system_prompt = _build_system_prompt(
         provider_key,
         model_id=spec.default_model,
+        platform=platform_key,
         minimal_style=minimal_style,
         custom_system_message=custom_system_message,
         is_edit=is_edit,
@@ -129,6 +135,8 @@ def generate_architecture_json(
     )
 
     result = call_llm(system_prompt, human_content, provider_key, ArchitectureDiagram, logger)
+    if matched_pattern_id and not result.pattern_id:
+        result = result.model_copy(update={"pattern_id": matched_pattern_id})
 
     if logger:
         containers = sum(1 for node in result.nodes if node.is_container)

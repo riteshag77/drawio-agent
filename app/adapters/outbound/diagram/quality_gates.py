@@ -9,6 +9,7 @@ from app.adapters.outbound.diagram.diagram_classify import (
     band_for_node,
     is_attached_control,
     is_igw,
+    shape_suffix,
 )
 from app.adapters.outbound.diagram.layout import absolute_box
 from app.adapters.outbound.diagram.layout_settings import layout_settings
@@ -122,10 +123,11 @@ def gate_e_multi_az(nodes_by_id: dict[str, Node]) -> GateResult:
     for node in nodes_by_id.values():
         if node.is_container:
             continue
-        suffix = (node.shape_type or "").split("_", 1)[-1]
-        for s in singletons:
-            if s in (node.shape_type or "") or s in (node.label or "").lower():
-                counts[s] = counts.get(s, 0) + 1
+        suffix = shape_suffix(node)
+        for key in singletons:
+            if key == suffix or key in suffix or key.replace("_", " ") in (node.label or "").lower():
+                counts[key] = counts.get(key, 0) + 1
+                break
     violations = [f"{k} duplicated {v}x" for k, v in counts.items() if v > 1 and k != "internet_gateway"]
     return GateResult("E", not violations, "; ".join(violations) or "multi-AZ convention OK", violations)
 

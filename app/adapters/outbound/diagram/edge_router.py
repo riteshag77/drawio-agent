@@ -27,24 +27,32 @@ def route_edge(
 ) -> tuple[float, float, float, float, list[tuple[int, int]]]:
     """Return (exitX, exitY, entryX, entryY, waypoints).
 
-    Anchors connect face-to-face: right→left for L→R flow, bottom→top for T→B, etc.
+    Face-to-face anchors with slot spreading so parallel edges do not stack.
     """
     scx, scy = _box_center(src_box)
     tcx, tcy = _box_center(tgt_box)
     dx, dy = tcx - scx, tcy - scy
     exit_off = _slot_value(exit_slot)
     entry_off = _slot_value(entry_slot)
+    # Slight lane bias keeps parallel orthogonal segments from coinciding
+    lane_nudge = (lane % 5) * 0.04
 
-    if abs(dx) >= abs(dy):
+    use_horizontal = abs(dx) >= abs(dy) if prefer_horizontal else abs(dx) > abs(dy) * 1.25
+
+    if use_horizontal:
+        ey = min(0.85, max(0.15, exit_off + (lane_nudge if dx >= 0 else -lane_nudge)))
+        iy = min(0.85, max(0.15, entry_off - (lane_nudge if dx >= 0 else -lane_nudge)))
         if dx >= 0:
-            return 1.0, exit_off, 0.0, entry_off, []
-        return 0.0, exit_off, 1.0, entry_off, []
+            return 1.0, ey, 0.0, iy, []
+        return 0.0, ey, 1.0, iy, []
 
+    ex = min(0.85, max(0.15, exit_off + lane_nudge))
+    ix = min(0.85, max(0.15, entry_off - lane_nudge))
     if dy >= 0:
-        return exit_off, 1.0, entry_off, 0.0, []
-    return exit_off, 0.0, entry_off, 1.0, []
+        return ex, 1.0, ix, 0.0, []
+    return ex, 0.0, ix, 1.0, []
 
 
 def collect_obstacles(node_bounds, *, exclude, include_containers=True, container_ids=None):
-    """No-op kept for API compatibility."""
+    """No-op kept for API compatibility with older tests/callers."""
     return []

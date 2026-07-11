@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import html as html_module
 
-from app.adapters.outbound.diagram.diagram_classify import ATTACHED_LABELS
+from app.adapters.outbound.diagram.diagram_classify import is_attached_edge, is_band_container
 from app.adapters.outbound.diagram.edge_router import route_edge
 from app.adapters.outbound.diagram.layout import absolute_box, lowest_common_ancestor_parent
 from app.adapters.outbound.diagram.layout_settings import layout_settings
-from app.adapters.outbound.diagram.service_bands import build_band_style, is_band_container
+from app.adapters.outbound.diagram.service_bands import build_band_style
 from app.adapters.outbound.diagram.styles import build_style
 
 
@@ -70,11 +70,14 @@ def append_edge(
 ) -> None:
     src_box = absolute_box(edge.source_id, layout, nodes_by_id)
     tgt_box = absolute_box(edge.target_id, layout, nodes_by_id)
+    attached = is_attached_edge(edge)
     exit_x, exit_y, entry_x, entry_y, _ = route_edge(
         src_box,
         tgt_box,
         exit_slot=exit_slot,
         entry_slot=entry_slot,
+        lane=exit_slot + entry_slot,
+        prefer_horizontal=not attached,
     )
 
     s = layout_settings()
@@ -83,12 +86,11 @@ def append_edge(
         color = default_edge_color
 
     label = (edge.label or "").strip()
-    is_attached = edge.style == "dashed" or label.lower() in ATTACHED_LABELS
     style_parts = [
         "edgeStyle=orthogonalEdgeStyle",
         "rounded=0",
         "html=1",
-        "endArrow=none" if is_attached else "endArrow=classic",
+        "endArrow=none" if attached else "endArrow=classic",
         "startArrow=none",
         f"exitX={exit_x}",
         f"exitY={exit_y}",
@@ -99,8 +101,9 @@ def append_edge(
         f"strokeColor={color}",
         f"fontColor={color}",
     ]
-    if edge.style == "dashed" or is_attached:
+    if attached:
         style_parts.append("dashed=1")
+        style_parts.append("opacity=70")
     if edge.style == "bold":
         style_parts.append("strokeWidth=3")
     if label:

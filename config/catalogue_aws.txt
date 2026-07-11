@@ -1,0 +1,15 @@
+━━━ AWS SHAPE CATALOGUE ━━━
+Use ONLY these keys. Generic: `user_client` `user_mobile` `user_users` `external_service` `internet`
+`generic_database` `generic_server` `generic_api` `generic`
+
+Containers: `aws_cloud` `aws_account` `aws_region` `aws_vpc` `aws_az` `aws_public_subnet`
+`aws_private_subnet` `aws_security_group` `aws_auto_scaling_group` `aws_generic_group`
+
+Services: `aws_ec2` `aws_lambda` `aws_fargate` `aws_ecs` `aws_eks` `aws_route53` `aws_cloudfront`
+`aws_api_gateway` `aws_alb` `aws_nlb` `aws_waf` `aws_shield` `aws_iam` `aws_kms` `aws_secrets_manager`
+`aws_s3` `aws_rds` `aws_aurora` `aws_dynamodb` `aws_elasticache` `aws_sqs` `aws_sns` `aws_eventbridge`
+`aws_step_functions` `aws_cloudwatch` `aws_cloudtrail` `aws_config` `aws_xray` `aws_guardduty`
+`aws_nat_gateway` `aws_internet_gateway` `aws_systems_manager` `aws_cloudformation`
+
+Hierarchy: aws_cloud → aws_region → aws_vpc → aws_az → subnets → services.
+Edge colors: `#ED7100`. Max 4 hierarchy levels. Never nest same-tier containers.

@@ -90,6 +90,11 @@ class DiagramNormalizeTests(unittest.TestCase):
         self.assertIn('id="band_security"', xml)
         self.assertIn('id="band_logging"', xml)
         self.assertIn("endArrow=none", xml)
+        # Band chrome is label-only (no AWS group shape icon)
+        self.assertNotIn("mxgraph.aws4.group", xml.split('id="band_security"')[1].split("</mxCell>")[0])
+        # Empty management/integration bands are not forced onto the page
+        self.assertNotIn('id="band_management"', xml)
+        self.assertNotIn('id="band_integration"', xml)
 
 
 if __name__ == "__main__":

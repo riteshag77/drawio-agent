@@ -1,4 +1,4 @@
 ## Visual style
-- Edge colors by platform: AWS `#ED7100`, GCP `#4285F4`, Azure `#0078D4`.
-- Solid = sync/request path; dashed = async, events, logging, replication.
-- Include 3–5 specific `suggestions` (actionable improvements for this architecture, not generic text).
+- Edge colors: AWS `#ED7100`, GCP `#4285F4`, Azure `#0078D4`.
+- Solid = sync/request path; dashed = async, events, logging, replication, protects.
+- Include 3–5 specific `suggestions` (actionable for this architecture).

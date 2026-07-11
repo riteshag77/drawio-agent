@@ -15,3 +15,5 @@ class ArchitecturePattern:
     flow: tuple[str, ...]
     services: dict[str, tuple[str, ...]]
     best_practices: tuple[str, ...] = field(default_factory=tuple)
+    # platform → {"nodes": [...], "edges": [...]} topology skeleton
+    blueprint: dict[str, dict] = field(default_factory=dict)
