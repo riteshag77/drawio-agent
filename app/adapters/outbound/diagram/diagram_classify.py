@@ -69,6 +69,33 @@ def is_igw(node: Node) -> bool:
     return "internet_gateway" in text or "internet gateway" in text or shape_suffix(node) == "internet_gateway"
 
 
+def is_boundary_gateway(node: Node) -> bool:
+    """IGW / TGW / VPN GW — may sit on a parent border with a small negative offset."""
+    if node.is_container:
+        return False
+    text = node_text(node)
+    suffix = shape_suffix(node)
+    tokens = (
+        "internet_gateway", "internet gateway", "transit_gateway", "transit gateway",
+        "vpn_gateway", "vpn gateway", "virtual_private_gateway",
+    )
+    return any(t in text or t.replace(" ", "_") == suffix for t in tokens)
+
+
+def is_workload_container(node: Node) -> bool:
+    """EKS/ECS/AKS/GKE/App Service style workload boxes inside a subnet."""
+    if not node.is_container:
+        return False
+    text = node_text(node)
+    return any(
+        t in text
+        for t in (
+            "eks", "ecs", "aks", "gke", "cluster", "app service", "app_service",
+            "elastic beanstalk", "beanstalk", "cloud run", "cloud_run",
+        )
+    )
+
+
 def is_entry_actor(node: Node) -> bool:
     if node.is_container or is_igw(node):
         return False

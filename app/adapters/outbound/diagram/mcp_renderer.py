@@ -33,7 +33,7 @@ async def render_architecture_xml(
 ) -> tuple[str, str, str | None]:
     """Return (xml, renderer_used, mcp_preview_url).
 
-    LLM owns architecture; MCP optionally resolves icon styles before local layout.
+    LLM owns architecture; MCP resolves icon styles and optionally libavoid-routes edges.
     """
     mode = _normalize_renderer(diagram_renderer)
     preview_url: str | None = None
@@ -65,12 +65,24 @@ async def render_architecture_xml(
         finally:
             clear_style_overrides()
 
-        if mode == "mcp":
-            preview_url = await create_diagram(xml)
-            if preview_url and logger:
-                logger.log("mcp", "create_diagram preview", details={"preview": preview_url[:200]})
+        # Libavoid only helps when MCP returns updated mxGraph XML (preview-only = skip)
+        preview_url, routed_xml = await create_diagram(xml, routing="libavoid")
+        if routed_xml and ("<mxGraphModel" in routed_xml or "<mxfile" in routed_xml):
+            xml = routed_xml
+            if logger:
+                logger.log("mcp", "create_diagram libavoid XML applied", details={
+                    "preview": (preview_url or "")[:200],
+                })
+            return xml, "mcp", preview_url
 
-        return xml, "mcp", preview_url
+        if logger and preview_url:
+            logger.log(
+                "mcp",
+                "create_diagram returned preview only (no XML); keeping local edges",
+                level="warning",
+                details={"preview": preview_url[:200]},
+            )
+        return xml, "mcp", None
     except DrawioMcpError as exc:
         clear_style_overrides()
         if logger:

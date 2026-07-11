@@ -292,7 +292,6 @@ function clearChat() {
     document.getElementById('xml-panel').classList.remove('open');
     hideError();
     setDiagramStatus('Waiting for generation');
-    setComposerRunStatus('Ready — describe an architecture or ask for changes', 'info');
     document.getElementById('diagram-placeholder').classList.remove('hidden');
 
     const container = document.getElementById('chat-messages');

@@ -43,11 +43,17 @@ function updateValidationProviderVisibility() {
     sel.hidden = !vlmOn;
 }
 
+function isErrorPanelEnabled() {
+    const toggle = document.getElementById('error-panel-toggle');
+    return toggle ? toggle.checked : true;
+}
+
 function getPromptSettings() {
     return {
         minimal_style: document.getElementById('minimal-style-toggle').checked,
         custom_system_message: document.getElementById('custom-system-message').value.slice(0, 5000),
         vlm_validation: document.getElementById('vlm-validation-toggle').checked,
+        error_panel: isErrorPanelEnabled(),
         validation_provider: document.getElementById('validation-provider-select').value,
     };
 }
@@ -56,12 +62,15 @@ function savePromptSettings() {
     const minimal = document.getElementById('minimal-style-toggle').checked;
     const custom = document.getElementById('custom-system-message').value.slice(0, 5000);
     const vlm = document.getElementById('vlm-validation-toggle').checked;
+    const errorPanel = isErrorPanelEnabled();
     const vp = document.getElementById('validation-provider-select').value;
     localStorage.setItem(MINIMAL_STYLE_STORAGE_KEY, minimal ? '1' : '0');
     localStorage.setItem(CUSTOM_SYSTEM_MESSAGE_KEY, custom);
     localStorage.setItem(VLM_VALIDATION_KEY, vlm ? '1' : '0');
+    localStorage.setItem(ERROR_PANEL_KEY, errorPanel ? '1' : '0');
     localStorage.setItem(VALIDATION_PROVIDER_KEY, vp);
     updateValidationProviderVisibility();
+    if (!errorPanel) hideError();
 }
 
 function initPromptSettings() {
@@ -72,6 +81,9 @@ function initPromptSettings() {
     const vlmStored = localStorage.getItem(VLM_VALIDATION_KEY);
     document.getElementById('vlm-validation-toggle').checked =
         vlmStored === null ? true : vlmStored === '1';
+    const errorStored = localStorage.getItem(ERROR_PANEL_KEY);
+    document.getElementById('error-panel-toggle').checked =
+        errorStored === null ? true : errorStored === '1';
     const vpStored = localStorage.getItem(VALIDATION_PROVIDER_KEY);
     if (vpStored) {
         document.getElementById('validation-provider-select').value = vpStored;
@@ -80,17 +92,46 @@ function initPromptSettings() {
 }
 
 function setComposerRunStatus(text, level = 'info') {
-    const el = document.getElementById('composer-run-status');
-    if (!el) return;
-    if (!text) {
-        el.hidden = true;
-        el.textContent = '';
-        el.removeAttribute('data-level');
+    if (!isErrorPanelEnabled() || !text) {
+        hideError();
         return;
     }
-    el.textContent = text;
-    el.hidden = false;
-    el.dataset.level = level;
+    const panel = document.getElementById('error-panel');
+    const body = document.getElementById('error-panel-body');
+    const title = document.getElementById('error-panel-title');
+    if (!panel || !body) return;
+
+    const titles = {
+        error: 'Error',
+        running: 'Running',
+        success: 'Done',
+        stopped: 'Stopped',
+        info: 'Status',
+    };
+    if (title) title.textContent = titles[level] || 'Status';
+    body.textContent = text;
+    panel.dataset.level = level;
+    panel.classList.add('active');
+    errorPanelActive = true;
+    updateRightPanelVisibility();
+}
+
+function showError(msg) {
+    setComposerRunStatus(msg, 'error');
+}
+
+function hideError() {
+    const panel = document.getElementById('error-panel');
+    const body = document.getElementById('error-panel-body');
+    const title = document.getElementById('error-panel-title');
+    if (panel) {
+        panel.classList.remove('active');
+        panel.removeAttribute('data-level');
+    }
+    if (body) body.textContent = '';
+    if (title) title.textContent = 'Status';
+    errorPanelActive = false;
+    updateRightPanelVisibility();
 }
 
 function updateSendStopButtons() {
@@ -196,16 +237,6 @@ function setProgress(percent) {
     if (percent >= 100) {
         setTimeout(() => track.classList.remove('active'), 1200);
     }
-}
-
-function showError(msg) {
-    const banner = document.getElementById('error-banner');
-    document.getElementById('error-msg').textContent = msg;
-    banner.classList.add('active');
-}
-
-function hideError() {
-    document.getElementById('error-banner').classList.remove('active');
 }
 
 function setDiagramStatus(text) {
@@ -359,7 +390,7 @@ function clearVerboseLogs() {
 }
 
 function updateRightPanelVisibility() {
-    const open = verboseLogging || validationPanelActive;
+    const open = verboseLogging || validationPanelActive || errorPanelActive;
     document.getElementById('log-panel').classList.toggle('active', open);
 }
 
@@ -380,6 +411,7 @@ function toggleVerbosePanel() {
 
 function closeLogPanel() {
     hideValidationBanner();
+    hideError();
     setLogPanelOpen(false);
 }
 
@@ -628,10 +660,9 @@ async function sendMessage(options = {}) {
             if (!options.skipInput || !options.platformConvert) chatMessages.pop();
             setTyping(false);
             appendVerboseLog('client', err.message || 'Request failed', 'error');
-            showError(err.message || 'Request failed. Check the server logs.');
             finishChatRun({
                 outcome: 'error',
-                message: err.message || 'Request failed.',
+                message: err.message || 'Request failed. Check the server logs.',
             });
         }
     } finally {
@@ -655,7 +686,6 @@ initDiagramMode();
 initAutolayoutSetting();
 hideValidationBanner();
 updateSendStopButtons();
-setComposerRunStatus('Ready — describe an architecture or ask for changes', 'info');
 loadTemplates();
 initVoiceInput();
 ensureDrawioFrame();

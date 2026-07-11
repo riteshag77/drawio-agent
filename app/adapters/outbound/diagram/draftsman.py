@@ -18,7 +18,8 @@ from app.adapters.outbound.diagram.layout import (
     edge_sort_key,
 )
 from app.adapters.outbound.diagram.layout_settings import layout_settings, platform_meta
-from app.adapters.outbound.diagram.quality_gates import all_gates_passed, run_quality_gates
+from app.adapters.outbound.diagram.layout_validate import DiagramLayoutError, assert_layout_valid
+from app.adapters.outbound.diagram.quality_gates import run_quality_gates
 from app.adapters.outbound.diagram.service_bands import layout_bands
 from app.adapters.outbound.diagram.template_merge import apply_pattern_blueprint, apply_three_tier_scaffold
 from app.adapters.outbound.diagram.topology_repair import repair_topology
@@ -143,10 +144,19 @@ def generate_xml(architecture, platform: str = "aws", logger: StepLogger | None 
         architecture, layout, nodes_by_id, children_map,
         page_w=page_width, page_h=page_height, max_x=max_x, max_y=max_y,
     )
-    if settings.quality_gates_blocking and not all_gates_passed(gate_results) and logger:
-        logger.log("quality_gates", "Quality gate failures", level="warning", details={
-            "failed": [{"gate": g.gate, "message": g.message} for g in gate_results if not g.passed],
-        })
+    if settings.quality_gates_blocking:
+        failed = [g for g in gate_results if not g.passed]
+        if failed:
+            detail = "; ".join(f"{g.gate}: {g.message}" for g in failed)
+            if logger:
+                logger.log("quality_gates", "Quality gate failures", level="warning", details={
+                    "failed": [{"gate": g.gate, "message": g.message} for g in failed],
+                })
+            raise DiagramLayoutError([f"gate_{g.gate}: {g.message}" for g in failed])
+        assert_layout_valid(
+            architecture, layout, nodes_by_id, children_map,
+            page_w=page_width, page_h=page_height,
+        )
 
     xml[0] = re.sub(
         r'pageWidth="\d+"\s+pageHeight="\d+"',

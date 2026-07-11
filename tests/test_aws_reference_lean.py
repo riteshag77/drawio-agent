@@ -8,7 +8,12 @@ from app.adapters.outbound.diagram.diagram_normalize import normalize_architectu
 from app.adapters.outbound.diagram.draftsman import generate_xml
 from app.adapters.outbound.diagram.layout import build_children_map, build_layout
 from app.adapters.outbound.diagram.template_merge import apply_pattern_blueprint, blueprint_diagram
-from app.adapters.outbound.diagram.topology_repair import ensure_igw, reparent_edge_services, repair_topology
+from app.adapters.outbound.diagram.topology_repair import (
+    ensure_igw,
+    reparent_edge_services,
+    reparent_entry_actors,
+    repair_topology,
+)
 from app.adapters.outbound.llm.prompts.system import estimate_prompt_tokens, get_system_prompt
 from app.adapters.outbound.patterns.file_repository import FilePatternRepository, format_patterns_for_prompt
 from app.domain.entities import ArchitectureDiagram, Edge, Node
@@ -106,6 +111,31 @@ class TopologyRepairTests(unittest.TestCase):
         cf = next(n for n in fixed.nodes if n.id == "cf")
         self.assertEqual(cf.parent_id, "cloud")
 
+    def test_entry_actors_forced_outside_cloud(self) -> None:
+        arch = ArchitectureDiagram(
+            nodes=[
+                Node(id="cloud", label="AWS Cloud", shape_type="aws_cloud", is_container=True),
+                Node(id="vpc", label="VPC", shape_type="aws_vpc", is_container=True, parent_id="cloud"),
+                Node(id="pub", label="Public Subnet", shape_type="aws_public_subnet", is_container=True, parent_id="vpc"),
+                Node(id="users", label="Users", shape_type="user_client", parent_id="pub", step_number=1),
+                Node(id="alb", label="ALB", shape_type="aws_alb", parent_id="pub"),
+            ],
+            edges=[],
+            suggestions=[],
+        )
+        fixed = reparent_entry_actors(arch)
+        users = next(n for n in fixed.nodes if n.id == "users")
+        self.assertIsNone(users.parent_id)
+
+        repaired = repair_topology(arch)
+        users2 = next(n for n in repaired.nodes if n.id == "users")
+        self.assertIsNone(users2.parent_id)
+
+        cm, roots, nbi = build_children_map(repaired.nodes)
+        layout = build_layout(nbi, cm, roots)
+        self.assertIn("users", roots)
+        self.assertLess(layout["users"]["x"], layout["cloud"]["x"])
+
     def test_full_pipeline_ha_reference_invariants(self) -> None:
         """Sparse LLM output + blueprint + repair + normalize → AWS reference shape."""
         sparse = ArchitectureDiagram(
@@ -154,7 +184,7 @@ class TopologyRepairTests(unittest.TestCase):
         cm, roots, nbi = build_children_map(prepared.nodes)
         layout = build_layout(nbi, cm, roots)
         igw_id = next(n.id for n in prepared.nodes if "internet_gateway" in n.shape_type)
-        self.assertEqual(layout[igw_id]["y"], -30)
+        self.assertEqual(layout[igw_id]["y"], max(-30, -layout[igw_id]["h"] // 2))
 
         xml = generate_xml(sparse, platform="aws")
         self.assertIn('id="band_security"', xml)

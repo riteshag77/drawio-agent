@@ -9,12 +9,14 @@ from __future__ import annotations
 from app.adapters.outbound.diagram.diagram_classify import (
     is_az_container,
     is_band_container,
+    is_boundary_gateway,
     is_cloud_like,
     is_entry_actor,
     is_igw,
     is_region_like,
     is_subnet_container,
     is_vpc_like,
+    is_workload_container,
     node_text,
     node_tier,
 )
@@ -116,17 +118,51 @@ def fit_container_bounds(container_id, layout, children_map, nodes_by_id, s: Lay
     children = children_map.get(container_id, [])
     if not children or container_id not in layout:
         return
-    max_right = s.container_pad
-    max_bottom = s.container_pad_top
+    pad = s.container_pad
+    pad_top = s.container_pad_top
+    # Workload boxes keep a full pad on every side so they stay smaller than the subnet
+    if is_workload_container(nodes_by_id[container_id]):
+        pad = max(pad, s.min_inner_pad)
+        pad_top = max(pad_top, s.min_inner_pad + s.grid)
+    max_right = pad
+    max_bottom = pad_top
     for child_id in children:
         child = layout.get(child_id, {})
-        # IGW may sit above the top edge (negative y); still count horizontal extent
-        max_right = max(max_right, child.get("x", 0) + child.get("w", s.leaf_w) + s.container_pad)
+        max_right = max(max_right, child.get("x", 0) + child.get("w", s.leaf_w) + pad)
         child_bottom = child.get("y", 0) + child.get("h", s.leaf_h)
         if child_bottom > 0:
-            max_bottom = max(max_bottom, child_bottom + s.container_pad)
-    layout[container_id]["w"] = max(max_right, s.container_pad * 2)
-    layout[container_id]["h"] = max(max_bottom, s.container_pad_top + s.container_pad)
+            max_bottom = max(max_bottom, child_bottom + pad)
+    layout[container_id]["w"] = max(max_right, pad * 2)
+    layout[container_id]["h"] = max(max_bottom, pad_top + pad)
+
+
+def clamp_child_geometry(
+    parent_id: str,
+    layout: dict,
+    children_map: dict[str, list[str]],
+    nodes_by_id: dict,
+    s: LayoutSettings | None = None,
+) -> None:
+    """Keep children inside parent; boundary gateways may overhang by at most half icon."""
+    s = s or layout_settings()
+    if parent_id not in layout:
+        return
+    parent = layout[parent_id]
+    pw, ph = parent["w"], parent["h"]
+    for child_id in children_map.get(parent_id, []):
+        node = nodes_by_id[child_id]
+        child = layout.get(child_id)
+        if not child:
+            continue
+        w, h = child["w"], child["h"]
+        if is_boundary_gateway(node) or is_igw(node):
+            child["y"] = max(child["y"], -h // 2)
+            child["x"] = max(0, min(child["x"], max(0, pw - w)))
+        else:
+            child["x"] = max(s.container_pad // 2, min(child["x"], max(s.container_pad // 2, pw - w - s.container_pad // 2)))
+            child["y"] = max(s.container_pad_top // 2, min(child["y"], max(s.container_pad_top // 2, ph - h - s.container_pad // 2)))
+        if children_map.get(child_id):
+            clamp_child_geometry(child_id, layout, children_map, nodes_by_id, s)
 
 
 def _equalize_heights(layout: dict, ids: list[str]) -> None:
@@ -155,17 +191,20 @@ def _place_children(child_id, layout, children_map, nodes_by_id, s: LayoutSettin
 
 
 def _place_igw_on_vpc(vpc_id: str, layout: dict, nodes_by_id: dict, children_map: dict, s: LayoutSettings) -> None:
-    """Center IGW on the VPC top edge (AWS reference convention)."""
+    """Center IGW on the VPC top edge; clamp overhang to half icon height."""
     if vpc_id not in layout:
         return
     vpc_w = layout[vpc_id]["w"]
     for igw_id in children_map.get(vpc_id, []):
-        if not is_igw(nodes_by_id[igw_id]):
+        node = nodes_by_id[igw_id]
+        if not (is_igw(node) or is_boundary_gateway(node)):
             continue
-        w, h = node_size(nodes_by_id[igw_id], s)
+        w, h = node_size(node, s)
+        # Rule 5: never detach fully — y >= -iconHeight/2
+        y = max(s.igw_vpc_y, -h // 2)
         layout[igw_id] = {
             "x": max(s.igw_min_x_pad, vpc_w // 2 - w // 2),
-            "y": s.igw_vpc_y,
+            "y": y,
             "w": w,
             "h": h,
         }
@@ -200,22 +239,32 @@ def _horizontal_flow(parent_id, child_ids, nodes_by_id, children_map, layout, s:
     return row_height
 
 
-def _tier_columns(parent_id, child_ids, nodes_by_id, children_map, layout, s: LayoutSettings) -> None:
-    """Side-by-side subnet tiers (public | app | data) with equal heights."""
-    tier_ids = sorted(child_ids, key=lambda k: (node_tier(nodes_by_id[k]), sort_key(k, nodes_by_id, children_map)))
-    x = s.container_pad
-    for child_id in tier_ids:
+def _service_grid(parent_id, child_ids, nodes_by_id, children_map, layout, s: LayoutSettings, *, cols: int = 2) -> None:
+    """2-column grid for dense service lists so workload boxes stay short."""
+    x0, y = s.container_pad, s.container_pad_top
+    col_w = s.leaf_cell_w + s.leaf_gap
+    row_h = 0
+    col = 0
+    for child_id in sorted(child_ids, key=lambda k: service_stack_key(k, nodes_by_id, children_map)):
         node = nodes_by_id[child_id]
-        layout[child_id] = {
-            "x": x, "y": s.container_pad_top,
-            "w": node.width or s.tier_column_w,
-            "h": node.height or s.default_container_h,
-        }
-        _place_children(child_id, layout, children_map, nodes_by_id, s)
-        # Content width only — no forced tier_column_w floor
-        x += layout[child_id]["w"] + s.container_gap
-    _equalize_heights(layout, tier_ids)
-    fit_container_bounds(parent_id, layout, children_map, nodes_by_id, s)
+        w, h = node_size(node, s)
+        if col >= cols:
+            col = 0
+            y += row_h + s.leaf_gap
+            row_h = 0
+        layout[child_id] = {"x": x0 + col * col_w, "y": y, "w": w, "h": h}
+        if node.is_container:
+            w, h = _place_children(child_id, layout, children_map, nodes_by_id, s)
+            layout[child_id]["w"], layout[child_id]["h"] = w, h
+        row_h = max(row_h, h)
+        col += 1
+    if parent_id:
+        fit_container_bounds(parent_id, layout, children_map, nodes_by_id, s)
+
+
+def _tier_columns(parent_id, child_ids, nodes_by_id, children_map, layout, s: LayoutSettings) -> None:
+    """Subnet tiers stack vertically (Public → App → Data) — never full-height side columns."""
+    _vertical_stack(parent_id, child_ids, nodes_by_id, children_map, layout, s, sort_fn=subnet_tier_key)
 
 
 def _az_columns(parent_id, child_ids, nodes_by_id, children_map, layout, s: LayoutSettings) -> None:
@@ -265,9 +314,12 @@ def _az_columns(parent_id, child_ids, nodes_by_id, children_map, layout, s: Layo
 
 
 def _edge_then_containers(parent_id, child_ids, nodes_by_id, children_map, layout, s: LayoutSettings) -> None:
-    """Region/cloud: edge services in a top row, containers below."""
+    """Region/cloud: edge services in a top row, containers below (bands docked later)."""
     edge_ids = [c for c in child_ids if not nodes_by_id[c].is_container and not is_band_container(nodes_by_id[c])]
-    container_ids = [c for c in child_ids if nodes_by_id[c].is_container and not is_band_container(nodes_by_id[c])]
+    container_ids = [
+        c for c in child_ids
+        if nodes_by_id[c].is_container and not is_band_container(nodes_by_id[c])
+    ]
     edge_h = _horizontal_flow(parent_id, edge_ids, nodes_by_id, children_map, layout, s) if edge_ids else 0
     container_y = s.container_pad_top + (edge_h + s.leaf_gap * 2 if edge_ids else 0)
     x = s.container_pad
@@ -342,6 +394,8 @@ def layout_siblings(parent_id, child_ids, nodes_by_id, children_map, layout, s: 
     if all(not c.is_container for c in children):
         if is_region_like(parent) or is_cloud_like(parent):
             _horizontal_flow(parent_id, child_ids, nodes_by_id, children_map, layout, s)
+        elif len(child_ids) > 5 or is_workload_container(parent):
+            _service_grid(parent_id, child_ids, nodes_by_id, children_map, layout, s)
         else:
             _vertical_stack(parent_id, child_ids, nodes_by_id, children_map, layout, s, sort_fn=service_stack_key)
         return
@@ -353,14 +407,37 @@ def layout_siblings(parent_id, child_ids, nodes_by_id, children_map, layout, s: 
     if is_vpc_like(parent):
         azs = [c for c in child_ids if is_az_container(nodes_by_id[c])]
         subnets = [c for c in child_ids if is_subnet_container(nodes_by_id[c])]
+        others = [c for c in child_ids if c not in azs and c not in subnets and not is_band_container(nodes_by_id[c])]
         if azs:
             _az_columns(parent_id, azs, nodes_by_id, children_map, layout, s)
+            # Place non-AZ/non-subnet VPC children (IGW handled below)
+            for oid in others:
+                if is_igw(nodes_by_id[oid]) or is_boundary_gateway(nodes_by_id[oid]):
+                    continue
+                if oid not in layout:
+                    w, h = node_size(nodes_by_id[oid], s)
+                    layout[oid] = {"x": s.container_pad, "y": s.container_pad_top, "w": w, "h": h}
+                    if nodes_by_id[oid].is_container:
+                        _place_children(oid, layout, children_map, nodes_by_id, s)
             _place_igw_on_vpc(parent_id, layout, nodes_by_id, children_map, s)
+            fit_container_bounds(parent_id, layout, children_map, nodes_by_id, s)
             return
-        if len(subnets) >= 2:
+        if len(subnets) >= 1:
+            # Fallback if AZ repair did not run — still stack tiers vertically
             _tier_columns(parent_id, subnets, nodes_by_id, children_map, layout, s)
             _place_igw_on_vpc(parent_id, layout, nodes_by_id, children_map, s)
             return
+
+    if is_workload_container(parent):
+        leaves = [c for c in child_ids if not nodes_by_id[c].is_container]
+        nested = [c for c in child_ids if nodes_by_id[c].is_container]
+        if nested:
+            _grid_fallback(parent_id, child_ids, nodes_by_id, children_map, layout, s)
+        elif len(leaves) > 5:
+            _service_grid(parent_id, leaves, nodes_by_id, children_map, layout, s)
+        else:
+            _vertical_stack(parent_id, child_ids, nodes_by_id, children_map, layout, s, sort_fn=service_stack_key)
+        return
 
     if is_region_like(parent) or is_cloud_like(parent):
         _edge_then_containers(parent_id, child_ids, nodes_by_id, children_map, layout, s)
@@ -378,6 +455,9 @@ def build_layout(nodes_by_id: dict, children_map: dict[str, list[str]], roots: l
         if node_id not in layout:
             w, h = node_size(node, s)
             layout[node_id] = {"x": 0, "y": 0, "w": w, "h": h}
+    for root_id in main_roots:
+        if nodes_by_id[root_id].is_container:
+            clamp_child_geometry(root_id, layout, children_map, nodes_by_id, s)
     return layout
 
 

@@ -7,6 +7,7 @@ from app.adapters.outbound.diagram.diagram_classify import (
     is_az_container,
     is_cloud_like,
     is_edge_service,
+    is_entry_actor,
     is_igw,
     is_region_like,
     is_subnet_container,
@@ -43,6 +44,17 @@ def ensure_igw(architecture: ArchitectureDiagram) -> ArchitectureDiagram:
     igw_id = "aws_internet_gateway" if "aws_internet_gateway" not in existing else f"{vpc.id}_igw"
     igw = Node(id=igw_id, label="Internet Gateway", shape_type="aws_internet_gateway", parent_id=vpc.id)
     return architecture.model_copy(update={"nodes": list(architecture.nodes) + [igw]})
+
+
+def reparent_entry_actors(architecture: ArchitectureDiagram) -> ArchitectureDiagram:
+    """Users / clients always sit on the canvas outside cloud/account containers."""
+    updated = [
+        n.model_copy(update={"parent_id": None}) if is_entry_actor(n) and n.parent_id else n
+        for n in architecture.nodes
+    ]
+    if updated == list(architecture.nodes):
+        return architecture
+    return architecture.model_copy(update={"nodes": updated})
 
 
 def reparent_edge_services(architecture: ArchitectureDiagram) -> ArchitectureDiagram:
@@ -122,7 +134,7 @@ def mirror_multi_az(architecture: ArchitectureDiagram) -> ArchitectureDiagram:
         }
         for leaf_id in children_map.get(subnet_a.id, []):
             leaf = nodes_by_id.get(leaf_id)
-            if not leaf or leaf.is_container:
+            if not leaf or leaf.is_container or is_entry_actor(leaf):
                 continue
             new_leaf_id = _mirror_id(leaf.id, az_a.id, az_b.id)
             if new_leaf_id in nodes_by_id or any(n.id == new_leaf_id for n in new_nodes):
@@ -155,5 +167,89 @@ def mirror_multi_az(architecture: ArchitectureDiagram) -> ArchitectureDiagram:
     return architecture.model_copy(update={"nodes": merged, "edges": list(architecture.edges) + new_edges})
 
 
+def _az_hint(node: Node) -> str | None:
+    """Return 'a' / 'b' / … when id or label encodes an AZ, else None."""
+    id_l = (node.id or "").lower()
+    label_l = (node.label or "").lower()
+    for letter in ("a", "b", "c", "d"):
+        if (
+            id_l.endswith(f"_{letter}")
+            or f"_{letter}_" in id_l
+            or f"az_{letter}" in id_l
+            or id_l.endswith(f"az{letter}")
+            or f"az {letter}" in label_l
+            or f"zone {letter}" in label_l
+            or label_l.endswith(f" {letter}")
+        ):
+            return letter
+    return None
+
+
+def ensure_az_hierarchy(architecture: ArchitectureDiagram) -> ArchitectureDiagram:
+    """Insert AZ containers between VPC and subnets so tiers can stack per zone.
+
+    Rule: subnet must not be a direct VPC child when the diagram is multi-AZ
+    (or whenever any subnet hangs directly under the VPC — wrap in AZ A).
+    """
+    vpc = _find_first(architecture.nodes, is_vpc_like)
+    if not vpc:
+        return architecture
+
+    children_map, _, nodes_by_id = build_children_map(architecture.nodes)
+    vpc_children = children_map.get(vpc.id, [])
+    azs = [nodes_by_id[c] for c in vpc_children if is_az_container(nodes_by_id[c])]
+    direct_subnets = [nodes_by_id[c] for c in vpc_children if is_subnet_container(nodes_by_id[c])]
+    if not direct_subnets:
+        return architecture
+
+    existing_ids = {n.id for n in architecture.nodes}
+    new_nodes: list[Node] = []
+    reparent: dict[str, str] = {}
+
+    def _ensure_az(letter: str) -> str:
+        match = next((a for a in azs if _az_hint(a) == letter or a.id.endswith(f"_{letter}")), None)
+        if match:
+            return match.id
+        az_id = f"{vpc.id}_az_{letter}" if f"{vpc.id}_az_{letter}" not in existing_ids else f"az_{letter}"
+        if az_id not in existing_ids and not any(n.id == az_id for n in new_nodes):
+            label = f"Availability Zone {letter.upper()}"
+            new_nodes.append(Node(
+                id=az_id, label=label, shape_type="aws_az", is_container=True, parent_id=vpc.id,
+            ))
+            existing_ids.add(az_id)
+        return az_id
+
+    grouped: dict[str, list[Node]] = {}
+    for subnet in direct_subnets:
+        letter = _az_hint(subnet) or "a"
+        grouped.setdefault(letter, []).append(subnet)
+
+    # Multi-AZ intent: distinct _a/_b hints, or already ≥2 AZ containers
+    if len(grouped) == 1 and len(azs) < 2:
+        letter = next(iter(grouped))
+        az_id = _ensure_az(letter)
+        for subnet in grouped[letter]:
+            reparent[subnet.id] = az_id
+    else:
+        for letter, subnets in grouped.items():
+            az_id = _ensure_az(letter)
+            for subnet in subnets:
+                reparent[subnet.id] = az_id
+
+    if not reparent and not new_nodes:
+        return architecture
+
+    updated = list(architecture.nodes) + new_nodes
+    updated = [
+        n.model_copy(update={"parent_id": reparent[n.id]}) if n.id in reparent else n
+        for n in updated
+    ]
+    return architecture.model_copy(update={"nodes": updated})
+
+
 def repair_topology(architecture: ArchitectureDiagram) -> ArchitectureDiagram:
-    return mirror_multi_az(reparent_edge_services(ensure_igw(architecture)))
+    return mirror_multi_az(
+        ensure_az_hierarchy(
+            reparent_edge_services(reparent_entry_actors(ensure_igw(architecture)))
+        )
+    )

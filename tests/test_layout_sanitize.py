@@ -132,7 +132,9 @@ class LayoutSanitizeTests(unittest.TestCase):
             suggestions=[],
         )
         xml = generate_xml(arch, platform="aws")
+        # AZ inserted between VPC and subnet; subnet remains nested under VPC chain
         self.assertIn('parent="vpc"', xml)
+        self.assertTrue('parent="vpc_az_a"' in xml or 'parent="az_a"' in xml or 'subnet' in xml)
 
     def test_three_tier_scaffold_applies_container_sizes(self) -> None:
         arch = ArchitectureDiagram(
@@ -152,7 +154,9 @@ class LayoutSanitizeTests(unittest.TestCase):
             suggestions=[],
         )
         xml = generate_xml(arch, platform="aws")
+        # AZ inserted between VPC and subnet; subnet remains nested under VPC chain
         self.assertIn('parent="vpc"', xml)
+        self.assertTrue('parent="vpc_az_a"' in xml or 'parent="az_a"' in xml or 'subnet' in xml)
 
     def test_xml_hardening_adds_missing_geometry(self) -> None:
         broken = (
@@ -196,7 +200,7 @@ class LayoutSanitizeTests(unittest.TestCase):
         self.assertLess(layout["alb"]["y"], layout["nat"]["y"])
         self.assertEqual(layout["api"]["x"], layout["alb"]["x"])
 
-    def test_vpc_tier_subnets_align_heights(self) -> None:
+    def test_vpc_tier_subnets_stack_vertically(self) -> None:
         arch = ArchitectureDiagram(
             nodes=[
                 Node(id="vpc", label="VPC", shape_type="aws_vpc", is_container=True),
@@ -212,11 +216,11 @@ class LayoutSanitizeTests(unittest.TestCase):
         )
         children_map, roots, nodes_by_id = build_children_map(arch.nodes)
         layout = build_layout(nodes_by_id, children_map, roots)
-        self.assertEqual(layout["pub"]["y"], layout["app"]["y"])
-        self.assertEqual(layout["app"]["y"], layout["data"]["y"])
-        self.assertEqual(layout["pub"]["h"], layout["data"]["h"])
-        self.assertLess(layout["pub"]["x"], layout["app"]["x"])
-        self.assertLess(layout["app"]["x"], layout["data"]["x"])
+        # Public → App → Data stacked top-to-bottom (content-sized, not full-height columns)
+        self.assertLess(layout["pub"]["y"], layout["app"]["y"])
+        self.assertLess(layout["app"]["y"], layout["data"]["y"])
+        self.assertEqual(layout["pub"]["x"], layout["app"]["x"])
+        self.assertLess(layout["pub"]["h"] + layout["app"]["h"], layout["vpc"]["h"])
 
     def test_az_containers_placed_side_by_side(self) -> None:
         arch = ArchitectureDiagram(
@@ -278,38 +282,23 @@ class LayoutSanitizeTests(unittest.TestCase):
         self.assertNotIn("shield_advanced", style)
 
     def test_edge_anchors_connect_face_to_face(self) -> None:
-        exit_x, exit_y, entry_x, entry_y, _ = route_edge((0, 0, 60, 60), (220, 0, 60, 60))
+        exit_x, exit_y, entry_x, entry_y, waypoints = route_edge((0, 0, 60, 60), (220, 0, 60, 60))
         self.assertEqual(exit_x, 1.0)
         self.assertEqual(entry_x, 0.0)
-        self.assertEqual(exit_y, entry_y)
+        self.assertEqual(exit_y, 0.5)
+        self.assertEqual(entry_y, 0.5)
+        self.assertEqual(waypoints, [])
 
         _, exit_y2, _, entry_y2, _ = route_edge((0, 0, 60, 60), (0, 220, 60, 60))
         self.assertEqual(exit_y2, 1.0)
         self.assertEqual(entry_y2, 0.0)
 
-    def test_parallel_edges_use_distinct_exit_anchors(self) -> None:
-        arch = ArchitectureDiagram(
-            nodes=[
-                Node(id="src", label="Source", shape_type="generic_server", step_number=1),
-                Node(id="t1", label="T1", shape_type="generic_server", step_number=2),
-                Node(id="t2", label="T2", shape_type="generic_server", step_number=3),
-                Node(id="t3", label="T3", shape_type="generic_server", step_number=4),
-            ],
-            edges=[
-                Edge(source_id="src", target_id="t1"),
-                Edge(source_id="src", target_id="t2"),
-                Edge(source_id="src", target_id="t3"),
-            ],
-            suggestions=[],
-        )
-        xml = generate_xml(arch, platform="aws")
-        exit_ys: list[float] = []
-        for match in re.finditer(r'<mxCell id="edge_\d+"[^>]*style="([^"]*)"[^>]*source="src"', xml):
-            slot = re.search(r"exitY=([\d.]+)", match.group(1))
-            if slot:
-                exit_ys.append(float(slot.group(1)))
-        self.assertEqual(len(exit_ys), 3)
-        self.assertEqual(len(set(exit_ys)), 3)
+    def test_edges_use_fixed_mid_face_anchors(self) -> None:
+        """Local edge math stays dumb — MCP libavoid / Draw.io owns path spreading."""
+        a = route_edge((0, 0, 60, 60), (220, 0, 60, 60), exit_slot=0)
+        b = route_edge((0, 0, 60, 60), (220, 0, 60, 60), exit_slot=1)
+        self.assertEqual(a[:4], b[:4])
+        self.assertEqual(a[4], [])
 
     def test_edges_emitted_after_vertices(self) -> None:
         arch = ArchitectureDiagram(

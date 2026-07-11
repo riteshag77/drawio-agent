@@ -105,6 +105,18 @@ def _move_band_nodes(nodes: list[Node], keep_empty: bool) -> tuple[list[Node], d
     band_ids = {b: f"band_{b}" for b in BAND_ORDER}
     updated: list[Node] = []
 
+    host_id = None
+    for node in nodes:
+        text = f"{node.label} {node.shape_type} {node.id}".lower()
+        if node.is_container and any(t in text for t in ("cloud", "account", "subscription", "project")):
+            host_id = node.id
+            break
+    if not host_id:
+        for node in nodes:
+            if node.is_container and "region" in f"{node.label} {node.shape_type}".lower():
+                host_id = node.id
+                break
+
     for node in nodes:
         band = band_for_node(node)
         if band:
@@ -122,7 +134,11 @@ def _move_band_nodes(nodes: list[Node], keep_empty: bool) -> tuple[list[Node], d
         if not band_members[band] and keep_empty:
             label = f"{label}\n(not yet in scope)"
         updated.append(Node(
-            id=band_ids[band], label=label, shape_type="aws_generic_group", is_container=True,
+            id=band_ids[band],
+            label=label,
+            shape_type="aws_generic_group",
+            is_container=True,
+            parent_id=host_id,
         ))
     return updated, band_members
 

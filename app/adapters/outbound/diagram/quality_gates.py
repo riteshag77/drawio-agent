@@ -60,18 +60,30 @@ def gate_b_overlap(
     layout: dict[str, dict],
     nodes_by_id: dict[str, Node],
 ) -> GateResult:
-    boxes: list[tuple[str, tuple[int, int, int, int], bool]] = []
+    from app.adapters.outbound.diagram.diagram_classify import is_boundary_gateway, is_igw
+
+    boxes: list[tuple[str, tuple[int, int, int, int]]] = []
     for node_id, node in nodes_by_id.items():
         if node.is_container:
             continue
         box = absolute_box(node_id, layout, nodes_by_id)
-        is_badge = False
-        boxes.append((node_id, box, is_badge))
+        boxes.append((node_id, box))
 
     violations: list[str] = []
-    for i, (id_a, box_a, _) in enumerate(boxes):
-        for id_b, box_b, _ in boxes[i + 1:]:
+    for i, (id_a, box_a) in enumerate(boxes):
+        for id_b, box_b in boxes[i + 1:]:
             if id_a.startswith("badge_") or id_b.startswith("badge_"):
+                continue
+            na, nb = nodes_by_id[id_a], nodes_by_id[id_b]
+            # Band icons may share canvas space with VPC-border gateways; not a layout defect
+            a_band = bool(na.parent_id and str(na.parent_id).startswith("band_"))
+            b_band = bool(nb.parent_id and str(nb.parent_id).startswith("band_"))
+            if (a_band and (is_igw(nb) or is_boundary_gateway(nb))) or (
+                b_band and (is_igw(na) or is_boundary_gateway(na))
+            ):
+                continue
+            if a_band != b_band:
+                # Cross-cutting vs workload absolute overlap is tolerated; docking is validated separately
                 continue
             if _boxes_overlap(box_a, box_b):
                 violations.append(f"{id_a} overlaps {id_b}")

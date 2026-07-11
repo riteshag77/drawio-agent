@@ -1,18 +1,6 @@
-"""Edge anchor points from absolute node positions. Draw.io routes the path natively."""
+"""Edge anchors — Draw.io / MCP libavoid owns the path; we only pick facing sides."""
 
 from __future__ import annotations
-
-from app.adapters.outbound.diagram.layout_settings import layout_settings
-
-
-def _slot_value(slot: int) -> float:
-    slots = layout_settings().face_slots
-    return slots[slot % len(slots)]
-
-
-def _box_center(box: tuple[int, int, int, int]) -> tuple[float, float]:
-    x, y, w, h = box
-    return x + w / 2, y + h / 2
 
 
 def route_edge(
@@ -25,32 +13,24 @@ def route_edge(
     lane: int = 0,
     prefer_horizontal: bool = True,
 ) -> tuple[float, float, float, float, list[tuple[int, int]]]:
-    """Return (exitX, exitY, entryX, entryY, waypoints).
+    """Return fixed mid-face anchors (exitX, exitY, entryX, entryY, []).
 
-    Face-to-face anchors with slot spreading so parallel edges do not stack.
+    Slot/lane args kept for call-site compatibility; ignored on purpose.
     """
-    scx, scy = _box_center(src_box)
-    tcx, tcy = _box_center(tgt_box)
+    sx, sy, sw, sh = src_box
+    tx, ty, tw, th = tgt_box
+    scx, scy = sx + sw / 2, sy + sh / 2
+    tcx, tcy = tx + tw / 2, ty + th / 2
     dx, dy = tcx - scx, tcy - scy
-    exit_off = _slot_value(exit_slot)
-    entry_off = _slot_value(entry_slot)
-    # Slight lane bias keeps parallel orthogonal segments from coinciding
-    lane_nudge = (lane % 5) * 0.04
 
     use_horizontal = abs(dx) >= abs(dy) if prefer_horizontal else abs(dx) > abs(dy) * 1.25
-
     if use_horizontal:
-        ey = min(0.85, max(0.15, exit_off + (lane_nudge if dx >= 0 else -lane_nudge)))
-        iy = min(0.85, max(0.15, entry_off - (lane_nudge if dx >= 0 else -lane_nudge)))
         if dx >= 0:
-            return 1.0, ey, 0.0, iy, []
-        return 0.0, ey, 1.0, iy, []
-
-    ex = min(0.85, max(0.15, exit_off + lane_nudge))
-    ix = min(0.85, max(0.15, entry_off - lane_nudge))
+            return 1.0, 0.5, 0.0, 0.5, []
+        return 0.0, 0.5, 1.0, 0.5, []
     if dy >= 0:
-        return ex, 1.0, ix, 0.0, []
-    return ex, 0.0, ix, 1.0, []
+        return 0.5, 1.0, 0.5, 0.0, []
+    return 0.5, 0.0, 0.5, 1.0, []
 
 
 def collect_obstacles(node_bounds, *, exclude, include_containers=True, container_ids=None):

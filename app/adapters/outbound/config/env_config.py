@@ -131,11 +131,11 @@ class EnvConfigAdapter(ConfigPort):
 
     @property
     def leaf_node_width(self) -> int:
-        return self.get_int("LEAF_NODE_W", 60)
+        return self.get_int("LEAF_NODE_W", 48)
 
     @property
     def leaf_node_height(self) -> int:
-        return self.get_int("LEAF_NODE_H", 60)
+        return self.get_int("LEAF_NODE_H", 48)
 
     @property
     def leaf_cell_width(self) -> int:

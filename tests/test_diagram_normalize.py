@@ -82,7 +82,7 @@ class DiagramNormalizeTests(unittest.TestCase):
         layout = build_layout(nbi, cm, roots)
         igw = layout["aws_internet_gateway"]
         vpc = layout["aws_vpc"]
-        self.assertEqual(igw["y"], -30)
+        self.assertEqual(igw["y"], max(-30, -igw["h"] // 2))
         self.assertAlmostEqual(igw["x"], vpc["w"] // 2 - igw["w"] // 2, delta=30)
 
     def test_generates_band_containers_in_xml(self) -> None:
@@ -90,8 +90,11 @@ class DiagramNormalizeTests(unittest.TestCase):
         self.assertIn('id="band_security"', xml)
         self.assertIn('id="band_logging"', xml)
         self.assertIn("endArrow=none", xml)
-        # Band chrome is label-only (no AWS group shape icon)
-        self.assertNotIn("mxgraph.aws4.group", xml.split('id="band_security"')[1].split("</mxCell>")[0])
+        # Bordered titled band (not invisible chrome)
+        band_cell = xml.split('id="band_security"')[1].split("</mxCell>")[0]
+        self.assertIn("strokeColor=#DD344C", band_cell)
+        self.assertNotIn("strokeColor=none", band_cell)
+        self.assertNotIn("mxgraph.aws4.group", band_cell)
         # Empty management/integration bands are not forced onto the page
         self.assertNotIn('id="band_management"', xml)
         self.assertNotIn('id="band_integration"', xml)

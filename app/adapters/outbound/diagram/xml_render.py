@@ -71,7 +71,7 @@ def append_edge(
     src_box = absolute_box(edge.source_id, layout, nodes_by_id)
     tgt_box = absolute_box(edge.target_id, layout, nodes_by_id)
     attached = is_attached_edge(edge)
-    exit_x, exit_y, entry_x, entry_y, _ = route_edge(
+    exit_x, exit_y, entry_x, entry_y, waypoints = route_edge(
         src_box,
         tgt_box,
         exit_slot=exit_slot,
@@ -115,7 +115,14 @@ def append_edge(
         f'    <mxCell id="edge_{cell_id}" value="{escape_xml(label)}" style="{edge_style}" edge="1" '
         f'parent="{parent}" source="{edge.source_id}" target="{edge.target_id}">'
     )
-    xml.append('      <mxGeometry relative="1" as="geometry" />')
+    if waypoints:
+        pts = "".join(f'<mxPoint x="{px}" y="{py}" />' for px, py in waypoints)
+        xml.append(
+            '      <mxGeometry relative="1" as="geometry">'
+            f'<Array as="points">{pts}</Array></mxGeometry>'
+        )
+    else:
+        xml.append('      <mxGeometry relative="1" as="geometry" />')
     xml.append("    </mxCell>")
 
 

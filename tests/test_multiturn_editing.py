@@ -40,7 +40,7 @@ def _make_sample_architecture() -> ArchitectureDiagram:
                 id="users",
                 label="Users",
                 shape_type="user_client",
-                parent_id="cloud",
+                parent_id=None,
             ),
             Node(
                 id="apigw",
@@ -88,16 +88,18 @@ class MultiturnEditingTest(unittest.TestCase):
         self.assertEqual(_extract_mxcell(xml_turn2, "users"), users_before)
         self.assertEqual(_extract_mxcell(xml_turn2, "apigw"), apigw_before)
 
-        # Turn 3: delete container cloud (cascade children)
+        # Turn 3: delete container cloud (cascade children only — users stay outside)
         delete_op = DiagramOperation(operation="delete", cell_id="cloud", new_xml=None)
         turn3 = apply_diagram_operations(xml_turn2, [delete_op])
         self.assertEqual(turn3.errors, [])
         xml_turn3 = validate_and_fix_xml(turn3.result).fixed or turn3.result
 
         self.assertNotIn('id="cloud"', xml_turn3)
-        self.assertNotIn('id="users"', xml_turn3)
         self.assertNotIn('id="apigw"', xml_turn3)
         self.assertNotIn('id="lambda1"', xml_turn3)
+        # Entry actors are canvas-rooted, not cloud children
+        self.assertIn('id="users"', xml_turn3)
+        self.assertEqual(_extract_mxcell(xml_turn3, "users"), users_before)
 
 if __name__ == "__main__":
     unittest.main()

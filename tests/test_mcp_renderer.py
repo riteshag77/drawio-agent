@@ -38,11 +38,13 @@ class McpRendererTests(unittest.IsolatedAsyncioTestCase):
             suggestions=[],
         )
         with patch("app.adapters.outbound.diagram.mcp_renderer.resolve_shape_styles", new_callable=AsyncMock) as mock_resolve:
-            xml, used, preview = await render_architecture_xml(arch, "aws", diagram_renderer="local")
-            mock_resolve.assert_not_called()
-            self.assertEqual(used, "local")
-            self.assertIsNone(preview)
-            self.assertIn("mxGraphModel", xml)
+            with patch("app.adapters.outbound.diagram.mcp_renderer.create_diagram", new_callable=AsyncMock) as mock_create:
+                xml, used, preview = await render_architecture_xml(arch, "aws", diagram_renderer="local")
+                mock_resolve.assert_not_called()
+                mock_create.assert_not_called()
+                self.assertEqual(used, "local")
+                self.assertIsNone(preview)
+                self.assertIn("mxGraphModel", xml)
 
     async def test_mcp_fallback_on_error(self) -> None:
         from app.adapters.outbound.diagram.drawio_mcp_client import DrawioMcpError
@@ -60,6 +62,52 @@ class McpRendererTests(unittest.IsolatedAsyncioTestCase):
             xml, used, _ = await render_architecture_xml(arch, "aws", diagram_renderer="auto")
             self.assertEqual(used, "local")
             self.assertIn("mxGraphModel", xml)
+
+    async def test_auto_calls_libavoid_create_diagram(self) -> None:
+        arch = ArchitectureDiagram(
+            nodes=[Node(id="a", label="Lambda", shape_type="aws_lambda", step_number=1)],
+            edges=[],
+            suggestions=[],
+        )
+        with patch(
+            "app.adapters.outbound.diagram.mcp_renderer.resolve_shape_styles",
+            new_callable=AsyncMock,
+            return_value={},
+        ):
+            with patch(
+                "app.adapters.outbound.diagram.mcp_renderer.create_diagram",
+                new_callable=AsyncMock,
+                return_value=("https://example.com/preview", None),
+            ) as mock_create:
+                xml, used, preview = await render_architecture_xml(arch, "aws", diagram_renderer="auto")
+                mock_create.assert_awaited()
+                self.assertEqual(mock_create.await_args.kwargs.get("routing"), "libavoid")
+                self.assertEqual(used, "mcp")
+                # Preview-only response does not replace local XML / surface preview
+                self.assertIsNone(preview)
+                self.assertIn("mxGraphModel", xml)
+
+    async def test_auto_applies_routed_xml_when_returned(self) -> None:
+        arch = ArchitectureDiagram(
+            nodes=[Node(id="a", label="Lambda", shape_type="aws_lambda", step_number=1)],
+            edges=[],
+            suggestions=[],
+        )
+        routed = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel>'
+        with patch(
+            "app.adapters.outbound.diagram.mcp_renderer.resolve_shape_styles",
+            new_callable=AsyncMock,
+            return_value={},
+        ):
+            with patch(
+                "app.adapters.outbound.diagram.mcp_renderer.create_diagram",
+                new_callable=AsyncMock,
+                return_value=("https://example.com/preview", routed),
+            ):
+                xml, used, preview = await render_architecture_xml(arch, "aws", diagram_renderer="auto")
+                self.assertEqual(used, "mcp")
+                self.assertEqual(preview, "https://example.com/preview")
+                self.assertEqual(xml, routed)
 
 
 if __name__ == "__main__":

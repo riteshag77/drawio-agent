@@ -10,6 +10,7 @@ from app.adapters.outbound.config.env_config import get_config
 
 @dataclass(frozen=True)
 class LayoutSettings:
+    grid: int
     leaf_w: int
     leaf_h: int
     leaf_cell_w: int
@@ -45,6 +46,7 @@ class LayoutSettings:
     band_gap: int
     band_pad: int
     band_min_h: int
+    edge_distance_ratio: float
     scaffold_cloud: tuple[int, int]
     scaffold_vpc: tuple[int, int]
     scaffold_az: tuple[int, int]
@@ -56,7 +58,9 @@ class LayoutSettings:
 @lru_cache(maxsize=1)
 def layout_settings() -> LayoutSettings:
     c = get_config()
+    grid = c.get_int("GRID", 20)
     return LayoutSettings(
+        grid=grid,
         leaf_w=c.leaf_node_width,
         leaf_h=c.leaf_node_height,
         leaf_cell_w=c.leaf_cell_width,
@@ -92,6 +96,7 @@ def layout_settings() -> LayoutSettings:
         band_gap=c.get_int("BAND_GAP", 24),
         band_pad=c.get_int("BAND_PAD", 20),
         band_min_h=c.get_int("BAND_MIN_H", 88),
+        edge_distance_ratio=float(c.get("EDGE_DISTANCE_RATIO", "0.6")),
         scaffold_cloud=(c.get_int("SCAFFOLD_CLOUD_W", 920), c.get_int("SCAFFOLD_CLOUD_H", 540)),
         scaffold_vpc=(c.get_int("SCAFFOLD_VPC_W", 980), c.get_int("SCAFFOLD_VPC_H", 420)),
         scaffold_az=(c.get_int("SCAFFOLD_AZ_W", 320), c.get_int("SCAFFOLD_AZ_H", 380)),
