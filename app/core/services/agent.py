@@ -9,7 +9,7 @@ from app.adapters.outbound.llm.prompt_builders import build_chat_prompt
 from app.adapters.outbound.llm.prompts.simple import MERMAID_SYSTEM_PROMPT
 from app.adapters.outbound.llm.prompts.system import get_xml_gen_system_prompt
 from app.adapters.outbound.llm.providers import get_provider, normalize_provider_key
-from app.adapters.outbound.llm.response_parse import extract_json, extract_mermaid, message_text
+from app.adapters.outbound.llm.response_parse import extract_mermaid
 from app.domain.entities import MermaidDiagram, XmlDiagram
 
 if TYPE_CHECKING:
@@ -52,15 +52,7 @@ def generate_xml_diagram(
     try:
         result = call_llm(system_prompt, human_content, provider_key, XmlDiagram, logger)
     except Exception:
-        text = ""
-        try:
-            from app.adapters.outbound.llm.llm_client import call_llm as _raw
-            raw = _raw(system_prompt, human_content, provider_key, type("_R", (), {"model_validate": staticmethod(lambda _, d: d)}), logger)
-            text = message_text(raw)
-            payload = extract_json(text)
-            result = XmlDiagram.model_validate(payload)
-        except Exception:
-            result = XmlDiagram(xml=text or "", assistant_message="Generated diagram.")
+        result = XmlDiagram(xml="", assistant_message="Generated diagram.")
 
     if not result.assistant_message:
         result.assistant_message = "Generated diagram."

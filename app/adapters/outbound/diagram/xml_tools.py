@@ -36,7 +36,23 @@ def wrap_with_mxfile(graph_xml: str, page_name: str = "Architecture") -> str:
         )
 
     if "<mxfile" in trimmed:
-        return trimmed
+        # Return as-is only when the document parses cleanly.
+        try:
+            ET.fromstring(trimmed)
+            return trimmed
+        except ET.ParseError:
+            # Malformed mxfile — try to extract inner content and re-wrap.
+            diag = re.search(r'<diagram[^>]*>(.*?)</diagram>', trimmed, re.DOTALL)
+            if diag:
+                return wrap_with_mxfile(diag.group(1).strip(), page_name)
+            model = re.search(r'<mxGraphModel[^>]*>(.*?)</mxGraphModel>', trimmed, re.DOTALL)
+            if model:
+                return wrap_with_mxfile(model.group(1).strip(), page_name)
+            # Strip all container tags and re-wrap the remaining content.
+            stripped = re.sub(
+                r'</?(?:mxfile|diagram|mxGraphModel|root)[^>]*>', '', trimmed
+            )
+            return wrap_with_mxfile(stripped.strip(), page_name)
 
     if "<mxGraphModel" in trimmed:
         inner = trimmed
@@ -142,7 +158,8 @@ def ensure_diagram_document(xml: str, page_name: str = "Architecture") -> str:
             ET.fromstring(trimmed)
             return trimmed
         except ET.ParseError:
-            pass
+            # Malformed mxfile — let wrap_with_mxfile handle extraction & re-wrap
+            return wrap_with_mxfile(trimmed, page_name)
     if re.match(r"\s*<mxGraphModel[\s>]", trimmed, flags=re.IGNORECASE):
         try:
             ET.fromstring(trimmed)

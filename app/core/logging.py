@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from logging.handlers import RotatingFileHandler
 from typing import Any
 
 
@@ -48,14 +50,35 @@ class LogEntry:
 # Root logger for server-side output (separate from per-request StepLogger instances).
 _LOGGER: logging.Logger = logging.getLogger("drawio-agent")
 _LOGGER.setLevel(logging.DEBUG)
-_handler = logging.StreamHandler(sys.stdout)
-_handler.setFormatter(
+
+_console = logging.StreamHandler(sys.stdout)
+_console.setFormatter(
     logging.Formatter(
         fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%Y-%m-%dT%H:%M:%S%z",
     )
 )
-_LOGGER.addHandler(_handler)
+_LOGGER.addHandler(_console)
+
+_log_dir = os.environ.get("DRAWIO_AGENT_LOG_DIR", "logs")
+try:
+    os.makedirs(_log_dir, exist_ok=True)
+    _file = RotatingFileHandler(
+        os.path.join(_log_dir, "drawio-agent.log"),
+        maxBytes=10 * 1024 * 1024,
+        backupCount=5,
+        encoding="utf-8",
+    )
+    _file.setLevel(logging.DEBUG)
+    _file.setFormatter(
+        logging.Formatter(
+            fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            datefmt="%Y-%m-%dT%H:%M:%S%z",
+        )
+    )
+    _LOGGER.addHandler(_file)
+except OSError:
+    pass  # non-fatal: file logging unavailable
 
 
 def get_logger() -> logging.Logger:

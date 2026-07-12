@@ -110,6 +110,7 @@ function bindDrawioMessages(iframe) {
         }
 
         if (msg.event === 'load') {
+            clearDrawioLoadTimer();
             appendVerboseLog('drawio', 'Diagram loaded in editor', 'success', {
                 page: msg.page,
                 bounds: msg.bounds || null
@@ -121,6 +122,19 @@ function bindDrawioMessages(iframe) {
                 setComposerRunStatus('Ready — ask for changes or try another prompt', 'success');
             }
             setTimeout(() => runVisualValidation(), 2500);
+        }
+
+        if (msg.event === 'error') {
+            clearDrawioLoadTimer();
+            appendVerboseLog('drawio', 'Draw.io error: ' + (msg.message || 'Unknown'), 'error', msg);
+            setComposerRunStatus('Draw.io render error: ' + (msg.message || 'Check the diagram'), 'error');
+            document.getElementById('diagram-loading').classList.remove('active');
+        }
+
+        if (msg.event === 'dialog' && msg.button === 'cancel') {
+            clearDrawioLoadTimer();
+            appendVerboseLog('drawio', 'Diagram load cancelled by editor', 'warning');
+            document.getElementById('diagram-loading').classList.remove('active');
         }
 
         if (msg.event === 'export' && msg.data) {
@@ -188,6 +202,15 @@ function loadDiagramFromResponse(data) {
     }
 }
 
+let drawioLoadTimer = null;
+
+function clearDrawioLoadTimer() {
+    if (drawioLoadTimer) {
+        clearTimeout(drawioLoadTimer);
+        drawioLoadTimer = null;
+    }
+}
+
 function loadDiagramIntoEditor(xml) {
     const iframe = ensureDrawioFrame();
     const payload = {
@@ -219,6 +242,14 @@ function loadDiagramIntoEditor(xml) {
         layout: payload.layout || null
     });
     iframe.contentWindow.postMessage(JSON.stringify(payload), DRAWIO_ORIGIN);
+
+    clearDrawioLoadTimer();
+    drawioLoadTimer = setTimeout(() => {
+        drawioLoadTimer = null;
+        appendVerboseLog('drawio', 'Diagram load timed out — the XML may have errors', 'error', { xml_chars: xml.length });
+        setComposerRunStatus('Diagram render timed out — XML may have errors', 'error');
+        document.getElementById('diagram-loading').classList.remove('active');
+    }, 15000);
 }
 
 function applyLayoutToEditor() {

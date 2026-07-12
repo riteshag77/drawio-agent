@@ -58,7 +58,7 @@ def _build_registry() -> dict[str, ProviderSpec]:
             api_key_env="OPENROUTER_API_KEY",
             base_url_env="OPENROUTER_BASE_URL",
             base_url_default="https://openrouter.ai/api/v1",
-            structured_output="none",
+            structured_output="json_mode",
         ),
         "gemini": ProviderSpec(
             key="gemini",
@@ -81,7 +81,7 @@ def _build_registry() -> dict[str, ProviderSpec]:
             api_key_env="OPENCODE_API_KEY",
             base_url_env="OPENCODE_BASE_URL",
             base_url_default="https://opencode.ai/zen/v1",
-            structured_output="none",
+            structured_output="json_mode",
         ),
         "bazaarlink": ProviderSpec(
             key="bazaarlink",
@@ -90,7 +90,7 @@ def _build_registry() -> dict[str, ProviderSpec]:
             api_key_env="BAZAARLINK_API_KEY",
             base_url_env="BAZAARLINK_BASE_URL",
             base_url_default="https://bazaarlink.ai/api/v1",
-            structured_output="none",
+            structured_output="json_mode",
         ),
     }
 
