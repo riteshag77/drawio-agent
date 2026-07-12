@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import unittest
 
-from app.diagram.draftsman import generate_xml
-from app.diagram.edge_router import route_edge
-from app.diagram.styles import build_style, normalize_shape_type
-from app.models import ArchitectureDiagram, Edge, Node
-from app.patterns import ARCHITECTURE_PATTERNS
-from app.services.pipeline import classify_diagram_intent
+from app.adapters.outbound.diagram.draftsman import generate_xml
+
+from app.adapters.outbound.diagram.styles import build_style, normalize_shape_type
+from app.domain.entities import ArchitectureDiagram, Edge, Node
+from app.adapters.outbound.patterns.file_repository import load_all_patterns
+from app.core.services.pipeline import classify_diagram_intent
+
+ARCHITECTURE_PATTERNS = load_all_patterns()
 
 
 class HybridDiagramTests(unittest.TestCase):
@@ -49,14 +51,6 @@ class HybridDiagramTests(unittest.TestCase):
             "simple",
         )
 
-    def test_edge_router_returns_empty_waypoints_by_default(self) -> None:
-        src = (40, 40, 60, 60)
-        tgt = (400, 40, 60, 60)
-        exit_x, exit_y, entry_x, entry_y, waypoints = route_edge(src, tgt, [], prefer_horizontal=True)
-        self.assertEqual(len(waypoints), 0)
-        self.assertEqual(exit_x, 1.0)
-        self.assertEqual(entry_x, 0.0)
-
     def test_generate_xml_produces_valid_edges(self) -> None:
         arch = ArchitectureDiagram(
             nodes=[
@@ -90,17 +84,37 @@ class HybridDiagramTests(unittest.TestCase):
         self.assertIn('source="ec2"', xml)
         self.assertIn('target="rds"', xml)
 
-    def test_generate_xml_includes_step_badges(self) -> None:
+    def test_generate_xml_omits_step_badges_by_default(self) -> None:
         arch = ArchitectureDiagram(
             nodes=[
                 Node(id="a", label="A", shape_type="generic_server", step_number=1),
             ],
             edges=[],
             suggestions=[],
+            title="Demo",
         )
         xml = generate_xml(arch, platform="aws")
-        self.assertIn('id="badge_a"', xml)
-        self.assertIn('value="1"', xml)
+        self.assertNotIn('id="badge_a"', xml)
+        self.assertIn('id="canvas_bg"', xml)
+        self.assertIn('id="diagram_title"', xml)
+        self.assertIn("Draw.io AI", xml)
+        self.assertIn("width=\"78\"", xml)
+
+
+class PromptAudienceLtrTests(unittest.TestCase):
+    def test_audience_and_ltr_in_live_prompts(self) -> None:
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1] / "config"
+        default = (root / "architect_default.txt").read_text(encoding="utf-8")
+        aws_topo = (root / "topology_aws_reference.txt").read_text(encoding="utf-8")
+        contract = (root / "contract.txt").read_text(encoding="utf-8")
+        self.assertIn("Audience", default)
+        self.assertIn("Executive", default)
+        self.assertIn("left→right", aws_topo)
+        self.assertIn("BELOW the main path", aws_topo)
+        self.assertIn("obvious hops", contract)
+        self.assertIn("Error/DLQ", contract)
 
 
 if __name__ == "__main__":

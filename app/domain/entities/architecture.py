@@ -14,10 +14,11 @@ class Node(BaseModel):
     is_container: bool = Field(default=False, description="True if this shape is a boundary (like a VPC, Subnet, AZ, or logical group) that holds other resources.")
     parent_id: Optional[str] = Field(default=None, description="The ID of the container this shape sits inside. Null if it sits on the main canvas.")
     step_number: Optional[int] = Field(default=None, description="The numbered step in the traffic flow sequence (1, 2, 3, ...). Only set for nodes that represent a numbered step in the architecture flow.")
-    width: Optional[int] = Field(default=None, description="Always null; ignored by server layout.")
-    height: Optional[int] = Field(default=None, description="Always null; ignored by server layout.")
-    x: Optional[int] = Field(default=None, description="Always null; ignored by server layout.")
-    y: Optional[int] = Field(default=None, description="Always null; ignored by server layout.")
+    width: Optional[int] = Field(default=None, description="Explicit width in px. If provided by LLM, overrides auto-layout sizing.")
+    height: Optional[int] = Field(default=None, description="Explicit height in px. If provided by LLM, overrides auto-layout sizing.")
+    x: Optional[int] = Field(default=None, description="Explicit x-position in px. If provided by LLM, overrides auto-layout placement.")
+    y: Optional[int] = Field(default=None, description="Explicit y-position in px. If provided by LLM, overrides auto-layout placement.")
+    layer: Optional[str] = Field(default="default", description="Z-order layer: 'background' (rendered first, sits behind), 'default', or 'foreground' (rendered last, sits on top).")
     description: Optional[str] = Field(default=None, description="Optional tooltip or annotation text displayed on hover.")
 
 

@@ -68,6 +68,10 @@ class StylesDenylistTests(unittest.TestCase):
         self.assertIn("strokeColor=none", style)
         self.assertNotIn("resourceIcon", style)
 
+    def test_api_gateway_uses_integration_purple(self) -> None:
+        style = build_style("aws_api_gateway")
+        self.assertIn("#E7157B", style)
+
 
 class EdgeEmitTests(unittest.TestCase):
     def test_omit_empty_value_attr(self) -> None:
@@ -94,6 +98,31 @@ class EdgeEmitTests(unittest.TestCase):
         self.assertIn('id="edge_1"', joined)
         self.assertNotIn("value=", joined)
         self.assertIn("rounded=1", joined)
+
+    def test_error_dlq_edge_is_red_dashed(self) -> None:
+        xml: list[str] = []
+        edge = Edge(source_id="a", target_id="b", label="DLQ", style="dashed", color="#ED7100")
+        layout = {
+            "a": {"x": 0, "y": 0, "w": 48, "h": 48},
+            "b": {"x": 200, "y": 80, "w": 48, "h": 48},
+        }
+        nodes = {
+            "a": Node(id="a", label="Lambda", shape_type="aws_lambda"),
+            "b": Node(id="b", label="DLQ", shape_type="aws_sqs"),
+        }
+        append_edge(
+            xml,
+            edge,
+            cell_id=2,
+            layout=layout,
+            nodes_by_id=nodes,
+            default_edge_color="#ED7100",
+            platform_key="aws",
+        )
+        joined = "\n".join(xml)
+        self.assertIn("strokeColor=#DD344C", joined)
+        self.assertIn("dashed=1", joined)
+        self.assertIn('value="DLQ"', joined)
 
     def test_strip_obvious_labels(self) -> None:
         arch = ArchitectureDiagram(

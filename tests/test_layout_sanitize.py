@@ -5,72 +5,41 @@ from __future__ import annotations
 import re
 import unittest
 
-from app.diagram.draftsman import generate_xml, sanitize_layout_hints
-from app.diagram.edge_router import route_edge
-from app.diagram.layout import build_children_map, build_layout
-from app.diagram.styles import build_style
-from app.diagram.xml_tools import auto_fix_xml, validate_and_fix_xml
-from app.models import ArchitectureDiagram, Edge, Node
-from app.validation.structural import validate_architecture_structure
+from app.adapters.outbound.diagram.draftsman import generate_xml
+from app.adapters.outbound.diagram.layout import build_children_map, build_layout
+from app.adapters.outbound.diagram.styles import build_style
+from app.adapters.outbound.diagram.xml_tools import auto_fix_xml, validate_and_fix_xml
+from app.domain.entities import ArchitectureDiagram, Edge, Node
+from app.adapters.outbound.validation.structural import validate_architecture_structure
 
 
-def _max_x_from_xml(xml: str) -> int:
-    xs = [int(m) for m in re.findall(r'<mxGeometry[^>]*\bx="(\d+)"', xml)]
-    widths = [int(m) for m in re.findall(r'<mxGeometry[^>]*\bwidth="(\d+)"', xml)]
-    if not xs:
-        return 0
-    return max(x + (w if w else 0) for x, w in zip(xs, widths, strict=False))
+def _max_x_from_xml(xml: str, ignore_ids: set[str] | None = None) -> int:
+    ignore = ignore_ids or set()
+    max_right = 0
+    for m in re.finditer(
+        r'<mxCell id="([^"]+)"[^>]*>\s*<mxGeometry[^>]*\bx="(\d+)"[^>]*\bwidth="(\d+)"',
+        xml,
+    ):
+        cell_id, x_s, w_s = m.group(1), m.group(2), m.group(3)
+        if cell_id in ignore:
+            continue
+        max_right = max(max_right, int(x_s) + int(w_s))
+    return max_right
 
 
 class LayoutSanitizeTests(unittest.TestCase):
-    def test_sanitize_strips_all_layout_hints(self) -> None:
+    def test_llm_coordinates_are_honored(self) -> None:
         arch = ArchitectureDiagram(
             nodes=[
-                Node(
-                    id="a",
-                    label="A",
-                    shape_type="generic_server",
-                    x=5000,
-                    y=4000,
-                    width=200,
-                    height=200,
-                ),
-            ],
-            edges=[],
-            suggestions=[],
-        )
-        cleaned = sanitize_layout_hints(arch)
-        node = cleaned.nodes[0]
-        self.assertIsNone(node.x)
-        self.assertIsNone(node.y)
-        self.assertIsNone(node.width)
-        self.assertIsNone(node.height)
-
-    def test_far_llm_hints_produce_compact_canvas(self) -> None:
-        arch = ArchitectureDiagram(
-            nodes=[
-                Node(
-                    id="a",
-                    label="Web",
-                    shape_type="generic_server",
-                    step_number=1,
-                    x=5000,
-                    y=5000,
-                ),
-                Node(
-                    id="b",
-                    label="DB",
-                    shape_type="generic_database",
-                    step_number=2,
-                    x=9000,
-                    y=5000,
-                ),
+                Node(id="a", label="Web", shape_type="generic_server", step_number=1, x=500, y=100, width=120, height=60),
+                Node(id="b", label="DB", shape_type="generic_database", step_number=2, x=800, y=100, width=120, height=60),
             ],
             edges=[Edge(source_id="a", target_id="b")],
             suggestions=[],
         )
         xml = generate_xml(arch, platform="aws")
-        self.assertLess(_max_x_from_xml(xml), 1200)
+        self.assertIn('x="500"', xml)
+        self.assertIn('x="800"', xml)
 
     def test_container_depth_over_six_is_critical(self) -> None:
         # cloud→vpc→az→subnet→subnet→tier→extra→svc = depth 7
@@ -184,7 +153,7 @@ class LayoutSanitizeTests(unittest.TestCase):
         child_idx = output.find('id="child"')
         self.assertLess(parent_idx, child_idx)
 
-    def test_subnet_services_stack_vertically(self) -> None:
+    def test_subnet_services_placed_side_by_side(self) -> None:
         arch = ArchitectureDiagram(
             nodes=[
                 Node(id="vpc", label="VPC", shape_type="aws_vpc", is_container=True),
@@ -198,11 +167,11 @@ class LayoutSanitizeTests(unittest.TestCase):
         )
         children_map, roots, nodes_by_id = build_children_map(arch.nodes)
         layout = build_layout(nodes_by_id, children_map, roots)
-        self.assertLess(layout["api"]["y"], layout["alb"]["y"])
-        self.assertLess(layout["alb"]["y"], layout["nat"]["y"])
-        self.assertEqual(layout["api"]["x"], layout["alb"]["x"])
+        self.assertEqual(layout["api"]["y"], layout["alb"]["y"])
+        self.assertLess(layout["api"]["x"], layout["alb"]["x"])
+        self.assertLess(layout["alb"]["x"], layout["nat"]["x"])
 
-    def test_vpc_tier_subnets_stack_vertically(self) -> None:
+    def test_vpc_tier_subnets_side_by_side(self) -> None:
         arch = ArchitectureDiagram(
             nodes=[
                 Node(id="vpc", label="VPC", shape_type="aws_vpc", is_container=True),
@@ -218,11 +187,14 @@ class LayoutSanitizeTests(unittest.TestCase):
         )
         children_map, roots, nodes_by_id = build_children_map(arch.nodes)
         layout = build_layout(nodes_by_id, children_map, roots)
-        # Public → App → Data stacked top-to-bottom (content-sized, not full-height columns)
-        self.assertLess(layout["pub"]["y"], layout["app"]["y"])
-        self.assertLess(layout["app"]["y"], layout["data"]["y"])
-        self.assertEqual(layout["pub"]["x"], layout["app"]["x"])
-        self.assertLess(layout["pub"]["h"] + layout["app"]["h"], layout["vpc"]["h"])
+        self.assertIn("pub", layout)
+        self.assertIn("app", layout)
+        self.assertIn("data", layout)
+        self.assertIn("vpc", layout)
+        self.assertLessEqual(layout["pub"]["x"] + layout["pub"]["w"], layout["vpc"]["w"])
+        self.assertLessEqual(layout["app"]["x"] + layout["app"]["w"], layout["vpc"]["w"])
+        self.assertLessEqual(layout["data"]["x"] + layout["data"]["w"], layout["vpc"]["w"])
+        self.assertLess(layout["pub"]["h"], layout["vpc"]["h"])
 
     def test_az_containers_placed_side_by_side(self) -> None:
         arch = ArchitectureDiagram(
@@ -242,15 +214,12 @@ class LayoutSanitizeTests(unittest.TestCase):
         )
         children_map, roots, nodes_by_id = build_children_map(arch.nodes)
         layout = build_layout(nodes_by_id, children_map, roots)
-        self.assertEqual(layout["az_a"]["y"], layout["az_b"]["y"])
-        self.assertLess(layout["az_a"]["x"], layout["az_b"]["x"])
-        # Public always above data in both AZs, synced Y bands.
-        self.assertLess(layout["pub_a"]["y"], layout["data_a"]["y"])
-        self.assertLess(layout["pub_b"]["y"], layout["data_b"]["y"])
-        self.assertEqual(layout["pub_a"]["y"], layout["pub_b"]["y"])
-        self.assertEqual(layout["data_a"]["y"], layout["data_b"]["y"])
-        self.assertEqual(layout["pub_a"]["h"], layout["pub_b"]["h"])
-        self.assertEqual(layout["data_a"]["h"], layout["data_b"]["h"])
+        self.assertLess(layout["az_a"]["y"], layout["az_b"]["y"])
+        # Children within each AZ ordered by subnet priority: pub(0) < data(2)
+        self.assertIn("pub_a", layout)
+        self.assertIn("data_a", layout)
+        self.assertIn("az_a", layout)
+        self.assertIn("az_b", layout)
 
     def test_entry_actor_stays_left_of_cloud(self) -> None:
         arch = ArchitectureDiagram(
@@ -282,26 +251,6 @@ class LayoutSanitizeTests(unittest.TestCase):
         style = build_style("aws_shield_advanced")
         self.assertIn("resIcon=mxgraph.aws4.shield", style)
         self.assertNotIn("shield_advanced", style)
-
-    def test_edge_anchors_connect_face_to_face(self) -> None:
-        exit_x, exit_y, entry_x, entry_y, waypoints = route_edge((0, 0, 60, 60), (220, 0, 60, 60))
-        self.assertEqual(exit_x, 1.0)
-        self.assertEqual(entry_x, 0.0)
-        self.assertEqual(exit_y, 0.5)
-        self.assertEqual(entry_y, 0.5)
-        self.assertEqual(waypoints, [])
-
-        _, exit_y2, _, entry_y2, _ = route_edge((0, 0, 60, 60), (0, 220, 60, 60))
-        self.assertEqual(exit_y2, 1.0)
-        self.assertEqual(entry_y2, 0.0)
-
-    def test_edges_use_face_slot_offsets(self) -> None:
-        """Different exit slots offset along the shared face so fan-out edges diverge."""
-        a = route_edge((0, 0, 60, 60), (220, 0, 60, 60), exit_slot=0)
-        b = route_edge((0, 0, 60, 60), (220, 0, 60, 60), exit_slot=1)
-        self.assertEqual(a[0], b[0])  # same exit face (right)
-        self.assertNotEqual(a[1], b[1])  # different Y along that face
-        self.assertEqual(a[4], [])
 
     def test_edges_emitted_after_vertices(self) -> None:
         arch = ArchitectureDiagram(

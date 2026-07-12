@@ -1,4 +1,4 @@
-"""Tests for diagram normalization, bands, and quality gates."""
+"""Tests for diagram normalization (dedup, label stripping) and quality gates."""
 
 from __future__ import annotations
 
@@ -6,134 +6,57 @@ import unittest
 
 from app.adapters.outbound.diagram.diagram_normalize import normalize_architecture
 from app.adapters.outbound.diagram.draftsman import generate_xml
-from app.adapters.outbound.diagram.layout import build_children_map, build_layout
 from app.domain.entities import ArchitectureDiagram, Edge, Node
 
 
-def _ha_web_arch() -> ArchitectureDiagram:
+def _simple_arch() -> ArchitectureDiagram:
     return ArchitectureDiagram(
-        title="HA Web App",
+        title="Test",
         nodes=[
-            Node(id="user_client", label="Users", shape_type="user_client", step_number=1),
-            Node(id="aws_cloud", label="AWS Cloud", shape_type="aws_cloud", is_container=True),
-            Node(id="aws_route53", label="Route 53", shape_type="aws_route53", step_number=2, parent_id="aws_cloud"),
-            Node(id="aws_cloudfront", label="CloudFront", shape_type="aws_cloudfront", step_number=3, parent_id="aws_cloud"),
-            Node(id="aws_shield_advanced", label="Shield Advanced", shape_type="aws_shield_advanced", step_number=4, parent_id="aws_cloud"),
-            Node(id="aws_waf", label="WAF", shape_type="aws_waf", step_number=5, parent_id="aws_cloud"),
-            Node(id="aws_region", label="Region", shape_type="aws_region", is_container=True, parent_id="aws_cloud"),
-            Node(id="aws_vpc", label="VPC", shape_type="aws_vpc", is_container=True, parent_id="aws_region"),
-            Node(id="aws_internet_gateway", label="Internet Gateway", shape_type="aws_internet_gateway", parent_id="aws_vpc"),
-            Node(id="aws_az_a", label="AZ A", shape_type="aws_az", is_container=True, parent_id="aws_vpc"),
-            Node(id="aws_public_subnet_a", label="Public Subnet", shape_type="aws_public_subnet", is_container=True, parent_id="aws_az_a"),
-            Node(id="aws_private_subnet_a", label="Private Subnet", shape_type="aws_private_subnet", is_container=True, parent_id="aws_az_a"),
-            Node(id="aws_data_subnet_a", label="Data Subnet", shape_type="aws_private_subnet", is_container=True, parent_id="aws_az_a"),
-            Node(id="aws_api_gateway", label="API Gateway", shape_type="aws_api_gateway", step_number=6, parent_id="aws_public_subnet_a"),
-            Node(id="aws_alb_a", label="ALB", shape_type="aws_alb", step_number=7, parent_id="aws_public_subnet_a"),
-            Node(id="aws_fargate_a", label="Fargate", shape_type="aws_fargate", step_number=8, parent_id="aws_private_subnet_a"),
-            Node(id="aws_elasticache_a", label="ElastiCache", shape_type="aws_elasticache", step_number=9, parent_id="aws_private_subnet_a"),
-            Node(id="aws_aurora_a", label="Aurora", shape_type="aws_aurora", step_number=10, parent_id="aws_data_subnet_a"),
-            Node(id="aws_cloudwatch", label="CloudWatch", shape_type="aws_cloudwatch", parent_id="aws_cloud"),
+            Node(id="user", label="Users", shape_type="user_client", step_number=1),
+            Node(id="cloud", label="AWS Cloud", shape_type="aws_cloud", is_container=True),
+            Node(id="cf", label="CloudFront", shape_type="aws_cloudfront", parent_id="cloud", step_number=2),
+            Node(id="api", label="API Gateway", shape_type="aws_api_gateway", parent_id="cloud", step_number=3),
+            Node(id="lambda", label="Lambda", shape_type="aws_lambda", parent_id="cloud", step_number=4),
         ],
         edges=[
-            Edge(source_id="user_client", target_id="aws_route53", label="DNS"),
-            Edge(source_id="aws_route53", target_id="aws_cloudfront", label="DNS"),
-            Edge(source_id="aws_cloudfront", target_id="aws_shield_advanced", label="HTTPS"),
-            Edge(source_id="aws_shield_advanced", target_id="aws_waf", label="HTTPS"),
-            Edge(source_id="aws_waf", target_id="aws_api_gateway", label="HTTPS"),
-            Edge(source_id="aws_api_gateway", target_id="aws_fargate_a", label="REST"),
-            Edge(source_id="aws_fargate_a", target_id="aws_elasticache_a", label="Redis"),
-            Edge(source_id="aws_fargate_a", target_id="aws_aurora_a", label="SQL"),
+            Edge(source_id="user", target_id="cf", label="HTTPS"),
+            Edge(source_id="cf", target_id="api", label="HTTPS"),
         ],
         suggestions=[],
     )
 
 
 class DiagramNormalizeTests(unittest.TestCase):
-    def test_removes_inline_security_hops(self) -> None:
-        norm = normalize_architecture(_ha_web_arch())
-        ids = {(e.source_id, e.target_id) for e in norm.edges if e.style != "dashed"}
-        self.assertIn(("aws_cloudfront", "aws_api_gateway"), ids)
-        self.assertNotIn(("aws_cloudfront", "aws_shield_advanced"), ids)
-        self.assertNotIn(("aws_waf", "aws_api_gateway"), ids)
-
-    def test_moves_waf_shield_to_security_band(self) -> None:
-        norm = normalize_architecture(_ha_web_arch())
-        nodes = {n.id: n for n in norm.nodes}
-        self.assertEqual(nodes["aws_waf"].parent_id, "band_security")
-        self.assertEqual(nodes["aws_shield_advanced"].parent_id, "band_security")
-        self.assertIsNone(nodes["aws_waf"].step_number)
-
-    def test_protects_edges_to_cloudfront(self) -> None:
-        norm = normalize_architecture(_ha_web_arch())
-        protects = [e for e in norm.edges if (e.label or "").lower() == "protects"]
-        sources = {e.source_id for e in protects}
-        self.assertIn("aws_waf", sources)
-        self.assertIn("aws_shield_advanced", sources)
-
-    def test_renumbers_flow_to_eight_steps(self) -> None:
-        norm = normalize_architecture(_ha_web_arch())
-        self.assertEqual(len(norm.flow_steps), 8)
-        self.assertEqual(norm.flow_steps[0].title, "User Request")
-        self.assertEqual(norm.flow_steps[3].title, "API Entry Point")
-
-    def test_igw_placed_on_vpc_top_edge(self) -> None:
-        norm = normalize_architecture(_ha_web_arch())
-        cm, roots, nbi = build_children_map(norm.nodes)
-        layout = build_layout(nbi, cm, roots)
-        igw = layout["aws_internet_gateway"]
-        vpc = layout["aws_vpc"]
-        self.assertEqual(igw["y"], max(-30, -igw["h"] // 2))
-        self.assertAlmostEqual(igw["x"], vpc["w"] // 2 - igw["w"] // 2, delta=30)
-
-    def test_generates_band_containers_in_xml(self) -> None:
-        xml = generate_xml(_ha_web_arch(), platform="aws")
-        self.assertIn('id="band_security"', xml)
-        self.assertIn('id="band_logging"', xml)
-        self.assertIn("endArrow=none", xml)
-        # Bordered titled band (not invisible chrome)
-        band_cell = xml.split('id="band_security"')[1].split("</mxCell>")[0]
-        self.assertIn("strokeColor=#DD344C", band_cell)
-        self.assertNotIn("strokeColor=none", band_cell)
-        self.assertNotIn("mxgraph.aws4.group", band_cell)
-        # Empty management/integration bands are not forced onto the page
-        self.assertNotIn('id="band_management"', xml)
-        self.assertNotIn('id="band_integration"', xml)
-
-
-class SingletonDedupeTests(unittest.TestCase):
-    def test_dedupe_duplicate_api_gateway_rewrites_edges(self) -> None:
-        arch = ArchitectureDiagram(
-            nodes=[
-                Node(id="cloud", label="AWS", shape_type="aws_cloud", is_container=True),
-                Node(id="cf", label="CloudFront", shape_type="aws_cloudfront", parent_id="cloud", step_number=1),
-                Node(id="api_gw", label="API GW", shape_type="aws_api_gateway", parent_id="cloud", step_number=2),
-                Node(id="aws_api_gateway", label="API Gateway", shape_type="aws_api_gateway", parent_id="cloud", step_number=3),
-                Node(id="alb", label="ALB", shape_type="aws_alb", parent_id="cloud", step_number=4),
-            ],
-            edges=[
-                Edge(source_id="cf", target_id="api_gw", label="HTTPS"),
-                Edge(source_id="api_gw", target_id="alb", label="HTTPS"),
-                Edge(source_id="aws_api_gateway", target_id="alb", label="HTTPS"),
-            ],
-            suggestions=[],
-        )
+    def test_deduplicates_identical_edges(self) -> None:
+        arch = _simple_arch()
+        arch = arch.model_copy(update={
+            "edges": list(arch.edges) + [Edge(source_id="user", target_id="cf", label="HTTPS")],
+        })
         norm = normalize_architecture(arch)
-        apis = [n for n in norm.nodes if n.shape_type == "aws_api_gateway"]
-        self.assertEqual(len(apis), 1)
-        self.assertEqual(apis[0].id, "aws_api_gateway")
-        self.assertFalse(any(e.source_id == "api_gw" or e.target_id == "api_gw" for e in norm.edges))
-        self.assertTrue(any(e.source_id == "cf" and e.target_id == "aws_api_gateway" for e in norm.edges))
+        cf_edges = [e for e in norm.edges if e.source_id == "user" and e.target_id == "cf"]
+        self.assertEqual(len(cf_edges), 1)
 
-    def test_gate_e_ignores_api_gateway_in_unrelated_label(self) -> None:
-        from app.adapters.outbound.diagram.quality_gates import gate_e_multi_az
+    def test_strips_obvious_edge_labels(self) -> None:
+        arch = _simple_arch()
+        arch = arch.model_copy(update={
+            "edges": [Edge(source_id="user", target_id="cf", label="request")],
+        })
+        norm = normalize_architecture(arch)
+        self.assertIsNone(norm.edges[0].label)
 
-        nodes = [
-            Node(id="aws_api_gateway", label="API Gateway", shape_type="aws_api_gateway"),
-            Node(id="fn", label="calls API Gateway", shape_type="aws_lambda"),
-        ]
-        nodes_by_id = {n.id: n for n in nodes}
-        result = gate_e_multi_az(nodes_by_id)
-        self.assertTrue(result.passed, result.message)
+    def test_preserves_protocol_labels(self) -> None:
+        arch = _simple_arch()
+        arch = arch.model_copy(update={
+            "edges": [Edge(source_id="cf", target_id="api", label="HTTPS")],
+        })
+        norm = normalize_architecture(arch)
+        self.assertEqual(norm.edges[0].label, "HTTPS")
+
+    def test_generates_valid_xml(self) -> None:
+        xml = generate_xml(_simple_arch(), platform="aws")
+        self.assertIn("<mxGraphModel", xml)
+        self.assertIn("id=\"cf\"", xml)
 
 
 if __name__ == "__main__":

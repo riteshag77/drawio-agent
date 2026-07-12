@@ -1,12 +1,18 @@
-━━━ REFERENCE TOPOLOGY (structure only — server places pixels) ━━━
+━━━ REFERENCE TOPOLOGY (structure only — server places pixels LTR) ━━━
 
-Primary path: consecutive `step_number` (1…N) on the request/data flow only.
-Attached/ops (security, identity, secrets, monitoring, management): `step_number: null`.
-Link attached services with dashed edges — never insert them as numbered hops.
+Primary path: consecutive `step_number` (1…N) left→right on the request/data flow only.
+Attached/ops (security, identity, secrets, monitoring, management): `step_number: null`
+(server places them in bands below the main path). Link with dashed edges — never numbered hops.
 
-Hierarchy: keep ≤4 container levels. Edge/CDN/DNS/entry actors sit outside compute VPC/VNet.
-Private data stores and caches never live in public subnets.
+Hierarchy: keep ≤4 container levels. Edge/CDN/DNS/entry actors sit LEFT / outside compute VPC/VNet.
+Private data stores and caches live at the RIGHT end of the path — never in public subnets.
 Multi-AZ / multi-zone: mirror compute + data when the user asks for HA.
+
+Architecture rules:
+- AZs/availability zones stack top→bottom, never side by side.
+- Subnet order left→right: Public → Private/Application → Data.
+- DB/cache must be in private/data subnets — never public.
+- Every numbered step must be on the essential request path.
 
 Must-include (unless user opts out): private DB placement; edge protection as attached;
 observability (one monitoring link); secrets/KMS when credentials exist; multi-AZ when HA.

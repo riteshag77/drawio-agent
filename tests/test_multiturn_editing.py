@@ -12,10 +12,10 @@ from __future__ import annotations
 import re
 import unittest
 
-from app.utils.chat import is_minimal_diagram
-from app.diagram.draftsman import generate_xml
-from app.models import ArchitectureDiagram, DiagramOperation, Edge, Node
-from app.diagram.xml_tools import apply_diagram_operations, validate_and_fix_xml, wrap_with_mxfile
+from app.adapters.outbound.utils.chat import is_minimal_diagram
+from app.adapters.outbound.diagram.draftsman import generate_xml
+from app.domain.entities import ArchitectureDiagram, DiagramOperation, Edge, Node
+from app.adapters.outbound.diagram.xml_tools import apply_diagram_operations, validate_and_fix_xml, wrap_with_mxfile
 
 
 def _extract_mxcell(xml: str, cell_id: str) -> str | None:

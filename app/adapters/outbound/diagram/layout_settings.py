@@ -52,7 +52,6 @@ class LayoutSettings:
     scaffold_az: tuple[int, int]
     scaffold_subnet: tuple[int, int]
     keep_empty_bands_default: bool
-    quality_gates_blocking: bool
 
 
 @lru_cache(maxsize=1)
@@ -86,23 +85,22 @@ def layout_settings() -> LayoutSettings:
         igw_min_x_pad=c.get_int("IGW_MIN_X_PAD", 28),
         label_band_height=c.get_int("LABEL_BAND_HEIGHT", 40),
         min_inner_pad=c.get_int("MIN_INNER_PAD", 20),
-        badge_size=c.get_int("BADGE_SIZE", 22),
+        badge_size=c.get_int("BADGE_SIZE", 0),
         badge_offset=c.get_int("BADGE_OFFSET", -6),
         flow_notes_x=c.get_int("FLOW_NOTES_X", 40),
-        flow_notes_gap=c.get_int("FLOW_NOTES_GAP", 48),
+        flow_notes_gap=c.get_int("FLOW_NOTES_GAP", 280),
         flow_notes_min_w=c.get_int("FLOW_NOTES_MIN_W", 520),
         flow_notes_max_w=c.get_int("FLOW_NOTES_MAX_W", 760),
         flow_notes_row_h=c.get_int("FLOW_NOTES_ROW_H", 30),
-        band_gap=c.get_int("BAND_GAP", 24),
-        band_pad=c.get_int("BAND_PAD", 20),
-        band_min_h=c.get_int("BAND_MIN_H", 88),
+        band_gap=c.get_int("BAND_GAP", 48),
+        band_pad=c.get_int("BAND_PAD", 24),
+        band_min_h=c.get_int("BAND_MIN_H", 100),
         edge_distance_ratio=float(c.get("EDGE_DISTANCE_RATIO", "0.6")),
-        scaffold_cloud=(c.get_int("SCAFFOLD_CLOUD_W", 920), c.get_int("SCAFFOLD_CLOUD_H", 540)),
-        scaffold_vpc=(c.get_int("SCAFFOLD_VPC_W", 980), c.get_int("SCAFFOLD_VPC_H", 420)),
-        scaffold_az=(c.get_int("SCAFFOLD_AZ_W", 320), c.get_int("SCAFFOLD_AZ_H", 380)),
-        scaffold_subnet=(c.get_int("SCAFFOLD_SUBNET_W", 300), c.get_int("SCAFFOLD_SUBNET_H", 260)),
+        scaffold_cloud=(c.get_int("SCAFFOLD_CLOUD_W", 1100), c.get_int("SCAFFOLD_CLOUD_H", 620)),
+        scaffold_vpc=(c.get_int("SCAFFOLD_VPC_W", 1100), c.get_int("SCAFFOLD_VPC_H", 480)),
+        scaffold_az=(c.get_int("SCAFFOLD_AZ_W", 380), c.get_int("SCAFFOLD_AZ_H", 420)),
+        scaffold_subnet=(c.get_int("SCAFFOLD_SUBNET_W", 360), c.get_int("SCAFFOLD_SUBNET_H", 300)),
         keep_empty_bands_default=c.get_bool("KEEP_EMPTY_BANDS_DEFAULT", False),
-        quality_gates_blocking=c.get_bool("QUALITY_GATES_BLOCKING", True),
     )
 
 

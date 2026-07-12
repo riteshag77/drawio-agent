@@ -18,6 +18,13 @@ PLATFORM_LABELS = {
     "multi": "Multi-Cloud / Hybrid",
 }
 
+_PLATFORM_EDGE_COLORS = {
+    "aws": "#232F3E",
+    "gcp": "#4285F4",
+    "azure": "#0078D4",
+    "multi": "#8C4FFF",
+}
+
 # Cap XML snippets in LLM human prompts (same ballpark as platform-convert path).
 _MAX_XML_PROMPT_CHARS = 12_000
 
@@ -122,7 +129,7 @@ def build_platform_conversion_block(
     else:
         lines.append(f"- Never mix aws_*, gcp_*, azure_* shape keys — use {target}_* keys only.")
     lines.extend([
-        "- Edge colors follow style instructions (platform hex).",
+        f"- Edge color for {target_label}: {_PLATFORM_EDGE_COLORS.get(target, '#232F3E')}.",
         "- Return the FULL updated ArchitectureDiagram JSON.",
     ])
     if current_xml and len(current_xml.strip()) > 300:

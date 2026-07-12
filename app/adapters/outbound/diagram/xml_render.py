@@ -1,14 +1,11 @@
-"""Draw.io mxGraph XML fragment builders."""
+"""Draw.io mxGraph XML fragment builders — simplified for MCP routing."""
 
 from __future__ import annotations
 
 import html as html_module
 
-from app.adapters.outbound.diagram.diagram_classify import is_attached_edge, is_band_container
-from app.adapters.outbound.diagram.edge_router import route_edge
 from app.adapters.outbound.diagram.layout import absolute_box, edge_parent_cell
 from app.adapters.outbound.diagram.layout_settings import layout_settings
-from app.adapters.outbound.diagram.service_bands import build_band_style
 from app.adapters.outbound.diagram.styles import build_style
 
 
@@ -32,12 +29,7 @@ def append_vertex(
     width = node_layout["w"]
     height = node_layout["h"]
 
-    if is_band_container(node):
-        band_key = node.id.replace("band_", "")
-        empty = "(not yet in scope)" in (node.label or "")
-        style = build_band_style(band_key, empty=empty)
-    else:
-        style = build_style(node.shape_type, overrides=style_overrides)
+    style = build_style(node.shape_type, overrides=style_overrides)
     if "fontFamily=" not in style:
         style += ";fontFamily=Helvetica,Arial,sans-serif;"
 
@@ -49,19 +41,19 @@ def append_vertex(
     xml.append(f'      <mxGeometry x="{x}" y="{y}" width="{width}" height="{height}" as="geometry" />')
     xml.append("    </mxCell>")
 
-    step_number = getattr(node, "step_number", None)
-    if not node.is_container and step_number is not None:
-        xml.append(
-            f'    <mxCell id="badge_{node.id}" value="{step_number}" '
-            f'style="ellipse;whiteSpace=wrap;html=1;fillColor={accent};strokeColor=#ffffff;'
-            f'fontColor=#ffffff;fontSize=11;fontStyle=1;align=center;verticalAlign=middle;shadow=1;" '
-            f'vertex="1" parent="{parent_cell}">'
-        )
-        xml.append(
-            f'      <mxGeometry x="{x + s.badge_offset}" y="{y + s.badge_offset}" '
-            f'width="{s.badge_size}" height="{s.badge_size}" as="geometry" />'
-        )
-        xml.append("    </mxCell>")
+
+def _edge_anchors(
+    src_box: tuple[int, int, int, int],
+    tgt_box: tuple[int, int, int, int],
+) -> tuple[float, float, float, float]:
+    sx, sy, sw, sh = src_box
+    tx, ty, tw, th = tgt_box
+    scx, scy = sx + sw / 2, sy + sh / 2
+    tcx, tcy = tx + tw / 2, ty + th / 2
+    dx, dy = tcx - scx, tcy - scy
+    if abs(dx) >= abs(dy):
+        return (1.0, 0.5, 0.0, 0.5) if dx >= 0 else (0.0, 0.5, 1.0, 0.5)
+    return (0.5, 1.0, 0.5, 0.0) if dy >= 0 else (0.5, 0.0, 0.5, 1.0)
 
 
 def append_edge(
@@ -73,25 +65,15 @@ def append_edge(
     nodes_by_id: dict,
     default_edge_color: str,
     platform_key: str,
-    exit_slot: int = 0,
-    entry_slot: int = 0,
 ) -> None:
+    _ = platform_key
     src_box = absolute_box(edge.source_id, layout, nodes_by_id)
     tgt_box = absolute_box(edge.target_id, layout, nodes_by_id)
-    attached = is_attached_edge(edge)
-    exit_x, exit_y, entry_x, entry_y, waypoints = route_edge(
-        src_box,
-        tgt_box,
-        exit_slot=exit_slot,
-        entry_slot=entry_slot,
-        lane=exit_slot + entry_slot,
-        prefer_horizontal=not attached,
-    )
+    exit_x, exit_y, entry_x, entry_y = _edge_anchors(src_box, tgt_box)
 
+    is_dlq = (edge.label or "").upper() in ("DLQ", "ERROR", "DEAD-LETTER") or bool(edge.label and "dlq" in edge.label.lower())
+    color = "#DD344C" if is_dlq else edge.color or default_edge_color
     s = layout_settings()
-    color = edge.color
-    if color == s.edge_color_aws and platform_key != "aws":
-        color = default_edge_color
 
     label = (edge.label or "").strip()
     style_parts = [
@@ -100,7 +82,7 @@ def append_edge(
         "orthogonalLoop=1",
         "jettySize=auto",
         "html=1",
-        "endArrow=none" if attached else "endArrow=classic",
+        "endArrow=classic",
         "startArrow=none",
         f"exitX={exit_x}",
         f"exitY={exit_y}",
@@ -112,31 +94,22 @@ def append_edge(
         f"fontColor={color}",
         "strokeWidth=2",
     ]
-    if attached:
+    if edge.style == "dashed":
         style_parts.append("dashed=1")
-        style_parts.append("opacity=70")
     if edge.style == "bold":
         style_parts.append("strokeWidth=3")
     if label:
-        style_parts.append("labelBackgroundColor=#ffffff")
+        style_parts.append("labelBackgroundColor=#F5F5F5")
         style_parts.append("fontSize=11")
 
     edge_style = ";".join(style_parts) + ";"
     parent = edge_parent_cell(edge.source_id, edge.target_id, nodes_by_id)
-    # Omit empty value= — cleaner XML and matches draw.io best practice.
     value_attr = f' value="{escape_xml(label)}"' if label else ""
     xml.append(
         f'    <mxCell id="edge_{cell_id}"{value_attr} style="{edge_style}" edge="1" '
         f'parent="{parent}" source="{edge.source_id}" target="{edge.target_id}">'
     )
-    if waypoints:
-        pts = "".join(f'<mxPoint x="{px}" y="{py}" />' for px, py in waypoints)
-        xml.append(
-            '      <mxGeometry relative="1" as="geometry">'
-            f'<Array as="points">{pts}</Array></mxGeometry>'
-        )
-    else:
-        xml.append('      <mxGeometry relative="1" as="geometry" />')
+    xml.append('      <mxGeometry relative="1" as="geometry" />')
     xml.append("    </mxCell>")
 
 
@@ -150,13 +123,12 @@ def append_flow_notes(
     notes_y: int | None = None,
     notes_width: int | None = None,
 ) -> tuple[int, int]:
-    """Append the flow-notes panel and return ``(page_width, page_height)``."""
     s = layout_settings()
     notes_x = s.flow_notes_x if notes_x is None else notes_x
     notes_y = notes_y if notes_y is not None else 680
     notes_width = notes_width if notes_width is not None else s.flow_notes_max_w
     notes_height = 52 + len(flow_notes) * s.flow_notes_row_h
-    heading = f"{html_module.escape(title)} \u2014 Flow Notes" if title else "Flow Notes"
+    heading = f"{html_module.escape(title)} — Flow Notes" if title else "Flow Notes"
 
     rows = [
         '<div style="font-family:Helvetica,Arial,sans-serif;color:#1A2233;text-align:left;padding:10px 14px;">'
@@ -166,7 +138,7 @@ def append_flow_notes(
         safe_title = html_module.escape(note_title)
         safe_summary = html_module.escape(summary)
         title_html = f"<b>{safe_title}</b>" if safe_title else ""
-        separator = " \u2014 " if safe_title and safe_summary else ""
+        separator = " — " if safe_title and safe_summary else ""
         rows.append(
             '<div style="font-size:12px;line-height:1.45;margin-bottom:5px;">'
             f'<span style="display:inline-block;min-width:20px;font-weight:700;color:{accent};">'
@@ -177,7 +149,7 @@ def append_flow_notes(
     xml.append(
         f'    <mxCell id="flow_notes" value="{escape_xml("".join(rows))}" '
         f'style="rounded=1;arcSize=4;whiteSpace=wrap;html=1;fillColor=#FBFCFE;'
-        f'strokeColor={accent};strokeWidth=1.5;align=left;verticalAlign=top;shadow=1;spacing=2;" '
+        f'strokeColor={accent};strokeWidth=1.5;align=left;verticalAlign=top;spacing=2;" '
         f'vertex="1" parent="1" movable="0" resizable="0" deletable="0">'
     )
     xml.append(

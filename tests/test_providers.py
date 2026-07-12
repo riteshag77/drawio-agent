@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from app.llm.agent import MODEL_IDS
+from app.core.services.agent import MODEL_IDS
 
 
 class ProviderTests(unittest.TestCase):
@@ -15,7 +15,7 @@ class ProviderTests(unittest.TestCase):
             self.assertTrue(len(MODEL_IDS[key]) > 0)
 
     def test_normalize_gateway_base_url_strips_trailing_slash(self) -> None:
-        from app.llm.providers import normalize_gateway_base_url
+        from app.adapters.outbound.llm.providers import normalize_gateway_base_url
         self.assertEqual(
             normalize_gateway_base_url("https://example.com/v1/", "https://example.com/v1"),
             "https://example.com/v1",

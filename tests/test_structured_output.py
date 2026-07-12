@@ -7,10 +7,10 @@ from unittest.mock import MagicMock, patch
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from app.llm.agent import _message_text
-from app.llm.providers import get_provider
-from app.llm.response_parse import invoke_gateway_json, parse_http_json
-from app.models import ArchitectureDiagram
+from app.core.services.agent import _message_text
+from app.adapters.outbound.llm.providers import get_provider
+from app.adapters.outbound.llm.response_parse import invoke_gateway_json, parse_http_json
+from app.domain.entities import ArchitectureDiagram
 
 
 class StructuredOutputRegistryTests(unittest.TestCase):
@@ -32,7 +32,7 @@ class StructuredOutputRegistryTests(unittest.TestCase):
 
 
 class GatewayInvokeTests(unittest.TestCase):
-    @patch("app.llm.response_parse.httpx.post")
+    @patch("app.adapters.outbound.llm.response_parse.httpx.post")
     def test_invoke_gateway_json_parses_openai_style_response(self, mock_post: MagicMock) -> None:
         body = '{"choices":[{"message":{"content":"{\\"title\\":\\"t\\",\\"nodes\\":[],\\"edges\\":[],\\"flow_steps\\":[],\\"suggestions\\":[]}"}}]}'
         mock_post.return_value.raise_for_status = MagicMock()

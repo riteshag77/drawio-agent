@@ -149,19 +149,19 @@ class EnvConfigAdapter(ConfigPort):
 
     @property
     def leaf_node_width(self) -> int:
-        return self.get_int("LEAF_NODE_W", 48)
+        return self.get_int("LEAF_NODE_W", 78)
 
     @property
     def leaf_node_height(self) -> int:
-        return self.get_int("LEAF_NODE_H", 48)
+        return self.get_int("LEAF_NODE_H", 78)
 
     @property
     def leaf_cell_width(self) -> int:
-        return self.get_int("LEAF_CELL_W", 168)
+        return self.get_int("LEAF_CELL_W", 220)
 
     @property
     def leaf_gap(self) -> int:
-        return self.get_int("LEAF_GAP", 32)
+        return self.get_int("LEAF_GAP", 48)
 
     @property
     def container_pad(self) -> int:
@@ -177,7 +177,7 @@ class EnvConfigAdapter(ConfigPort):
 
     @property
     def root_top(self) -> int:
-        return self.get_int("ROOT_TOP", 40)
+        return self.get_int("ROOT_TOP", 80)
 
     @property
     def max_cols(self) -> int:
@@ -201,11 +201,11 @@ class EnvConfigAdapter(ConfigPort):
 
     @property
     def default_page_w(self) -> int:
-        return self.get_int("DEFAULT_PAGE_W", 1169)
+        return self.get_int("DEFAULT_PAGE_W", 2400)
 
     @property
     def default_page_h(self) -> int:
-        return self.get_int("DEFAULT_PAGE_H", 827)
+        return self.get_int("DEFAULT_PAGE_H", 1400)
 
     @property
     def face_slots(self) -> tuple[float, ...]:

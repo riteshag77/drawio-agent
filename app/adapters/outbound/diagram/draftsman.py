@@ -1,13 +1,13 @@
-"""Convert architecture JSON into Draw.io XML.
+"""Convert architecture JSON into Draw.io XML — minimal pipeline.
 
-Pipeline:
-  sanitize → pattern blueprint → topology repair → scaffold → normalize
-  → build_layout → layout_bands → XML vertices/edges → quality gates
+Flow: normalize → layout → build XML → quality gates (advisory)
 """
 
 from __future__ import annotations
 
+import html as html_module
 import re
+from datetime import date
 from typing import TYPE_CHECKING
 
 from app.adapters.outbound.diagram.diagram_normalize import normalize_architecture
@@ -18,11 +18,6 @@ from app.adapters.outbound.diagram.layout import (
     edge_sort_key,
 )
 from app.adapters.outbound.diagram.layout_settings import layout_settings, platform_meta
-from app.adapters.outbound.diagram.layout_validate import DiagramLayoutError, assert_layout_valid
-from app.adapters.outbound.diagram.quality_gates import run_quality_gates
-from app.adapters.outbound.diagram.service_bands import layout_bands
-from app.adapters.outbound.diagram.template_merge import apply_pattern_blueprint, apply_three_tier_scaffold
-from app.adapters.outbound.diagram.topology_repair import repair_topology
 from app.adapters.outbound.diagram.xml_render import append_edge, append_flow_notes, append_vertex
 from app.adapters.outbound.diagram.xml_tools import validate_and_fix_xml_legacy, wrap_with_mxfile
 from app.domain.entities import ArchitectureDiagram
@@ -31,12 +26,8 @@ if TYPE_CHECKING:
     from app.core.logging import StepLogger
 
 
-def sanitize_layout_hints(architecture: ArchitectureDiagram) -> ArchitectureDiagram:
-    cleaned = [
-        node.model_copy(update={"x": None, "y": None, "width": None, "height": None})
-        for node in architecture.nodes
-    ]
-    return architecture.model_copy(update={"nodes": cleaned})
+def html_escape(text: str) -> str:
+    return html_module.escape(str(text or ""), quote=True)
 
 
 def _build_flow_notes(architecture) -> list[tuple[int, str, str]]:
@@ -50,55 +41,6 @@ def _build_flow_notes(architecture) -> list[tuple[int, str, str]]:
     return [(node.step_number, (node.label or "").strip(), (node.description or "").strip()) for node in numbered]
 
 
-def prepare_architecture(architecture, platform: str = "aws") -> ArchitectureDiagram:
-    """Sanitize, repair, scaffold, and normalize — canonical architecture for XML + API."""
-    if not isinstance(architecture, ArchitectureDiagram):
-        return architecture
-    prepared = sanitize_layout_hints(architecture)
-    prepared = apply_pattern_blueprint(prepared, prepared.pattern_id, platform)
-    prepared = repair_topology(prepared, platform=platform)
-    prepared = apply_three_tier_scaffold(prepared)
-    return normalize_architecture(prepared)
-
-
-# Backward-compatible alias for tests
-_prepare_architecture = prepare_architecture
-
-
-def _finalize_page(
-    layout: dict,
-    nodes_by_id: dict,
-    children_map: dict,
-    roots: list[str],
-    flow_notes: list,
-    *,
-    settings,
-) -> tuple[list[str], int, int, int, int, int]:
-    """Place bands near anchors, then notes below; return page geometry."""
-    main_bounds = absolute_layout_bounds(layout, nodes_by_id, children_map, roots)
-    layout_bands(layout, nodes_by_id, children_map, main_bounds=main_bounds)
-
-    all_roots = roots + [nid for nid in nodes_by_id if nid.startswith("band_")]
-    _, _, max_x, max_y = absolute_layout_bounds(layout, nodes_by_id, children_map, all_roots)
-
-    notes_y = max_y + settings.flow_notes_gap
-    notes_height = (52 + len(flow_notes) * settings.flow_notes_row_h) if flow_notes else 0
-    content_bottom = notes_y + notes_height if flow_notes else max_y
-
-    diagram_width = max(max_x + settings.page_margin, settings.default_page_w)
-    page_width = max(diagram_width, settings.default_page_w)
-    page_height = max(content_bottom + settings.page_margin, settings.default_page_h)
-    xml = [
-        f'<mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" '
-        f'tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" '
-        f'pageWidth="{page_width}" pageHeight="{page_height}" math="0" shadow="0">',
-        "  <root>",
-        '    <mxCell id="0" />',
-        '    <mxCell id="1" parent="0" />',
-    ]
-    return xml, page_width, page_height, max_x, max_y, notes_y
-
-
 def generate_xml(
     architecture,
     platform: str = "aws",
@@ -109,16 +51,53 @@ def generate_xml(
 ) -> str:
     settings = layout_settings()
     if prepare:
-        architecture = prepare_architecture(architecture, platform=platform)
+        if not isinstance(architecture, ArchitectureDiagram):
+            return str(architecture)
+        architecture = normalize_architecture(architecture)
     platform_key, platform_label, accent = platform_meta(platform)
 
     children_map, roots, nodes_by_id = build_children_map(architecture.nodes)
     layout = build_layout(nodes_by_id, children_map, roots)
     flow_notes = _build_flow_notes(architecture)
 
-    xml, page_width, page_height, max_x, max_y, notes_y = _finalize_page(
-        layout, nodes_by_id, children_map, roots, flow_notes, settings=settings,
+    min_x, min_y, max_x, max_y = absolute_layout_bounds(layout, nodes_by_id, children_map, roots)
+
+    notes_y = max_y + settings.flow_notes_gap
+    notes_height = (52 + len(flow_notes) * settings.flow_notes_row_h) if flow_notes else 0
+    content_bottom = notes_y + notes_height if flow_notes else max_y
+
+    diagram_width = max(max_x + settings.page_margin, settings.default_page_w)
+    page_width = max(diagram_width, settings.default_page_w)
+    page_height = max(content_bottom + settings.page_margin, settings.default_page_h)
+
+    xml = [
+        f'<mxGraphModel dx="2800" dy="1600" grid="1" gridSize="10" guides="1" '
+        f'tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" '
+        f'pageWidth="{page_width}" pageHeight="{page_height}" math="0" shadow="0">',
+        "  <root>",
+        '    <mxCell id="0" />',
+        '    <mxCell id="1" parent="0" />',
+        f'    <mxCell id="canvas_bg" value="" style="rounded=0;whiteSpace=wrap;html=1;'
+        f'fillColor=#F5F5F5;strokeColor=none;" vertex="1" parent="1">'
+        f'<mxGeometry x="0" y="0" width="{page_width}" height="{page_height}" as="geometry" /></mxCell>',
+    ]
+
+    heading = (getattr(architecture, "title", None) or "").strip() or "Architecture"
+    meta = f"Draw.io AI | {date.today().isoformat()} | v1"
+    title_value = (
+        f"&lt;font style=&quot;font-size: 16px;&quot;&gt;&lt;b&gt;{html_escape(heading)}"
+        f"&lt;/b&gt;&lt;/font&gt;&lt;div&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;"
+        f"{html_escape(meta)}&lt;/font&gt;&lt;/div&gt;"
     )
+    xml.append(
+        f'    <mxCell id="diagram_title" value="{title_value}" '
+        f'style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;'
+        f'fontFamily=Helvetica;spacing=4;fontColor=#232F3E;" '
+        f'vertex="1" parent="1">'
+        f'<mxGeometry x="40" y="20" width="560" height="48" as="geometry" /></mxCell>'
+    )
+
+    LAYER_ORDER = {"background": 0, "default": 1, "foreground": 2}
 
     def _node_depth(node_id: str) -> int:
         depth = 0
@@ -132,57 +111,30 @@ def generate_xml(
             current = nodes_by_id[current.parent_id]
         return depth
 
-    # Parents before children so draw.io nesting is valid without a post-sort pass
-    for node in sorted(architecture.nodes, key=lambda n: (_node_depth(n.id), n.id)):
+    for node in sorted(architecture.nodes, key=lambda n: (LAYER_ORDER.get(n.layer, 1), _node_depth(n.id), n.id)):
         parent_cell = node.parent_id if node.parent_id in nodes_by_id else "1"
         append_vertex(xml, node, layout, parent_cell, accent, style_overrides=style_overrides)
 
     cell_id = 100
-    exit_counts: dict[str, int] = {}
-    entry_counts: dict[str, int] = {}
     for edge in sorted(architecture.edges, key=lambda item: edge_sort_key(item, nodes_by_id)):
         if edge.source_id not in nodes_by_id or edge.target_id not in nodes_by_id:
             continue
-        exit_slot = exit_counts.get(edge.source_id, 0)
-        entry_slot = entry_counts.get(edge.target_id, 0)
-        exit_counts[edge.source_id] = exit_slot + 1
-        entry_counts[edge.target_id] = entry_slot + 1
         cell_id += 1
         append_edge(
             xml, edge, cell_id=cell_id, layout=layout, nodes_by_id=nodes_by_id,
             default_edge_color=accent, platform_key=platform_key,
-            exit_slot=exit_slot, entry_slot=entry_slot,
         )
 
     if flow_notes:
-        title = (getattr(architecture, "title", None) or "").strip()
-        notes_width = min(settings.flow_notes_max_w, max(settings.flow_notes_min_w, max_x - settings.flow_notes_x))
         notes_page_w, notes_bottom = append_flow_notes(
-            xml, flow_notes, accent, title, notes_y=notes_y, notes_width=notes_width,
+            xml, flow_notes, accent, heading,
+            notes_y=notes_y, notes_width=min(settings.flow_notes_max_w, max(settings.flow_notes_min_w, max_x - settings.flow_notes_x)),
         )
         page_width = max(page_width, notes_page_w)
         page_height = max(page_height, notes_bottom + settings.page_margin, max_y + settings.page_margin)
 
     page_width = max(page_width, max_x + settings.page_margin)
     page_height = max(page_height, max_y + settings.page_margin)
-
-    gate_results = run_quality_gates(
-        architecture, layout, nodes_by_id, children_map,
-        page_w=page_width, page_h=page_height, max_x=max_x, max_y=max_y,
-    )
-    if settings.quality_gates_blocking:
-        failed = [g for g in gate_results if not g.passed]
-        if failed:
-            detail = "; ".join(f"{g.gate}: {g.message}" for g in failed)
-            if logger:
-                logger.log("quality_gates", "Quality gate failures", level="warning", details={
-                    "failed": [{"gate": g.gate, "message": g.message} for g in failed],
-                })
-            raise DiagramLayoutError([f"gate_{g.gate}: {g.message}" for g in failed])
-        assert_layout_valid(
-            architecture, layout, nodes_by_id, children_map,
-            page_w=page_width, page_h=page_height,
-        )
 
     xml[0] = re.sub(
         r'pageWidth="\d+"\s+pageHeight="\d+"',
@@ -201,7 +153,6 @@ def generate_xml(
             "edges": len(architecture.edges),
             "xml_chars": len(wrapped),
             "xml_fixes": fixes,
-            "quality_gates": {g.gate: g.passed for g in gate_results},
         })
 
     return wrapped
@@ -214,9 +165,6 @@ def prepare_and_generate_xml(
     *,
     style_overrides: dict[str, str] | None = None,
 ) -> tuple[ArchitectureDiagram, str]:
-    """Return (canonical prepared architecture, draw.io XML)."""
-    prepared = prepare_architecture(architecture, platform=platform)
-    xml = generate_xml(
-        prepared, platform, logger, prepare=False, style_overrides=style_overrides,
-    )
+    prepared = normalize_architecture(architecture)
+    xml = generate_xml(prepared, platform, logger, prepare=False, style_overrides=style_overrides)
     return prepared, xml

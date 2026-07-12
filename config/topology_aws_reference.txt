@@ -1,23 +1,31 @@
-━━━ AWS REFERENCE TOPOLOGY (structure only — server places pixels) ━━━
+━━━ AWS TOPOLOGY (structure only — server places pixels LTR) ━━━
 
-Primary data path (numbered steps):
+Primary data path (numbered steps, left→right):
   Users → Route 53 → CloudFront → API Gateway / ALB → compute → cache → database
 
-Attached controls (step_number: null — server places in service bands):
+Attached controls (step_number: null — server places in bands BELOW the main path):
   WAF, Shield, IAM, KMS, Secrets Manager, GuardDuty → Security band
   CloudWatch, CloudTrail, Config, X-Ray → Logging band
   Systems Manager, CloudFormation → Management band
   EventBridge, SNS, SQS, Step Functions → Integration band
 Do NOT put WAF/Shield on the numbered primary path. Link them with dashed "protects" to CloudFront.
 
-HA / multi-AZ hierarchy:
-  aws_cloud → aws_region → aws_vpc → aws_az (A and B side-by-side)
-    each AZ: public subnet → private/app subnet → data subnet (vertical)
+HA / multi-AZ hierarchy (nesting only — not vertical reference-architecture chrome):
+  aws_cloud → aws_region → aws_vpc → aws_az (A above B, stacked top→bottom)
+    each AZ (left→right inside): public subnet → private/app subnet → data subnet
   Edge services (Route53, CloudFront) are children of region/cloud — NOT inside VPC/AZ.
+  Entry actors (Users) sit LEFT / outside cloud. DB/cache at the RIGHT end of the path.
   IGW is a VPC child. NAT lives in public subnet. DB/cache in private/data — never public.
   Mirror compute/cache/DB across both AZs when HA is requested.
 
-Must-include checklist (unless user opts out):
+Architecture rules:
+- AZs stack top→bottom (A above B) — never side by side.
+- Subnet order left→right: public → private/application → data.
+- Minimum 2 AZs for production HA. DB/cache always in private/data subnet.
+- Keep container nesting ≤ 4 levels (cloud → region → vpc → az → subnet).
+- Every numbered step must be a real request-path hop — no superfluous nodes.
+
+Must-include (unless user opts out):
   [ ] private DB placement  [ ] edge protection (WAF+Shield as attached)
   [ ] observability (CloudWatch)  [ ] secrets/KMS when credentials exist
   [ ] multi-AZ when HA / highly available / 2 AZ is requested

@@ -19,7 +19,7 @@ if ROOT not in sys.path:
 from langchain_core.messages import HumanMessage  # noqa: E402
 from langchain_openai import ChatOpenAI  # noqa: E402
 
-from app.llm.providers import normalize_gateway_base_url  # noqa: E402
+from app.adapters.outbound.llm.providers import normalize_gateway_base_url  # noqa: E402
 
 
 def _fetch_models(api_key: str, base_url: str) -> list[str]:

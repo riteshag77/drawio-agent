@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import unittest
 
-from app.api.schemas import ChatRequest
-from app.llm.agent import build_platform_conversion_block
-from app.utils.chat import is_minimal_diagram
+from app.adapters.inbound.web.schemas import ChatRequest
+from app.adapters.outbound.llm.prompt_builders import build_platform_conversion_block
+from app.adapters.outbound.utils.chat import is_minimal_diagram
 
 
 class PlatformConvertTests(unittest.TestCase):
@@ -37,8 +37,8 @@ class PlatformConvertTests(unittest.TestCase):
 
     def test_platform_convert_with_substantial_xml(self) -> None:
         """platform_convert flag is set even when current_xml would normally prefer edit path."""
-        from app.diagram.draftsman import generate_xml
-        from app.models import ArchitectureDiagram, Node
+        from app.adapters.outbound.diagram.draftsman import generate_xml
+        from app.domain.entities import ArchitectureDiagram, Node
 
         arch = ArchitectureDiagram(
             nodes=[Node(id="alb1", label="ALB", shape_type="aws_alb", step_number=1)],

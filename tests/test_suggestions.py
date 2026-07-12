@@ -1,4 +1,4 @@
-from app.utils.chat import filter_applied_suggestions, normalize_suggestion
+from app.adapters.outbound.utils.chat import filter_applied_suggestions, normalize_suggestion
 
 
 def test_normalize_suggestion_collapses_whitespace_and_case():

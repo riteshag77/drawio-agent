@@ -5,8 +5,9 @@ To update to a newer draw.io shape library, change only the version prefix const
 """
 
 _ICON_LABEL = (
-    "fontSize=10;fontColor=#232F3E;labelBackgroundColor=#ffffff;"
+    "fontSize=12;fontColor=#232F3E;labelBackgroundColor=#ffffff;"
     "verticalLabelPosition=bottom;verticalAlign=top;align=center;spacingTop=4;spacingBottom=8;"
+    "fontFamily=Helvetica;"
 )
 AWS_LIB = "mxgraph.aws4"           # Also used for generic/user/internet shapes
 GCP_LIB = "mxgraph.gcp2"
@@ -220,7 +221,7 @@ _GCP_COLORS: dict[str, str] = {
 def _aws_category(name: str) -> str:
     compute = {"ec2", "lambda", "fargate", "ecs", "ecs_task", "eks", "ecr",
                "elastic_beanstalk", "app_runner", "lightsail"}
-    networking = {"route53", "cloudfront", "api_gateway", "elb", "alb", "nlb",
+    networking = {"route53", "cloudfront", "elb", "alb", "nlb",
                   "nat_gateway", "internet_gateway", "vpn_gateway", "direct_connect",
                   "privatelink", "transit_gateway", "global_accelerator", "client_vpn"}
     security = {"waf", "shield", "iam", "kms", "secrets_manager", "certificate_manager",
@@ -229,7 +230,8 @@ def _aws_category(name: str) -> str:
     database = {"rds", "aurora", "dynamodb", "elasticache", "redshift", "neptune",
                 "documentdb", "timestream", "qlab"}
     monitoring = {"cloudwatch", "cloudtrail", "xray", "opensearch"}
-    integration = {"sqs", "sns", "eventbridge", "step_functions", "kinesis",
+    # api_gateway is Integration purple (#E7157B) per AWS Architecture Icons / vidanov
+    integration = {"api_gateway", "sqs", "sns", "eventbridge", "step_functions", "kinesis",
                    "msk", "appsync"}
     ml = {"sagemaker", "bedrock", "glue", "athena", "emr"}
     devops = {"codepipeline", "codebuild", "codedeploy", "codecommit", "amplify"}
@@ -320,13 +322,13 @@ def _aws_container(name: str) -> str:
         "vpc": "strokeColor=#8C4FFF;fillColor=none;verticalAlign=top;align=left;spacingLeft=40;spacingTop=-4;fontColor=#8C4FFF;dashed=0;strokeWidth=2;",
         "region": "strokeColor=#00A4A6;fillColor=none;verticalAlign=top;align=left;spacingLeft=40;spacingTop=-4;fontColor=#00A4A6;dashed=1;strokeWidth=1.5;",
         "az": "strokeColor=#545B64;fillColor=none;verticalAlign=top;align=left;spacingLeft=40;spacingTop=-4;fontColor=#545B64;dashed=1;strokeWidth=1.5;",
-        "public_subnet": f"grStroke=0;strokeColor=#7AA116;fillColor=#F2F6E8;verticalAlign=top;align=left;spacingLeft=40;spacingTop=-4;fontColor=#248814;dashed=0;strokeWidth=1.5;",
-        "private_subnet": f"grStroke=0;strokeColor=#00A4A6;fillColor=#E6F6F7;verticalAlign=top;align=left;spacingLeft=40;spacingTop=-4;fontColor=#147EBA;dashed=0;strokeWidth=1.5;",
-        "security_group": f"grStroke=0;strokeColor=#DD3522;fillColor=#FFEBEE;verticalAlign=top;align=left;spacingLeft=40;spacingTop=-4;fontColor=#DD3522;dashed=0;strokeWidth=1.5;",
+        "public_subnet": "grStroke=0;strokeColor=#7AA116;fillColor=none;verticalAlign=top;align=left;spacingLeft=40;spacingTop=-4;fontColor=#248814;dashed=0;strokeWidth=1.5;",
+        "private_subnet": "grStroke=0;strokeColor=#00A4A6;fillColor=none;verticalAlign=top;align=left;spacingLeft=40;spacingTop=-4;fontColor=#147EBA;dashed=0;strokeWidth=1.5;",
+        "security_group": "grStroke=0;strokeColor=#DD3522;fillColor=none;verticalAlign=top;align=left;spacingLeft=40;spacingTop=-4;fontColor=#DD3522;dashed=0;strokeWidth=1.5;",
         "account": "strokeColor=#CD2264;fillColor=none;verticalAlign=top;align=left;spacingLeft=40;spacingTop=-4;fontColor=#CD2264;dashed=0;strokeWidth=2;",
         "cloud": "strokeColor=#232F3E;fillColor=none;verticalAlign=top;align=left;spacingLeft=40;spacingTop=-4;fontColor=#232F3E;dashed=0;strokeWidth=2;",
         "generic_group": "strokeColor=#232F3E;fillColor=none;verticalAlign=top;align=left;spacingLeft=40;spacingTop=-4;fontColor=#232F3E;dashed=1;strokeWidth=1.5;",
-        "auto_scaling_group": f"grStroke=0;strokeColor=#D86613;fillColor=#FFF4E8;verticalAlign=top;align=left;spacingLeft=40;spacingTop=-4;fontColor=#D86613;dashed=1;strokeWidth=1.5;",
+        "auto_scaling_group": "grStroke=0;strokeColor=#D86613;fillColor=none;verticalAlign=top;align=left;spacingLeft=40;spacingTop=-4;fontColor=#D86613;dashed=1;strokeWidth=1.5;",
     }
     return base + configs.get(name, configs["generic_group"])
 
@@ -342,14 +344,14 @@ def _aws_service(name: str) -> str:
         category = _aws_category(name)
         color = _AWS_COLORS[category]
         return (
-            f"outlineConnect=0;dashed=0;html=1;sketch=0;shadow=1;aspect=fixed;"
+            f"outlineConnect=0;dashed=0;html=1;sketch=0;aspect=fixed;"
             f"shape={AWS_LIB}.{icon};fillColor={color};strokeColor=none;{_ICON_LABEL}"
         )
     category = _aws_category(name)
     color = _AWS_COLORS[category]
     return (f"outlineConnect=0;dashed=0;html=1;"
             f"shape={AWS_LIB}.resourceIcon;resIcon={AWS_LIB}.{icon};"
-            f"sketch=0;shadow=1;fillColor={color};strokeColor=#ffffff;{_ICON_LABEL}")
+            f"sketch=0;fillColor={color};strokeColor=#ffffff;{_ICON_LABEL}")
 
 
 # Standalone AWS4 shapes (not resourceIcon frames) — strokeColor=none required.
@@ -393,7 +395,7 @@ def _gcp_service(name: str) -> str:
     category = _gcp_category(name)
     color = _GCP_COLORS[category]
     return (
-        f"sketch=0;outlineConnect=0;dashed=0;html=1;shadow=1;aspect=fixed;"
+        f"sketch=0;outlineConnect=0;dashed=0;html=1;aspect=fixed;"
         f"shape={GCP_LIB}.{icon};"
         f"fillColor={color};strokeColor=none;{_ICON_LABEL}"
     )
@@ -420,7 +422,7 @@ def _azure_service(name: str) -> str:
     if icon is None:
         return _branded_card("#0078D4")
     category, filename = icon
-    return (f"image;html=1;aspect=fixed;points=[];align=center;shadow=1;"
+    return (f"image;html=1;aspect=fixed;points=[];align=center;"
             f"image={AZURE_LIB}/{category}/{filename};"
             f"verticalLabelPosition=bottom;verticalAlign=top;{_ICON_LABEL}")
 
@@ -430,7 +432,7 @@ def _branded_card(color: str) -> str:
     services so they read as intentional (matching the polish of icon shapes)
     rather than a flat default rectangle."""
     return (
-        "rounded=1;arcSize=14;whiteSpace=wrap;html=1;shadow=1;"
+        "rounded=1;arcSize=14;whiteSpace=wrap;html=1;"
         f"fillColor=#ffffff;strokeColor={color};strokeWidth=2;"
         f"fontSize=11;fontColor=#232F3E;fontStyle=1;align=center;verticalAlign=middle;"
     )
@@ -438,7 +440,7 @@ def _branded_card(color: str) -> str:
 
 def _generic_fallback(name: str) -> str:
     """Fallback style for unrecognised shape types."""
-    return ("rounded=1;arcSize=12;whiteSpace=wrap;html=1;shadow=1;fillColor=#dae8fc;"
+    return ("rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#dae8fc;"
             "strokeColor=#6c8ebf;strokeWidth=1.5;fontSize=12;fontColor=#232F3E;")
 
 
@@ -454,6 +456,15 @@ def set_style_overrides(mapping: dict[str, str]) -> None:
 def clear_style_overrides() -> None:
     """Deprecated no-op kept for older tests."""
     return
+
+
+_KNWN_CONTAINER_NAMES: dict[str, str] = {
+    "cloud": "aws_cloud", "account": "aws_account", "vpc": "aws_vpc",
+    "region": "aws_region", "az": "aws_az", "availability_zone": "aws_az",
+    "subnet": "aws_private_subnet", "public_subnet": "aws_public_subnet",
+    "private_subnet": "aws_private_subnet", "security_group": "aws_security_group",
+    "generic_group": "aws_generic_group", "auto_scaling_group": "aws_auto_scaling_group",
+}
 
 
 def build_style(shape_type: str, overrides: dict[str, str] | None = None) -> str:
@@ -477,6 +488,10 @@ def build_style(shape_type: str, overrides: dict[str, str] | None = None) -> str
     generic = _generic_shapes(shape_type)
     if generic:
         return generic
+
+    # Normalize unprefixed container names (LLM may emit "vpc"/"subnet" without aws_)
+    if shape_type in _KNWN_CONTAINER_NAMES:
+        shape_type = _KNWN_CONTAINER_NAMES[shape_type]
 
     if shape_type.startswith("aws_"):
         name = shape_type[4:]
