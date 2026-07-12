@@ -6,9 +6,12 @@ import asyncio
 import json
 import logging
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.adapters.outbound.config.env_config import get_config
+
+if TYPE_CHECKING:
+    from app.core.logging import StepLogger
 
 logger = logging.getLogger(__name__)
 
@@ -155,15 +158,23 @@ async def _resolve_one(shape_type: str, platform: str) -> tuple[str, str | None]
     return shape_type, pick
 
 
+def _truncate(text: str, max_chars: int = 2000) -> str:
+    return text if len(text) <= max_chars else text[:max_chars] + f"... (truncated, {len(text)} total chars)"
+
+
 async def resolve_shape_styles(
     shape_types: list[str],
     platform: str = "aws",
+    logger: StepLogger | None = None,
 ) -> dict[str, str]:
     """Map shape_type → best MCP style string (parallel lookups, process cache)."""
     platform = (platform or "aws").lower()
     unique = sorted({(st or "").strip() for st in shape_types if (st or "").strip()})
     if not unique:
         return {}
+    if logger:
+        logger.log("mcp_search_input", "MCP search_shapes request",
+                    details={"shape_types": unique, "platform": platform})
 
     # Cap concurrency so we don't open dozens of MCP sessions at once.
     sem = asyncio.Semaphore(6)
@@ -186,6 +197,9 @@ async def resolve_shape_styles(
         if style:
             resolved[shape_type] = style
 
+    if logger:
+        logger.log("mcp_search_output", "MCP search_shapes response",
+                    details={"resolved_count": len(resolved), "resolved": resolved})
     # If nothing resolved and MCP is hard-failing, surface the error for fallback.
     if not resolved and first_error is not None and not _STYLE_CACHE:
         raise first_error
@@ -222,7 +236,8 @@ def _extract_xml(payload: str) -> str | None:
     return None
 
 
-async def create_diagram(xml: str, *, routing: str = "libavoid") -> tuple[str | None, str | None]:
+async def create_diagram(xml: str, *, routing: str = "libavoid",
+                         logger: StepLogger | None = None) -> tuple[str | None, str | None]:
     """Call create_diagram; return (preview_url_or_text, updated_xml_or_none)."""
     try:
         from mcp import ClientSession  # noqa: F401 — availability check
@@ -233,15 +248,25 @@ async def create_diagram(xml: str, *, routing: str = "libavoid") -> tuple[str | 
     args: dict[str, Any] = {"xml": xml}
     if routing:
         args["routing"] = routing
+    if logger:
+        logger.log("mcp_create_input", "MCP create_diagram request",
+                    details={"args": args, "xml_preview": _truncate(xml, 500)})
     try:
         text = await _mcp_call_tool("create_diagram", args)
         updated = _extract_xml(text or "")
         match = re.search(r"https?://[^\s\"']+", text or "")
         preview = match.group(0) if match else (text[:500] if text and not updated else None)
+        if logger:
+            logger.log("mcp_create_output", "MCP create_diagram response",
+                        details={"preview_url": preview, "updated_xml_chars": len(updated) if updated else 0})
         return preview, updated
     except DrawioMcpError as exc:
+        if logger:
+            logger.log("mcp_create_output", f"MCP create_diagram failed: {exc}", level="warning")
         logger.warning("create_diagram skipped: %s", exc)
         return None, None
     except Exception as exc:
+        if logger:
+            logger.log("mcp_create_output", f"MCP create_diagram error: {exc}", level="warning")
         logger.warning("create_diagram skipped: %s", exc)
         return None, None

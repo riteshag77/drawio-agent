@@ -1,9 +1,0 @@
-## MINIMAL STYLE MODE ACTIVE
-
-Focus on topology and layout — not decoration.
-
-- Target **8–10 core services**; skip optional audit/ops nodes unless requested.
-- Node labels: **1–2 words max**.
-- Edge labels: almost always `null`; use one word only when truly ambiguous.
-- STRICT spacing: follow all Edge & Connector Rules — minimum logical gap between tiers.
-- NO OVERLAPS: fewer nodes beats a crowded diagram.

@@ -1,12 +1,10 @@
 """
-Chat helpers — patterns from next-ai-draw-io lib/chat-helpers.ts
+Chat helpers — trim/format conversation history for LLM prompts.
 """
 
 from __future__ import annotations
 
 import re
-
-from app.domain.entities import ArchitectureDiagram
 
 ARCHITECTURE_OMITTED_PLACEHOLDER = (
     "[Previous diagram state omitted — see current architecture JSON in the latest turn.]"
@@ -17,29 +15,6 @@ XML_OMITTED_PLACEHOLDER = (
 )
 
 MAX_CHAT_TURNS_WITH_FULL_HISTORY = 4
-MIN_REAL_DIAGRAM_LENGTH = 300
-
-
-def is_minimal_diagram(xml: str | None) -> bool:
-    """
-    True when draw.io XML has no real diagram content (only root cells 0/1).
-    Works for both next-ai style (id=\"2\") and semantic cell ids from draftsman.
-    """
-    if not xml or not xml.strip():
-        return True
-    if len(xml.strip()) < MIN_REAL_DIAGRAM_LENGTH:
-        return True
-    cell_ids = re.findall(r'<mxCell\b[^>]*\bid="([^"]+)"', xml)
-    content_cells = [cid for cid in cell_ids if cid not in ("0", "1")]
-    return len(content_cells) == 0
-
-
-def is_minimal_architecture(architecture: ArchitectureDiagram | None) -> bool:
-    """True when the diagram is empty or trivially small (skip VLM validation)."""
-    if architecture is None:
-        return True
-    services = [n for n in architecture.nodes if not n.is_container]
-    return len(services) <= 1 and len(architecture.edges) == 0
 
 
 def replace_historical_tool_inputs(messages: list[dict[str, str]]) -> list[dict[str, str]]:

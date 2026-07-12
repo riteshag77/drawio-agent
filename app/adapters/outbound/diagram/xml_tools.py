@@ -1,4 +1,4 @@
-"""Draw.io XML helpers \u2014 port of next-ai-draw-io lib/utils.ts (wrap, validate, auto-fix, edit ops)."""
+"""Draw.io XML helpers \u2014 wrap, validate, auto-fix, choose."""
 
 from __future__ import annotations
 
@@ -7,13 +7,9 @@ import re
 import uuid
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
-from typing import Literal
-
-from app.domain.entities import DiagramOperation
 
 MAX_XML_SIZE = 1_000_000
 STRUCTURAL_ATTRS = ("edge", "parent", "source", "target", "vertex", "connectable")
-VALID_ENTITIES = frozenset({"lt", "gt", "amp", "quot", "apos"})
 
 
 @dataclass
@@ -26,19 +22,6 @@ class XmlValidationResult:
     @property
     def output_xml(self) -> str:
         return self.fixed if self.fixed is not None else ""
-
-
-@dataclass
-class OperationError:
-    type: Literal["update", "add", "delete"]
-    cell_id: str
-    message: str
-
-
-@dataclass
-class ApplyOperationsResult:
-    result: str
-    errors: list[OperationError] = field(default_factory=list)
 
 
 def wrap_with_mxfile(graph_xml: str, page_name: str = "Architecture") -> str:
@@ -95,141 +78,6 @@ def _find_diagram_root(tree: ET.Element) -> ET.Element | None:
     for root in tree.iter("root"):
         return root
     return None
-
-
-def _parse_mxcell_fragment(new_xml: str) -> ET.Element:
-    wrapped = f"<wrapper>{new_xml.strip()}</wrapper>"
-    try:
-        doc = ET.fromstring(wrapped)
-    except ET.ParseError as exc:
-        raise ValueError(f"Invalid mxCell XML: {exc}") from exc
-    cell = doc.find("mxCell")
-    if cell is None:
-        raise ValueError("new_xml must contain an mxCell element")
-    return cell
-
-
-def _collect_descendants(root: ET.Element, cell_id: str) -> set[str]:
-    to_delete: set[str] = set()
-
-    def collect(cid: str) -> None:
-        if cid in to_delete or cid in ("0", "1"):
-            return
-        to_delete.add(cid)
-        for child in root.findall(f'./mxCell[@parent="{cid}"]'):
-            child_id = child.get("id")
-            if child_id:
-                collect(child_id)
-
-    collect(cell_id)
-    for cid in list(to_delete):
-        for edge in root.findall(f'./mxCell[@source="{cid}"]'):
-            eid = edge.get("id")
-            if eid and eid not in ("0", "1"):
-                collect(eid)
-        for edge in root.findall(f'./mxCell[@target="{cid}"]'):
-            eid = edge.get("id")
-            if eid and eid not in ("0", "1"):
-                collect(eid)
-    return to_delete
-
-
-def apply_diagram_operations(
-    xml_content: str,
-    operations: list[DiagramOperation],
-) -> ApplyOperationsResult:
-    """Apply ID-based update/add/delete operations \u2014 port of applyDiagramOperations."""
-    errors: list[OperationError] = []
-    try:
-        tree = ET.fromstring(xml_content)
-    except ET.ParseError as exc:
-        return ApplyOperationsResult(
-            result=xml_content,
-            errors=[OperationError(type="update", cell_id="", message=f"XML parse error: {exc}")],
-        )
-
-    root = _find_diagram_root(tree)
-    if root is None:
-        return ApplyOperationsResult(
-            result=xml_content,
-            errors=[OperationError(type="update", cell_id="", message="Could not find <root> element")],
-        )
-
-    cell_map: dict[str, ET.Element] = {}
-    for cell in root.findall("mxCell"):
-        cid = cell.get("id")
-        if cid:
-            cell_map[cid] = cell
-
-    for op in operations:
-        op_type = op.operation
-        cell_id = op.cell_id
-
-        if op_type == "update":
-            existing = cell_map.get(cell_id)
-            if existing is None:
-                errors.append(OperationError("update", cell_id, f'Cell with id="{cell_id}" not found'))
-                continue
-            if not op.new_xml:
-                errors.append(OperationError("update", cell_id, "new_xml is required for update"))
-                continue
-            try:
-                new_cell = _parse_mxcell_fragment(op.new_xml)
-            except ValueError as exc:
-                errors.append(OperationError("update", cell_id, str(exc)))
-                continue
-            if new_cell.get("id") != cell_id:
-                errors.append(
-                    OperationError(
-                        "update",
-                        cell_id,
-                        f'ID mismatch: cell_id is "{cell_id}" but new_xml has id="{new_cell.get("id")}"',
-                    )
-                )
-                continue
-            idx = list(root).index(existing)
-            root.remove(existing)
-            root.insert(idx, new_cell)
-            cell_map[cell_id] = new_cell
-
-        elif op_type == "add":
-            if cell_id in cell_map:
-                errors.append(OperationError("add", cell_id, f'Cell with id="{cell_id}" already exists'))
-                continue
-            if not op.new_xml:
-                errors.append(OperationError("add", cell_id, "new_xml is required for add"))
-                continue
-            try:
-                new_cell = _parse_mxcell_fragment(op.new_xml)
-            except ValueError as exc:
-                errors.append(OperationError("add", cell_id, str(exc)))
-                continue
-            if new_cell.get("id") != cell_id:
-                errors.append(
-                    OperationError(
-                        "add",
-                        cell_id,
-                        f'ID mismatch: cell_id is "{cell_id}" but new_xml has id="{new_cell.get("id")}"',
-                    )
-                )
-                continue
-            root.append(new_cell)
-            cell_map[cell_id] = new_cell
-
-        elif op_type == "delete":
-            if cell_id in ("0", "1"):
-                errors.append(OperationError("delete", cell_id, f'Cannot delete root cell "{cell_id}"'))
-                continue
-            if cell_id not in cell_map:
-                continue
-            for del_id in _collect_descendants(root, cell_id):
-                cell = cell_map.get(del_id)
-                if cell is not None:
-                    root.remove(cell)
-                    cell_map.pop(del_id, None)
-
-    result = ET.tostring(tree, encoding="unicode")
-    return ApplyOperationsResult(result=result, errors=errors)
 
 
 def _strip_llm_wrapper_tags(xml: str) -> tuple[str, bool]:
@@ -470,6 +318,15 @@ def auto_fix_xml(graph_xml: str) -> tuple[str, list[str]]:
     )
     if "&amp;" in fixed and "escaped bare ampersands" not in fixes:
         fixes.append("Escaped unescaped & characters")
+
+    # Fix unquoted attribute values: shape_type=aws_lambda -> shape_type="aws_lambda"
+    _unquoted = re.compile(
+        r'(?<=[\s>])([a-zA-Z_][\w.-]*)=([^\s"\'<>`]+?)(?=\s|/?>|>)',
+    )
+    new_fixed = _unquoted.sub(r'\1="\2"', fixed)
+    if new_fixed != fixed:
+        fixes.append("Quoted bare attribute values")
+        fixed = new_fixed
 
     for wrong, right in (
         (r"<Cell(\s)", r"<mxCell\1"),

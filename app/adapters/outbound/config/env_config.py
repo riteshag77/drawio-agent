@@ -12,10 +12,8 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from app.domain.ports.config_port import ConfigPort
 
-
-class EnvConfigAdapter(ConfigPort):
+class EnvConfigAdapter:
     """Configuration sourced from environment variables and .env file."""
 
     _initialized = False

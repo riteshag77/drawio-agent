@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from app.core.services.agent import MODEL_IDS
+from app.adapters.outbound.llm.providers import MODEL_IDS
 
 
 class ProviderTests(unittest.TestCase):
