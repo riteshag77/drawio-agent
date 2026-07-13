@@ -132,6 +132,34 @@ class AutoFixXmlTests(unittest.TestCase):
         self.assertNotIn("Escaped unescaped & characters", clean_fixes)
         self.assertIn("<mxfile", clean)
 
+    def test_canvas_background_stays_behind_shapes(self) -> None:
+        """Full-page gray backdrop must not paint over icons after id/reorder."""
+        # Put background after CloudFront in source order with a high id — classic hide bug
+        xml = (
+            '<mxfile host="app.diagrams.net">'
+            '<diagram id="diagram-1" name="Architecture">'
+            '<mxGraphModel pageWidth="2400" pageHeight="1400">'
+            "<root>"
+            '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            '<mxCell id="10" value="CloudFront" style="sketch=0;shape=mxgraph.aws4.resourceIcon;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="590" y="450" width="78" height="78" as="geometry"/>'
+            "</mxCell>"
+            '<mxCell id="99" value="" style="rounded=0;fillColor=#F5F5F5;strokeColor=none;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="2400" height="1400" as="geometry"/>'
+            "</mxCell>"
+            "</root></mxGraphModel></diagram></mxfile>"
+        )
+        result = validate_and_fix_xml(xml)
+        self.assertTrue(result.valid, result.error)
+        out = result.fixed if result.fixed is not None else xml
+        root = ET.fromstring(out).find(".//root")
+        assert root is not None
+        ids = [c.get("id") for c in root.findall("mxCell")]
+        self.assertEqual(ids[:2], ["0", "1"])
+        self.assertLess(ids.index("99"), ids.index("10"), ids)
+
 
 class ShapeTypeAndStyleTests(unittest.TestCase):
     def test_extract_shape_types_returns_clean_keys(self) -> None:

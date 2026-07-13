@@ -313,6 +313,62 @@ def _cell_depth(cell_id: str, parent_map: dict[str, str | None]) -> int:
     return depth
 
 
+def _id_sort_key(cell_id: str) -> tuple[int, int | str]:
+    if cell_id.isdigit():
+        return (0, int(cell_id))
+    return (1, cell_id)
+
+
+def _page_size(tree: ET.Element) -> tuple[float, float]:
+    """Return (pageWidth, pageHeight) from mxGraphModel, with sensible defaults."""
+    model = tree.find(".//mxGraphModel")
+    if model is None and tree.tag == "mxGraphModel":
+        model = tree
+    if model is None:
+        return 2400.0, 1400.0
+    try:
+        w = float(model.get("pageWidth") or 2400)
+    except ValueError:
+        w = 2400.0
+    try:
+        h = float(model.get("pageHeight") or 1400)
+    except ValueError:
+        h = 1400.0
+    return w, h
+
+
+def _is_canvas_background_cell(cell: ET.Element, page_w: float, page_h: float) -> bool:
+    """True for full-page opaque backdrop cells that must stay behind all shapes.
+
+    LLMs often emit an unlabeled rectangle covering the page (``fillColor=#F5F5F5``).
+    After id assignment + reorder, that cell can end up last among siblings and paint
+    *over* the diagram in draw.io (later cells = higher z-order).
+    """
+    if cell.get("edge") == "1" or cell.get("vertex") != "1":
+        return False
+    if cell.get("parent") not in (None, "1"):
+        return False
+    if (cell.get("value") or "").strip():
+        return False
+    style = cell.get("style") or ""
+    if "container=1" in style or "group" in style or "swimlane" in style:
+        return False
+    geom = cell.find("mxGeometry")
+    if geom is None:
+        return False
+    try:
+        w = float(geom.get("width") or 0)
+        h = float(geom.get("height") or 0)
+        x = float(geom.get("x") or 0)
+        y = float(geom.get("y") or 0)
+    except ValueError:
+        return False
+    # Near-origin and covers most of the page (or a very large absolute area)
+    covers_page = w >= page_w * 0.8 and h >= page_h * 0.8
+    huge = w >= 1500 and h >= 1000
+    return x <= 10 and y <= 10 and (covers_page or huge)
+
+
 def _fix_xml_with_elementtree(graph_xml: str) -> tuple[str, list[str]]:
     """Fix missing geometry, orphan parents, and parent-before-child ordering."""
     fixes: list[str] = []
@@ -340,6 +396,8 @@ def _fix_xml_with_elementtree(graph_xml: str) -> tuple[str, list[str]]:
     if not cells:
         return graph_xml, fixes
 
+    page_w, page_h = _page_size(tree)
+
     cell_map: dict[str, ET.Element] = {}
     used_ids: set[str] = set()
     for cell in cells:
@@ -353,16 +411,37 @@ def _fix_xml_with_elementtree(graph_xml: str) -> tuple[str, list[str]]:
         if existing.isdigit():
             next_id = max(next_id, int(existing) + 1)
 
+    def _alloc_id() -> str:
+        nonlocal next_id
+        while str(next_id) in used_ids:
+            next_id += 1
+        new_id = str(next_id)
+        used_ids.add(new_id)
+        next_id += 1
+        return new_id
+
+    # Prefer low ids for canvas backgrounds so they sort behind shapes.
     for cell in cells:
-        if not cell.get("id"):
-            while str(next_id) in used_ids:
-                next_id += 1
-            new_id = str(next_id)
+        if cell.get("id"):
+            continue
+        if _is_canvas_background_cell(cell, page_w, page_h):
+            # Try id "2" first when free
+            if "2" not in used_ids:
+                new_id = "2"
+                used_ids.add("2")
+            else:
+                new_id = _alloc_id()
             cell.set("id", new_id)
-            used_ids.add(new_id)
             cell_map[new_id] = cell
             fixes.append(f"Assigned missing id '{new_id}'")
-            next_id += 1
+
+    for cell in cells:
+        if cell.get("id"):
+            continue
+        new_id = _alloc_id()
+        cell.set("id", new_id)
+        cell_map[new_id] = cell
+        fixes.append(f"Assigned missing id '{new_id}'")
 
     for cell in cells:
         cid = cell.get("id") or ""
@@ -388,12 +467,23 @@ def _fix_xml_with_elementtree(graph_xml: str) -> tuple[str, list[str]]:
                 fixes.append(f"Set as=geometry on cell '{cid}'")
 
     parent_map = {cid: cell.get("parent") for cid, cell in cell_map.items()}
+
+    def _z_rank(cell: ET.Element) -> int:
+        cid = cell.get("id") or ""
+        if cid in ("0", "1"):
+            return 0
+        if cell.get("edge") == "1":
+            return 3
+        if _is_canvas_background_cell(cell, page_w, page_h):
+            return 1
+        return 2
+
     ordered = sorted(
         cells,
         key=lambda c: (
-            1 if c.get("edge") == "1" else 0,
+            _z_rank(c),
             _cell_depth(c.get("id") or "", parent_map),
-            c.get("id") or "",
+            _id_sort_key(c.get("id") or ""),
         ),
     )
     if [c.get("id") for c in cells] != [c.get("id") for c in ordered]:
