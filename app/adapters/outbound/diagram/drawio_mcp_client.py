@@ -67,26 +67,57 @@ def _extract_styles(payload: str) -> list[str]:
     return styles
 
 
+def _platform_from_shape_type(shape_type: str, fallback: str = "aws") -> str:
+    """Infer cloud vendor from shape_type prefix (aws_ / gcp_ / azure_)."""
+    st = (shape_type or "").lower()
+    if st.startswith("aws_"):
+        return "aws"
+    if st.startswith("gcp_"):
+        return "gcp"
+    if st.startswith("azure_"):
+        return "azure"
+    fb = (fallback or "aws").lower()
+    return fb if fb in ("aws", "gcp", "azure") else "aws"
+
+
 def _shape_query(shape_type: str, platform: str) -> str:
     st = (shape_type or "").lower()
+    resolved = _platform_from_shape_type(st, platform)
     for prefix in ("aws_", "gcp_", "azure_"):
         if st.startswith(prefix):
-            return st[len(prefix):].replace("_", " ")
+            name = st[len(prefix):].replace("_", " ")
+            break
+    else:
+        name = st.replace("_", " ")
+    if resolved == "gcp":
+        return f"gcp {name}"
+    if resolved == "azure":
+        return f"azure {name}"
+    return name
+
+
+def _platform_style_predicate(platform: str):
+    """Return a matcher that prefers styles from the configured draw.io lib."""
+    cfg = get_config()
     platform = (platform or "aws").lower()
     if platform == "gcp":
-        return f"gcp {st.replace('_', ' ')}"
+        needle = (cfg.drawio_lib_gcp or "mxgraph.gcp2").lower()
+        return lambda low: needle in low or "mxgraph.gcp2" in low or "img/lib/google" in low
     if platform == "azure":
-        return f"azure {st.replace('_', ' ')}"
-    return st.replace("_", " ")
+        needle = (cfg.drawio_lib_azure or "img/lib/azure2").lower()
+        return lambda low: needle in low or "img/lib/azure2" in low
+    needle = (cfg.drawio_lib_aws or "mxgraph.aws4").lower()
+    return lambda low: needle in low or "resourceicon" in low or "mxgraph.aws4" in low
 
 
-def _pick_style(styles: list[str]) -> str | None:
+def _pick_style(styles: list[str], platform: str = "aws") -> str | None:
     if not styles:
         return None
+    prefer = _platform_style_predicate(platform)
     pick = styles[0]
     for style in styles:
         low = style.lower()
-        if "resourceicon" in low or "mxgraph.aws4" in low or "mxgraph.gcp" in low or "azure" in low:
+        if prefer(low):
             pick = style
             break
     if not pick.endswith(";"):
@@ -178,7 +209,11 @@ async def resolve_shape_styles(
     platform: str = "aws",
     logger: StepLogger | None = None,
 ) -> dict[str, str]:
-    """Map shape_type → best MCP style string (one MCP session, process LRU cache)."""
+    """Map shape_type → best MCP style string (one MCP session, process LRU cache).
+
+    For ``platform=multi``, each shape_type's cloud prefix (aws_/gcp_/azure_)
+    selects the query vendor and style picker independently.
+    """
     platform = (platform or "aws").lower()
     unique = sorted({(st or "").strip() for st in shape_types if (st or "").strip()})
     if not unique:
@@ -190,7 +225,8 @@ async def resolve_shape_styles(
     resolved: dict[str, str] = {}
     misses: list[str] = []
     for st in unique:
-        cached = _cache_get((platform, st))
+        cloud = _platform_from_shape_type(st, platform)
+        cached = _cache_get((cloud, st))
         if cached is not None:
             resolved[st] = cached
         else:
@@ -205,9 +241,10 @@ async def resolve_shape_styles(
         try:
             payloads = await _mcp_call_tools(calls)
             for st, payload in zip(misses, payloads, strict=True):
-                pick = _pick_style(_extract_styles(payload))
+                cloud = _platform_from_shape_type(st, platform)
+                pick = _pick_style(_extract_styles(payload), cloud)
                 if pick:
-                    _cache_put((platform, st), pick)
+                    _cache_put((cloud, st), pick)
                     resolved[st] = pick
                     _log.info("MCP resolved %s via %r", st, _shape_query(st, platform))
                 else:

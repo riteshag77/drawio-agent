@@ -1,0 +1,49 @@
+# Multi-cloud top services (cheat sheet only — MCP resolves full styles)
+
+Use shape_type exactly. Optional style hints below if MCP is unavailable.
+
+## AWS (shape_type → hint)
+| shape_type | Hint |
+|------------|------|
+| aws_lambda | resIcon=mxgraph.aws4.lambda;fillColor=#ED7100 |
+| aws_api_gateway | resIcon=mxgraph.aws4.api_gateway;fillColor=#8C4FFF |
+| aws_s3 | resIcon=mxgraph.aws4.s3;fillColor=#7AA116 |
+| aws_dynamodb | resIcon=mxgraph.aws4.dynamodb;fillColor=#C925D1 |
+| aws_rds | resIcon=mxgraph.aws4.rds;fillColor=#C925D1 |
+| aws_sqs | resIcon=mxgraph.aws4.sqs;fillColor=#E7157B |
+| aws_sns | resIcon=mxgraph.aws4.sns;fillColor=#E7157B |
+| aws_cloudfront | resIcon=mxgraph.aws4.cloudfront;fillColor=#8C4FFF |
+| aws_vpc | grIcon/group or networking;fillColor=#8C4FFF |
+| aws_ecs | resIcon=mxgraph.aws4.ecs;fillColor=#ED7100 |
+
+AWS service style shell: sketch=0;outlineConnect=0;fontColor=#232F3E;strokeColor=#ffffff;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.<name>;fillColor=<COLOR>;
+
+## GCP (shape_type → shape=mxgraph.gcp2.<suffix>)
+| shape_type | suffix |
+|------------|--------|
+| gcp_cloud_run | cloud_run |
+| gcp_gke | gke |
+| gcp_cloud_functions | cloud_functions |
+| gcp_compute_engine | compute_engine |
+| gcp_cloud_storage | cloud_storage |
+| gcp_cloud_sql | cloud_sql |
+| gcp_pubsub | pubsub |
+| gcp_bigquery | bigquery |
+| gcp_cloud_load_balancing | cloud_load_balancing |
+| gcp_vpc | vpc |
+
+## Azure (shape_type → image=img/lib/azure2/…)
+| shape_type | path |
+|------------|------|
+| azure_app_service | App Services/AppService.svg |
+| azure_functions | Compute/FunctionApps.svg |
+| azure_aks | Compute/AKS.svg |
+| azure_vm | Compute/VM.svg |
+| azure_storage_account | Storage/StorageAccounts.svg |
+| azure_sql_database | Databases/SQLDatabases.svg |
+| azure_cosmos_db | Databases/CosmosDB.svg |
+| azure_service_bus | Integration/ServiceBus.svg |
+| azure_key_vault | Security/KeyVaults.svg |
+| azure_api_management | Web/APIManagementServices.svg |
+
+Azure shell: aspect=fixed;html=1;points=[];align=center;image;fontSize=12;image=img/lib/azure2/<path>;verticalLabelPosition=bottom;verticalAlign=top;fontColor=#232F3E;

@@ -1,0 +1,50 @@
+## Icon Style — GCP (CRITICAL)
+
+- Icons use draw.io's built-in **mxgraph.gcp2** stencil library (Google Cloud icons)
+- NEVER use mxgraph.gcp2020 (wrong / unloaded library — icons will be blank)
+- NEVER use mxgraph.aws4.resourceIcon or Azure image= paths
+- Icon size: 78x78px for main services, 65x65px for secondary
+- Label extras: fontColor=#232F3E;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;aspect=fixed;
+
+## Service Icon Pattern
+
+Primary style template (stencil shape):
+sketch=0;html=1;dashed=0;whitespace=wrap;fillColor=#ffffff;strokeColor=#dddddd;fontSize=12;fontColor=#232F3E;verticalLabelPosition=bottom;verticalAlign=top;align=center;outlineConnect=0;aspect=fixed;shape=mxgraph.gcp2.<name>
+
+Example Cloud Run:
+sketch=0;html=1;fillColor=#ffffff;strokeColor=#dddddd;fontColor=#232F3E;verticalLabelPosition=bottom;verticalAlign=top;align=center;aspect=fixed;shape=mxgraph.gcp2.cloud_run
+
+## MCP shape_type — REQUIRED for service icons
+
+Every GCP **service** icon mxCell MUST include a shape_type attribute so the server can resolve the official style:
+
+<mxCell id="10" value="Cloud Run" shape_type="gcp_cloud_run"
+  style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F5F5F5;fontColor=#232F3E;verticalLabelPosition=bottom;verticalAlign=top;align=center;"
+  vertex="1" parent="1">
+  <mxGeometry x="…" y="…" width="78" height="78" as="geometry" />
+</mxCell>
+
+Rules:
+- shape_type="gcp_<snake_case_service>" (e.g. gcp_cloud_run, gcp_gke, gcp_cloud_sql, gcp_pubsub)
+- Placeholder style may be plain; MCP will replace it when available
+- Still prefer a correct mxgraph.gcp2.<name> style when you know the stencil name from the reference list
+- Groups / containers do NOT need shape_type
+
+## Group Boundaries — GCP
+
+Use a simple container group (not AWS group icons):
+rounded=0;whiteSpace=wrap;html=1;container=1;dropTarget=1;collapsible=0;recursiveResize=0;fillColor=none;strokeColor=#4285F4;fontColor=#4285F4;align=left;verticalAlign=top;spacingLeft=10;fontStyle=1;fontSize=12;
+
+Common boundaries: GCP Project, VPC, Region, Zone, subnet — strokeColor=#4285F4 (or #34A853 for zone).
+
+## FORBIDDEN (will blank icons)
+
+- shape=mxgraph.gcp2020.*
+- shape=mxgraph.aws4.resourceIcon / resIcon=mxgraph.aws4.*
+- shape=mxgraph.azure2.resourceIcon / image=img/lib/azure2/
+
+## GCP Validation Extras
+
+1. All service shapes use mxgraph.gcp2 (never gcp2020)
+2. Service icons include shape_type="gcp_…"
+3. No AWS resourceIcon patterns

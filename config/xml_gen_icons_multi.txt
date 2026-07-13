@@ -1,0 +1,47 @@
+## Icon Style — Multi-Cloud (CRITICAL, token-efficient)
+
+Use the correct icon family **per service**. Do NOT invent stencils. Prefer MCP via shape_type.
+
+### Hard rule — shape_type on EVERY service icon
+
+Every cloud **service** mxCell MUST include a cloud-prefixed shape_type. Placeholder style is OK; the server replaces style via MCP.
+
+- AWS: shape_type="aws_<snake_case>" (e.g. aws_lambda, aws_s3, aws_api_gateway)
+- GCP: shape_type="gcp_<snake_case>" (e.g. gcp_cloud_run, gcp_gke, gcp_pubsub)
+- Azure: shape_type="azure_<snake_case>" (e.g. azure_app_service, azure_functions, azure_aks)
+
+Example:
+<mxCell id="10" value="Lambda" shape_type="aws_lambda"
+  style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F5F5F5;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontColor=#232F3E;"
+  vertex="1" parent="1">
+  <mxGeometry x="200" y="200" width="78" height="78" as="geometry" />
+</mxCell>
+
+Groups / swimlanes do NOT need shape_type.
+
+### Three style families (when you know the stencil)
+
+**AWS** — mxgraph.aws4 resourceIcon (strokeColor=#ffffff; fillColor by category):
+shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.<name>;…
+
+**GCP** — mxgraph.gcp2 ONLY (NEVER gcp2020):
+shape=mxgraph.gcp2.<name>;…
+
+**Azure** — SVG image paths ONLY (NEVER azure2.resourceIcon):
+image;aspect=fixed;html=1;image=img/lib/azure2/<Category>/<Icon>.svg;…
+
+### FORBIDDEN
+
+- Mixing AWS resourceIcon onto GCP/Azure cells
+- mxgraph.gcp2020.*
+- shape=mxgraph.azure2.resourceIcon / resIcon=mxgraph.azure2.*
+- Omitting shape_type on service icons
+
+### Layout for multi-cloud
+
+- One container / swimlane per cloud (AWS / GCP / Azure)
+- Container stroke colors: AWS #232F3E, GCP #4285F4, Azure #0078D4
+- Simple group style (all clouds):
+rounded=0;whiteSpace=wrap;html=1;container=1;dropTarget=1;collapsible=0;recursiveResize=0;fillColor=none;strokeColor=<COLOR>;fontColor=<COLOR>;align=left;verticalAlign=top;spacingLeft=10;fontStyle=1;fontSize=12;
+- Left-to-right or top-to-bottom by provider; edges between clouds use dashed optional style when async/hybrid
+- Icon size 78x78 (main), 65x65 (secondary)

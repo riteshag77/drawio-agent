@@ -1,0 +1,50 @@
+# GCP Icons: common mxgraph.gcp2 stencils
+
+Use shape=mxgraph.gcp2.<suffix> (NEVER gcp2020).
+
+## Compute & Containers
+| shape suffix | Display Name | shape_type |
+|-------------|-------------|------------|
+| compute_engine | Compute Engine | gcp_compute_engine |
+| cloud_run | Cloud Run | gcp_cloud_run |
+| gke | Google Kubernetes Engine | gcp_gke |
+| app_engine | App Engine | gcp_app_engine |
+| cloud_functions | Cloud Functions | gcp_cloud_functions |
+
+## Networking
+| shape suffix | Display Name | shape_type |
+|-------------|-------------|------------|
+| cloud_load_balancing | Cloud Load Balancing | gcp_cloud_load_balancing |
+| cloud_cdn | Cloud CDN | gcp_cloud_cdn |
+| cloud_dns | Cloud DNS | gcp_cloud_dns |
+| cloud_armor | Cloud Armor | gcp_cloud_armor |
+| vpc | VPC | gcp_vpc |
+| cloud_nat | Cloud NAT | gcp_cloud_nat |
+
+## Data & Storage
+| shape suffix | Display Name | shape_type |
+|-------------|-------------|------------|
+| cloud_storage | Cloud Storage | gcp_cloud_storage |
+| cloud_sql | Cloud SQL | gcp_cloud_sql |
+| spanner | Spanner | gcp_spanner |
+| bigtable | Bigtable | gcp_bigtable |
+| firestore | Firestore | gcp_firestore |
+| memorystore | Memorystore | gcp_memorystore |
+| bigquery | BigQuery | gcp_bigquery |
+| pubsub | Pub/Sub | gcp_pubsub |
+| dataflow | Dataflow | gcp_dataflow |
+
+## Security & Ops
+| shape suffix | Display Name | shape_type |
+|-------------|-------------|------------|
+| identity_and_access_management | IAM | gcp_iam |
+| secret_manager | Secret Manager | gcp_secret_manager |
+| cloud_kms | Cloud KMS | gcp_cloud_kms |
+| cloud_monitoring | Cloud Monitoring | gcp_cloud_monitoring |
+| cloud_logging | Cloud Logging | gcp_cloud_logging |
+
+## AI / Other
+| shape suffix | Display Name | shape_type |
+|-------------|-------------|------------|
+| vertex_ai | Vertex AI | gcp_vertex_ai |
+| users | Users / Clients | gcp_users |

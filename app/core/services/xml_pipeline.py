@@ -13,6 +13,7 @@ from app.adapters.outbound.diagram.xml_tools import (
     choose_fixed_xml,
     ensure_diagram_document,
     extract_shape_types,
+    normalize_platform_styles,
     validate_and_fix_xml,
 )
 from app.adapters.outbound.llm.prompt_builders import PLATFORM_LABELS
@@ -72,6 +73,7 @@ async def run_xml_pipeline(
     xml_output = ensure_diagram_document(xml_diagram.xml, PLATFORM_LABELS.get(platform_key, "Architecture"))
     check = validate_and_fix_xml(xml_output)
     xml_output = choose_fixed_xml(xml_output, check)
+    xml_output = normalize_platform_styles(xml_output, platform_key)
 
     if not is_xml_pipeline_mode(diagram_renderer):
         logger.log("complete", "XML pipeline finished (local mode)", level="success",
@@ -88,7 +90,8 @@ async def run_xml_pipeline(
     preview_url = None
     renderer_used = "mcp"
     try:
-        shape_types = extract_shape_types(xml_diagram.xml)
+        # Prefer shape_types from normalized output (may still carry attrs from LLM)
+        shape_types = extract_shape_types(xml_output) or extract_shape_types(xml_diagram.xml)
 
         overrides: dict[str, str] = {}
         if shape_types:

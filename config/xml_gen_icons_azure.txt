@@ -1,0 +1,51 @@
+## Icon Style — Azure (CRITICAL)
+
+- Official Azure Architecture icons in draw.io use **image SVG paths**, not AWS-style resourceIcon frames
+- Correct library prefix: `image=img/lib/azure2/<Category>/<Icon>.svg`
+- NEVER use shape=mxgraph.azure2.resourceIcon or resIcon=mxgraph.azure2.* (blank / wrong)
+- NEVER use mxgraph.aws4.* or mxgraph.gcp2.* / gcp2020
+- Icon size: 78x78px for main services, 65x65px for secondary
+
+## Service Icon Pattern
+
+Style template:
+aspect=fixed;html=1;points=[];align=center;image;fontSize=12;image=img/lib/azure2/<Category>/<Icon>.svg;verticalLabelPosition=bottom;labelBackgroundColor=none;verticalAlign=top;fontColor=#232F3E;
+
+Example App Service:
+aspect=fixed;html=1;points=[];align=center;image;fontSize=12;image=img/lib/azure2/App Services/AppService.svg;verticalLabelPosition=bottom;verticalAlign=top;fontColor=#232F3E;
+
+## MCP shape_type — REQUIRED for service icons
+
+Every Azure **service** icon mxCell MUST include shape_type so the server can resolve the official SVG style:
+
+<mxCell id="10" value="App Service" shape_type="azure_app_service"
+  style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F5F5F5;fontColor=#232F3E;verticalLabelPosition=bottom;verticalAlign=top;align=center;"
+  vertex="1" parent="1">
+  <mxGeometry x="…" y="…" width="78" height="78" as="geometry" />
+</mxCell>
+
+Rules:
+- shape_type="azure_<snake_case_service>" (e.g. azure_app_service, azure_sql_database, azure_functions, azure_key_vault)
+- Placeholder style may be plain; MCP will replace it with image=img/lib/azure2/…
+- When you know the path from the reference list, put the full image= style in style="" as well
+- Groups / containers do NOT need shape_type
+
+## Group Boundaries — Azure
+
+Use a simple container group:
+rounded=0;whiteSpace=wrap;html=1;container=1;dropTarget=1;collapsible=0;recursiveResize=0;fillColor=none;strokeColor=#0078D4;fontColor=#0078D4;align=left;verticalAlign=top;spacingLeft=10;fontStyle=1;fontSize=12;
+
+Common boundaries: Azure Subscription, Resource Group, VNet, Subnet, Region — strokeColor=#0078D4.
+
+## FORBIDDEN (will blank icons)
+
+- shape=mxgraph.azure2.resourceIcon
+- resIcon=mxgraph.azure2.*
+- shape=mxgraph.aws4.resourceIcon / resIcon=mxgraph.aws4.*
+- shape=mxgraph.gcp2020.* / mxgraph.gcp2.* (wrong platform)
+
+## Azure Validation Extras
+
+1. Service icons use image=img/lib/azure2/… or shape_type for MCP
+2. Never invent azure2.resourceIcon
+3. No AWS resourceIcon patterns

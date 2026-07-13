@@ -1,0 +1,49 @@
+# Azure Icons: common img/lib/azure2 SVG paths
+
+Use image=img/lib/azure2/<Category>/<Icon>.svg — NEVER azure2.resourceIcon.
+
+## Compute
+| image path | Display Name | shape_type |
+|-----------|-------------|------------|
+| App Services/AppService.svg | App Service | azure_app_service |
+| Compute/FunctionApps.svg | Function App | azure_functions |
+| Compute/AKS.svg | AKS | azure_aks |
+| Compute/VM.svg | Virtual Machine | azure_vm |
+| Containers/ContainerInstances.svg | Container Instances | azure_container_instances |
+
+## Networking
+| image path | Display Name | shape_type |
+|-----------|-------------|------------|
+| Networking/LoadBalancers.svg | Load Balancer | azure_load_balancer |
+| Networking/ApplicationGateways.svg | Application Gateway | azure_application_gateway |
+| Networking/FrontDoors.svg | Front Door | azure_front_door |
+| Networking/DNSZones.svg | DNS | azure_dns |
+| Networking/VirtualNetworks.svg | Virtual Network | azure_virtual_network |
+| Networking/PublicIPAddresses.svg | Public IP | azure_public_ip |
+| Security/Firewall.svg | Azure Firewall | azure_firewall |
+
+## Data & Storage
+| image path | Display Name | shape_type |
+|-----------|-------------|------------|
+| Storage/StorageAccounts.svg | Storage Account | azure_storage_account |
+| Databases/SQLDatabases.svg | SQL Database | azure_sql_database |
+| Databases/CosmosDB.svg | Cosmos DB | azure_cosmos_db |
+| Databases/CacheRedis.svg | Azure Cache for Redis | azure_redis |
+| Databases/DatabasePostgreSQL.svg | Azure Database for PostgreSQL | azure_postgresql |
+
+## Integration & Messaging
+| image path | Display Name | shape_type |
+|-----------|-------------|------------|
+| Integration/ServiceBus.svg | Service Bus | azure_service_bus |
+| Integration/EventGridTopics.svg | Event Grid | azure_event_grid |
+| Integration/LogicApps.svg | Logic Apps | azure_logic_apps |
+| Analytics/EventHubs.svg | Event Hubs | azure_event_hubs |
+| Web/APIManagementServices.svg | API Management | azure_api_management |
+
+## Security & Ops
+| image path | Display Name | shape_type |
+|-----------|-------------|------------|
+| Security/KeyVaults.svg | Key Vault | azure_key_vault |
+| Identity/AzureActiveDirectory.svg | Microsoft Entra ID | azure_entra_id |
+| Monitor/Monitor.svg | Azure Monitor | azure_monitor |
+| General/Users.svg | Users | azure_users |

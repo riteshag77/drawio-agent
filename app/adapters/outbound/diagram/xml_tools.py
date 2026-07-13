@@ -664,6 +664,35 @@ def choose_fixed_xml(original: str, result: XmlValidationResult) -> str:
     return ensure_diagram_document(original)
 
 
+def normalize_platform_styles(xml: str, platform: str) -> str:
+    """Rewrite known bad stencil namespaces for GCP / Azure / multi.
+
+    LLMs often invent ``mxgraph.gcp2020`` (unloaded) or copy AWS ``resourceIcon``
+    onto Azure. Fix the high-confidence string mistakes before MCP enrichment.
+    """
+    if not xml:
+        return xml
+    platform = (platform or "aws").strip().lower()
+    out = xml
+    if platform in ("gcp", "multi"):
+        if "mxgraph.gcp2020." in out:
+            out = out.replace("mxgraph.gcp2020.", "mxgraph.gcp2.")
+    if platform in ("azure", "multi"):
+        out = re.sub(
+            r"shape=mxgraph\.azure2\.resourceIcon;?",
+            "",
+            out,
+            flags=re.IGNORECASE,
+        )
+        out = re.sub(
+            r"resIcon=mxgraph\.azure2\.[^;\"\s]+;?",
+            "",
+            out,
+            flags=re.IGNORECASE,
+        )
+    return out
+
+
 def extract_shape_types(xml: str) -> list[str]:
     """Return unique ``shape_type`` attribute values from draw.io XML."""
     if not xml or "shape_type=" not in xml:
