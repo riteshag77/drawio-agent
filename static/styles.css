@@ -1451,7 +1451,8 @@
 
         .log-entry.info { border-left-color: #64748b; }
         .log-entry.success { border-left-color: var(--success); }
-        .log-entry.warn { border-left-color: #f59e0b; }
+        .log-entry.warn,
+        .log-entry.warning { border-left-color: #f59e0b; }
         .log-entry.error { border-left-color: var(--error); }
 
         .log-entry-head {

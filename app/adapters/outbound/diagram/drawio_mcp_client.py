@@ -6,14 +6,17 @@ import asyncio
 import json
 import logging
 import re
+from collections import OrderedDict
 from typing import TYPE_CHECKING, Any
 
 from app.adapters.outbound.config.env_config import get_config
+from app.adapters.outbound.diagram.xml_tools import coerce_drawio_xml
 
 if TYPE_CHECKING:
     from app.core.logging import StepLogger
 
 logger = logging.getLogger(__name__)
+_log = logger  # unambiguous alias when StepLogger param is also named logger
 
 
 class DrawioMcpError(RuntimeError):
@@ -91,8 +94,8 @@ def _pick_style(styles: list[str]) -> str | None:
     return pick
 
 
-# Process-level style cache: (platform, shape_type) → style string
-_STYLE_CACHE: dict[tuple[str, str], str] = {}
+# Process-level LRU style cache: (platform, shape_type) → style string
+_STYLE_CACHE: OrderedDict[tuple[str, str], str] = OrderedDict()
 _STYLE_CACHE_MAX = 512
 
 
@@ -101,8 +104,36 @@ def clear_style_cache() -> None:
     _STYLE_CACHE.clear()
 
 
+def _cache_get(key: tuple[str, str]) -> str | None:
+    if key not in _STYLE_CACHE:
+        return None
+    _STYLE_CACHE.move_to_end(key)
+    return _STYLE_CACHE[key]
+
+
+def _cache_put(key: tuple[str, str], value: str) -> None:
+    if key in _STYLE_CACHE:
+        _STYLE_CACHE.move_to_end(key)
+    _STYLE_CACHE[key] = value
+    while len(_STYLE_CACHE) > _STYLE_CACHE_MAX:
+        _STYLE_CACHE.popitem(last=False)
+
+
+def _truncate(text: str, max_chars: int = 2000) -> str:
+    return text if len(text) <= max_chars else text[:max_chars] + f"... (truncated, {len(text)} total chars)"
+
+
 async def _mcp_call_tool(tool_name: str, arguments: dict[str, Any]) -> str:
     """One MCP session, one tool call, with configured timeout."""
+    results = await _mcp_call_tools([(tool_name, arguments)])
+    return results[0]
+
+
+async def _mcp_call_tools(calls: list[tuple[str, dict[str, Any]]]) -> list[str]:
+    """Run multiple tool calls on a single MCP session."""
+    if not calls:
+        return []
+
     try:
         from mcp import ClientSession
         from mcp.client.streamable_http import streamablehttp_client
@@ -110,24 +141,30 @@ async def _mcp_call_tool(tool_name: str, arguments: dict[str, Any]) -> str:
         raise DrawioMcpError("mcp package not installed; pip install mcp") from exc
 
     cfg = get_config()
-    timeout = max(5, int(cfg.drawio_mcp_timeout))
+    per_call = max(5, int(cfg.drawio_mcp_timeout))
+    timeout = per_call * max(1, len(calls))
 
-    async def _run() -> str:
+    async def _run() -> list[str]:
         async with streamablehttp_client(cfg.drawio_mcp_url) as streams:
             read_stream, write_stream = streams[0], streams[1]
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
-                result = await session.call_tool(tool_name, arguments)
-                return _content_to_text(result)
+                out: list[str] = []
+                for tool_name, arguments in calls:
+                    result = await session.call_tool(tool_name, arguments)
+                    out.append(_content_to_text(result))
+                return out
 
     try:
         return await asyncio.wait_for(_run(), timeout=timeout)
     except asyncio.TimeoutError as exc:
-        raise DrawioMcpError(f"Draw.io MCP {tool_name} timed out after {timeout}s") from exc
+        names = ", ".join(sorted({c[0] for c in calls}))
+        raise DrawioMcpError(f"Draw.io MCP {names} timed out after {timeout}s") from exc
     except DrawioMcpError:
         raise
     except Exception as exc:
-        raise DrawioMcpError(f"Draw.io MCP {tool_name} failed: {exc}") from exc
+        names = ", ".join(sorted({c[0] for c in calls}))
+        raise DrawioMcpError(f"Draw.io MCP {names} failed: {exc}") from exc
 
 
 async def search_shapes(query: str, *, limit: int = 5) -> list[str]:
@@ -136,38 +173,12 @@ async def search_shapes(query: str, *, limit: int = 5) -> list[str]:
     return _extract_styles(text)
 
 
-async def _resolve_one(shape_type: str, platform: str) -> tuple[str, str | None]:
-    cache_key = (platform, shape_type)
-    if cache_key in _STYLE_CACHE:
-        return shape_type, _STYLE_CACHE[cache_key]
-
-    query = _shape_query(shape_type, platform)
-    try:
-        styles = await search_shapes(query, limit=5)
-    except DrawioMcpError:
-        raise
-    pick = _pick_style(styles)
-    if pick:
-        if len(_STYLE_CACHE) >= _STYLE_CACHE_MAX:
-            # ponytail: drop arbitrary oldest-ish entry; upgrade to OrderedDict LRU if needed
-            _STYLE_CACHE.pop(next(iter(_STYLE_CACHE)))
-        _STYLE_CACHE[cache_key] = pick
-        logger.info("MCP resolved %s via %r", shape_type, query)
-    else:
-        logger.info("MCP no style for %s (%r)", shape_type, query)
-    return shape_type, pick
-
-
-def _truncate(text: str, max_chars: int = 2000) -> str:
-    return text if len(text) <= max_chars else text[:max_chars] + f"... (truncated, {len(text)} total chars)"
-
-
 async def resolve_shape_styles(
     shape_types: list[str],
     platform: str = "aws",
     logger: StepLogger | None = None,
 ) -> dict[str, str]:
-    """Map shape_type → best MCP style string (parallel lookups, process cache)."""
+    """Map shape_type → best MCP style string (one MCP session, process LRU cache)."""
     platform = (platform or "aws").lower()
     unique = sorted({(st or "").strip() for st in shape_types if (st or "").strip()})
     if not unique:
@@ -176,26 +187,33 @@ async def resolve_shape_styles(
         logger.log("mcp_search_input", "MCP search_shapes request",
                     details={"shape_types": unique, "platform": platform})
 
-    # Cap concurrency so we don't open dozens of MCP sessions at once.
-    sem = asyncio.Semaphore(6)
-
-    async def _guarded(st: str) -> tuple[str, str | None]:
-        async with sem:
-            return await _resolve_one(st, platform)
-
-    results = await asyncio.gather(*[_guarded(st) for st in unique], return_exceptions=True)
     resolved: dict[str, str] = {}
+    misses: list[str] = []
+    for st in unique:
+        cached = _cache_get((platform, st))
+        if cached is not None:
+            resolved[st] = cached
+        else:
+            misses.append(st)
+
     first_error: DrawioMcpError | None = None
-    for item in results:
-        if isinstance(item, DrawioMcpError):
-            first_error = first_error or item
-            continue
-        if isinstance(item, BaseException):
-            first_error = first_error or DrawioMcpError(str(item))
-            continue
-        shape_type, style = item
-        if style:
-            resolved[shape_type] = style
+    if misses:
+        calls = [
+            ("search_shapes", {"query": _shape_query(st, platform), "limit": 5})
+            for st in misses
+        ]
+        try:
+            payloads = await _mcp_call_tools(calls)
+            for st, payload in zip(misses, payloads, strict=True):
+                pick = _pick_style(_extract_styles(payload))
+                if pick:
+                    _cache_put((platform, st), pick)
+                    resolved[st] = pick
+                    _log.info("MCP resolved %s via %r", st, _shape_query(st, platform))
+                else:
+                    _log.info("MCP no style for %s (%r)", st, _shape_query(st, platform))
+        except DrawioMcpError as exc:
+            first_error = exc
 
     if logger:
         logger.log("mcp_search_output", "MCP search_shapes response",
@@ -209,30 +227,9 @@ async def resolve_shape_styles(
 def _extract_xml(payload: str) -> str | None:
     if not payload:
         return None
-    if "<mxGraphModel" in payload or "<mxfile" in payload:
-        fence = re.search(
-            r"```(?:xml)?\s*(<(?:mxfile|mxGraphModel)[\s\S]*?</(?:mxfile|mxGraphModel)>)\s*```",
-            payload,
-        )
-        if fence:
-            return fence.group(1).strip()
-        for tag in ("<mxfile", "<mxGraphModel"):
-            start = payload.find(tag)
-            if start < 0:
-                continue
-            end_tag = "</mxfile>" if tag == "<mxfile" else "</mxGraphModel>"
-            end = payload.find(end_tag, start)
-            if end > start:
-                return payload[start:end + len(end_tag)].strip()
-    try:
-        data = json.loads(payload)
-        if isinstance(data, dict):
-            for key in ("xml", "diagram", "mxfile", "content"):
-                val = data.get(key)
-                if isinstance(val, str) and ("<mxGraphModel" in val or "<mxfile" in val):
-                    return val
-    except json.JSONDecodeError:
-        pass
+    coerced = coerce_drawio_xml(payload)
+    if coerced and ("<mxfile" in coerced or "<mxGraphModel" in coerced):
+        return coerced
     return None
 
 
@@ -249,8 +246,17 @@ async def create_diagram(xml: str, *, routing: str = "libavoid",
     if routing:
         args["routing"] = routing
     if logger:
-        logger.log("mcp_create_input", "MCP create_diagram request",
-                    details={"args": args, "xml_preview": _truncate(xml, 500)})
+        # Do not log full XML twice (args.xml + xml_preview) — that blob is often
+        # copied into a .drawio file and fails to open in draw.io.
+        logger.log(
+            "mcp_create_input",
+            "MCP create_diagram request",
+            details={
+                "routing": routing,
+                "xml_chars": len(xml or ""),
+                "xml_preview": _truncate(xml or "", 500),
+            },
+        )
     try:
         text = await _mcp_call_tool("create_diagram", args)
         updated = _extract_xml(text or "")
@@ -263,10 +269,8 @@ async def create_diagram(xml: str, *, routing: str = "libavoid",
     except DrawioMcpError as exc:
         if logger:
             logger.log("mcp_create_output", f"MCP create_diagram failed: {exc}", level="warning")
-        logger.warning("create_diagram skipped: %s", exc)
         return None, None
     except Exception as exc:
         if logger:
             logger.log("mcp_create_output", f"MCP create_diagram error: {exc}", level="warning")
-        logger.warning("create_diagram skipped: %s", exc)
         return None, None

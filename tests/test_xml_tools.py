@@ -1,0 +1,202 @@
+"""Tests for draw.io XML coerce / auto-fix helpers."""
+
+from __future__ import annotations
+
+import json
+import unittest
+import xml.etree.ElementTree as ET
+
+from app.adapters.outbound.diagram import drawio_mcp_client as mcp
+from app.adapters.outbound.diagram.xml_tools import (
+    apply_mcp_styles,
+    auto_fix_xml,
+    coerce_drawio_xml,
+    ensure_diagram_document,
+    extract_shape_types,
+    validate_and_fix_xml,
+)
+
+
+SAMPLE_MXFILE = (
+    '<mxfile host="app.diagrams.net">'
+    '<diagram id="diagram-1" name="Architecture">'
+    '<mxGraphModel dx="2800" dy="1600" grid="1" gridSize="10" guides="1" '
+    'tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" '
+    'pageWidth="2400" pageHeight="1400" math="0" shadow="0">'
+    "<root>"
+    '<mxCell id="0"/>'
+    '<mxCell id="1" parent="0"/>'
+    '<mxCell value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F5F5F5;'
+    'strokeColor=none;" vertex="1" parent="1">'
+    '<mxGeometry x="0" y="0" width="2400" height="1400" as="geometry"/>'
+    "</mxCell>"
+    '<mxCell id="10" value="CloudFront" style="sketch=0;outlineConnect=0;'
+    'fontColor=#232F3E;fillColor=#8C4FFF;strokeColor=#ffffff;html=1;'
+    'shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.cloudfront;" '
+    'vertex="1" parent="1">'
+    '<mxGeometry x="590" y="450" width="78" height="78" as="geometry"/>'
+    "</mxCell>"
+    "</root></mxGraphModel></diagram></mxfile>"
+)
+
+
+class CoerceDrawioXmlTests(unittest.TestCase):
+    def test_json_envelope_with_duplicate_preview(self) -> None:
+        blob = json.dumps(
+            {
+                "args": {"xml": SAMPLE_MXFILE, "routing": "libavoid"},
+                "xml_preview": SAMPLE_MXFILE,
+            }
+        )
+        out = coerce_drawio_xml(blob)
+        self.assertTrue(out.startswith("<mxfile"))
+        self.assertTrue(out.endswith("</mxfile>"))
+        self.assertEqual(out.count("<mxfile"), 1)
+        tree = ET.fromstring(out)
+        cells = list(tree.iter("mxCell"))
+        self.assertGreaterEqual(len(cells), 3)
+
+    def test_escaped_string_unescapes_and_truncates(self) -> None:
+        escaped = SAMPLE_MXFILE.replace('"', '\\"').replace("\n", "\\n")
+        blob = escaped + '\\", "xml_preview": "' + escaped
+        out = coerce_drawio_xml(blob)
+        self.assertNotIn('\\"', out)
+        self.assertTrue(out.startswith("<mxfile"))
+        self.assertTrue(out.endswith("</mxfile>"))
+        ET.fromstring(out)
+
+    def test_ensure_diagram_document_unwraps_json(self) -> None:
+        blob = json.dumps({"diagram": {"xml": SAMPLE_MXFILE, "routing": "libavoid"}})
+        out = ensure_diagram_document(blob)
+        self.assertIn('host="app.diagrams.net"', out)
+        self.assertIn('pageWidth="2400"', out)
+        ET.fromstring(out)
+
+    def test_markdown_fence_extracted(self) -> None:
+        fenced = f"Here you go:\n```xml\n{SAMPLE_MXFILE}\n```\nthanks"
+        out = coerce_drawio_xml(fenced)
+        self.assertTrue(out.startswith("<mxfile"))
+        self.assertTrue(out.endswith("</mxfile>"))
+        ET.fromstring(out)
+
+
+class AutoFixXmlTests(unittest.TestCase):
+    def test_preserves_trailing_diagram_closers(self) -> None:
+        fixed, fixes = auto_fix_xml(SAMPLE_MXFILE)
+        self.assertNotIn("Stripped trailing LLM wrapper tags", fixes)
+        self.assertIn("</root>", fixed)
+        self.assertIn("</mxGraphModel>", fixed)
+        self.assertIn("</mxfile>", fixed)
+        self.assertIn('pageWidth="2400"', fixed)
+        self.assertIn('host="app.diagrams.net"', fixed)
+
+    def test_style_space_regex_does_not_corrupt_empty_value(self) -> None:
+        snippet = (
+            '<mxfile host="app.diagrams.net"><diagram name="A" id="d1">'
+            "<mxGraphModel><root>"
+            '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            '<mxCell id="2" value="" style="rounded=0;whiteSpace=wrap;html=1;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="10" height="10" as="geometry"/>'
+            "</mxCell>"
+            "</root></mxGraphModel></diagram></mxfile>"
+        )
+        fixed, _ = auto_fix_xml(snippet)
+        self.assertIn('style="rounded=0;', fixed)
+        self.assertNotIn('style=" rounded=', fixed)
+
+    def test_missing_id_assigned_without_rewrapping(self) -> None:
+        result = validate_and_fix_xml(SAMPLE_MXFILE)
+        self.assertTrue(result.valid, result.error)
+        out = result.fixed if result.fixed is not None else SAMPLE_MXFILE
+        self.assertIn('host="app.diagrams.net"', out)
+        self.assertIn('pageWidth="2400"', out)
+        self.assertNotIn('style=" rounded=', out)
+        self.assertNotIn('style=" sketch=', out)
+        tree = ET.fromstring(out)
+        for cell in tree.iter("mxCell"):
+            self.assertTrue(cell.get("id"), "every mxCell must have an id")
+        if result.fixes:
+            self.assertTrue(
+                any(f.startswith("Assigned missing id") for f in result.fixes),
+                result.fixes,
+            )
+
+    def test_ampersand_fix_recorded_only_when_changed(self) -> None:
+        with_bare = SAMPLE_MXFILE.replace('value="CloudFront"', 'value="A & B"')
+        fixed, fixes = auto_fix_xml(with_bare)
+        self.assertIn("Escaped unescaped & characters", fixes)
+        self.assertIn("A &amp; B", fixed)
+
+        clean, clean_fixes = auto_fix_xml(SAMPLE_MXFILE)
+        self.assertNotIn("Escaped unescaped & characters", clean_fixes)
+        self.assertIn("<mxfile", clean)
+
+
+class ShapeTypeAndStyleTests(unittest.TestCase):
+    def test_extract_shape_types_returns_clean_keys(self) -> None:
+        xml = (
+            '<mxfile><diagram><mxGraphModel><root>'
+            '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            '<mxCell id="2" shape_type="aws_lambda" style="old;" vertex="1" parent="1">'
+            '<mxGeometry as="geometry"/>'
+            "</mxCell>"
+            '<mxCell id="3" shape_type="aws_s3" style="old;" vertex="1" parent="1">'
+            '<mxGeometry as="geometry"/>'
+            "</mxCell>"
+            '<mxCell id="4" shape_type="aws_lambda" style="old;" vertex="1" parent="1">'
+            '<mxGeometry as="geometry"/>'
+            "</mxCell>"
+            "</root></mxGraphModel></diagram></mxfile>"
+        )
+        self.assertEqual(extract_shape_types(xml), ["aws_lambda", "aws_s3"])
+
+    def test_extract_shape_types_ignores_split_garbage(self) -> None:
+        # Old split("shape_type=") approach would keep trailing tag junk
+        xml = '<mxCell shape_type="aws_waf" style="x;" vertex="1"/>'
+        self.assertEqual(extract_shape_types(xml), ["aws_waf"])
+
+    def test_apply_mcp_styles_replaces_and_escapes(self) -> None:
+        xml = (
+            '<mxfile host="app.diagrams.net"><diagram name="A" id="d1">'
+            "<mxGraphModel><root>"
+            '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            '<mxCell id="2" value="Fn" shape_type="aws_lambda" style="old;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/>'
+            "</mxCell>"
+            "</root></mxGraphModel></diagram></mxfile>"
+        )
+        style = "sketch=0;html=1;fillColor=#ED7100;label=A & B;"
+        out = apply_mcp_styles(xml, {"aws_lambda": style})
+        tree = ET.fromstring(out)
+        cell = next(c for c in tree.iter("mxCell") if c.get("id") == "2")
+        self.assertEqual(cell.get("style"), style)
+        self.assertIsNone(cell.get("shape_type"))
+        # Round-trip serialization must keep & escaped in the XML text
+        self.assertIn("A &amp; B", out)
+
+
+class StyleCacheLruTests(unittest.TestCase):
+    def setUp(self) -> None:
+        mcp.clear_style_cache()
+        self._orig_max = mcp._STYLE_CACHE_MAX
+        mcp._STYLE_CACHE_MAX = 2
+
+    def tearDown(self) -> None:
+        mcp._STYLE_CACHE_MAX = self._orig_max
+        mcp.clear_style_cache()
+
+    def test_lru_hit_updates_recency_and_overflow_drops_oldest(self) -> None:
+        mcp._cache_put(("aws", "a"), "style_a;")
+        mcp._cache_put(("aws", "b"), "style_b;")
+        # Hit "a" so it becomes newest; inserting "c" should drop "b"
+        self.assertEqual(mcp._cache_get(("aws", "a")), "style_a;")
+        mcp._cache_put(("aws", "c"), "style_c;")
+        self.assertEqual(mcp._cache_get(("aws", "a")), "style_a;")
+        self.assertEqual(mcp._cache_get(("aws", "c")), "style_c;")
+        self.assertIsNone(mcp._cache_get(("aws", "b")))
+
+
+if __name__ == "__main__":
+    unittest.main()

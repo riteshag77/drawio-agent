@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import json
 import re
 import uuid
 import xml.etree.ElementTree as ET
@@ -10,6 +11,18 @@ from dataclasses import dataclass, field
 
 MAX_XML_SIZE = 1_000_000
 STRUCTURAL_ATTRS = ("edge", "parent", "source", "target", "vertex", "connectable")
+_DIAGRAM_CLOSE_TAGS = frozenset({"root", "mxgraphmodel", "diagram", "mxfile"})
+_SHAPE_TYPE_ATTR = re.compile(r'\bshape_type="([^"]+)"')
+_UNQUOTED_ATTR = re.compile(
+    r'(?<=[\s>])([a-zA-Z_][\w.-]*)=([^\s"\'<>`]+?)(?=\s|/?>|>)',
+)
+_FENCE_BLOCK = re.compile(
+    r"```(?:xml)?\s*(<(?:mxfile|mxGraphModel)[\s\S]*?</(?:mxfile|mxGraphModel)>)\s*```",
+    re.IGNORECASE,
+)
+_ATTR_SPACE = re.compile(
+    r'([a-zA-Z_][\w:.-]*="[^"]*")([a-zA-Z_][\w:.-]*=)',
+)
 
 
 @dataclass
@@ -148,9 +161,93 @@ def _is_diagram_document(xml: str) -> bool:
     return bool(text) and ("<mxfile" in text or "<mxGraphModel" in text)
 
 
+def _slice_first_diagram(text: str) -> str | None:
+    """Return the first well-bounded mxfile/mxGraphModel document, if present."""
+    for tag, end in (("<mxfile", "</mxfile>"), ("<mxGraphModel", "</mxGraphModel>")):
+        start = text.find(tag)
+        if start < 0:
+            continue
+        stop = text.find(end, start)
+        if stop > start:
+            return text[start:stop + len(end)].strip()
+    return None
+
+
+def _xml_from_json_obj(data: object) -> str | None:
+    """Pull an mxfile/mxGraphModel string out of a JSON object (nested keys OK)."""
+    if isinstance(data, str):
+        if "<mxfile" in data or "<mxGraphModel" in data:
+            return data
+        return None
+    if isinstance(data, dict):
+        for key in ("xml", "diagram", "mxfile", "content", "args"):
+            if key not in data:
+                continue
+            found = _xml_from_json_obj(data[key])
+            if found:
+                return found
+        for val in data.values():
+            found = _xml_from_json_obj(val)
+            if found:
+                return found
+    elif isinstance(data, list):
+        for item in data:
+            found = _xml_from_json_obj(item)
+            if found:
+                return found
+    return None
+
+
+def coerce_drawio_xml(text: str) -> str:
+    """Normalize JSON envelopes / escaped markup into a single diagram document.
+
+    Handles the common failure where a verbose log blob
+    ``{"args": {"xml": "...", "routing": "..."}, "xml_preview": "..."}``
+    was saved as ``.drawio``: unescape quotes/newlines, take the first
+    ``</mxfile>``, and drop trailing duplicate preview / JSON garbage.
+    """
+    trimmed = (text or "").strip()
+    if not trimmed:
+        return trimmed
+
+    candidate = trimmed
+
+    fence = _FENCE_BLOCK.search(candidate)
+    if fence:
+        candidate = fence.group(1).strip()
+
+    if candidate.startswith("{") or candidate.startswith("["):
+        try:
+            extracted = _xml_from_json_obj(json.loads(candidate))
+            if extracted:
+                candidate = extracted.strip()
+        except json.JSONDecodeError:
+            pass
+
+    # JSON-escaped XML (literal \" and \n) outside a parseable JSON object
+    if '\\"' in candidate or "\\n" in candidate:
+        if "<mxfile" not in candidate and "<mxGraphModel" not in candidate:
+            candidate = (
+                candidate.replace('\\"', '"')
+                .replace("\\n", "\n")
+                .replace("\\t", "\t")
+            )
+        elif '=\\"' in candidate:
+            candidate = (
+                candidate.replace('\\"', '"')
+                .replace("\\n", "\n")
+                .replace("\\t", "\t")
+            )
+
+    sliced = _slice_first_diagram(candidate)
+    if sliced:
+        return sliced
+    return candidate
+
+
 def ensure_diagram_document(xml: str, page_name: str = "Architecture") -> str:
     """Guarantee a single-root mxfile/mxGraphModel document for draw.io load."""
-    trimmed = (xml or "").strip()
+    trimmed = coerce_drawio_xml(xml or "")
     if not trimmed:
         return wrap_with_mxfile("", page_name)
     if "<mxfile" in trimmed:
@@ -175,23 +272,22 @@ def validate_mxcell_structure(graph_xml: str) -> str | None:
     if len(graph_xml) > MAX_XML_SIZE:
         return f"XML exceeds maximum size ({MAX_XML_SIZE} bytes)."
 
-    parse_target = graph_xml
-    if "<mxfile" in graph_xml:
-        try:
+    try:
+        if "<mxfile" in graph_xml:
             tree = ET.fromstring(graph_xml)
             root = _find_diagram_root(tree)
-            if root is not None:
-                parse_target = "".join(ET.tostring(c, encoding="unicode") for c in root.findall("mxCell"))
-        except ET.ParseError as exc:
-            return f"XML parse error: {exc}"
-
-    try:
-        wrapper = ET.fromstring(f"<wrapper>{parse_target}</wrapper>")
-    except ET.ParseError as error:
-        return f"XML parse error: {error}"
+            if root is None:
+                return "XML parse error: missing <root> in mxfile."
+            cells = root.findall("mxCell")
+        else:
+            parse_target = graph_xml if "<root>" in graph_xml else f"<root>{graph_xml}</root>"
+            wrapper = ET.fromstring(parse_target)
+            cells = wrapper.findall("mxCell") if wrapper.tag == "root" else list(wrapper.iter("mxCell"))
+    except ET.ParseError as exc:
+        return f"XML parse error: {exc}"
 
     seen_ids: set[str] = set()
-    for cell in wrapper.iter("mxCell"):
+    for cell in cells:
         cell_id = cell.attrib.get("id", "")
         if not cell_id:
             return "mxCell missing id attribute."
@@ -245,10 +341,28 @@ def _fix_xml_with_elementtree(graph_xml: str) -> tuple[str, list[str]]:
         return graph_xml, fixes
 
     cell_map: dict[str, ET.Element] = {}
+    used_ids: set[str] = set()
     for cell in cells:
         cid = cell.get("id")
         if cid:
             cell_map[cid] = cell
+            used_ids.add(cid)
+
+    next_id = 2
+    for existing in used_ids:
+        if existing.isdigit():
+            next_id = max(next_id, int(existing) + 1)
+
+    for cell in cells:
+        if not cell.get("id"):
+            while str(next_id) in used_ids:
+                next_id += 1
+            new_id = str(next_id)
+            cell.set("id", new_id)
+            used_ids.add(new_id)
+            cell_map[new_id] = cell
+            fixes.append(f"Assigned missing id '{new_id}'")
+            next_id += 1
 
     for cell in cells:
         cid = cell.get("id") or ""
@@ -319,7 +433,13 @@ def auto_fix_xml(graph_xml: str) -> tuple[str, list[str]]:
     if last_valid != -1:
         end_offset = 9 if last_close > last_self else 2
         suffix = fixed[last_valid + end_offset :]
-        if re.match(r"^(\s*</[^>]+>)+\s*$", suffix):
+        # Only strip non-diagram closers (LLM junk). Keep </root></mxGraphModel></diagram></mxfile>.
+        closers = re.findall(r"</([^>\s/]+)>", suffix)
+        if (
+            closers
+            and re.match(r"^(\s*</[^>]+>)+\s*$", suffix)
+            and not any(t.lower() in _DIAGRAM_CLOSE_TAGS for t in closers)
+        ):
             fixed = fixed[: last_valid + end_offset]
             fixes.append("Stripped trailing LLM wrapper tags")
 
@@ -328,19 +448,16 @@ def auto_fix_xml(graph_xml: str) -> tuple[str, list[str]]:
         fixes.append("stripped LLM wrapper tags")
         fixed = stripped
 
+    before_amp = fixed
     fixed = re.sub(
         r"&(?!lt;|gt;|amp;|quot;|apos;|#[0-9]+;|#x[0-9a-fA-F]+;)",
         "&amp;",
         fixed,
     )
-    if "&amp;" in fixed and "escaped bare ampersands" not in fixes:
+    if fixed != before_amp:
         fixes.append("Escaped unescaped & characters")
 
-    # Fix unquoted attribute values: shape_type=aws_lambda -> shape_type="aws_lambda"
-    _unquoted = re.compile(
-        r'(?<=[\s>])([a-zA-Z_][\w.-]*)=([^\s"\'<>`]+?)(?=\s|/?>|>)',
-    )
-    new_fixed = _unquoted.sub(r'\1="\2"', fixed)
+    new_fixed = _UNQUOTED_ATTR.sub(r'\1="\2"', fixed)
     if new_fixed != fixed:
         fixes.append("Quoted bare attribute values")
         fixed = new_fixed
@@ -371,10 +488,10 @@ def auto_fix_xml(graph_xml: str) -> tuple[str, list[str]]:
         fixes.append("Removed duplicate structural attributes")
         fixed = deduped
 
-    fixed = re.sub(r'("[^"]*")([a-zA-Z][a-zA-Z0-9_:-]*=)', r"\1 \2", fixed)
-    if "Added missing space between attributes" not in fixes:
-        if re.search(r'("[^"]*")([a-zA-Z][a-zA-Z0-9_:-]*=)', graph_xml):
-            fixes.append("Added missing space between attributes")
+    spaced = _ATTR_SPACE.sub(r"\1 \2", fixed)
+    if spaced != fixed:
+        fixes.append("Added missing space between attributes")
+        fixed = spaced
 
     seen: dict[str, int] = {}
     has_dup = False
@@ -455,3 +572,58 @@ def choose_fixed_xml(original: str, result: XmlValidationResult) -> str:
         except ET.ParseError:
             pass
     return ensure_diagram_document(original)
+
+
+def extract_shape_types(xml: str) -> list[str]:
+    """Return unique ``shape_type`` attribute values from draw.io XML."""
+    if not xml or "shape_type=" not in xml:
+        return []
+    return sorted({m.group(1).strip() for m in _SHAPE_TYPE_ATTR.finditer(xml) if m.group(1).strip()})
+
+
+def apply_mcp_styles(xml: str, style_overrides: dict[str, str]) -> str:
+    """Replace ``style`` on cells whose ``shape_type`` matches *style_overrides*.
+
+    Uses ElementTree so MCP style strings with ``&`` / quotes are escaped safely.
+    Matching ``shape_type`` attributes are removed after the style is applied.
+    """
+    if not style_overrides or not xml:
+        return xml
+
+    trimmed = (xml or "").strip()
+    is_mxfile = "<mxfile" in trimmed
+    parse_src = trimmed
+    if not is_mxfile and "<root>" not in trimmed:
+        parse_src = f"<root>{trimmed}</root>"
+
+    try:
+        tree = ET.fromstring(parse_src)
+    except ET.ParseError:
+        return xml
+
+    root = _find_diagram_root(tree) if is_mxfile else tree
+    if root is None:
+        root = tree.find("root")
+    if root is None:
+        return xml
+
+    changed = False
+    for cell in root.findall("mxCell"):
+        st = cell.get("shape_type")
+        if not st:
+            continue
+        resolved = style_overrides.get(st)
+        if resolved is None:
+            continue
+        cell.set("style", resolved)
+        del cell.attrib["shape_type"]
+        changed = True
+
+    if not changed:
+        return xml
+
+    if is_mxfile:
+        return ET.tostring(tree, encoding="unicode")
+    if "<root>" in trimmed:
+        return ET.tostring(root, encoding="unicode")
+    return "".join(ET.tostring(c, encoding="unicode") for c in root.findall("mxCell"))
