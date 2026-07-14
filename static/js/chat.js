@@ -296,7 +296,6 @@ function clearChat() {
         xmlBtn.title = 'View Draw.io XML source';
         xmlBtn.setAttribute('aria-label', xmlBtn.title);
     }
-    hideError();
     setDiagramStatus('Waiting for generation');
     document.getElementById('diagram-placeholder').classList.remove('hidden');
 

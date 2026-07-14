@@ -111,7 +111,8 @@ async def run_xml_pipeline(
             if routed_xml:
                 xml_output = ensure_diagram_document(routed_xml)
                 if logger:
-                    logger.log("mcp", "Libavoid routing applied", level="success")
+                    logger.log("mcp", "Libavoid routing applied", level="success",
+                                details={"routed_xml_chars": len(routed_xml), "routed_xml_preview": routed_xml})
 
     except DrawioMcpError as exc:
         if logger:

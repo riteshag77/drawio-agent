@@ -200,16 +200,6 @@
                         </div>
                         <div class="verbose-toggle-row">
                             <div>
-                                <span>Run status</span>
-                                <small>Show composer status and errors in Diagram Insights</small>
-                            </div>
-                            <label class="toggle-switch" title="Toggle run status panel in Diagram Insights">
-                                <input type="checkbox" id="error-panel-toggle" checked onchange="savePromptSettings()">
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-                        <div class="verbose-toggle-row">
-                            <div>
                                 <span>Pipeline logs</span>
                                 <small>Show the right-side build log panel</small>
                             </div>
@@ -305,20 +295,13 @@
             <div class="log-panel-header">
                 <div class="title-block">
                     <h2>Diagram Insights</h2>
-                    <p>Run status, validation &amp; pipeline steps</p>
+                    <p>Validation &amp; pipeline steps</p>
                 </div>
                 <div class="log-panel-actions">
                     <span id="log-count-badge" class="log-count-badge">0 entries</span>
                     <button type="button" class="btn-log-action" onclick="clearVerboseLogs()">Clear logs</button>
                     <button type="button" class="btn-log-action" onclick="closeLogPanel()" title="Close panel">✕</button>
                 </div>
-            </div>
-            <div id="error-panel" class="error-panel" role="status" aria-live="polite">
-                <div class="error-panel-header">
-                    <h3 id="error-panel-title">Status</h3>
-                    <button type="button" class="btn-log-action" onclick="hideError()" title="Dismiss" aria-label="Dismiss status">✕</button>
-                </div>
-                <div id="error-panel-body" class="error-panel-body"></div>
             </div>
             <div id="validation-panel" class="validation-panel">
                 <div class="validation-panel-header">

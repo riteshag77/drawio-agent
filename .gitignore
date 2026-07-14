@@ -5,4 +5,3 @@ logs/
 *.pyo
 .venv/
 .idea/
-.env

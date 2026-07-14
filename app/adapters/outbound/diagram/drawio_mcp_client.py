@@ -301,13 +301,20 @@ async def create_diagram(xml: str, *, routing: str = "libavoid",
         preview = match.group(0) if match else (text[:500] if text and not updated else None)
         if logger:
             logger.log("mcp_create_output", "MCP create_diagram response",
-                        details={"preview_url": preview, "updated_xml_chars": len(updated) if updated else 0})
+                        details={
+                            "preview_url": preview,
+                            "updated_xml_chars": len(updated) if updated else 0,
+                            "updated_xml": updated if updated else None,
+                            "raw_response": _truncate(text or "", 200000),
+                        })
         return preview, updated
     except DrawioMcpError as exc:
         if logger:
-            logger.log("mcp_create_output", f"MCP create_diagram failed: {exc}", level="warning")
+            logger.log("mcp_create_output", f"MCP create_diagram failed: {exc}", level="warning",
+                        details={"error": str(exc)})
         return None, None
     except Exception as exc:
         if logger:
-            logger.log("mcp_create_output", f"MCP create_diagram error: {exc}", level="warning")
+            logger.log("mcp_create_output", f"MCP create_diagram error: {exc}", level="warning",
+                        details={"error": str(exc)})
         return None, None
