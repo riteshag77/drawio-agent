@@ -1289,11 +1289,17 @@
         }
 
         /* ── Cost estimate panel ─────────────────── */
+        :root {
+            --cost-accent: #14b8a6;
+            --cost-accent-dim: rgba(20, 184, 166, 0.1);
+            --cost-bar-bg: rgba(255,255,255,0.06);
+        }
+
         .cost-panel {
             display: none;
             flex-shrink: 0;
             border-bottom: 1px solid var(--sidebar-border);
-            background: rgba(237, 113, 0, 0.04);
+            background: var(--cost-accent-dim);
         }
 
         .cost-panel.active {
@@ -1305,7 +1311,7 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 0.65rem 1rem 0.4rem;
+            padding: 0.65rem 1rem 0.3rem;
         }
 
         .cost-panel-header-left {
@@ -1317,7 +1323,7 @@
         .cost-panel-icon {
             width: 16px;
             height: 16px;
-            color: var(--accent);
+            color: var(--cost-accent);
             flex-shrink: 0;
         }
 
@@ -1326,7 +1332,7 @@
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.08em;
-            color: var(--accent);
+            color: var(--cost-accent);
             margin: 0;
         }
 
@@ -1346,57 +1352,112 @@
         .cost-panel-total {
             display: flex;
             align-items: baseline;
-            gap: 0.5rem;
-            padding: 0.25rem 1rem 0.55rem;
+            gap: 0.6rem;
+            padding: 0.1rem 1rem 0.55rem;
             border-bottom: 1px solid rgba(255,255,255,0.05);
         }
 
         .cost-total-amount {
-            font-size: 1.35rem;
-            font-weight: 800;
-            color: var(--text-primary);
-            letter-spacing: -0.03em;
-            line-height: 1.2;
+            font-size: 1.6rem;
+            font-weight: 900;
+            color: #fff;
+            letter-spacing: -0.04em;
+            line-height: 1.1;
         }
 
         .cost-total-period {
             font-size: 0.7rem;
             color: var(--text-muted);
             font-weight: 500;
+            letter-spacing: 0.01em;
         }
 
         .cost-panel-body {
-            padding: 0.55rem 1rem 0.75rem;
+            padding: 0.5rem 1rem 0.75rem;
             overflow-y: auto;
-            max-height: 280px;
+            max-height: 320px;
         }
 
         .cost-panel-body:empty {
             display: none;
         }
 
-        .cost-category + .cost-category {
-            margin-top: 0.65rem;
-            padding-top: 0.65rem;
-            border-top: 1px solid rgba(255,255,255,0.06);
+        .cost-empty {
+            padding: 0.7rem 0;
+            color: var(--text-muted);
+            font-size: 0.78rem;
+            text-align: center;
+            line-height: 1.5;
         }
 
-        .cost-category-title {
-            font-size: 0.65rem;
+        /* ── Cost category cards ─────────────────── */
+        .cost-category-card {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 10px;
+            padding: 0.6rem 0.7rem 0.4rem;
+            margin-bottom: 0.5rem;
+            transition: border-color 0.15s;
+        }
+
+        .cost-category-card:hover {
+            border-color: rgba(255,255,255,0.12);
+        }
+
+        .cost-category-card:last-child {
+            margin-bottom: 0;
+        }
+
+        .cost-category-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.3rem;
+        }
+
+        .cost-category-name {
+            font-size: 0.7rem;
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.07em;
             color: var(--text-muted);
-            margin-bottom: 0.35rem;
-            padding-bottom: 0.2rem;
         }
+
+        .cost-category-subtotal {
+            font-size: 0.78rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .cost-category-bar {
+            height: 4px;
+            background: var(--cost-bar-bg);
+            border-radius: 2px;
+            overflow: hidden;
+            margin-bottom: 0.4rem;
+        }
+
+        .cost-category-bar-fill {
+            height: 100%;
+            border-radius: 2px;
+            background: var(--cost-accent);
+            transition: width 0.4s ease;
+            opacity: 0.7;
+        }
+
+        .cost-category-card:nth-child(6n+2) .cost-category-bar-fill { opacity: 0.9; }
+        .cost-category-card:nth-child(6n+3) .cost-category-bar-fill { opacity: 0.6; }
+        .cost-category-card:nth-child(6n+4) .cost-category-bar-fill { opacity: 0.5; }
+        .cost-category-card:nth-child(6n+5) .cost-category-bar-fill { opacity: 0.4; }
+        .cost-category-card:nth-child(6n) .cost-category-bar-fill { opacity: 0.3; }
 
         .cost-service-row {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 0.35rem 0.5rem;
-            border-radius: 6px;
+            padding: 0.25rem 0.4rem;
+            border-radius: 5px;
             transition: background 0.12s;
         }
 
@@ -1405,7 +1466,7 @@
         }
 
         .cost-service-name {
-            font-size: 0.78rem;
+            font-size: 0.75rem;
             color: var(--text-secondary);
             flex: 1;
             min-width: 0;
@@ -1415,7 +1476,7 @@
         }
 
         .cost-service-price {
-            font-size: 0.8rem;
+            font-size: 0.76rem;
             font-weight: 600;
             color: var(--text-primary);
             flex-shrink: 0;
@@ -1424,14 +1485,201 @@
         }
 
         .cost-unmatched-note {
-            margin-top: 0.5rem;
-            padding-top: 0.5rem;
-            border-top: 1px dashed rgba(255,255,255,0.06);
-            font-size: 0.7rem;
+            margin-top: 0.4rem;
+            padding: 0.4rem 0.5rem;
+            border-radius: 6px;
+            background: rgba(255,255,255,0.02);
+            font-size: 0.68rem;
             color: var(--text-muted);
+            line-height: 1.4;
         }
 
-        .cost-empty {
+        /* ── Well-Architected panel ──────────────── */
+        .waf-panel {
+            display: none;
+            flex-shrink: 0;
+            border-bottom: 1px solid var(--sidebar-border);
+            background: rgba(34, 197, 94, 0.04);
+            flex-direction: column;
+        }
+
+        .waf-panel.active {
+            display: flex;
+        }
+
+        .waf-panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.65rem 1rem 0.4rem;
+        }
+
+        .waf-panel-header-left {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .waf-panel-icon {
+            width: 16px;
+            height: 16px;
+            color: #34d399;
+            flex-shrink: 0;
+        }
+
+        .waf-panel-header h3 {
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #34d399;
+            margin: 0;
+        }
+
+        .waf-panel-close {
+            font-size: 1.1rem;
+            line-height: 1;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 0 0.2rem;
+            transition: color 0.15s;
+        }
+
+        .waf-panel-close:hover {
+            color: var(--text-primary);
+        }
+
+        .waf-panel-summary {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            padding: 0.15rem 1rem 0.5rem;
+        }
+
+        .waf-overall-badge {
+            font-size: 0.85rem;
+            font-weight: 800;
+            padding: 0.15rem 0.5rem;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.06);
+            color: var(--text-muted);
+            flex-shrink: 0;
+        }
+
+        .waf-overall-badge.pass {
+            background: rgba(34, 197, 94, 0.15);
+            color: #86efac;
+        }
+
+        .waf-overall-badge.warn {
+            background: rgba(245, 158, 11, 0.15);
+            color: #fcd34d;
+        }
+
+        .waf-overall-badge.fail {
+            background: rgba(239, 68, 68, 0.15);
+            color: #fca5a5;
+        }
+
+        .waf-summary-text {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            line-height: 1.4;
+        }
+
+        .waf-panel-body {
+            padding: 0.25rem 1rem 0.75rem;
+            overflow-y: auto;
+            max-height: 340px;
+        }
+
+        .waf-panel-body:empty {
+            display: none;
+        }
+
+        .waf-pillar {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 8px;
+            padding: 0.6rem 0.7rem;
+            margin-bottom: 0.5rem;
+            transition: background 0.12s;
+        }
+
+        .waf-pillar:last-child {
+            margin-bottom: 0;
+        }
+
+        .waf-pillar-header {
+            display: flex;
+            align-items: center;
+            gap: 0.45rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .waf-pillar-status {
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+        }
+
+        .waf-pillar-status.pass { color: #22c55e; }
+        .waf-pillar-status.warn { color: #f59e0b; }
+        .waf-pillar-status.fail { color: #ef4444; }
+
+        .waf-pillar-name {
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .waf-pillar-desc {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            line-height: 1.4;
+            margin-bottom: 0.35rem;
+        }
+
+        .waf-finding {
+            display: flex;
+            gap: 0.4rem;
+            padding: 0.3rem 0;
+            font-size: 0.74rem;
+            line-height: 1.45;
+            border-top: 1px solid rgba(255,255,255,0.04);
+        }
+
+        .waf-finding:first-of-type {
+            border-top: none;
+            padding-top: 0;
+        }
+
+        .waf-finding-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            margin-top: 0.5rem;
+        }
+
+        .waf-finding-dot.high { background: var(--error); }
+        .waf-finding-dot.medium { background: #f59e0b; }
+        .waf-finding-dot.low { background: var(--text-muted); }
+
+        .waf-finding-text {
+            color: var(--text-secondary);
+            flex: 1;
+        }
+
+        .waf-finding-recommendation {
+            display: block;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            margin-top: 0.15rem;
+            padding-left: 0;
+        }
+
+        .waf-empty {
             padding: 0.7rem 0;
             color: var(--text-muted);
             font-size: 0.78rem;

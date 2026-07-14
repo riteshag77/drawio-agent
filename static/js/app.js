@@ -29,6 +29,7 @@ function getPromptSettings() {
         vlm_validation: document.getElementById('vlm-validation-toggle').checked,
         validation_provider: document.getElementById('validation-provider-select').value,
         cost_estimate: document.getElementById('cost-estimate-toggle').checked,
+        well_architected: document.getElementById('well-architected-toggle').checked,
     };
 }
 
@@ -37,10 +38,12 @@ function savePromptSettings() {
     const vlm = document.getElementById('vlm-validation-toggle').checked;
     const vp = document.getElementById('validation-provider-select').value;
     const cost = document.getElementById('cost-estimate-toggle').checked;
+    const waf = document.getElementById('well-architected-toggle').checked;
     localStorage.setItem(CUSTOM_SYSTEM_MESSAGE_KEY, custom);
     localStorage.setItem(COST_ESTIMATE_STORAGE_KEY, cost ? '1' : '0');
     localStorage.setItem(VLM_VALIDATION_KEY, vlm ? '1' : '0');
     localStorage.setItem(VALIDATION_PROVIDER_KEY, vp);
+    localStorage.setItem(WELL_ARCHITECTED_KEY, waf ? '1' : '0');
     updateValidationProviderVisibility();
 }
 
@@ -73,8 +76,11 @@ function initPromptSettings() {
     }
     const costStored = localStorage.getItem(COST_ESTIMATE_STORAGE_KEY);
     document.getElementById('cost-estimate-toggle').checked = costStored === '1';
+    const wafStored = localStorage.getItem(WELL_ARCHITECTED_KEY);
+    document.getElementById('well-architected-toggle').checked = wafStored === '1';
     updateValidationProviderVisibility();
     toggleCostPanelPreview();
+    toggleWellArchitectedPanel();
 }
 
 function setComposerRunStatus(text, level = 'info') {
@@ -351,7 +357,8 @@ function clearVerboseLogs() {
 
 function updateRightPanelVisibility() {
     const costPanelActive = document.getElementById('cost-panel').classList.contains('active');
-    const open = verboseLogging || validationPanelActive || costPanelActive;
+    const wafPanelActive = document.getElementById('well-architected-panel').classList.contains('active');
+    const open = verboseLogging || validationPanelActive || costPanelActive || wafPanelActive;
     document.getElementById('log-panel').classList.toggle('active', open);
 }
 
@@ -397,25 +404,50 @@ function displayCostEstimate(costData) {
     if (!costData) return;
     const panel = document.getElementById('cost-panel');
     const body = document.getElementById('cost-panel-body');
-    const total = document.getElementById('cost-total-amount');
-    if (!panel || !body || !total) return;
+    const totalEl = document.getElementById('cost-total-amount');
+    if (!panel || !body || !totalEl) return;
     panel.classList.add('active');
-    total.textContent = 'A$' + (costData.total || 0).toFixed(0);
+    var grandTotal = costData.total || 0;
+    totalEl.textContent = 'A$' + grandTotal.toFixed(0);
     body.innerHTML = '';
-    const categories = costData.breakdown || {};
-    const catKeys = Object.keys(categories);
+    var categories = costData.breakdown || {};
+    var catKeys = Object.keys(categories);
     if (catKeys.length === 0) {
         body.innerHTML = '<div class="cost-empty">No billable services detected</div>';
         return;
     }
+    var catTotals = {};
     catKeys.forEach(function (cat) {
-        var section = document.createElement('div');
-        section.className = 'cost-category';
-        var title = document.createElement('div');
-        title.className = 'cost-category-title';
-        title.textContent = cat;
-        section.appendChild(title);
-        (categories[cat] || []).forEach(function (svc) {
+        var svcs = categories[cat] || [];
+        var sub = 0;
+        svcs.forEach(function (s) { sub += s.monthly || 0; });
+        catTotals[cat] = sub;
+    });
+    catKeys.forEach(function (cat) {
+        var svcs = categories[cat] || [];
+        var subTotal = catTotals[cat] || 0;
+        var pct = grandTotal > 0 ? (subTotal / grandTotal * 100) : 0;
+        var card = document.createElement('div');
+        card.className = 'cost-category-card';
+        var head = document.createElement('div');
+        head.className = 'cost-category-head';
+        var name = document.createElement('span');
+        name.className = 'cost-category-name';
+        name.textContent = cat;
+        var subEl = document.createElement('span');
+        subEl.className = 'cost-category-subtotal';
+        subEl.textContent = 'A$' + subTotal.toFixed(0);
+        head.appendChild(name);
+        head.appendChild(subEl);
+        card.appendChild(head);
+        var bar = document.createElement('div');
+        bar.className = 'cost-category-bar';
+        var fill = document.createElement('div');
+        fill.className = 'cost-category-bar-fill';
+        fill.style.width = Math.max(pct, 2) + '%';
+        bar.appendChild(fill);
+        card.appendChild(bar);
+        svcs.forEach(function (svc) {
             var row = document.createElement('div');
             row.className = 'cost-service-row';
             var nameSpan = document.createElement('span');
@@ -426,14 +458,14 @@ function displayCostEstimate(costData) {
             priceSpan.textContent = 'A$' + (svc.monthly || 0).toFixed(0);
             row.appendChild(nameSpan);
             row.appendChild(priceSpan);
-            section.appendChild(row);
+            card.appendChild(row);
         });
-        body.appendChild(section);
+        body.appendChild(card);
     });
     if (costData.services_unmatched > 0) {
         var note = document.createElement('div');
         note.className = 'cost-unmatched-note';
-        note.textContent = costData.services_unmatched + ' service(s) estimated at default cost';
+        note.textContent = costData.services_unmatched + ' service(s) without exact pricing — estimated at default cost';
         body.appendChild(note);
     }
 }
@@ -444,6 +476,103 @@ function hideCostEstimate() {
         panel.classList.remove('active');
         updateRightPanelVisibility();
     }
+}
+
+function toggleWellArchitectedPanel() {
+    var panel = document.getElementById('well-architected-panel');
+    var body = document.getElementById('waf-panel-body');
+    var badge = document.getElementById('waf-overall-badge');
+    if (!panel) return;
+    if (document.getElementById('well-architected-toggle').checked) {
+        panel.classList.add('active');
+        if (body) body.innerHTML = '<div class="waf-empty">Generate a diagram to see Well-Architected review</div>';
+        if (badge) { badge.textContent = '--'; badge.className = 'waf-overall-badge'; }
+    } else {
+        panel.classList.remove('active');
+        if (body) body.innerHTML = '';
+        if (badge) { badge.textContent = '--'; badge.className = 'waf-overall-badge'; }
+    }
+    updateRightPanelVisibility();
+}
+
+function hideWellArchitectedPanel() {
+    var panel = document.getElementById('well-architected-panel');
+    if (panel) {
+        panel.classList.remove('active');
+        document.getElementById('well-architected-toggle').checked = false;
+        localStorage.setItem(WELL_ARCHITECTED_KEY, '0');
+        updateRightPanelVisibility();
+    }
+}
+
+function displayWellArchitected(wafData) {
+    if (!wafData) return;
+    console.log('WAF data received', wafData.overall_status, wafData.pillars?.length, 'pillars');
+    var panel = document.getElementById('well-architected-panel');
+    var body = document.getElementById('waf-panel-body');
+    var badge = document.getElementById('waf-overall-badge');
+    if (!panel || !body || !badge) { console.warn('WAF panel elements missing'); return; }
+    panel.classList.add('active');
+    var toggle = document.getElementById('well-architected-toggle');
+    if (toggle) toggle.checked = true;
+    localStorage.setItem(WELL_ARCHITECTED_KEY, '1');
+    var status = wafData.overall_status || 'pass';
+    badge.textContent = status.toUpperCase();
+    badge.className = 'waf-overall-badge ' + status;
+    body.innerHTML = '';
+    var pillars = wafData.pillars || [];
+    if (pillars.length === 0) {
+        body.innerHTML = '<div class="waf-empty">No recommendations available</div>';
+        return;
+    }
+    pillars.forEach(function (p) {
+        var div = document.createElement('div');
+        div.className = 'waf-pillar';
+        var header = document.createElement('div');
+        header.className = 'waf-pillar-header';
+        var icon = document.createElement('span');
+        icon.className = 'waf-pillar-status ' + (p.status || 'pass');
+        icon.innerHTML = p.status === 'pass' ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>' : p.status === 'warn' ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>' : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>';
+        header.appendChild(icon);
+        var name = document.createElement('span');
+        name.className = 'waf-pillar-name';
+        name.textContent = p.name || '';
+        header.appendChild(name);
+        div.appendChild(header);
+        if (p.description) {
+            var desc = document.createElement('div');
+            desc.className = 'waf-pillar-desc';
+            desc.textContent = p.description;
+            div.appendChild(desc);
+        }
+        (p.findings || []).forEach(function (f) {
+            var finding = document.createElement('div');
+            finding.className = 'waf-finding';
+            var dot = document.createElement('span');
+            dot.className = 'waf-finding-dot ' + (f.severity || 'low');
+            finding.appendChild(dot);
+            var text = document.createElement('div');
+            text.className = 'waf-finding-text';
+            text.textContent = f.message || '';
+            if (f.recommendation) {
+                var rec = document.createElement('span');
+                rec.className = 'waf-finding-recommendation';
+                rec.textContent = '→ ' + f.recommendation;
+                text.appendChild(rec);
+            }
+            finding.appendChild(text);
+            div.appendChild(finding);
+        });
+        body.appendChild(div);
+    });
+    var summary = wafData.summary || '';
+    if (summary) {
+        var s = document.createElement('div');
+        s.style.cssText = 'margin-top:0.5rem;font-size:0.7rem;color:var(--text-muted);line-height:1.4';
+        s.textContent = summary;
+        body.appendChild(s);
+    }
+    updateRightPanelVisibility();
 }
 
 function downloadXML() {
@@ -605,6 +734,7 @@ async function sendMessage(options = {}) {
                 previous_xml: previousXml,
                 custom_system_message: promptSettings.custom_system_message,
                 cost_estimate: promptSettings.cost_estimate,
+                well_architected: promptSettings.well_architected,
                 validation_feedback: validationFeedback,
                 context_text: contextText || null,
                 image_data: attachmentImageData,
@@ -655,7 +785,14 @@ async function sendMessage(options = {}) {
             } else {
                 hideCostEstimate();
             }
-        } catch (_) {}
+        } catch (e) { console.error('Cost panel error', e); }
+
+        try {
+            if (data.well_architected) {
+                displayWellArchitected(data.well_architected);
+                updateRightPanelVisibility();
+            }
+        } catch (e) { console.error('WAF panel error', e); }
 
         if (data.validation?.feedback) {
             showValidationBanner(data.validation.structural || data.validation.vlm, data.validation.feedback);

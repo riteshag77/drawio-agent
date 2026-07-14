@@ -14,6 +14,7 @@ class PromptRequest(BaseModel):
     diagram_renderer: str | None = None
     three_d: bool = False
     cost_estimate: bool = False
+    well_architected: bool = False
 
 
 class ChatMessage(BaseModel):
@@ -31,6 +32,7 @@ class ChatRequest(BaseModel):
     diagram_renderer: str | None = None
     three_d: bool = False
     cost_estimate: bool = False
+    well_architected: bool = False
 
 
 class ParseUrlRequest(BaseModel):

@@ -170,6 +170,16 @@
                         </div>
                         <div class="verbose-toggle-row">
                             <div>
+                                <span>Well-Architected Review</span>
+                                <small>Pillar-based architecture assessment</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle Well-Architected review">
+                                <input type="checkbox" id="well-architected-toggle" onchange="savePromptSettings(); toggleWellArchitectedPanel()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="verbose-toggle-row">
+                            <div>
                                 <span>Visual validation</span>
                                 <small>VLM checks the render for overlaps</small>
                             </div>
@@ -310,15 +320,29 @@
                 <div class="cost-panel-header">
                     <div class="cost-panel-header-left">
                         <svg class="cost-panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-                        <h3>Monthly Cost</h3>
+                        <h3>Cost Estimate</h3>
                     </div>
                     <span class="cost-panel-close" onclick="hideCostEstimate()">&times;</span>
                 </div>
                 <div class="cost-panel-total">
                     <span id="cost-total-amount" class="cost-total-amount">A$0</span>
-                    <span class="cost-total-period">estimated per month</span>
+                    <span class="cost-total-period">per month estimated</span>
                 </div>
                 <div id="cost-panel-body" class="cost-panel-body"></div>
+            </div>
+            <div id="well-architected-panel" class="waf-panel">
+                <div class="waf-panel-header">
+                    <div class="waf-panel-header-left">
+                        <svg class="waf-panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+                        <h3>Well-Architected Review</h3>
+                    </div>
+                    <span class="waf-panel-close" onclick="hideWellArchitectedPanel()">&times;</span>
+                </div>
+                <div class="waf-panel-summary">
+                    <span id="waf-overall-badge" class="waf-overall-badge">--</span>
+                    <span class="waf-summary-text">Generate a diagram to assess against Well-Architected pillars</span>
+                </div>
+                <div id="waf-panel-body" class="waf-panel-body"></div>
             </div>
             <div id="verbose-log-body" class="log-panel-body">
                 <div class="log-empty">Turn on <strong>Pipeline logs</strong> in Settings, then generate a diagram to see each step here with full details.</div>

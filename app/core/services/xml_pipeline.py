@@ -19,6 +19,7 @@ from app.adapters.outbound.diagram.xml_tools import (
 from app.adapters.outbound.llm.prompt_builders import PLATFORM_LABELS
 from app.adapters.outbound.cost_estimator import estimate_monthly_cost
 from app.adapters.outbound.utils.chat import filter_applied_suggestions
+from app.adapters.outbound.well_architected import assess_well_architected
 from app.core.services.agent import generate_xml_diagram
 
 
@@ -32,6 +33,7 @@ def _build_response(
     mcp_preview_url: str | None = None,
     logger: Any = None,
     cost_estimate: dict | None = None,
+    well_architected: dict | None = None,
 ) -> dict[str, Any]:
     """Build the standard API response dict."""
     return {
@@ -43,6 +45,7 @@ def _build_response(
         "renderer_used": renderer_used,
         "mcp_preview_url": mcp_preview_url,
         "cost_estimate": cost_estimate,
+        "well_architected": well_architected,
         "logs": logger.to_list() if logger else [],
     }
 
@@ -59,6 +62,7 @@ async def run_xml_pipeline(
     applied_suggestions: list[Any] | None = None,
     three_d: bool = False,
     cost_estimate: bool = False,
+    well_architected: bool = False,
 ) -> dict[str, Any]:
     provider_key = (provider or "openai").strip().lower()
     platform_key = (platform or "aws").strip().lower()
@@ -86,6 +90,13 @@ async def run_xml_pipeline(
             logger.log("cost", f"Estimated monthly cost: ${cost_data['total']}", level="info",
                        details={"service_count": cost_data["services_matched"] + cost_data["services_unmatched"]})
 
+    waf_data = None
+    if well_architected and xml_output:
+        waf_data = assess_well_architected(xml_output, platform_key)
+        if logger:
+            logger.log("waf", f"Well-Architected: {waf_data['overall_status']}", level="info",
+                       details={"pillars": len(waf_data["pillars"]), "services": waf_data["services_analyzed"]})
+
     if not is_xml_pipeline_mode(diagram_renderer):
         logger.log("complete", "XML pipeline finished (local mode)", level="success",
                    details={"xml_chars": len(xml_output), "renderer_used": "local"})
@@ -96,6 +107,7 @@ async def run_xml_pipeline(
             renderer_used="local",
             logger=logger,
             cost_estimate=cost_data,
+            well_architected=waf_data,
         )
 
     # MCP enrichment
@@ -145,4 +157,5 @@ async def run_xml_pipeline(
         mcp_preview_url=preview_url,
         logger=logger,
         cost_estimate=cost_data,
+        well_architected=waf_data,
     )
