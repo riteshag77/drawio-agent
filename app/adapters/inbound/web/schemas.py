@@ -13,6 +13,7 @@ class PromptRequest(BaseModel):
     custom_system_message: str = Field(default="", max_length=10_000)
     diagram_renderer: str | None = None
     three_d: bool = False
+    cost_estimate: bool = False
 
 
 class ChatMessage(BaseModel):
@@ -29,6 +30,7 @@ class ChatRequest(BaseModel):
     applied_suggestions: list[str] = []
     diagram_renderer: str | None = None
     three_d: bool = False
+    cost_estimate: bool = False
 
 
 class ParseUrlRequest(BaseModel):

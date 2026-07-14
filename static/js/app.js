@@ -17,26 +17,6 @@ function initDiagramMode() {
     }
 }
 
-function isAutolayoutOnLoadEnabled() {
-    const toggle = document.getElementById('autolayout-toggle');
-    return toggle ? toggle.checked : true;
-}
-
-function saveAutolayoutSetting() {
-    localStorage.setItem(
-        AUTO_LAYOUT_STORAGE_KEY,
-        isAutolayoutOnLoadEnabled() ? '1' : '0'
-    );
-}
-
-function initAutolayoutSetting() {
-    const stored = localStorage.getItem(AUTO_LAYOUT_STORAGE_KEY);
-    const toggle = document.getElementById('autolayout-toggle');
-    if (toggle) {
-        toggle.checked = stored === null ? true : stored === '1';
-    }
-}
-
 function updateValidationProviderVisibility() {
     const vlmOn = document.getElementById('vlm-validation-toggle').checked;
     const row = document.getElementById('validation-provider-row');
@@ -45,28 +25,43 @@ function updateValidationProviderVisibility() {
 
 function getPromptSettings() {
     return {
-        minimal_style: document.getElementById('minimal-style-toggle').checked,
         custom_system_message: document.getElementById('custom-system-message').value.slice(0, 5000),
         vlm_validation: document.getElementById('vlm-validation-toggle').checked,
         validation_provider: document.getElementById('validation-provider-select').value,
+        cost_estimate: document.getElementById('cost-estimate-toggle').checked,
     };
 }
 
 function savePromptSettings() {
-    const minimal = document.getElementById('minimal-style-toggle').checked;
     const custom = document.getElementById('custom-system-message').value.slice(0, 5000);
     const vlm = document.getElementById('vlm-validation-toggle').checked;
     const vp = document.getElementById('validation-provider-select').value;
-    localStorage.setItem(MINIMAL_STYLE_STORAGE_KEY, minimal ? '1' : '0');
+    const cost = document.getElementById('cost-estimate-toggle').checked;
     localStorage.setItem(CUSTOM_SYSTEM_MESSAGE_KEY, custom);
+    localStorage.setItem(COST_ESTIMATE_STORAGE_KEY, cost ? '1' : '0');
     localStorage.setItem(VLM_VALIDATION_KEY, vlm ? '1' : '0');
     localStorage.setItem(VALIDATION_PROVIDER_KEY, vp);
     updateValidationProviderVisibility();
 }
 
+function toggleCostPanelPreview() {
+    var panel = document.getElementById('cost-panel');
+    var body = document.getElementById('cost-panel-body');
+    var total = document.getElementById('cost-total-amount');
+    if (!panel || !body) return;
+    if (document.getElementById('cost-estimate-toggle').checked) {
+        panel.classList.add('active');
+        body.innerHTML = '<div class="cost-empty">Generate a diagram to see cost estimates</div>';
+        if (total) total.textContent = 'A$--';
+    } else {
+        panel.classList.remove('active');
+        body.innerHTML = '';
+        if (total) total.textContent = 'A$0';
+    }
+    updateRightPanelVisibility();
+}
+
 function initPromptSettings() {
-    document.getElementById('minimal-style-toggle').checked =
-        localStorage.getItem(MINIMAL_STYLE_STORAGE_KEY) === '1';
     document.getElementById('custom-system-message').value =
         localStorage.getItem(CUSTOM_SYSTEM_MESSAGE_KEY) || '';
     const vlmStored = localStorage.getItem(VLM_VALIDATION_KEY);
@@ -76,7 +71,10 @@ function initPromptSettings() {
     if (vpStored) {
         document.getElementById('validation-provider-select').value = vpStored;
     }
+    const costStored = localStorage.getItem(COST_ESTIMATE_STORAGE_KEY);
+    document.getElementById('cost-estimate-toggle').checked = costStored === '1';
     updateValidationProviderVisibility();
+    toggleCostPanelPreview();
 }
 
 function setComposerRunStatus(text, level = 'info') {
@@ -352,7 +350,8 @@ function clearVerboseLogs() {
 }
 
 function updateRightPanelVisibility() {
-    const open = verboseLogging || validationPanelActive;
+    const costPanelActive = document.getElementById('cost-panel').classList.contains('active');
+    const open = verboseLogging || validationPanelActive || costPanelActive;
     document.getElementById('log-panel').classList.toggle('active', open);
 }
 
@@ -392,6 +391,59 @@ function initVerboseLogging() {
     const open = localStorage.getItem(VERBOSE_STORAGE_KEY) === '1';
     setLogPanelOpen(open);
     updateLogCount();
+}
+
+function displayCostEstimate(costData) {
+    if (!costData) return;
+    const panel = document.getElementById('cost-panel');
+    const body = document.getElementById('cost-panel-body');
+    const total = document.getElementById('cost-total-amount');
+    if (!panel || !body || !total) return;
+    panel.classList.add('active');
+    total.textContent = 'A$' + (costData.total || 0).toFixed(0);
+    body.innerHTML = '';
+    const categories = costData.breakdown || {};
+    const catKeys = Object.keys(categories);
+    if (catKeys.length === 0) {
+        body.innerHTML = '<div class="cost-empty">No billable services detected</div>';
+        return;
+    }
+    catKeys.forEach(function (cat) {
+        var section = document.createElement('div');
+        section.className = 'cost-category';
+        var title = document.createElement('div');
+        title.className = 'cost-category-title';
+        title.textContent = cat;
+        section.appendChild(title);
+        (categories[cat] || []).forEach(function (svc) {
+            var row = document.createElement('div');
+            row.className = 'cost-service-row';
+            var nameSpan = document.createElement('span');
+            nameSpan.className = 'cost-service-name';
+            nameSpan.textContent = svc.name || svc.key;
+            var priceSpan = document.createElement('span');
+            priceSpan.className = 'cost-service-price';
+            priceSpan.textContent = 'A$' + (svc.monthly || 0).toFixed(0);
+            row.appendChild(nameSpan);
+            row.appendChild(priceSpan);
+            section.appendChild(row);
+        });
+        body.appendChild(section);
+    });
+    if (costData.services_unmatched > 0) {
+        var note = document.createElement('div');
+        note.className = 'cost-unmatched-note';
+        note.textContent = costData.services_unmatched + ' service(s) estimated at default cost';
+        body.appendChild(note);
+    }
+}
+
+function hideCostEstimate() {
+    var panel = document.getElementById('cost-panel');
+    if (panel) {
+        panel.classList.remove('active');
+        updateRightPanelVisibility();
+    }
 }
 
 function downloadXML() {
@@ -551,8 +603,8 @@ async function sendMessage(options = {}) {
                 previous_architecture: previousArchitecture,
                 current_xml: xmlForRequest,
                 previous_xml: previousXml,
-                minimal_style: promptSettings.minimal_style,
                 custom_system_message: promptSettings.custom_system_message,
+                cost_estimate: promptSettings.cost_estimate,
                 validation_feedback: validationFeedback,
                 context_text: contextText || null,
                 image_data: attachmentImageData,
@@ -595,6 +647,15 @@ async function sendMessage(options = {}) {
         hasImageAttachment = false;
         const attachPreview = document.getElementById('attachment-preview');
         if (attachPreview) { attachPreview.hidden = true; attachPreview.textContent = ''; }
+
+        try {
+            if (data.cost_estimate) {
+                displayCostEstimate(data.cost_estimate);
+                updateRightPanelVisibility();
+            } else {
+                hideCostEstimate();
+            }
+        } catch (_) {}
 
         if (data.validation?.feedback) {
             showValidationBanner(data.validation.structural || data.validation.vlm, data.validation.feedback);
@@ -654,7 +715,6 @@ initVerboseLogging();
 initPromptSettings();
 document.getElementById('vlm-validation-toggle').addEventListener('change', updateValidationProviderVisibility);
 initDiagramMode();
-initAutolayoutSetting();
 hideValidationBanner();
 updateSendStopButtons();
 loadTemplates();

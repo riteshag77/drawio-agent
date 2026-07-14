@@ -17,6 +17,7 @@ from app.adapters.outbound.diagram.xml_tools import (
     validate_and_fix_xml,
 )
 from app.adapters.outbound.llm.prompt_builders import PLATFORM_LABELS
+from app.adapters.outbound.cost_estimator import estimate_monthly_cost
 from app.adapters.outbound.utils.chat import filter_applied_suggestions
 from app.core.services.agent import generate_xml_diagram
 
@@ -30,6 +31,7 @@ def _build_response(
     renderer_used: str | None = None,
     mcp_preview_url: str | None = None,
     logger: Any = None,
+    cost_estimate: dict | None = None,
 ) -> dict[str, Any]:
     """Build the standard API response dict."""
     return {
@@ -40,6 +42,7 @@ def _build_response(
         "assistant_message": assistant_message,
         "renderer_used": renderer_used,
         "mcp_preview_url": mcp_preview_url,
+        "cost_estimate": cost_estimate,
         "logs": logger.to_list() if logger else [],
     }
 
@@ -55,6 +58,7 @@ async def run_xml_pipeline(
     diagram_renderer: str | None = None,
     applied_suggestions: list[Any] | None = None,
     three_d: bool = False,
+    cost_estimate: bool = False,
 ) -> dict[str, Any]:
     provider_key = (provider or "openai").strip().lower()
     platform_key = (platform or "aws").strip().lower()
@@ -75,6 +79,13 @@ async def run_xml_pipeline(
     xml_output = choose_fixed_xml(xml_output, check)
     xml_output = normalize_platform_styles(xml_output, platform_key)
 
+    cost_data = None
+    if cost_estimate and xml_output:
+        cost_data = estimate_monthly_cost(xml_output, platform_key)
+        if logger:
+            logger.log("cost", f"Estimated monthly cost: ${cost_data['total']}", level="info",
+                       details={"service_count": cost_data["services_matched"] + cost_data["services_unmatched"]})
+
     if not is_xml_pipeline_mode(diagram_renderer):
         logger.log("complete", "XML pipeline finished (local mode)", level="success",
                    details={"xml_chars": len(xml_output), "renderer_used": "local"})
@@ -84,6 +95,7 @@ async def run_xml_pipeline(
             suggestions=filter_applied_suggestions(xml_diagram.suggestions, applied_suggestions),
             renderer_used="local",
             logger=logger,
+            cost_estimate=cost_data,
         )
 
     # MCP enrichment
@@ -132,4 +144,5 @@ async def run_xml_pipeline(
         renderer_used=renderer_used,
         mcp_preview_url=preview_url,
         logger=logger,
+        cost_estimate=cost_data,
     )

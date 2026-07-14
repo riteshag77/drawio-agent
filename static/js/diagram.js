@@ -221,10 +221,6 @@ function loadDiagramIntoEditor(xml) {
         maxFitScale: 1.25,
         border: 20
     };
-    if (isAutolayoutOnLoadEnabled() && !/container=1|shape=mxgraph\.aws4\.group/.test(xml) && !/id="flow_notes"/.test(xml)) {
-        payload.layout = 'horizontalFlow';
-    }
-
     if (!drawioReady) {
         pendingXml = xml;
         pendingMermaid = null;

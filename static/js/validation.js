@@ -179,7 +179,6 @@ async function autoRetryWithVlm(imageData, feedback) {
                 previous_architecture: previousArchitecture,
                 current_xml: xmlForRequest,
                 previous_xml: previousXml,
-                minimal_style: promptSettings.minimal_style,
                 custom_system_message: promptSettings.custom_system_message,
                 validation_feedback: feedback,
                 image_data: imageData,

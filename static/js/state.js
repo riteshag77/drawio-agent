@@ -4,11 +4,10 @@ const THEME_STORAGE_KEY = 'drawio-agent-drawio-theme';
 const TEMPLATES_STORAGE_KEY = 'drawio-agent-templates';
 
 const VERBOSE_STORAGE_KEY = 'drawio-agent-verbose-logging';
-const MINIMAL_STYLE_STORAGE_KEY = 'drawio-agent-minimal-style';
 const CUSTOM_SYSTEM_MESSAGE_KEY = 'drawio-agent-custom-system-message';
 const VLM_VALIDATION_KEY = 'drawio-agent-vlm-validation';
 const VALIDATION_PROVIDER_KEY = 'drawio-agent-validation-provider';
-const AUTO_LAYOUT_STORAGE_KEY = 'drawio-agent-autolayout-on-load';
+const COST_ESTIMATE_STORAGE_KEY = 'drawio-agent-cost-estimate';
 const DIAGRAM_MODE_STORAGE_KEY = 'drawio-agent-diagram-mode';
 const MAX_VLM_CLIENT_RETRIES = 0; // Show banner only — auto /chat regen feels like endless loading
 

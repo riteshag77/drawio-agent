@@ -160,21 +160,11 @@
 
                         <div class="verbose-toggle-row">
                             <div>
-                                <span>Auto-layout on load</span>
-                                <small>Run Draw.io horizontal flow when cloud diagrams load</small>
+                                <span>Cost estimation</span>
+                                <small>Show estimated monthly cost per service</small>
                             </div>
-                            <label class="toggle-switch" title="Toggle auto-layout on diagram load">
-                                <input type="checkbox" id="autolayout-toggle" checked onchange="saveAutolayoutSetting()">
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-                        <div class="verbose-toggle-row">
-                            <div>
-                                <span>Minimal style</span>
-                                <small>Simpler, less decorated diagrams</small>
-                            </div>
-                            <label class="toggle-switch" title="Toggle minimal diagram style">
-                                <input type="checkbox" id="minimal-style-toggle" onchange="savePromptSettings()">
+                            <label class="toggle-switch" title="Toggle cost estimation">
+                                <input type="checkbox" id="cost-estimate-toggle" onchange="savePromptSettings(); toggleCostPanelPreview()">
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
@@ -315,6 +305,20 @@
                 <button type="button" id="btn-apply-layout" class="btn-fix-layout" onclick="applyLayoutToEditor()" style="margin-top: 8px;">
                     Apply layout
                 </button>
+            </div>
+            <div id="cost-panel" class="cost-panel">
+                <div class="cost-panel-header">
+                    <div class="cost-panel-header-left">
+                        <svg class="cost-panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                        <h3>Monthly Cost</h3>
+                    </div>
+                    <span class="cost-panel-close" onclick="hideCostEstimate()">&times;</span>
+                </div>
+                <div class="cost-panel-total">
+                    <span id="cost-total-amount" class="cost-total-amount">A$0</span>
+                    <span class="cost-total-period">estimated per month</span>
+                </div>
+                <div id="cost-panel-body" class="cost-panel-body"></div>
             </div>
             <div id="verbose-log-body" class="log-panel-body">
                 <div class="log-empty">Turn on <strong>Pipeline logs</strong> in Settings, then generate a diagram to see each step here with full details.</div>
