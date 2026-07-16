@@ -9,6 +9,8 @@ const VLM_VALIDATION_KEY = 'drawio-agent-vlm-validation';
 const VALIDATION_PROVIDER_KEY = 'drawio-agent-validation-provider';
 const COST_ESTIMATE_STORAGE_KEY = 'drawio-agent-cost-estimate';
 const WELL_ARCHITECTED_KEY = 'drawio-agent-well-architected';
+const COMPLIANCE_KEY = 'drawio-agent-compliance';
+const COMPLIANCE_FRAMEWORKS_KEY = 'drawio-agent-compliance-frameworks';
 const DIAGRAM_MODE_STORAGE_KEY = 'drawio-agent-diagram-mode';
 const MAX_VLM_CLIENT_RETRIES = 0; // Show banner only — auto /chat regen feels like endless loading
 

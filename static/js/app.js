@@ -30,6 +30,8 @@ function getPromptSettings() {
         validation_provider: document.getElementById('validation-provider-select').value,
         cost_estimate: document.getElementById('cost-estimate-toggle').checked,
         well_architected: document.getElementById('well-architected-toggle').checked,
+        compliance: document.getElementById('compliance-toggle').checked,
+        compliance_frameworks: getSelectedComplianceFrameworks(),
     };
 }
 
@@ -39,12 +41,38 @@ function savePromptSettings() {
     const vp = document.getElementById('validation-provider-select').value;
     const cost = document.getElementById('cost-estimate-toggle').checked;
     const waf = document.getElementById('well-architected-toggle').checked;
+    const comp = document.getElementById('compliance-toggle').checked;
     localStorage.setItem(CUSTOM_SYSTEM_MESSAGE_KEY, custom);
     localStorage.setItem(COST_ESTIMATE_STORAGE_KEY, cost ? '1' : '0');
     localStorage.setItem(VLM_VALIDATION_KEY, vlm ? '1' : '0');
     localStorage.setItem(VALIDATION_PROVIDER_KEY, vp);
     localStorage.setItem(WELL_ARCHITECTED_KEY, waf ? '1' : '0');
+    localStorage.setItem(COMPLIANCE_KEY, comp ? '1' : '0');
     updateValidationProviderVisibility();
+    updateComplianceFrameworksVisibility();
+}
+
+function getSelectedComplianceFrameworks() {
+    const cbs = document.querySelectorAll('.compliance-fw-cb');
+    const selected = [];
+    cbs.forEach(function (cb) {
+        if (cb.checked) selected.push(cb.value);
+    });
+    return selected;
+}
+
+function updateComplianceFrameworksVisibility() {
+    const row = document.getElementById('compliance-frameworks-row');
+    if (row) row.hidden = !document.getElementById('compliance-toggle').checked;
+}
+
+function saveComplianceFrameworkSelection() {
+    const cbs = document.querySelectorAll('.compliance-fw-cb');
+    const selected = [];
+    cbs.forEach(function (cb) {
+        if (cb.checked) selected.push(cb.value);
+    });
+    localStorage.setItem(COMPLIANCE_FRAMEWORKS_KEY, JSON.stringify(selected));
 }
 
 function toggleCostPanelPreview() {
@@ -78,9 +106,25 @@ function initPromptSettings() {
     document.getElementById('cost-estimate-toggle').checked = costStored === '1';
     const wafStored = localStorage.getItem(WELL_ARCHITECTED_KEY);
     document.getElementById('well-architected-toggle').checked = wafStored === '1';
+    const compStored = localStorage.getItem(COMPLIANCE_KEY);
+    document.getElementById('compliance-toggle').checked = compStored === '1';
+    const fwStored = localStorage.getItem(COMPLIANCE_FRAMEWORKS_KEY);
+    if (fwStored) {
+        try {
+            const selected = JSON.parse(fwStored);
+            document.querySelectorAll('.compliance-fw-cb').forEach(function (cb) {
+                cb.checked = selected.indexOf(cb.value) !== -1;
+            });
+        } catch (_) {}
+    }
+    document.querySelectorAll('.compliance-fw-cb').forEach(function (cb) {
+        cb.addEventListener('change', saveComplianceFrameworkSelection);
+    });
     updateValidationProviderVisibility();
+    updateComplianceFrameworksVisibility();
     toggleCostPanelPreview();
     toggleWellArchitectedPanel();
+    toggleCompliancePanel();
 }
 
 function setComposerRunStatus(text, level = 'info') {
@@ -358,7 +402,8 @@ function clearVerboseLogs() {
 function updateRightPanelVisibility() {
     const costPanelActive = document.getElementById('cost-panel').classList.contains('active');
     const wafPanelActive = document.getElementById('well-architected-panel').classList.contains('active');
-    const open = verboseLogging || validationPanelActive || costPanelActive || wafPanelActive;
+    const compPanelActive = document.getElementById('compliance-panel').classList.contains('active');
+    const open = verboseLogging || validationPanelActive || costPanelActive || wafPanelActive || compPanelActive;
     document.getElementById('log-panel').classList.toggle('active', open);
 }
 
@@ -575,6 +620,152 @@ function displayWellArchitected(wafData) {
     updateRightPanelVisibility();
 }
 
+// ── Compliance Panel ─────────────────────────────────────
+
+function toggleCompliancePanel() {
+    var panel = document.getElementById('compliance-panel');
+    var body = document.getElementById('compliance-body');
+    if (!panel) return;
+    if (document.getElementById('compliance-toggle').checked) {
+        panel.classList.add('active');
+        if (body) body.innerHTML = '<div class="compliance-empty">Generate a diagram to see compliance assessment results</div>';
+    } else {
+        panel.classList.remove('active');
+        if (body) body.innerHTML = '';
+    }
+    updateRightPanelVisibility();
+}
+
+function hideCompliancePanel() {
+    var panel = document.getElementById('compliance-panel');
+    if (panel) {
+        panel.classList.remove('active');
+        document.getElementById('compliance-toggle').checked = false;
+        localStorage.setItem(COMPLIANCE_KEY, '0');
+        updateRightPanelVisibility();
+    }
+}
+
+function displayCompliance(compData) {
+    if (!compData || !compData.frameworks) return;
+    var panel = document.getElementById('compliance-panel');
+    var tabs = document.getElementById('compliance-tabs');
+    var body = document.getElementById('compliance-body');
+    if (!panel || !tabs || !body) return;
+    panel.classList.add('active');
+    var toggle = document.getElementById('compliance-toggle');
+    if (toggle) toggle.checked = true;
+    localStorage.setItem(COMPLIANCE_KEY, '1');
+
+    var frameworks = compData.frameworks;
+    var fwIds = Object.keys(frameworks);
+    if (fwIds.length === 0) {
+        body.innerHTML = '<div class="compliance-empty">No compliance frameworks evaluated</div>';
+        return;
+    }
+
+    tabs.innerHTML = '';
+    fwIds.forEach(function (fwId, idx) {
+        var fw = frameworks[fwId];
+        var tab = document.createElement('button');
+        tab.className = 'compliance-tab' + (idx === 0 ? ' active' : '');
+        tab.setAttribute('data-framework', fwId);
+        var badge = document.createElement('span');
+        badge.className = 'compliance-tab-badge ' + (fw.overall_status || 'pass');
+        badge.textContent = (fw.overall_status || 'pass').toUpperCase();
+        tab.appendChild(document.createTextNode(fw.name || fwId));
+        tab.appendChild(badge);
+        tab.addEventListener('click', function () {
+            switchComplianceTab(fwId);
+        });
+        tabs.appendChild(tab);
+    });
+
+    switchComplianceTab(fwIds[0]);
+    updateRightPanelVisibility();
+}
+
+function switchComplianceTab(fwId) {
+    var body = document.getElementById('compliance-body');
+    var tabs = document.getElementById('compliance-tabs');
+    if (!body || !tabs) return;
+
+    var compData = window._lastComplianceData;
+    if (!compData || !compData.frameworks) return;
+    var fw = compData.frameworks[fwId];
+    if (!fw) return;
+
+    tabs.querySelectorAll('.compliance-tab').forEach(function (t) {
+        t.classList.toggle('active', t.getAttribute('data-framework') === fwId);
+    });
+
+    var inScope = fw.services_in_scope || [];
+    var outScope = fw.services_out_of_scope || [];
+
+    var html = '';
+    html += '<div class="compliance-fw-summary">';
+    html += '<span class="compliance-fw-status ' + (fw.overall_status || 'pass') + '">' + (fw.overall_status || '').toUpperCase() + '</span>';
+    html += '<span class="compliance-fw-summary-text">' + (fw.summary || '') + '</span>';
+    html += '</div>';
+
+    var controls = fw.controls || [];
+    if (controls.length === 0) {
+        html += '<div class="compliance-empty">No applicable controls for this diagram</div>';
+    } else {
+        controls.forEach(function (ctrl) {
+            var statusClass = ctrl.status || 'pass';
+            var icon = statusClass === 'pass' ? '&#x2713;' : statusClass === 'warn' ? '&#x26A0;' : '&#x2717;';
+            html += '<div class="compliance-control-card ' + statusClass + '">';
+            html += '<div class="compliance-control-header">';
+            html += '<span class="compliance-control-status compliance-status-' + statusClass + '">' + icon + '</span>';
+            html += '<span class="compliance-control-name">' + escapeHtml(ctrl.name || ctrl.id || '') + '</span>';
+            html += '</div>';
+            (ctrl.findings || []).forEach(function (f) {
+                var sev = f.severity || 'low';
+                var sevIcon = sev === 'high' ? '&#x2717;' : sev === 'medium' ? '&#x26A0;' : '&#x2713;';
+                html += '<div class="compliance-finding ' + sev + '">';
+                html += '<span class="compliance-finding-dot compliance-severity-' + sev + '">' + sevIcon + '</span>';
+                html += '<div class="compliance-finding-text">';
+                html += '<span>' + escapeHtml(f.message || '') + '</span>';
+                if (f.affected_services && f.affected_services.length > 0) {
+                    html += '<span class="compliance-finding-services">Affects: ' + f.affected_services.join(', ') + '</span>';
+                }
+                if (f.recommendation) {
+                    html += '<span class="compliance-finding-rec">&#x2192; ' + escapeHtml(f.recommendation) + '</span>';
+                }
+                html += '</div>';
+                html += '</div>';
+            });
+            html += '</div>';
+        });
+    }
+
+    if (inScope.length > 0 || outScope.length > 0) {
+        html += '<div class="compliance-scope-section">';
+        html += '<div class="compliance-scope-title">Service Scope</div>';
+        if (inScope.length > 0) {
+            html += '<div class="compliance-scope-list"><span class="scope-label-in">In scope:</span> ' + inScope.join(', ') + '</div>';
+        }
+        if (outScope.length > 0) {
+            html += '<div class="compliance-scope-list"><span class="scope-label-out">Out of scope:</span> ' + outScope.join(', ') + '</div>';
+        }
+        html += '</div>';
+    }
+
+    if (fw.llm_findings && fw.llm_findings.length > 0) {
+        html += '<div class="compliance-llm-note">Enhanced with LLM analysis</div>';
+    }
+
+    body.innerHTML = html;
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    var div = document.createElement('div');
+    div.appendChild(document.createTextNode(str));
+    return div.innerHTML;
+}
+
 function downloadXML() {
     if (!currentXml) return;
     const blob = new Blob([currentXml], { type: 'application/xml' });
@@ -735,6 +926,8 @@ async function sendMessage(options = {}) {
                 custom_system_message: promptSettings.custom_system_message,
                 cost_estimate: promptSettings.cost_estimate,
                 well_architected: promptSettings.well_architected,
+                compliance: promptSettings.compliance,
+                compliance_frameworks: promptSettings.compliance_frameworks,
                 validation_feedback: validationFeedback,
                 context_text: contextText || null,
                 image_data: attachmentImageData,
@@ -793,6 +986,14 @@ async function sendMessage(options = {}) {
                 updateRightPanelVisibility();
             }
         } catch (e) { console.error('WAF panel error', e); }
+
+        try {
+            if (data.compliance) {
+                window._lastComplianceData = data.compliance;
+                displayCompliance(data.compliance);
+                updateRightPanelVisibility();
+            }
+        } catch (e) { console.error('Compliance panel error', e); }
 
         if (data.validation?.feedback) {
             showValidationBanner(data.validation.structural || data.validation.vlm, data.validation.feedback);

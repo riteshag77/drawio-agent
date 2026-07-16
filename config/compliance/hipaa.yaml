@@ -1,0 +1,84 @@
+name: "HIPAA"
+full_name: "Health Insurance Portability and Accountability Act"
+description: "US healthcare data privacy and security standards for Protected Health Information (PHI)"
+
+# Service categories considered in-scope for this framework
+in_scope_categories:
+  - storage
+  - database
+  - compute
+  - integration
+
+controls:
+  encryption_at_rest:
+    name: "Encryption at Rest"
+    description: "PHI must be encrypted at rest per HIPAA Security Rule §164.312(a)(2)(iv)"
+    severity: high
+    recommendation: "Enable KMS/Key Vault for all storage and database services containing PHI"
+    affected_categories:
+      - storage
+      - database
+    required_services:
+      aws: ["aws_kms"]
+      gcp: ["gcp_kms"]
+      azure: ["azure_key_vault"]
+
+  encryption_in_transit:
+    name: "Encryption in Transit"
+    description: "PHI must be encrypted during transmission per HIPAA Security Rule §164.312(e)(1)"
+    severity: high
+    recommendation: "Use TLS termination on load balancers and API gateways, enforce HTTPS"
+    affected_categories:
+      - networking
+      - compute
+    required_services:
+      aws: ["aws_alb", "aws_api_gateway", "aws_cloudfront"]
+      gcp: ["gcp_lb", "gcp_cloud_cdn"]
+      azure: ["azure_agw", "azure_front_door"]
+
+  access_control:
+    name: "Access Control"
+    description: "Unique user identification, automatic logoff, and emergency access per §164.312(a)(1)"
+    severity: high
+    recommendation: "Implement IAM with MFA, least-privilege access, and role-based access control"
+    affected_categories: []
+    required_services:
+      aws: ["aws_iam", "aws_cognito"]
+      gcp: ["gcp_iam"]
+      azure: ["azure_ad"]
+
+  audit_logging:
+    name: "Audit Logging"
+    description: "Audit controls recording PHI access and modifications per §164.312(b)"
+    severity: high
+    recommendation: "Enable CloudTrail/Cloud Monitoring with log integrity and retention"
+    affected_categories: []
+    required_services:
+      aws: ["aws_cloudtrail", "aws_cloudwatch"]
+      gcp: ["gcp_cloud_monitoring", "gcp_cloud_logging"]
+      azure: ["azure_monitor"]
+
+  network_segmentation:
+    name: "Network Segmentation"
+    description: "Segment PHI-processing resources from public access and untrusted networks"
+    severity: medium
+    recommendation: "Deploy WAF, network firewalls, and private subnets for PHI environments"
+    affected_categories:
+      - networking
+    required_services:
+      aws: ["aws_waf", "aws_network_firewall"]
+      gcp: ["gcp_cloud_armor"]
+      azure: ["azure_waf", "azure_firewall"]
+
+  backup_disaster_recovery:
+    name: "Backup & Disaster Recovery"
+    description: "Contingency plan for PHI data availability per §164.308(a)(7)"
+    severity: medium
+    recommendation: "Enable automated backups with cross-region replication for all PHI data stores"
+    affected_categories:
+      - storage
+      - database
+    required_services:
+      aws: ["aws_s3", "aws_backup"]
+      gcp: ["gcp_storage"]
+      azure: ["azure_blob", "azure_backup"]

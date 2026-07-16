@@ -93,6 +93,8 @@ async def generate_diagram(body: PromptRequest, request: Request):
             three_d=body.three_d,
             cost_estimate=body.cost_estimate,
             well_architected=body.well_architected,
+            compliance=body.compliance,
+            compliance_frameworks=body.compliance_frameworks,
         )
     except Exception as exc:
         logger.log("error", str(exc), level="error")
@@ -141,6 +143,8 @@ async def chat_diagram(body: ChatRequest, request: Request):
             three_d=body.three_d,
             cost_estimate=body.cost_estimate,
             well_architected=body.well_architected,
+            compliance=body.compliance,
+            compliance_frameworks=body.compliance_frameworks,
         )
     except Exception as exc:
         logger.log("error", str(exc), level="error")
@@ -163,6 +167,8 @@ async def download_diagram(body: PromptRequest, request: Request):
             three_d=body.three_d,
             cost_estimate=body.cost_estimate,
             well_architected=body.well_architected,
+            compliance=body.compliance,
+            compliance_frameworks=body.compliance_frameworks,
         )
         xml_output = result.get("xml", "")
         return Response(

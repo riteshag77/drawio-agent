@@ -1,0 +1,80 @@
+name: "PCI-DSS"
+full_name: "Payment Card Industry Data Security Standard"
+description: "Security standards for organizations that handle branded credit cards and cardholder data"
+
+in_scope_categories:
+  - storage
+  - database
+  - compute
+  - networking
+
+controls:
+  encryption_at_rest:
+    name: "Encryption at Rest"
+    description: "Requirement 3.4 — render cardholder data unreadable at rest"
+    severity: high
+    recommendation: "Enable KMS/Key Vault with strong encryption for all data stores in CDE"
+    affected_categories:
+      - storage
+      - database
+    required_services:
+      aws: ["aws_kms"]
+      gcp: ["gcp_kms"]
+      azure: ["azure_key_vault"]
+
+  encryption_in_transit:
+    name: "Encryption in Transit"
+    description: "Requirement 4.1 — encrypt cardholder data over open/public networks"
+    severity: high
+    recommendation: "Use TLS 1.2+ on all load balancers, API gateways, and public endpoints"
+    affected_categories:
+      - networking
+    required_services:
+      aws: ["aws_alb", "aws_api_gateway", "aws_cloudfront"]
+      gcp: ["gcp_lb", "gcp_cloud_cdn"]
+      azure: ["azure_agw", "azure_front_door"]
+
+  access_control:
+    name: "Access Control"
+    description: "Requirements 7-8 — restrict access to cardholder data by business need-to-know"
+    severity: high
+    recommendation: "Implement IAM with MFA, unique IDs, and role-based access for CDE resources"
+    affected_categories: []
+    required_services:
+      aws: ["aws_iam", "aws_cognito"]
+      gcp: ["gcp_iam"]
+      azure: ["azure_ad"]
+
+  audit_logging:
+    name: "Audit Logging"
+    description: "Requirement 10 — track and monitor all access to network resources and cardholder data"
+    severity: high
+    recommendation: "Enable CloudTrail/Cloud Monitoring with log retention for at least 12 months"
+    affected_categories: []
+    required_services:
+      aws: ["aws_cloudtrail", "aws_cloudwatch"]
+      gcp: ["gcp_cloud_monitoring", "gcp_cloud_logging"]
+      azure: ["azure_monitor"]
+
+  network_segmentation:
+    name: "Network Segmentation"
+    description: "Requirement 1 — install and maintain firewall configuration to protect cardholder data"
+    severity: high
+    recommendation: "Deploy WAF and network firewalls to segment CDE from untrusted networks"
+    affected_categories:
+      - networking
+    required_services:
+      aws: ["aws_waf", "aws_network_firewall"]
+      gcp: ["gcp_cloud_armor"]
+      azure: ["azure_waf", "azure_firewall"]
+
+  vulnerability_management:
+    name: "Vulnerability Management"
+    description: "Requirement 6 — develop and maintain secure systems and applications"
+    severity: medium
+    recommendation: "Implement vulnerability scanning and patch management for all CDE resources"
+    affected_categories: []
+    required_services:
+      aws: ["aws_waf", "aws_guardduty", "aws_inspector"]
+      gcp: ["gcp_cloud_armor", "gcp_security_scanner"]
+      azure: ["azure_waf", "azure_defender", "azure_sentinel"]

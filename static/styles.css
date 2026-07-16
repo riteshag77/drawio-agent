@@ -2073,6 +2073,303 @@
             opacity: 1;
         }
 
+        /* ── Compliance panel ───────────────────── */
+        .compliance-panel {
+            display: none;
+            flex-shrink: 0;
+            border-bottom: 1px solid var(--sidebar-border);
+            background: rgba(99, 102, 241, 0.04);
+            flex-direction: column;
+        }
+
+        .compliance-panel.active {
+            display: flex;
+        }
+
+        .compliance-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.65rem 1rem 0.4rem;
+        }
+
+        .compliance-header-left {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .compliance-icon {
+            width: 16px;
+            height: 16px;
+            color: #818cf8;
+            flex-shrink: 0;
+        }
+
+        .compliance-header h3 {
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #818cf8;
+            margin: 0;
+        }
+
+        .compliance-close {
+            font-size: 1.1rem;
+            line-height: 1;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 0 0.2rem;
+            transition: color 0.15s;
+        }
+
+        .compliance-close:hover {
+            color: var(--text-primary);
+        }
+
+        .compliance-tabs {
+            display: flex;
+            gap: 0.35rem;
+            padding: 0.15rem 1rem 0.4rem;
+            flex-wrap: wrap;
+        }
+
+        .compliance-tab {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.2rem 0.55rem;
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 6px;
+            background: transparent;
+            color: var(--text-secondary);
+            font-size: 0.7rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+            font-family: inherit;
+        }
+
+        .compliance-tab:hover {
+            background: rgba(255,255,255,0.05);
+            color: var(--text-primary);
+        }
+
+        .compliance-tab.active {
+            background: rgba(99, 102, 241, 0.12);
+            border-color: rgba(99, 102, 241, 0.3);
+            color: #a5b4fc;
+        }
+
+        .compliance-tab-badge {
+            font-size: 0.6rem;
+            font-weight: 800;
+            padding: 0.05rem 0.35rem;
+            border-radius: 999px;
+            letter-spacing: 0.04em;
+        }
+
+        .compliance-tab-badge.pass { background: rgba(34, 197, 94, 0.15); color: #86efac; }
+        .compliance-tab-badge.warn { background: rgba(245, 158, 11, 0.15); color: #fcd34d; }
+        .compliance-tab-badge.fail { background: rgba(239, 68, 68, 0.15); color: #fca5a5; }
+
+        .compliance-legend {
+            display: flex;
+            gap: 0.8rem;
+            padding: 0 1rem 0.4rem;
+        }
+
+        .legend-item {
+            font-size: 0.65rem;
+            font-weight: 600;
+            letter-spacing: 0.03em;
+        }
+
+        .legend-pass { color: #86efac; }
+        .legend-warn { color: #fcd34d; }
+        .legend-fail { color: #fca5a5; }
+
+        .compliance-body {
+            padding: 0 1rem 0.75rem;
+            overflow-y: auto;
+            max-height: 360px;
+        }
+
+        .compliance-body:empty { display: none; }
+
+        .compliance-empty {
+            padding: 0.7rem 0;
+            color: var(--text-muted);
+            font-size: 0.78rem;
+            text-align: center;
+            line-height: 1.5;
+        }
+
+        .compliance-fw-summary {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.3rem 0 0.5rem;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            margin-bottom: 0.5rem;
+        }
+
+        .compliance-fw-status {
+            font-size: 0.65rem;
+            font-weight: 800;
+            padding: 0.1rem 0.45rem;
+            border-radius: 999px;
+            letter-spacing: 0.06em;
+            flex-shrink: 0;
+        }
+
+        .compliance-fw-status.pass { background: rgba(34, 197, 94, 0.15); color: #86efac; }
+        .compliance-fw-status.warn { background: rgba(245, 158, 11, 0.15); color: #fcd34d; }
+        .compliance-fw-status.fail { background: rgba(239, 68, 68, 0.15); color: #fca5a5; }
+
+        .compliance-fw-summary-text {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            line-height: 1.4;
+        }
+
+        .compliance-control-card {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-left: 3px solid var(--text-muted);
+            border-radius: 8px;
+            padding: 0.55rem 0.7rem;
+            margin-bottom: 0.5rem;
+            transition: background 0.12s;
+        }
+
+        .compliance-control-card:last-child { margin-bottom: 0; }
+        .compliance-control-card.pass { border-left-color: #22c55e; }
+        .compliance-control-card.warn { border-left-color: #f59e0b; }
+        .compliance-control-card.fail { border-left-color: #ef4444; }
+
+        .compliance-control-header {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            margin-bottom: 0.2rem;
+        }
+
+        .compliance-control-status {
+            font-size: 0.85rem;
+            flex-shrink: 0;
+            width: 16px;
+            text-align: center;
+        }
+
+        .compliance-status-pass { color: #22c55e; }
+        .compliance-status-warn { color: #f59e0b; }
+        .compliance-status-fail { color: #ef4444; }
+
+        .compliance-control-name {
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .compliance-finding {
+            display: flex;
+            gap: 0.4rem;
+            padding: 0.3rem 0;
+            font-size: 0.72rem;
+            line-height: 1.45;
+            border-top: 1px solid rgba(255,255,255,0.04);
+        }
+
+        .compliance-finding:first-of-type { border-top: none; padding-top: 0; }
+
+        .compliance-finding-dot {
+            font-size: 0.75rem;
+            flex-shrink: 0;
+            width: 14px;
+            text-align: center;
+            margin-top: 0.05rem;
+        }
+
+        .compliance-severity-high { color: #ef4444; }
+        .compliance-severity-medium { color: #f59e0b; }
+        .compliance-severity-low { color: var(--text-muted); }
+
+        .compliance-finding-text {
+            color: var(--text-secondary);
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 0.15rem;
+        }
+
+        .compliance-finding-services {
+            font-size: 0.68rem;
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
+        .compliance-finding-rec {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            display: block;
+        }
+
+        .compliance-scope-section {
+            margin-top: 0.6rem;
+            padding-top: 0.5rem;
+            border-top: 1px solid rgba(255,255,255,0.06);
+        }
+
+        .compliance-scope-title {
+            font-size: 0.7rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-bottom: 0.3rem;
+        }
+
+        .compliance-scope-list {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            line-height: 1.5;
+            margin-bottom: 0.15rem;
+        }
+
+        .scope-label-in { color: #86efac; font-weight: 600; }
+        .scope-label-out { color: var(--text-muted); font-weight: 600; }
+
+        .compliance-llm-note {
+            font-size: 0.65rem;
+            color: #818cf8;
+            text-align: center;
+            padding: 0.4rem 0 0;
+            font-style: italic;
+        }
+
+        /* ── Compliance framework checkboxes in settings ── */
+        .compliance-fw-checkboxes {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.4rem 0.8rem;
+            padding: 0.3rem 0;
+        }
+
+        .fw-checkbox {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            font-size: 0.78rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+        }
+
+        .fw-checkbox input[type="checkbox"] {
+            accent-color: var(--accent);
+        }
+
         @media (max-width: 1200px) {
             :root { --log-panel-width: 340px; }
         }

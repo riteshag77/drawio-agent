@@ -1,0 +1,82 @@
+name: "SOC 2"
+full_name: "Service Organization Control 2"
+description: "Trust Services Criteria for security, availability, processing integrity, confidentiality, and privacy"
+
+in_scope_categories:
+  - storage
+  - database
+  - compute
+  - integration
+
+controls:
+  encryption_at_rest:
+    name: "Encryption at Rest"
+    description: "CC6.1 — logical and physical access controls to protect data at rest"
+    severity: high
+    recommendation: "Enable KMS/Key Vault encryption for all data at rest"
+    affected_categories:
+      - storage
+      - database
+    required_services:
+      aws: ["aws_kms"]
+      gcp: ["gcp_kms"]
+      azure: ["azure_key_vault"]
+
+  encryption_in_transit:
+    name: "Encryption in Transit"
+    description: "CC6.1 — protect data during transmission over networks"
+    severity: high
+    recommendation: "Enforce TLS for all data in transit between internal and external networks"
+    affected_categories:
+      - networking
+    required_services:
+      aws: ["aws_alb", "aws_api_gateway", "aws_cloudfront"]
+      gcp: ["gcp_lb", "gcp_cloud_cdn"]
+      azure: ["azure_agw", "azure_front_door"]
+
+  access_control:
+    name: "Access Control"
+    description: "CC6.1-CC6.3 — logical access controls, authentication, and authorization"
+    severity: high
+    recommendation: "Implement IAM with MFA, least-privilege, and regular access reviews"
+    affected_categories: []
+    required_services:
+      aws: ["aws_iam", "aws_cognito"]
+      gcp: ["gcp_iam"]
+      azure: ["azure_ad"]
+
+  audit_logging:
+    name: "Audit Logging"
+    description: "CC7.2 — monitor system components for security events and anomalous activity"
+    severity: high
+    recommendation: "Enable CloudTrail/Cloud Monitoring with log retention and alerting"
+    affected_categories: []
+    required_services:
+      aws: ["aws_cloudtrail", "aws_cloudwatch"]
+      gcp: ["gcp_cloud_monitoring", "gcp_cloud_logging"]
+      azure: ["azure_monitor"]
+
+  availability:
+    name: "Availability"
+    description: "A1.1 — maintain availability of system for operation and use per commitments"
+    severity: medium
+    recommendation: "Deploy services across multiple AZs with load balancing and auto-scaling"
+    affected_categories:
+      - compute
+      - database
+      - networking
+    required_services:
+      aws: ["aws_elb", "aws_alb", "aws_rds", "aws_ecs", "aws_eks"]
+      gcp: ["gcp_lb", "gcp_cloud_sql", "gcp_gke"]
+      azure: ["azure_lb", "azure_agw", "azure_sql", "azure_aks"]
+
+  confidentiality:
+    name: "Confidentiality"
+    description: "C1.1-C1.2 — protect confidential information per commitments and agreements"
+    severity: medium
+    recommendation: "Use secrets management and encryption to protect confidential information"
+    affected_categories: []
+    required_services:
+      aws: ["aws_secrets_manager", "aws_kms"]
+      gcp: ["gcp_kms", "gcp_secret_manager"]
+      azure: ["azure_key_vault"]

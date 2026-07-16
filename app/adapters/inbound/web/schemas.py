@@ -15,6 +15,8 @@ class PromptRequest(BaseModel):
     three_d: bool = False
     cost_estimate: bool = False
     well_architected: bool = False
+    compliance: bool = False
+    compliance_frameworks: list[str] | None = None
 
 
 class ChatMessage(BaseModel):
@@ -33,6 +35,8 @@ class ChatRequest(BaseModel):
     three_d: bool = False
     cost_estimate: bool = False
     well_architected: bool = False
+    compliance: bool = False
+    compliance_frameworks: list[str] | None = None
 
 
 class ParseUrlRequest(BaseModel):

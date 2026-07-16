@@ -180,6 +180,26 @@
                         </div>
                         <div class="verbose-toggle-row">
                             <div>
+                                <span>Compliance Assessment</span>
+                                <small>Framework-based compliance overlay (HIPAA, PCI-DSS, GDPR, SOC 2, NAIC)</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle compliance assessment">
+                                <input type="checkbox" id="compliance-toggle" onchange="savePromptSettings(); toggleCompliancePanel()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div id="compliance-frameworks-row" class="settings-field-row" hidden>
+                            <label>Compliance frameworks</label>
+                            <div class="compliance-fw-checkboxes">
+                                <label class="fw-checkbox"><input type="checkbox" class="compliance-fw-cb" value="hipaa" checked> HIPAA</label>
+                                <label class="fw-checkbox"><input type="checkbox" class="compliance-fw-cb" value="pci_dss" checked> PCI-DSS</label>
+                                <label class="fw-checkbox"><input type="checkbox" class="compliance-fw-cb" value="gdpr" checked> GDPR</label>
+                                <label class="fw-checkbox"><input type="checkbox" class="compliance-fw-cb" value="soc2" checked> SOC 2</label>
+                                <label class="fw-checkbox"><input type="checkbox" class="compliance-fw-cb" value="naic" checked> NAIC</label>
+                            </div>
+                        </div>
+                        <div class="verbose-toggle-row">
+                            <div>
                                 <span>Visual validation</span>
                                 <small>VLM checks the render for overlaps</small>
                             </div>
@@ -343,6 +363,24 @@
                     <span class="waf-summary-text">Generate a diagram to assess against Well-Architected pillars</span>
                 </div>
                 <div id="waf-panel-body" class="waf-panel-body"></div>
+            </div>
+            <div id="compliance-panel" class="compliance-panel">
+                <div class="compliance-header">
+                    <div class="compliance-header-left">
+                        <svg class="compliance-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><path d="M12 2a10 10 0 1 0 10 10h-10V2z"/><path d="M12 2v10h10"/></svg>
+                        <h3>Compliance</h3>
+                    </div>
+                    <span class="compliance-close" onclick="hideCompliancePanel()">&times;</span>
+                </div>
+                <div class="compliance-tabs" id="compliance-tabs"></div>
+                <div class="compliance-legend">
+                    <span class="legend-item legend-pass">&#x25CF; Pass</span>
+                    <span class="legend-item legend-warn">&#x25CF; Warn</span>
+                    <span class="legend-item legend-fail">&#x25CF; Fail</span>
+                </div>
+                <div id="compliance-body" class="compliance-body">
+                    <div class="compliance-empty">Generate a diagram with Compliance Assessment enabled to see results</div>
+                </div>
             </div>
             <div id="verbose-log-body" class="log-panel-body">
                 <div class="log-empty">Turn on <strong>Pipeline logs</strong> in Settings, then generate a diagram to see each step here with full details.</div>

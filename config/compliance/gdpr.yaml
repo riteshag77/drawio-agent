@@ -1,0 +1,82 @@
+name: "GDPR"
+full_name: "General Data Protection Regulation"
+description: "EU regulation on data protection and privacy for individuals within the European Union"
+
+in_scope_categories:
+  - storage
+  - database
+  - compute
+  - integration
+  - analytics
+
+controls:
+  encryption_at_rest:
+    name: "Encryption at Rest"
+    description: "Article 32 — implement appropriate technical measures including encryption of personal data"
+    severity: high
+    recommendation: "Enable KMS/Key Vault encryption for all data stores containing personal data"
+    affected_categories:
+      - storage
+      - database
+    required_services:
+      aws: ["aws_kms"]
+      gcp: ["gcp_kms"]
+      azure: ["azure_key_vault"]
+
+  encryption_in_transit:
+    name: "Encryption in Transit"
+    description: "Article 32 — ensure ongoing confidentiality of processing systems and services"
+    severity: medium
+    recommendation: "Enforce TLS for all data in transit between services and public endpoints"
+    affected_categories:
+      - networking
+    required_services:
+      aws: ["aws_alb", "aws_api_gateway", "aws_cloudfront"]
+      gcp: ["gcp_lb", "gcp_cloud_cdn"]
+      azure: ["azure_agw", "azure_front_door"]
+
+  access_control:
+    name: "Access Control"
+    description: "Article 25 — data protection by design, limit access to personal data to authorized personnel"
+    severity: high
+    recommendation: "Implement IAM with least-privilege access controls and access reviews"
+    affected_categories: []
+    required_services:
+      aws: ["aws_iam", "aws_cognito"]
+      gcp: ["gcp_iam"]
+      azure: ["azure_ad"]
+
+  audit_logging:
+    name: "Audit Logging"
+    description: "Article 30 — maintain records of processing activities and demonstrate compliance"
+    severity: high
+    recommendation: "Enable CloudTrail/Cloud Monitoring with long-term log retention and integrity"
+    affected_categories: []
+    required_services:
+      aws: ["aws_cloudtrail", "aws_cloudwatch"]
+      gcp: ["gcp_cloud_monitoring", "gcp_cloud_logging"]
+      azure: ["azure_monitor"]
+
+  data_residency:
+    name: "Data Residency"
+    description: "Articles 44-49 — transfers of personal data to third countries require adequate safeguards"
+    severity: high
+    recommendation: "Use regional services and data classification to control personal data residency"
+    affected_categories:
+      - storage
+      - database
+    required_services:
+      aws: ["aws_s3", "aws_rds", "aws_aurora"]
+      gcp: ["gcp_storage", "gcp_cloud_sql", "gcp_spanner"]
+      azure: ["azure_blob", "azure_sql", "azure_cosmos_db"]
+
+  breach_notification:
+    name: "Breach Notification"
+    description: "Articles 33-34 — detect, report, and notify data breaches within 72 hours"
+    severity: medium
+    recommendation: "Enable CloudWatch/Monitor alerts and automated incident response workflows"
+    affected_categories: []
+    required_services:
+      aws: ["aws_cloudwatch", "aws_sns", "aws_guardduty"]
+      gcp: ["gcp_cloud_monitoring", "gcp_pubsub"]
+      azure: ["azure_monitor", "azure_sentinel"]
