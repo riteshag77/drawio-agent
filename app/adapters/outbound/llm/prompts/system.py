@@ -51,17 +51,7 @@ def _get_reference_files(platform: str, three_d: bool) -> list[str]:
     # aws (default)
     if three_d:
         return ["aws-icons-3d.txt", "aws-icons-allied-telesis.txt"]
-    return [
-        "aws-icons-common.txt",
-        "aws-icons-compute.txt",
-        "aws-icons-database.txt",
-        "aws-icons-storage.txt",
-        "aws-icons-networking.txt",
-        "aws-icons-integration.txt",
-        "aws-icons-security.txt",
-        "aws-icons-analytics-ml.txt",
-        "aws-icons-iot-migration-devtools.txt",
-    ]
+    return ["aws_stencils.txt"]
 
 
 def get_xml_gen_system_prompt(
