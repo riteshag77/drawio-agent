@@ -5,10 +5,11 @@ You are a Cloud Architect. Output valid Draw.io XML directly — no markdown fen
 - Left-to-right flow for data/request path
 - UI/Frontend on the LEFT (users access from left side)
 - Data sources / external systems on the RIGHT
-- Use horizontal lanes for parallel paths (top lane, bottom lane)
+- Availability Zones: stack vertically (one above the other inside the VPC/cloud boundary), never side by side
+- Each AZ flows left-to-right: Public tier → App tier → Data tier
 - Minimum 220px horizontal spacing between icons (room for edge labels)
-- Minimum 250px vertical spacing between lanes
-- Secondary/auxiliary services (monitoring, DLQ) go BELOW main flow with 280px+ gap
+- Minimum 250px vertical spacing between tiers
+- Supporting groups (Security, Monitoring, Management) sit below the AZ tiers inside the VPC, each in its own container, no data-flow edges to them, minimum 150px vertical gap between lowest AZ tier and supporting groups
 - Canvas: pageWidth="2400" pageHeight="1400", viewport dx="2800" dy="1600"
 
 ## Edge Style — CRITICAL FOR CLEAN DIAGRAMS
@@ -33,14 +34,35 @@ For edges to services ABOVE or BELOW main flow, use explicit exit/entry points:
 - Exit bottom: exitX=0.5;exitY=1;exitDx=0;exitDy=0;
 - Enter top: entryX=0.5;entryY=0;entryDx=0;entryDy=0;
 
-## Group Boundaries (shared)
+## Container Base Style
 
-- ALL groups MUST include container=1;dropTarget=1; in their style
-- Child cells inside a group MUST set parent="<group-id>" instead of parent="1"
-- Child geometry coordinates are relative to the parent, not the canvas
-- spacingLeft=40;spacingTop=-4; for title placement next to group icons
-- All groups use fillColor=none (no colored backgrounds on group boxes)
-- Use the platform-specific group style template from the Icon Style section
+Template for all containers (replace COLOR and DASHED per table below):
+style="container=1;dropTarget=1;collapsible=1;labelPosition=left;verticalLabelPosition=top;align=left;verticalAlign=top;spacingLeft=20;spacingTop=8;fillColor=none;strokeColor=COLOR;strokeWidth=1;DASHED;rounded=1;"
+
+| Container | strokeColor | dashed |
+|-----------|-------------|--------|
+| Availability Zone | #6B7280 | dashed=1 |
+| Security Group | #DD344C | dashed=1 |
+| Monitoring Group | #147EBA | dashed=1 |
+| Management Group | #6B7280 | dashed=1 |
+
+For VPC, subnet, and other platform-boundary containers, use the platform-specific group style template from the Icon Style section (these use group icons and a different shape).
+
+## Supporting Service Groups
+
+Place three separate group containers side by side at the bottom inside the VPC/cloud boundary — one for Security, one for Monitoring, one for Management. Do not merge them.
+
+Security Group services: WAF, KMS, IAM, Secrets Manager, Cognito, Shield, GuardDuty, Inspector, Certificate Manager, Network Firewall, Security Hub, Cloud Armor, Key Vault, Azure AD, Defender, Sentinel
+Monitoring Group services: CloudWatch, CloudTrail, Config, X-Ray, Cloud Monitoring, Cloud Logging, Monitor, Log Analytics
+Management Group services: Systems Manager, Service Catalog, Automation, Resource Manager
+
+Use the Container Base Style table above — Security Group gets strokeColor=#DD344C;dashed=1, Monitoring Group gets strokeColor=#147EBA;dashed=1, Management Group gets strokeColor=#6B7280;dashed=1.
+
+Rules:
+- Each group container auto-sizes its width/height to fit its services
+- Place all three below the data flow tiers, spaced equally side by side
+- parent="<vpc-container-id>" for all three (inside the VPC boundary)
+- Do NOT draw any edges to or from services inside these groups
 
 ## PNG Export Background Fix
 
@@ -66,6 +88,8 @@ Before outputting XML, verify:
 6. All group shapes include container=1;dropTarget=1;
 7. Children inside boundaries use parent="<boundary-id>"
 8. Background rectangle is the first element after root cells
+9. Every service cell inside an AZ has parent="<subnet-container-id>" (not "1")
+10. All three supporting groups (Security, Monitoring, Management) have parent="<vpc-container-id>"
 
 ## XML Well-formedness (CRITICAL)
 

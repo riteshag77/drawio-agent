@@ -1,3 +1,21 @@
 ## Visual style
 - Edge colors: AWS `#ED7100`, GCP `#4285F4`, Azure `#0078D4`.
-- Solid = sync/request path; dashed = async, events, logging, replication, protects, error/DLQ.
+- Solid = sync/request path; dashed = async, events, replication, protects, error/DLQ.
+- Security, monitoring, and management services are cross-cutting — place them in dedicated group containers BELOW the main data flow. Do NOT connect data-flow edges to or from these cross-cutting services.
+
+## Container Base Style
+
+Template for all simple containers (no group icon):
+style="container=1;dropTarget=1;collapsible=1;labelPosition=left;verticalLabelPosition=top;align=left;verticalAlign=top;spacingLeft=20;spacingTop=8;fillColor=none;strokeColor=COLOR;strokeWidth=1;DASHED;rounded=1;"
+
+| Container | strokeColor | dashed |
+|-----------|-------------|--------|
+| Availability Zone | #6B7280 | dashed=1 |
+| Security Group | #DD344C | dashed=1 |
+| Monitoring Group | #147EBA | dashed=1 |
+| Management Group | #6B7280 | dashed=1 |
+
+AZ rules:
+- parent="<vpc-container-id>"
+- Minimum 150px vertical gap between the last AZ container and the supporting groups below
+- Each AZ container auto-sizes to hold its three tier subnets
