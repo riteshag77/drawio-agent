@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from collections.abc import AsyncIterator
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse, RedirectResponse, Response
+from fastapi.responses import JSONResponse, RedirectResponse, Response, StreamingResponse
 
 from app.adapters.inbound.web.schemas import ChatRequest, ParseUrlRequest, PromptRequest
 from app.adapters.outbound.config.env_config import get_config
+from app.adapters.outbound.llm.concurrency import run_llm_sync
 from app.adapters.outbound.utils.web import fetch_url_content
 from app.core.logging import StepLogger
 from app.core.services.agent import generate_mermaid_diagram
+from app.core.services.intent import classify_intent
 from app.core.services.xml_pipeline import run_xml_pipeline
 
 router = APIRouter()
@@ -19,37 +24,26 @@ def _logger_from_request(request: Request) -> StepLogger:
     return StepLogger(request_id=getattr(request.state, "request_id", None))
 
 
-_CLOUD_KWS = frozenset({
-    "aws", "amazon", "gcp", "google cloud", "azure", "microsoft azure",
-    "vpc", "vnet", "subnet", "lambda", "ecs", "eks", "kubernetes", "k8s",
-    "cloudfront", "route 53", "route53", "alb", "load balancer",
-    "rds", "aurora", "dynamodb", "s3", "cloud architecture",
-    "three tier", "3-tier", "microservices", "serverless",
-    "api gateway", "cloud run", "cloud sql", "cloud watch",
-})
-
-_SIMPLE_KWS = frozenset({
-    "flowchart", "flow chart", "sequence diagram", "sequence chart",
-    "org chart", "organization chart", "organizational chart",
-    "state diagram", "state machine", "simple diagram",
-    "basic flow", "no cloud", "mermaid", "process flow", "workflow diagram",
-})
-
-
-def _classify_intent(prompt: str, *, diagram_mode: str = "auto", platform: str = "aws") -> str:
-    mode = (diagram_mode or "auto").strip().lower()
-    if mode in ("cloud", "simple"):
-        return mode
-    text = (prompt or "").lower()
-    has_cloud = any(kw in text for kw in _CLOUD_KWS)
-    has_simple = any(kw in text for kw in _SIMPLE_KWS)
-    if has_simple and not has_cloud:
-        return "simple"
-    return "cloud"
-
-
 def _sanitize_custom_msg(text: str) -> str:
     return (text or "")[:get_config().max_custom_message_len]
+
+
+def _mermaid_response(result: Any, logger: StepLogger) -> dict[str, Any]:
+    return {
+        "status": "success",
+        "diagram_type": "mermaid",
+        "mermaid": result.mermaid,
+        "suggestions": result.suggestions or [],
+        "assistant_message": result.assistant_message or "Generated Mermaid diagram.",
+        "xml": None,
+        "renderer_used": None,
+        "mcp_preview_url": None,
+        "logs": logger.to_list() if logger else [],
+    }
+
+
+def _sse(payload: dict[str, Any]) -> str:
+    return f"data: {json.dumps(payload, default=str)}\n\n"
 
 
 @router.get("/")
@@ -70,20 +64,12 @@ async def health() -> dict:
 async def generate_diagram(body: PromptRequest, request: Request):
     logger = _logger_from_request(request)
     try:
-        intent = _classify_intent(body.user_prompt, diagram_mode=body.diagram_mode, platform=body.platform)
+        intent = classify_intent(body.user_prompt, diagram_mode=body.diagram_mode, platform=body.platform)
         if intent == "simple":
-            result = await asyncio.to_thread(
+            result = await run_llm_sync(
                 generate_mermaid_diagram, body.user_prompt, body.provider, logger, None,
             )
-            return {
-                "status": "success",
-                "diagram_type": "mermaid",
-                "mermaid": result.mermaid,
-                "suggestions": result.suggestions or [],
-                "assistant_message": result.assistant_message or "Generated Mermaid diagram.",
-                "xml": None, "renderer_used": None, "mcp_preview_url": None,
-                "logs": logger.to_list() if logger else [],
-            }
+            return _mermaid_response(result, logger)
         return await run_xml_pipeline(
             user_prompt=body.user_prompt, messages=None,
             provider=body.provider, platform=body.platform,
@@ -104,54 +90,126 @@ async def generate_diagram(body: PromptRequest, request: Request):
         )
 
 
-@router.post("/chat")
-async def chat_diagram(body: ChatRequest, request: Request):
-    logger = _logger_from_request(request)
+async def _run_chat(body: ChatRequest, logger: StepLogger, *, on_progress=None) -> dict[str, Any]:
     platform = (body.platform or "aws").strip().lower()
     provider = (body.provider or "openai").strip().lower()
 
     if not body.messages:
-        return JSONResponse(status_code=400, content={"status": "error", "detail": "messages must not be empty"})
+        raise ValueError("messages must not be empty")
     if body.messages[-1].role != "user":
-        return JSONResponse(status_code=400, content={"status": "error", "detail": "Last message must be from the user"})
+        raise ValueError("Last message must be from the user")
 
-    try:
-        messages = [m.model_dump() for m in body.messages]
-        last_user = messages[-1]["content"] if messages else ""
-        applied_suggestions = body.applied_suggestions or []
+    messages = [m.model_dump() for m in body.messages]
+    last_user = messages[-1]["content"] if messages else ""
+    applied_suggestions = body.applied_suggestions or []
 
-        intent = _classify_intent(last_user, diagram_mode=body.diagram_mode, platform=platform)
-        if intent == "simple":
-            result = await asyncio.to_thread(
-                generate_mermaid_diagram, last_user, provider, logger, messages, applied_suggestions,
-            )
-            return {
-                "status": "success",
-                "diagram_type": "mermaid",
-                "mermaid": result.mermaid,
-                "suggestions": result.suggestions or [],
-                "assistant_message": result.assistant_message or "Generated Mermaid diagram.",
-                "xml": None, "renderer_used": None, "mcp_preview_url": None,
-                "logs": logger.to_list() if logger else [],
-            }
-        return await run_xml_pipeline(
-            user_prompt=None, messages=messages, provider=provider, platform=platform,
-            logger=logger,
-            custom_system_message=_sanitize_custom_msg(body.custom_system_message),
-            diagram_renderer=body.diagram_renderer,
-            applied_suggestions=applied_suggestions,
-            three_d=body.three_d,
-            cost_estimate=body.cost_estimate,
-            well_architected=body.well_architected,
-            compliance=body.compliance,
-            compliance_frameworks=body.compliance_frameworks,
+    intent = classify_intent(last_user, diagram_mode=body.diagram_mode, platform=platform)
+    if on_progress:
+        await on_progress("intent", f"Classified as {intent}", {"intent": intent})
+
+    if intent == "simple":
+        result = await run_llm_sync(
+            generate_mermaid_diagram, last_user, provider, logger, messages, applied_suggestions,
         )
+        return _mermaid_response(result, logger)
+
+    return await run_xml_pipeline(
+        user_prompt=None, messages=messages, provider=provider, platform=platform,
+        logger=logger,
+        custom_system_message=_sanitize_custom_msg(body.custom_system_message),
+        diagram_renderer=body.diagram_renderer,
+        applied_suggestions=applied_suggestions,
+        three_d=body.three_d,
+        cost_estimate=body.cost_estimate,
+        well_architected=body.well_architected,
+        compliance=body.compliance,
+        compliance_frameworks=body.compliance_frameworks,
+        on_progress=on_progress,
+    )
+
+
+@router.post("/chat")
+async def chat_diagram(body: ChatRequest, request: Request):
+    logger = _logger_from_request(request)
+    try:
+        return await _run_chat(body, logger)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"status": "error", "detail": str(exc)})
     except Exception as exc:
         logger.log("error", str(exc), level="error")
         return JSONResponse(
             status_code=500,
             content={"status": "error", "detail": str(exc), "logs": logger.to_list()},
         )
+
+
+@router.post("/chat/stream")
+async def chat_diagram_stream(body: ChatRequest, request: Request):
+    """SSE progress events, then a final ``result`` or ``error`` event."""
+    logger = _logger_from_request(request)
+    queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
+
+    async def on_progress(step: str, message: str, details: dict[str, Any] | None = None) -> None:
+        await queue.put({
+            "type": "progress",
+            "step": step,
+            "message": message,
+            "details": details or {},
+            "logs": logger.to_list(),
+        })
+
+    async def runner() -> None:
+        try:
+            result = await _run_chat(body, logger, on_progress=on_progress)
+            await queue.put({"type": "result", **result})
+        except ValueError as exc:
+            await queue.put({"type": "error", "status": "error", "detail": str(exc), "logs": logger.to_list()})
+        except Exception as exc:
+            logger.log("error", str(exc), level="error")
+            await queue.put({
+                "type": "error",
+                "status": "error",
+                "detail": str(exc),
+                "logs": logger.to_list(),
+            })
+        finally:
+            await queue.put(None)
+
+    async def event_gen() -> AsyncIterator[str]:
+        task = asyncio.create_task(runner())
+        try:
+            while True:
+                if await request.is_disconnected():
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+                    break
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=0.5)
+                except asyncio.TimeoutError:
+                    continue
+                if item is None:
+                    break
+                yield _sse(item)
+        finally:
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/download")

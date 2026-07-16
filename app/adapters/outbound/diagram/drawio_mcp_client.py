@@ -6,10 +6,10 @@ import asyncio
 import json
 import logging
 import re
-from collections import OrderedDict
 from typing import TYPE_CHECKING, Any
 
 from app.adapters.outbound.config.env_config import get_config
+from app.adapters.outbound.diagram.style_cache import cache_get, cache_put, clear_style_cache, memory_empty
 from app.adapters.outbound.diagram.xml_tools import coerce_drawio_xml
 
 if TYPE_CHECKING:
@@ -17,6 +17,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 _log = logger  # unambiguous alias when StepLogger param is also named logger
+
+# Re-export for tests that imported clear_style_cache from this module.
+__all__ = [
+    "DrawioMcpError",
+    "clear_style_cache",
+    "create_diagram",
+    "resolve_shape_styles",
+    "search_shapes",
+]
 
 
 class DrawioMcpError(RuntimeError):
@@ -125,31 +134,6 @@ def _pick_style(styles: list[str], platform: str = "aws") -> str | None:
     return pick
 
 
-# Process-level LRU style cache: (platform, shape_type) → style string
-_STYLE_CACHE: OrderedDict[tuple[str, str], str] = OrderedDict()
-_STYLE_CACHE_MAX = 512
-
-
-def clear_style_cache() -> None:
-    """Test helper."""
-    _STYLE_CACHE.clear()
-
-
-def _cache_get(key: tuple[str, str]) -> str | None:
-    if key not in _STYLE_CACHE:
-        return None
-    _STYLE_CACHE.move_to_end(key)
-    return _STYLE_CACHE[key]
-
-
-def _cache_put(key: tuple[str, str], value: str) -> None:
-    if key in _STYLE_CACHE:
-        _STYLE_CACHE.move_to_end(key)
-    _STYLE_CACHE[key] = value
-    while len(_STYLE_CACHE) > _STYLE_CACHE_MAX:
-        _STYLE_CACHE.popitem(last=False)
-
-
 def _truncate(text: str, max_chars: int = 2000) -> str:
     return text if len(text) <= max_chars else text[:max_chars] + f"... (truncated, {len(text)} total chars)"
 
@@ -209,10 +193,11 @@ async def resolve_shape_styles(
     platform: str = "aws",
     logger: StepLogger | None = None,
 ) -> dict[str, str]:
-    """Map shape_type → best MCP style string (one MCP session, process LRU cache).
+    """Map shape_type → best MCP style string (cached + concurrent MCP lookup).
 
-    For ``platform=multi``, each shape_type's cloud prefix (aws_/gcp_/azure_)
-    selects the query vendor and style picker independently.
+    Cache hits use memory LRU backed by optional SQLite. Misses are resolved
+    concurrently up to ``DRAWIO_MCP_CONCURRENCY`` parallel MCP sessions.
+    For ``platform=multi``, each shape_type's cloud prefix selects vendor/style.
     """
     platform = (platform or "aws").lower()
     unique = sorted({(st or "").strip() for st in shape_types if (st or "").strip()})
@@ -226,7 +211,7 @@ async def resolve_shape_styles(
     misses: list[str] = []
     for st in unique:
         cloud = _platform_from_shape_type(st, platform)
-        cached = _cache_get((cloud, st))
+        cached = cache_get((cloud, st))
         if cached is not None:
             resolved[st] = cached
         else:
@@ -234,29 +219,37 @@ async def resolve_shape_styles(
 
     first_error: DrawioMcpError | None = None
     if misses:
-        calls = [
-            ("search_shapes", {"query": _shape_query(st, platform), "limit": 5})
-            for st in misses
-        ]
-        try:
-            payloads = await _mcp_call_tools(calls)
-            for st, payload in zip(misses, payloads, strict=True):
-                cloud = _platform_from_shape_type(st, platform)
-                pick = _pick_style(_extract_styles(payload), cloud)
-                if pick:
-                    _cache_put((cloud, st), pick)
-                    resolved[st] = pick
-                    _log.info("MCP resolved %s via %r", st, _shape_query(st, platform))
-                else:
-                    _log.info("MCP no style for %s (%r)", st, _shape_query(st, platform))
-        except DrawioMcpError as exc:
-            first_error = exc
+        concurrency = max(1, int(get_config().drawio_mcp_concurrency))
+        sem = asyncio.Semaphore(concurrency)
+
+        async def _resolve_one(st: str) -> tuple[str, str | None, DrawioMcpError | None]:
+            async with sem:
+                try:
+                    query = _shape_query(st, platform)
+                    payload = await _mcp_call_tool("search_shapes", {"query": query, "limit": 5})
+                    cloud = _platform_from_shape_type(st, platform)
+                    pick = _pick_style(_extract_styles(payload), cloud)
+                    if pick:
+                        cache_put((cloud, st), pick)
+                        _log.info("MCP resolved %s via %r", st, query)
+                        return st, pick, None
+                    _log.info("MCP no style for %s (%r)", st, query)
+                    return st, None, None
+                except DrawioMcpError as exc:
+                    return st, None, exc
+
+        results = await asyncio.gather(*[_resolve_one(st) for st in misses])
+        for st, pick, err in results:
+            if pick:
+                resolved[st] = pick
+            elif err is not None and first_error is None:
+                first_error = err
 
     if logger:
         logger.log("mcp_search_output", "MCP search_shapes response",
                     details={"resolved_count": len(resolved), "resolved": resolved})
     # If nothing resolved and MCP is hard-failing, surface the error for fallback.
-    if not resolved and first_error is not None and not _STYLE_CACHE:
+    if not resolved and first_error is not None and memory_empty():
         raise first_error
     return resolved
 

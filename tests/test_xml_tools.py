@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 import unittest
 import xml.etree.ElementTree as ET
 
-from app.adapters.outbound.diagram import drawio_mcp_client as mcp
 from app.adapters.outbound.diagram.xml_tools import (
     apply_mcp_styles,
     auto_fix_xml,
@@ -207,23 +207,41 @@ class ShapeTypeAndStyleTests(unittest.TestCase):
 
 class StyleCacheLruTests(unittest.TestCase):
     def setUp(self) -> None:
-        mcp.clear_style_cache()
-        self._orig_max = mcp._STYLE_CACHE_MAX
-        mcp._STYLE_CACHE_MAX = 2
+        from app.adapters.outbound.diagram import style_cache as sc
+
+        self._sc = sc
+        sc.clear_style_cache()
+        self._orig_max = sc._STYLE_CACHE_MAX
+        sc._STYLE_CACHE_MAX = 2
+        # Disable durable DB for unit test isolation.
+        self._orig_path = os.environ.get("DRAWIO_STYLE_CACHE_PATH")
+        os.environ["DRAWIO_STYLE_CACHE_PATH"] = ""
+        # Reset config singleton so path is re-read.
+        from app.adapters.outbound.config import env_config
+        env_config._config_instance = None
+        sc._db_ready = False
 
     def tearDown(self) -> None:
-        mcp._STYLE_CACHE_MAX = self._orig_max
-        mcp.clear_style_cache()
+        self._sc._STYLE_CACHE_MAX = self._orig_max
+        self._sc.clear_style_cache()
+        if self._orig_path is None:
+            os.environ.pop("DRAWIO_STYLE_CACHE_PATH", None)
+        else:
+            os.environ["DRAWIO_STYLE_CACHE_PATH"] = self._orig_path
+        from app.adapters.outbound.config import env_config
+        env_config._config_instance = None
+        self._sc._db_ready = False
 
     def test_lru_hit_updates_recency_and_overflow_drops_oldest(self) -> None:
-        mcp._cache_put(("aws", "a"), "style_a;")
-        mcp._cache_put(("aws", "b"), "style_b;")
+        sc = self._sc
+        sc.cache_put(("aws", "a"), "style_a;")
+        sc.cache_put(("aws", "b"), "style_b;")
         # Hit "a" so it becomes newest; inserting "c" should drop "b"
-        self.assertEqual(mcp._cache_get(("aws", "a")), "style_a;")
-        mcp._cache_put(("aws", "c"), "style_c;")
-        self.assertEqual(mcp._cache_get(("aws", "a")), "style_a;")
-        self.assertEqual(mcp._cache_get(("aws", "c")), "style_c;")
-        self.assertIsNone(mcp._cache_get(("aws", "b")))
+        self.assertEqual(sc.cache_get(("aws", "a")), "style_a;")
+        sc.cache_put(("aws", "c"), "style_c;")
+        self.assertEqual(sc.cache_get(("aws", "a")), "style_a;")
+        self.assertEqual(sc.cache_get(("aws", "c")), "style_c;")
+        self.assertIsNone(sc.cache_get(("aws", "b")))
 
 
 if __name__ == "__main__":

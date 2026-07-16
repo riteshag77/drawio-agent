@@ -18,16 +18,14 @@ function initDiagramMode() {
 }
 
 function updateValidationProviderVisibility() {
-    const vlmOn = document.getElementById('vlm-validation-toggle').checked;
-    const row = document.getElementById('validation-provider-row');
-    if (row) row.hidden = !vlmOn;
+    /* VLM validation UI removed */
 }
 
 function getPromptSettings() {
     return {
         custom_system_message: document.getElementById('custom-system-message').value.slice(0, 5000),
-        vlm_validation: document.getElementById('vlm-validation-toggle').checked,
-        validation_provider: document.getElementById('validation-provider-select').value,
+        vlm_validation: false,
+        validation_provider: 'auto',
         cost_estimate: document.getElementById('cost-estimate-toggle').checked,
         well_architected: document.getElementById('well-architected-toggle').checked,
         compliance: document.getElementById('compliance-toggle').checked,
@@ -37,18 +35,13 @@ function getPromptSettings() {
 
 function savePromptSettings() {
     const custom = document.getElementById('custom-system-message').value.slice(0, 5000);
-    const vlm = document.getElementById('vlm-validation-toggle').checked;
-    const vp = document.getElementById('validation-provider-select').value;
     const cost = document.getElementById('cost-estimate-toggle').checked;
     const waf = document.getElementById('well-architected-toggle').checked;
     const comp = document.getElementById('compliance-toggle').checked;
     localStorage.setItem(CUSTOM_SYSTEM_MESSAGE_KEY, custom);
     localStorage.setItem(COST_ESTIMATE_STORAGE_KEY, cost ? '1' : '0');
-    localStorage.setItem(VLM_VALIDATION_KEY, vlm ? '1' : '0');
-    localStorage.setItem(VALIDATION_PROVIDER_KEY, vp);
     localStorage.setItem(WELL_ARCHITECTED_KEY, waf ? '1' : '0');
     localStorage.setItem(COMPLIANCE_KEY, comp ? '1' : '0');
-    updateValidationProviderVisibility();
     updateComplianceFrameworksVisibility();
 }
 
@@ -95,13 +88,6 @@ function toggleCostPanelPreview() {
 function initPromptSettings() {
     document.getElementById('custom-system-message').value =
         localStorage.getItem(CUSTOM_SYSTEM_MESSAGE_KEY) || '';
-    const vlmStored = localStorage.getItem(VLM_VALIDATION_KEY);
-    document.getElementById('vlm-validation-toggle').checked =
-        vlmStored === null ? true : vlmStored === '1';
-    const vpStored = localStorage.getItem(VALIDATION_PROVIDER_KEY);
-    if (vpStored) {
-        document.getElementById('validation-provider-select').value = vpStored;
-    }
     const costStored = localStorage.getItem(COST_ESTIMATE_STORAGE_KEY);
     document.getElementById('cost-estimate-toggle').checked = costStored === '1';
     const wafStored = localStorage.getItem(WELL_ARCHITECTED_KEY);
@@ -237,6 +223,68 @@ async function parseUrlContext(url) {
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'URL parse failed');
     return `--- URL: ${url} (${data.title}) ---\n${data.content}`;
+}
+
+async function postChatStream(chatBody, signal) {
+    const res = await fetch('/chat/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+        signal,
+        body: JSON.stringify(chatBody),
+    });
+    if (!res.ok) {
+        let detail = `HTTP ${res.status}`;
+        try {
+            const errBody = await res.json();
+            detail = errBody.detail || detail;
+        } catch (_) {}
+        throw new Error(detail);
+    }
+    if (!res.body || !res.body.getReader) {
+        throw new Error('Streaming body unavailable');
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let finalResult = null;
+    let progress = 20;
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const chunks = buffer.split('\n\n');
+        buffer = chunks.pop() || '';
+        for (const chunk of chunks) {
+            const line = chunk.split('\n').find((l) => l.startsWith('data: '));
+            if (!line) continue;
+            let evt;
+            try {
+                evt = JSON.parse(line.slice(6));
+            } catch (_) {
+                continue;
+            }
+            if (evt.logs) mergeServerLogs(evt.logs);
+            if (evt.type === 'progress') {
+                progress = Math.min(85, progress + 8);
+                setProgress(progress);
+                if (evt.message) {
+                    setDiagramStatus(evt.message);
+                    setComposerRunStatus(evt.message, 'running');
+                }
+                appendVerboseLog(evt.step || 'progress', evt.message || 'Progress', 'info', evt.details || null);
+            } else if (evt.type === 'result') {
+                finalResult = evt;
+            } else if (evt.type === 'error') {
+                throw new Error(evt.detail || 'Stream error');
+            }
+        }
+    }
+
+    if (!finalResult) throw new Error('Stream ended without a result');
+    if (finalResult.logs) mergeServerLogs(finalResult.logs);
+    return finalResult;
 }
 
 function setProgress(percent) {
@@ -901,48 +949,58 @@ async function sendMessage(options = {}) {
             }
         }
 
-        appendVerboseLog('client', 'POST /chat', 'info', {
+        appendVerboseLog('client', 'POST /chat/stream', 'info', {
             ...promptSettings,
             has_current_xml: !!xmlForRequest,
             xml_chars: (xmlForRequest || '').length,
         });
-        const res = await fetch('/chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            signal: chatAbortController.signal,
-            body: JSON.stringify({
-                messages: chatMessages,
-                provider,
-                validation_provider: promptSettings.validation_provider,
-                platform: selectedPlatform,
-                diagram_mode: options.platformConvert ? 'cloud' : getDiagramMode(),
-                platform_convert: !!options.platformConvert,
-                previous_platform: options.previousPlatform || null,
-                diagram_renderer: document.getElementById('diagram-renderer-select')?.value || 'auto',
-                current_architecture: currentArchitecture,
-                previous_architecture: previousArchitecture,
-                current_xml: xmlForRequest,
-                previous_xml: previousXml,
-                custom_system_message: promptSettings.custom_system_message,
-                cost_estimate: promptSettings.cost_estimate,
-                well_architected: promptSettings.well_architected,
-                compliance: promptSettings.compliance,
-                compliance_frameworks: promptSettings.compliance_frameworks,
-                validation_feedback: validationFeedback,
-                context_text: contextText || null,
-                image_data: attachmentImageData,
-                has_image_input: hasImageAttachment,
-                applied_suggestions: getAppliedSuggestionsPayload(),
-            }),
-        });
+        const chatBody = {
+            messages: chatMessages,
+            provider,
+            validation_provider: promptSettings.validation_provider,
+            platform: selectedPlatform,
+            diagram_mode: options.platformConvert ? 'cloud' : getDiagramMode(),
+            platform_convert: !!options.platformConvert,
+            previous_platform: options.previousPlatform || null,
+            diagram_renderer: document.getElementById('diagram-renderer-select')?.value || 'auto',
+            current_architecture: currentArchitecture,
+            previous_architecture: previousArchitecture,
+            current_xml: xmlForRequest,
+            previous_xml: previousXml,
+            custom_system_message: promptSettings.custom_system_message,
+            cost_estimate: promptSettings.cost_estimate,
+            well_architected: promptSettings.well_architected,
+            compliance: promptSettings.compliance,
+            compliance_frameworks: promptSettings.compliance_frameworks,
+            validation_feedback: validationFeedback,
+            context_text: contextText || null,
+            image_data: attachmentImageData,
+            has_image_input: hasImageAttachment,
+            applied_suggestions: getAppliedSuggestionsPayload(),
+        };
+
+        let data;
+        try {
+            data = await postChatStream(chatBody, chatAbortController.signal);
+        } catch (streamErr) {
+            if (streamErr.name === 'AbortError') throw streamErr;
+            appendVerboseLog('client', `Stream unavailable, falling back to /chat: ${streamErr.message}`, 'warn');
+            const res = await fetch('/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                signal: chatAbortController.signal,
+                body: JSON.stringify(chatBody),
+            });
+            setProgress(45);
+            setDiagramStatus('Building diagram XML...');
+            data = await res.json();
+            mergeServerLogs(data.logs);
+            if (!res.ok) throw new Error(data.detail || 'Server error');
+        }
 
         setProgress(45);
         setDiagramStatus('Building diagram XML...');
 
-        const data = await res.json();
-        mergeServerLogs(data.logs);
-
-        if (!res.ok) throw new Error(data.detail || 'Server error');
         if (data.status !== 'success') throw new Error(data.detail || 'Unknown error');
 
         const assistantText = data.assistant_message || 'Diagram updated.';
@@ -1051,7 +1109,6 @@ async function sendMessage(options = {}) {
 // ── Boot sequence ─────────────────────────────────────────
 initVerboseLogging();
 initPromptSettings();
-document.getElementById('vlm-validation-toggle').addEventListener('change', updateValidationProviderVisibility);
 initDiagramMode();
 hideValidationBanner();
 updateSendStopButtons();

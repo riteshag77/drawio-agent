@@ -52,14 +52,12 @@ PORT=8000
 DIAGRAM_RENDERER=auto
 DRAWIO_MCP_URL=https://mcp.draw.io/mcp
 DRAWIO_MCP_TIMEOUT=30
+DRAWIO_MCP_CONCURRENCY=4
 DRAWIO_MCP_LIBAVOID=false
+DRAWIO_STYLE_CACHE_PATH=data/mcp_style_cache.sqlite3
+MAX_CONCURRENT_LLM=4
 
-# Layout (local domain placement — do not delete)
-LEAF_NODE_W=48
-LEAF_NODE_H=48
-CONTAINER_PAD=28
-IGW_VPC_Y=-30
-QUALITY_GATES_BLOCKING=true
+# Legacy layout leaf/scaffold knobs are unused by the XML-direct pipeline.
 ```
 
 - **`DIAGRAM_RENDERER=auto`** — MCP icon styles (parallel + cached); local edges by default. Set `DRAWIO_MCP_LIBAVOID=true` for an extra create_diagram hop.
