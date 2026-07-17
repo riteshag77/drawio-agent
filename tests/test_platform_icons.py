@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 
 from app.adapters.outbound.diagram.drawio_mcp_client import (
+    _builtin_style,
     _pick_style,
     _platform_from_shape_type,
     _shape_query,
@@ -91,6 +92,23 @@ class PickStyleTests(unittest.TestCase):
         self.assertEqual(_shape_query("gcp_cloud_run", "multi"), "gcp cloud run")
         self.assertEqual(_shape_query("azure_app_service", "multi"), "azure app service")
         self.assertEqual(_shape_query("aws_lambda", "multi"), "lambda")
+
+    def test_shape_query_external_actors(self) -> None:
+        self.assertEqual(_shape_query("aws_users", "aws"), "aws4 users")
+        self.assertEqual(_shape_query("aws_client", "aws"), "aws4 client")
+
+    def test_builtin_users_style(self) -> None:
+        style = _builtin_style("aws_users") or ""
+        self.assertIn("resIcon=mxgraph.aws4.users", style)
+        self.assertIn("resourceIcon", style)
+
+    def test_pick_style_prefers_users_resource_icon(self) -> None:
+        styles = [
+            "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.client_vpn;fillColor=#8C4FFF;",
+            "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.users;fillColor=#232F3D;",
+        ]
+        pick = _pick_style(styles, "aws", shape_type="aws_users") or ""
+        self.assertIn("resIcon=mxgraph.aws4.users", pick)
 
     def test_pick_style_mixed_under_inferred_clouds(self) -> None:
         aws_styles = [

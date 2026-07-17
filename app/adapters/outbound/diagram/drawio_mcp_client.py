@@ -91,6 +91,13 @@ def _platform_from_shape_type(shape_type: str, fallback: str = "aws") -> str:
 
 def _shape_query(shape_type: str, platform: str) -> str:
     st = (shape_type or "").lower()
+    # External actors: force queries that hit AWS4 resource icons, not VPN/IAM noise.
+    if st in ("aws_users", "aws_user", "users", "user"):
+        return "aws4 users"
+    if st in ("aws_client", "client", "aws_mobile_client"):
+        return "aws4 client"
+    if st in ("aws_internet", "internet"):
+        return "aws4 internet"
     resolved = _platform_from_shape_type(st, platform)
     for prefix in ("aws_", "gcp_", "azure_"):
         if st.startswith(prefix):
@@ -103,6 +110,44 @@ def _shape_query(shape_type: str, platform: str) -> str:
     if resolved == "azure":
         return f"azure {name}"
     return name
+
+
+# Known-good draw.io styles for external actors — MCP keyword search often returns
+# Client VPN / Cognito / WorkSpaces instead of the generic Users/Client icons.
+_BUILTIN_SHAPE_STYLES: dict[str, str] = {
+    "aws_users": (
+        "sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;"
+        "fillColor=#232F3D;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;"
+        "verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;"
+        "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.users;"
+    ),
+    "aws_user": (
+        "sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;"
+        "fillColor=#232F3D;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;"
+        "verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;"
+        "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.users;"
+    ),
+    "aws_client": (
+        "sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;"
+        "fillColor=#232F3D;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;"
+        "verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;"
+        "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.client;"
+    ),
+    "aws_mobile_client": (
+        "sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;"
+        "fillColor=#232F3D;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;"
+        "verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;"
+        "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.mobile_client;"
+    ),
+}
+
+
+def _builtin_style(shape_type: str) -> str | None:
+    st = (shape_type or "").strip().lower()
+    style = _BUILTIN_SHAPE_STYLES.get(st)
+    if style and not style.endswith(";"):
+        return style + ";"
+    return style
 
 
 def _platform_style_predicate(platform: str):
@@ -119,9 +164,21 @@ def _platform_style_predicate(platform: str):
     return lambda low: needle in low or "resourceicon" in low or "mxgraph.aws4" in low
 
 
-def _pick_style(styles: list[str], platform: str = "aws") -> str | None:
+def _pick_style(styles: list[str], platform: str = "aws", shape_type: str = "") -> str | None:
     if not styles:
         return None
+    st = (shape_type or "").lower()
+    # Prefer exact resourceIcon match for external actors when MCP returns a list.
+    prefer_token = ""
+    if st in ("aws_users", "aws_user", "users", "user"):
+        prefer_token = "resicon=mxgraph.aws4.users"
+    elif st in ("aws_client", "client"):
+        prefer_token = "resicon=mxgraph.aws4.client"
+    if prefer_token:
+        for style in styles:
+            if prefer_token in style.lower():
+                pick = style if style.endswith(";") else style + ";"
+                return pick
     prefer = _platform_style_predicate(platform)
     pick = styles[0]
     for style in styles:
@@ -212,6 +269,11 @@ async def resolve_shape_styles(
     unresolved: list[str] = []
     for st in unique:
         cloud = _platform_from_shape_type(st, platform)
+        builtin = _builtin_style(st)
+        if builtin:
+            resolved[st] = builtin
+            cache_put((cloud, st), builtin)
+            continue
         cached = cache_get((cloud, st))
         if cached is not None and cached.strip():
             resolved[st] = cached
@@ -229,7 +291,7 @@ async def resolve_shape_styles(
                     query = _shape_query(st, platform)
                     payload = await _mcp_call_tool("search_shapes", {"query": query, "limit": 5})
                     cloud = _platform_from_shape_type(st, platform)
-                    pick = _pick_style(_extract_styles(payload), cloud)
+                    pick = _pick_style(_extract_styles(payload), cloud, shape_type=st)
                     if pick and pick.strip():
                         cache_put((cloud, st), pick)
                         _log.info("MCP resolved %s via %r", st, query)

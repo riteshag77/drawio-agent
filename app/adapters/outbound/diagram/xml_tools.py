@@ -816,13 +816,13 @@ def apply_mcp_styles(xml: str, style_overrides: dict[str, str]) -> str:
 
 
 # Container shrink-wrap after MCP icon merge (label band under bottom-labeled leaves).
-_FIT_PAD_X = 24.0
-_FIT_PAD_BOTTOM = 24.0
+_FIT_PAD_X = 12.0
+_FIT_PAD_BOTTOM = 12.0
 _FIT_LABEL_BAND = 28.0
 _FIT_MIN_W = 120.0
 _FIT_MIN_H = 80.0
 _FIT_CHILD_MIN = 24.0  # clamp negative/near-zero child coords
-_SIBLING_GAP = 48.0  # clear space between sibling containers (zones vs supporting groups)
+_SIBLING_GAP = 24.0  # clear space between sibling containers (zones vs supporting groups)
 _SAME_ROW_TOL = 24.0  # treat tops within this as the same horizontal row
 _AZ_ARC_SIZE = "6"
 

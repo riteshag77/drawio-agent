@@ -275,9 +275,9 @@ class FitContainersToChildrenTests(unittest.TestCase):
         out = fit_containers_to_children(xml)
         tree = ET.fromstring(out)
         _, _, w, h = self._geom(tree, "vpc")
-        # child right=102, bottom=126 → + pad 24
-        self.assertGreaterEqual(w, 102 + 24)
-        self.assertGreaterEqual(h, 126 + 24)
+        # child right=102, bottom=126 → + pad 12
+        self.assertGreaterEqual(w, 102 + 12)
+        self.assertGreaterEqual(h, 126 + 12)
         # leaf geometry unchanged
         self.assertEqual(self._geom(tree, "svc"), (24.0, 48.0, 78.0, 78.0))
 
@@ -299,9 +299,9 @@ class FitContainersToChildrenTests(unittest.TestCase):
         out = fit_containers_to_children(xml)
         tree = ET.fromstring(out)
         _, _, w, h = self._geom(tree, "subnet")
-        # bottom = 48+78+28 label band = 154; + pad 24 → 178
-        self.assertGreaterEqual(h, 154 + 24)
-        self.assertGreaterEqual(w, 24 + 78 + 24)
+        # bottom = 48+78+28 label band = 154; + pad 12 → 166
+        self.assertGreaterEqual(h, 154 + 12)
+        self.assertGreaterEqual(w, 24 + 78 + 12)
 
     def test_nested_containers_bottom_up(self) -> None:
         xml = (
@@ -324,11 +324,11 @@ class FitContainersToChildrenTests(unittest.TestCase):
         tree = ET.fromstring(out)
         _, _, iw, ih = self._geom(tree, "inner")
         _, _, ow, oh = self._geom(tree, "outer")
-        self.assertGreaterEqual(iw, 24 + 78 + 24)
-        self.assertGreaterEqual(ih, 48 + 78 + 28 + 24)
+        self.assertGreaterEqual(iw, 24 + 78 + 12)
+        self.assertGreaterEqual(ih, 48 + 78 + 28 + 12)
         # outer must wrap resized inner + padding
-        self.assertGreaterEqual(ow, 24 + iw + 24)
-        self.assertGreaterEqual(oh, 48 + ih + 24)
+        self.assertGreaterEqual(ow, 24 + iw + 12)
+        self.assertGreaterEqual(oh, 48 + ih + 12)
 
     def test_edges_and_non_containers_unchanged(self) -> None:
         xml = (
@@ -384,7 +384,7 @@ class FitContainersToChildrenTests(unittest.TestCase):
         tree = ET.fromstring(out)
         _, az_y, _, az_h = self._geom(tree, "az1")
         sec_x, sec_y, _, _ = self._geom(tree, "sec")
-        self.assertGreaterEqual(sec_y, az_y + az_h + 48 - 0.5)
+        self.assertGreaterEqual(sec_y, az_y + az_h + 24 - 0.5)
         self.assertEqual(sec_x, 24.0)
         az_cell = next(c for c in tree.iter("mxCell") if c.get("id") == "az1")
         self.assertIn("arcSize=6", az_cell.get("style") or "")
@@ -406,7 +406,7 @@ class FitContainersToChildrenTests(unittest.TestCase):
         tree = ET.fromstring(out)
         sx, _, sw, _ = self._geom(tree, "sec")
         mx, _, _, _ = self._geom(tree, "mon")
-        self.assertGreaterEqual(mx, sx + sw + 48 - 0.5)
+        self.assertGreaterEqual(mx, sx + sw + 24 - 0.5)
 
 
 class StyleCacheLruTests(unittest.TestCase):

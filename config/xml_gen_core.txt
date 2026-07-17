@@ -59,12 +59,12 @@ Service leaves use `verticalLabelPosition=bottom` — the **label draws below** 
 - **Align boxes:** same-tier icons share the same y; peer AZs share the same top y and height; subnet rows align across AZs
 - Horizontal gap between sibling icons: **140–180px** (keep supporting groups and subnets compact)
 - Vertical gap between tiers (Public → App → Data): **100–140px**
-- **Gap below Zones (CRITICAL):** supporting groups (Security / Monitoring / Integration / Management) must sit **strictly below** all Availability Zones — minimum **140–160px** clear space from the **lowest Zone bottom** to the **top** of those groups. Never overlap Zones or Subnets.
-- **Gap between Subnets and supporting groups:** same rule — no shared y-range with any Zone/Subnet box; leave empty band between the subnet tier and the four groups
-- Horizontal gap between the four supporting groups side by side: **40–60px** (do not let them touch or overlap)
-- Horizontal gap between peer AZ containers: **40–60px**
+- **Gap below Zones (CRITICAL):** supporting groups (Security / Monitoring / Integration / Management) must sit **strictly below** all Availability Zones — minimum **70–80px** clear space from the **lowest Zone bottom** to the **top** of those groups. Never overlap Zones or Subnets.
+- **Gap between Subnets and supporting groups:** same rule — no shared y-range with any Zone/Subnet box; leave a modest empty band between the subnet tier and the four groups
+- Horizontal gap between the four supporting groups side by side: **20–30px** (do not let them touch or overlap)
+- Horizontal gap between peer AZ containers: **20–30px**
 - Children inside a container start at **y ≥ 48** (leave a title band under the container name) and **x ≥ 24**
-- Container width/height must **tightly** fit children + padding (pad **20–28** left/right/bottom, **48** top for title), including the under-icon label band on leaves
+- Container width/height must **tightly** fit children + padding (pad **12–16** left/right/bottom, **48** top for title), including the under-icon label band on leaves
 - Canvas: pageWidth="2400" pageHeight="1400"
 
 ## Container Labels — INSIDE TOP-LEFT (CRITICAL)
@@ -147,7 +147,7 @@ Mirror app-tier and data-tier into every Zone's matching subnet. Do **not** mirr
 3. Every container title uses inside top-left style (no labelPosition / verticalLabelPosition on containers)?
 4. Same-tier icons share y; AZs aligned; grid multiples of 20; containers tightly sized (no huge empty regions)?
 5. **Zero** edges touch Security, Monitoring, Integration, or Management cells?
-6. Supporting groups sit below Zones with **≥140px** clear gap (no overlap with Zones/Subnets), four boxes side by side with **≥40px** between them, still `parent=<vpc-id>`?
+6. Supporting groups sit below Zones with **≥70px** clear gap (no overlap with Zones/Subnets), four boxes side by side with **≥20px** between them, still `parent=<vpc-id>`?
 7. Children start below title band (y≥48)? Availability Zones use `arcSize=6`?
 
 ## PNG Background
