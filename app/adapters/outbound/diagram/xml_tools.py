@@ -813,3 +813,288 @@ def apply_mcp_styles(xml: str, style_overrides: dict[str, str]) -> str:
     if "<root>" in trimmed:
         return ET.tostring(root, encoding="unicode")
     return "".join(ET.tostring(c, encoding="unicode") for c in root.findall("mxCell"))
+
+
+# Container shrink-wrap after MCP icon merge (label band under bottom-labeled leaves).
+_FIT_PAD_X = 24.0
+_FIT_PAD_BOTTOM = 24.0
+_FIT_LABEL_BAND = 28.0
+_FIT_MIN_W = 120.0
+_FIT_MIN_H = 80.0
+_FIT_CHILD_MIN = 24.0  # clamp negative/near-zero child coords
+_SIBLING_GAP = 48.0  # clear space between sibling containers (zones vs supporting groups)
+_SAME_ROW_TOL = 24.0  # treat tops within this as the same horizontal row
+_AZ_ARC_SIZE = "6"
+
+
+def _is_container_cell(cell: ET.Element) -> bool:
+    """True for group / swimlane / container=1 vertices (not edges or leaves)."""
+    if cell.get("edge") == "1" or cell.get("vertex") != "1":
+        return False
+    style = cell.get("style") or ""
+    if "container=1" in style or "swimlane" in style:
+        return True
+    if "mxgraph.aws4.group" in style:
+        return True
+    # Invisible group container style token
+    parts = {p.split("=", 1)[0] for p in style.split(";") if p}
+    return "group" in parts
+
+
+def _cell_geometry(cell: ET.Element) -> tuple[float, float, float, float] | None:
+    geom = cell.find("mxGeometry")
+    if geom is None:
+        return None
+    try:
+        x = float(geom.get("x") or 0)
+        y = float(geom.get("y") or 0)
+        w = float(geom.get("width") or 0)
+        h = float(geom.get("height") or 0)
+    except ValueError:
+        return None
+    return x, y, w, h
+
+
+def _set_geom_xy(cell: ET.Element, *, x: float | None = None, y: float | None = None) -> bool:
+    geom = cell.find("mxGeometry")
+    if geom is None:
+        return False
+    if x is not None:
+        geom.set("x", str(x))
+    if y is not None:
+        geom.set("y", str(y))
+    return True
+
+
+def _child_content_extent(cell: ET.Element) -> tuple[float, float, float, float] | None:
+    """Return (x, y, right, bottom) including under-icon label band when needed."""
+    geo = _cell_geometry(cell)
+    if geo is None:
+        return None
+    x, y, w, h = geo
+    style = cell.get("style") or ""
+    label_band = _FIT_LABEL_BAND if "verticalLabelPosition=bottom" in style else 0.0
+    return x, y, x + w, y + h + label_band
+
+
+def _ranges_overlap(a0: float, a1: float, b0: float, b1: float, pad: float = 0.0) -> bool:
+    return a0 < b1 + pad and b0 < a1 + pad
+
+
+def _is_availability_zone_cell(cell: ET.Element) -> bool:
+    """Heuristic: AZ containers by label or id (not Management, which shares grey stroke)."""
+    if not _is_container_cell(cell):
+        return False
+    value = (cell.get("value") or "").lower()
+    if "availability" in value or value.startswith("az ") or value.startswith("az-"):
+        return True
+    cid = (cell.get("id") or "").lower()
+    return cid.startswith("az") or "avail" in cid or cid in {"az1", "az2", "az3"}
+
+
+def _soften_az_corners(cells: list[ET.Element]) -> bool:
+    changed = False
+    for cell in cells:
+        if not _is_availability_zone_cell(cell):
+            continue
+        style = cell.get("style") or ""
+        parts = _parse_style(style)
+        if parts.get("arcSize") == _AZ_ARC_SIZE and parts.get("rounded", "1") == "1":
+            continue
+        parts["rounded"] = "1"
+        parts["arcSize"] = _AZ_ARC_SIZE
+        cell.set("style", _format_style(parts))
+        changed = True
+    return changed
+
+
+def _fit_one_pass(
+    containers: list[ET.Element],
+    children: dict[str, list[ET.Element]],
+) -> bool:
+    changed = False
+    for container in containers:
+        cid = container.get("id") or ""
+        kids = children.get(cid) or []
+        if not kids:
+            continue
+
+        for kid in kids:
+            geo = kid.find("mxGeometry")
+            if geo is None:
+                continue
+            try:
+                kx = float(geo.get("x") or 0)
+                ky = float(geo.get("y") or 0)
+            except ValueError:
+                continue
+            if kx < 0:
+                geo.set("x", str(_FIT_CHILD_MIN))
+                changed = True
+            if ky < 0:
+                geo.set("y", str(max(_FIT_CHILD_MIN, 48.0)))
+                changed = True
+
+        max_right = 0.0
+        max_bottom = 0.0
+        any_extent = False
+        for kid in kids:
+            extent = _child_content_extent(kid)
+            if extent is None:
+                continue
+            _, _, right, bottom = extent
+            max_right = max(max_right, right)
+            max_bottom = max(max_bottom, bottom)
+            any_extent = True
+        if not any_extent:
+            continue
+
+        need_w = max(_FIT_MIN_W, max_right + _FIT_PAD_X)
+        need_h = max(_FIT_MIN_H, max_bottom + _FIT_PAD_BOTTOM)
+        geom = container.find("mxGeometry")
+        if geom is None:
+            continue
+        try:
+            cur_w = float(geom.get("width") or 0)
+            cur_h = float(geom.get("height") or 0)
+        except ValueError:
+            cur_w, cur_h = 0.0, 0.0
+        if need_w > cur_w + 0.5:
+            geom.set("width", str(need_w))
+            changed = True
+        if need_h > cur_h + 0.5:
+            geom.set("height", str(need_h))
+            changed = True
+    return changed
+
+
+def _separate_sibling_containers(
+    children: dict[str, list[ET.Element]],
+    gap: float = _SIBLING_GAP,
+) -> bool:
+    """Push sibling containers apart so zones/subnets don't overlap supporting groups."""
+    changed = False
+    for kids in children.values():
+        containers = [k for k in kids if _is_container_cell(k)]
+        if len(containers) < 2:
+            continue
+
+        # Vertical: lower box must clear upper box when they share an x-range
+        ordered = sorted(
+            containers,
+            key=lambda c: (
+                (_cell_geometry(c) or (0, 0, 0, 0))[1],
+                (_cell_geometry(c) or (0, 0, 0, 0))[0],
+            ),
+        )
+        for i in range(1, len(ordered)):
+            gi = _cell_geometry(ordered[i])
+            if gi is None:
+                continue
+            ix, iy, iw, ih = gi
+            for j in range(i):
+                gj = _cell_geometry(ordered[j])
+                if gj is None:
+                    continue
+                jx, jy, jw, jh = gj
+                # Peer AZs / side-by-side groups on the same row — skip vertical push
+                if abs(iy - jy) <= _SAME_ROW_TOL:
+                    continue
+                if not _ranges_overlap(ix, ix + iw, jx, jx + jw):
+                    continue
+                need_y = jy + jh + gap
+                if iy + 0.5 < need_y:
+                    _set_geom_xy(ordered[i], y=need_y)
+                    iy = need_y
+                    changed = True
+
+        # Horizontal: right box must clear left box when they share a y-range
+        ordered_x = sorted(
+            containers,
+            key=lambda c: (
+                (_cell_geometry(c) or (0, 0, 0, 0))[0],
+                (_cell_geometry(c) or (0, 0, 0, 0))[1],
+            ),
+        )
+        for i in range(1, len(ordered_x)):
+            gi = _cell_geometry(ordered_x[i])
+            if gi is None:
+                continue
+            ix, iy, iw, ih = gi
+            for j in range(i):
+                gj = _cell_geometry(ordered_x[j])
+                if gj is None:
+                    continue
+                jx, jy, jw, jh = gj
+                if not _ranges_overlap(iy, iy + ih, jy, jy + jh):
+                    continue
+                need_x = jx + jw + gap
+                if ix + 0.5 < need_x:
+                    _set_geom_xy(ordered_x[i], x=need_x)
+                    ix = need_x
+                    changed = True
+    return changed
+
+
+def fit_containers_to_children(xml: str) -> str:
+    """Grow containers to fit children, then keep sibling containers from overlapping.
+
+    Processes deepest containers first. Does not move children between parents or
+    change leaf sizes/styles — only container width/height, sibling x/y when
+    needed for gaps, and a softer ``arcSize`` on Availability Zone boxes.
+    """
+    if not (xml or "").strip() or "<mxCell" not in xml:
+        return xml
+
+    trimmed = xml.strip()
+    is_mxfile = "<mxfile" in trimmed
+    parse_src = trimmed
+    if not is_mxfile and "<root>" not in trimmed:
+        parse_src = f"<root>{trimmed}</root>"
+
+    try:
+        tree = ET.fromstring(parse_src)
+    except ET.ParseError:
+        return xml
+
+    root = _find_diagram_root(tree) if is_mxfile else tree
+    if root is None:
+        root = tree.find("root")
+    if root is None:
+        return xml
+
+    cells = [c for c in root.findall("mxCell") if c.get("id")]
+    by_id = {c.get("id"): c for c in cells}
+    children: dict[str, list[ET.Element]] = {}
+    for cell in cells:
+        if cell.get("edge") == "1" or cell.get("vertex") != "1":
+            continue
+        pid = cell.get("parent")
+        if not pid or pid not in by_id:
+            continue
+        children.setdefault(pid, []).append(cell)
+
+    parent_map = {cid: (by_id[cid].get("parent") if cid in by_id else None) for cid in by_id}
+    containers = [c for c in cells if _is_container_cell(c) and c.get("id")]
+    containers.sort(key=lambda c: _cell_depth(c.get("id") or "", parent_map), reverse=True)
+
+    changed = _fit_one_pass(containers, children)
+    # After grow, zones may invade supporting groups — push siblings apart, then re-fit.
+    for _ in range(3):
+        moved = _separate_sibling_containers(children)
+        if not moved:
+            break
+        changed = True
+        _fit_one_pass(containers, children)
+
+    if _soften_az_corners(cells):
+        changed = True
+
+    if not changed:
+        return xml
+
+    if is_mxfile:
+        return ET.tostring(tree, encoding="unicode")
+    if "<root>" in trimmed:
+        return ET.tostring(root, encoding="unicode")
+    return "".join(ET.tostring(c, encoding="unicode") for c in root.findall("mxCell"))

@@ -13,6 +13,7 @@ from app.adapters.outbound.diagram.xml_tools import (
     coerce_drawio_xml,
     ensure_diagram_document,
     extract_shape_types,
+    fit_containers_to_children,
     merge_drawio_styles,
     validate_and_fix_xml,
 )
@@ -242,6 +243,170 @@ class ShapeTypeAndStyleTests(unittest.TestCase):
         cell = next(c for c in tree.iter("mxCell") if c.get("id") == "2")
         self.assertEqual(cell.get("shape_type"), "aws_lambda")
         self.assertIn("fillColor=#F5F5F5", cell.get("style") or "")
+
+
+class FitContainersToChildrenTests(unittest.TestCase):
+    def _geom(self, tree: ET.Element, cell_id: str) -> tuple[float, float, float, float]:
+        cell = next(c for c in tree.iter("mxCell") if c.get("id") == cell_id)
+        g = cell.find("mxGeometry")
+        assert g is not None
+        return (
+            float(g.get("x") or 0),
+            float(g.get("y") or 0),
+            float(g.get("width") or 0),
+            float(g.get("height") or 0),
+        )
+
+    def test_overflow_child_grows_parent(self) -> None:
+        xml = (
+            '<mxfile host="app.diagrams.net"><diagram name="A" id="d1">'
+            "<mxGraphModel><root>"
+            '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            '<mxCell id="vpc" value="VPC" style="rounded=1;container=1;fillColor=none;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="100" height="80" as="geometry"/>'
+            "</mxCell>"
+            '<mxCell id="svc" value="Lambda" style="rounded=0;fillColor=#F5F5F5;" '
+            'vertex="1" parent="vpc">'
+            '<mxGeometry x="24" y="48" width="78" height="78" as="geometry"/>'
+            "</mxCell>"
+            "</root></mxGraphModel></diagram></mxfile>"
+        )
+        out = fit_containers_to_children(xml)
+        tree = ET.fromstring(out)
+        _, _, w, h = self._geom(tree, "vpc")
+        # child right=102, bottom=126 → + pad 24
+        self.assertGreaterEqual(w, 102 + 24)
+        self.assertGreaterEqual(h, 126 + 24)
+        # leaf geometry unchanged
+        self.assertEqual(self._geom(tree, "svc"), (24.0, 48.0, 78.0, 78.0))
+
+    def test_bottom_label_band_included(self) -> None:
+        xml = (
+            '<mxfile host="app.diagrams.net"><diagram name="A" id="d1">'
+            "<mxGraphModel><root>"
+            '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            '<mxCell id="subnet" value="App" style="container=1;fillColor=none;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="200" height="100" as="geometry"/>'
+            "</mxCell>"
+            '<mxCell id="leaf" value="S3" style="verticalLabelPosition=bottom;aspect=fixed;" '
+            'vertex="1" parent="subnet">'
+            '<mxGeometry x="24" y="48" width="78" height="78" as="geometry"/>'
+            "</mxCell>"
+            "</root></mxGraphModel></diagram></mxfile>"
+        )
+        out = fit_containers_to_children(xml)
+        tree = ET.fromstring(out)
+        _, _, w, h = self._geom(tree, "subnet")
+        # bottom = 48+78+28 label band = 154; + pad 24 → 178
+        self.assertGreaterEqual(h, 154 + 24)
+        self.assertGreaterEqual(w, 24 + 78 + 24)
+
+    def test_nested_containers_bottom_up(self) -> None:
+        xml = (
+            '<mxfile host="app.diagrams.net"><diagram name="A" id="d1">'
+            "<mxGraphModel><root>"
+            '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            '<mxCell id="outer" value="VPC" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="120" height="100" as="geometry"/>'
+            "</mxCell>"
+            '<mxCell id="inner" value="Subnet" style="container=1;" vertex="1" parent="outer">'
+            '<mxGeometry x="24" y="48" width="80" height="60" as="geometry"/>'
+            "</mxCell>"
+            '<mxCell id="leaf" value="EC2" style="verticalLabelPosition=bottom;" '
+            'vertex="1" parent="inner">'
+            '<mxGeometry x="24" y="48" width="78" height="78" as="geometry"/>'
+            "</mxCell>"
+            "</root></mxGraphModel></diagram></mxfile>"
+        )
+        out = fit_containers_to_children(xml)
+        tree = ET.fromstring(out)
+        _, _, iw, ih = self._geom(tree, "inner")
+        _, _, ow, oh = self._geom(tree, "outer")
+        self.assertGreaterEqual(iw, 24 + 78 + 24)
+        self.assertGreaterEqual(ih, 48 + 78 + 28 + 24)
+        # outer must wrap resized inner + padding
+        self.assertGreaterEqual(ow, 24 + iw + 24)
+        self.assertGreaterEqual(oh, 48 + ih + 24)
+
+    def test_edges_and_non_containers_unchanged(self) -> None:
+        xml = (
+            '<mxfile host="app.diagrams.net"><diagram name="A" id="d1">'
+            "<mxGraphModel><root>"
+            '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            '<mxCell id="a" value="A" style="rounded=1;" vertex="1" parent="1">'
+            '<mxGeometry x="10" y="10" width="78" height="78" as="geometry"/>'
+            "</mxCell>"
+            '<mxCell id="b" value="B" style="rounded=1;" vertex="1" parent="1">'
+            '<mxGeometry x="200" y="10" width="78" height="78" as="geometry"/>'
+            "</mxCell>"
+            '<mxCell id="e1" edge="1" parent="1" source="a" target="b" '
+            'style="edgeStyle=orthogonalEdgeStyle;">'
+            '<mxGeometry relative="1" as="geometry"/>'
+            "</mxCell>"
+            "</root></mxGraphModel></diagram></mxfile>"
+        )
+        out = fit_containers_to_children(xml)
+        tree = ET.fromstring(out)
+        self.assertEqual(self._geom(tree, "a"), (10.0, 10.0, 78.0, 78.0))
+        self.assertEqual(self._geom(tree, "b"), (200.0, 10.0, 78.0, 78.0))
+        edge = next(c for c in tree.iter("mxCell") if c.get("id") == "e1")
+        self.assertEqual(edge.get("edge"), "1")
+        self.assertEqual(edge.get("source"), "a")
+
+    def test_supporting_group_pushed_below_zone(self) -> None:
+        """After zone grow, Security must clear the zone with a sibling gap."""
+        xml = (
+            '<mxfile host="app.diagrams.net"><diagram name="A" id="d1">'
+            "<mxGraphModel><root>"
+            '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            '<mxCell id="vpc" value="VPC" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="400" height="200" as="geometry"/>'
+            "</mxCell>"
+            '<mxCell id="az1" value="Availability Zone A" '
+            'style="rounded=1;container=1;strokeColor=#6B7280;dashed=1;" '
+            'vertex="1" parent="vpc">'
+            '<mxGeometry x="24" y="48" width="100" height="80" as="geometry"/>'
+            "</mxCell>"
+            '<mxCell id="leaf" value="EC2" style="verticalLabelPosition=bottom;" '
+            'vertex="1" parent="az1">'
+            '<mxGeometry x="24" y="48" width="78" height="78" as="geometry"/>'
+            "</mxCell>"
+            '<mxCell id="sec" value="Security" '
+            'style="rounded=1;container=1;strokeColor=#DD344C;dashed=1;" '
+            'vertex="1" parent="vpc">'
+            '<mxGeometry x="24" y="100" width="120" height="80" as="geometry"/>'
+            "</mxCell>"
+            "</root></mxGraphModel></diagram></mxfile>"
+        )
+        out = fit_containers_to_children(xml)
+        tree = ET.fromstring(out)
+        _, az_y, _, az_h = self._geom(tree, "az1")
+        sec_x, sec_y, _, _ = self._geom(tree, "sec")
+        self.assertGreaterEqual(sec_y, az_y + az_h + 48 - 0.5)
+        self.assertEqual(sec_x, 24.0)
+        az_cell = next(c for c in tree.iter("mxCell") if c.get("id") == "az1")
+        self.assertIn("arcSize=6", az_cell.get("style") or "")
+
+    def test_side_by_side_supporting_groups_get_horizontal_gap(self) -> None:
+        xml = (
+            '<mxfile host="app.diagrams.net"><diagram name="A" id="d1">'
+            "<mxGraphModel><root>"
+            '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            '<mxCell id="sec" value="Security" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="20" y="200" width="100" height="80" as="geometry"/>'
+            "</mxCell>"
+            '<mxCell id="mon" value="Monitoring" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="90" y="200" width="100" height="80" as="geometry"/>'
+            "</mxCell>"
+            "</root></mxGraphModel></diagram></mxfile>"
+        )
+        out = fit_containers_to_children(xml)
+        tree = ET.fromstring(out)
+        sx, _, sw, _ = self._geom(tree, "sec")
+        mx, _, _, _ = self._geom(tree, "mon")
+        self.assertGreaterEqual(mx, sx + sw + 48 - 0.5)
 
 
 class StyleCacheLruTests(unittest.TestCase):

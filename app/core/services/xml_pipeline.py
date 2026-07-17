@@ -15,6 +15,7 @@ from app.adapters.outbound.diagram.xml_tools import (
     choose_fixed_xml,
     ensure_diagram_document,
     extract_shape_types,
+    fit_containers_to_children,
     normalize_platform_styles,
     validate_and_fix_xml,
 )
@@ -162,7 +163,7 @@ async def run_xml_pipeline(
     async def _run_mcp() -> tuple[str, str | None, str]:
         """Return (xml, preview_url, renderer_used)."""
         if not use_mcp:
-            return xml_output, None, "local"
+            return fit_containers_to_children(xml_output), None, "local"
 
         await _emit(on_progress, "mcp", "Resolving official icon styles…")
         local_xml = xml_output
@@ -183,6 +184,8 @@ async def run_xml_pipeline(
                         )
                     await _emit(on_progress, "mcp", f"Applied {len(overrides)} icon styles")
 
+            local_xml = fit_containers_to_children(local_xml)
+
             if get_config().drawio_mcp_libavoid:
                 await _emit(on_progress, "mcp", "Applying libavoid edge routing…")
                 preview_url, routed_xml = await create_diagram(local_xml, routing="libavoid", logger=logger)
@@ -199,10 +202,12 @@ async def run_xml_pipeline(
             if logger:
                 logger.log("mcp", f"MCP enrichment skipped: {exc}", level="warning")
             renderer_used = "local"
+            local_xml = fit_containers_to_children(local_xml)
         except Exception as exc:
             if logger:
                 logger.log("mcp", f"MCP error: {exc}", level="warning")
             renderer_used = "local"
+            local_xml = fit_containers_to_children(local_xml)
         return local_xml, preview_url, renderer_used
 
     await _emit(on_progress, "enrich", "Running post-analysis and icon enrichment…")

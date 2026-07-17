@@ -31,8 +31,16 @@ Every internal box must be **visually and structurally wrapped** inside its oute
 2. Region is **inside** Cloud (`parent=<cloud-id>`). VPC is **inside** Region. Zones/subnets/groups are **inside** VPC. Services are **inside** their subnet or supporting group.
 3. **FORBIDDEN:** Region, VPC, Zone, Subnet, Security/Monitoring/Integration/Management, or Edge as `parent="1"` siblings floating beside the Cloud box. If it belongs in the hierarchy, it must be a child of the layer above it.
 4. **FORBIDDEN:** placing an inner box with absolute canvas coordinates while `parent="1"` so it only overlaps the outer box visually. Overlap ≠ containment.
-5. Outer containers must be **larger than** the bounding box of all their children (pad ≈ 24–40px sides/bottom, ≥48px top for title). Shrink-wrap: grow Cloud/Region/VPC/Zone until every child fits inside.
+5. Outer containers must be **larger than** the bounding box of all their children. Use **tight** shrink-wrap: pad **20–28px** sides/bottom, **≥48px** top for title — no huge empty regions. Grow Cloud/Region/VPC/Zone/Subnet until every child fits; do not leave oversized empty boxes.
 6. Optional **Users / Internet / Client** icons may sit outside Cloud on `parent="1"` (left of Cloud). Everything else cloud-related stays wrapped inside Cloud.
+
+## Leaf Footprint — UNDER-ICON LABELS (CRITICAL)
+
+Service leaves use `verticalLabelPosition=bottom` — the **label draws below** the icon box. Parent sizing must account for that extra band, not only the 78×78 icon geometry.
+
+- Visual footprint height ≈ `icon.height + ~28` (label band) when `verticalLabelPosition=bottom`
+- Parent must contain: `child.x + child.width + pad` and `child.y + child.height + labelBand + pad`
+- Self-check: every child’s **icon and under-label** fit inside its parent box
 
 **Parent chain examples (AWS):**
 - `aws_cloud` → parent `"1"`
@@ -49,11 +57,14 @@ Every internal box must be **visually and structurally wrapped** inside its oute
 - Left-to-right primary request path; users/edge on the LEFT; data stores on the RIGHT
 - **Snap to a grid:** use multiples of 20 for all x/y/width/height
 - **Align boxes:** same-tier icons share the same y; peer AZs share the same top y and height; subnet rows align across AZs
-- Horizontal gap between sibling icons: **180–220px** (center-to-center ~260px)
-- Vertical gap between tiers (Public → App → Data): **120–160px**
-- Gap from lowest Zone bottom to supporting groups: **120px**
+- Horizontal gap between sibling icons: **140–180px** (keep supporting groups and subnets compact)
+- Vertical gap between tiers (Public → App → Data): **100–140px**
+- **Gap below Zones (CRITICAL):** supporting groups (Security / Monitoring / Integration / Management) must sit **strictly below** all Availability Zones — minimum **140–160px** clear space from the **lowest Zone bottom** to the **top** of those groups. Never overlap Zones or Subnets.
+- **Gap between Subnets and supporting groups:** same rule — no shared y-range with any Zone/Subnet box; leave empty band between the subnet tier and the four groups
+- Horizontal gap between the four supporting groups side by side: **40–60px** (do not let them touch or overlap)
+- Horizontal gap between peer AZ containers: **40–60px**
 - Children inside a container start at **y ≥ 48** (leave a title band under the container name) and **x ≥ 24**
-- Container width/height must tightly fit children + padding (pad ≈ 24 left/right/bottom, 48 top for title)
+- Container width/height must **tightly** fit children + padding (pad **20–28** left/right/bottom, **48** top for title), including the under-icon label band on leaves
 - Canvas: pageWidth="2400" pageHeight="1400"
 
 ## Container Labels — INSIDE TOP-LEFT (CRITICAL)
@@ -73,13 +84,18 @@ Simple (non-icon) container template:
 rounded=1;whiteSpace=wrap;html=1;container=1;dropTarget=1;collapsible=0;recursiveResize=0;fillColor=none;strokeColor=COLOR;strokeWidth=1;DASHED;align=left;verticalAlign=top;spacingLeft=12;spacingTop=8;fontStyle=1;fontSize=12;fontColor=COLOR;
 ```
 
-| Container | strokeColor | dashed |
-|-----------|-------------|--------|
-| Availability Zone | #6B7280 | dashed=1 |
-| Security Group | #DD344C | dashed=1 |
-| Monitoring Group | #147EBA | dashed=1 |
-| Integration Group | #E7157B | dashed=1 |
-| Management Group | #6B7280 | dashed=1 |
+Availability Zone boxes use **slightly less rounded** corners — always append `arcSize=6` (do not use the default large radius):
+```
+rounded=1;arcSize=6;whiteSpace=wrap;html=1;container=1;dropTarget=1;collapsible=0;recursiveResize=0;fillColor=none;strokeColor=#6B7280;strokeWidth=1;dashed=1;align=left;verticalAlign=top;spacingLeft=12;spacingTop=8;fontStyle=1;fontSize=12;fontColor=#6B7280;
+```
+
+| Container | strokeColor | dashed | notes |
+|-----------|-------------|--------|-------|
+| Availability Zone | #6B7280 | dashed=1 | `arcSize=6` (subtle corners) |
+| Security Group | #DD344C | dashed=1 | |
+| Monitoring Group | #147EBA | dashed=1 | |
+| Integration Group | #E7157B | dashed=1 | |
+| Management Group | #6B7280 | dashed=1 | |
 
 For AWS Cloud / VPC / Subnet / Region groups, use the platform group style from the Icon Style section but **keep** `align=left;verticalAlign=top;spacingLeft=40;spacingTop=4` (title inside, beside the group icon). Never add labelPosition/verticalLabelPosition on groups.
 
@@ -127,12 +143,12 @@ Mirror app-tier and data-tier into every Zone's matching subnet. Do **not** mirr
 ## Self-Check (must pass before return)
 
 1. Cloud is the outer wrapper; Region/VPC/Zones/Subnets/supporting groups/Edge are all nested via parent (none of those on parent="1")?
-2. Every outer box fully wraps its children (children coords relative; outer width/height contain them)?
-3. Every container title uses inside top-left style (no labelPosition / verticalLabelPosition)?
-4. Same-tier icons share y; AZs aligned; grid multiples of 20?
+2. Every outer box fully wraps its children (children coords relative; outer width/height contain them — including leaf under-labels)?
+3. Every container title uses inside top-left style (no labelPosition / verticalLabelPosition on containers)?
+4. Same-tier icons share y; AZs aligned; grid multiples of 20; containers tightly sized (no huge empty regions)?
 5. **Zero** edges touch Security, Monitoring, Integration, or Management cells?
-6. Supporting groups sit below Zones, four boxes side by side, still `parent=<vpc-id>`?
-7. Children start below title band (y≥48)?
+6. Supporting groups sit below Zones with **≥140px** clear gap (no overlap with Zones/Subnets), four boxes side by side with **≥40px** between them, still `parent=<vpc-id>`?
+7. Children start below title band (y≥48)? Availability Zones use `arcSize=6`?
 
 ## PNG Background
 
