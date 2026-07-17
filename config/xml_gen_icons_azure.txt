@@ -32,10 +32,10 @@ Rules:
 
 ## Group Boundaries — Azure
 
-Use a simple container group:
-rounded=0;whiteSpace=wrap;html=1;container=1;dropTarget=1;collapsible=0;recursiveResize=0;fillColor=none;strokeColor=#0078D4;fontColor=#0078D4;align=left;verticalAlign=top;spacingLeft=10;fontStyle=1;fontSize=12;
+Title **inside** top-left. NEVER use labelPosition or verticalLabelPosition.
+rounded=1;whiteSpace=wrap;html=1;container=1;dropTarget=1;collapsible=0;recursiveResize=0;fillColor=none;strokeColor=#0078D4;fontColor=#0078D4;align=left;verticalAlign=top;spacingLeft=12;spacingTop=8;fontStyle=1;fontSize=12;
 
-Common boundaries: Azure Subscription, Resource Group, VNet, Subnet, Region — strokeColor=#0078D4.
+Common boundaries: Azure Subscription, Resource Group, VNet, Subnet, Region — strokeColor=#0078D4. Children y≥48.
 
 ## FORBIDDEN (will blank icons)
 

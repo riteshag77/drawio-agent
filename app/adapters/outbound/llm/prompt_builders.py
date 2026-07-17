@@ -44,16 +44,12 @@ def conversation_history_lines(trimmed: list[dict[str, str]]) -> list[str]:
 def build_chat_prompt(
     messages: list[dict[str, str]],
     platform_label: str,
-    current_architecture=None,
-    previous_architecture=None,
+    *args: Any,
     validation_feedback: str | None = None,
-    *,
-    platform_convert: bool = False,
-    previous_platform: str | None = None,
-    target_platform: str = "aws",
-    current_xml: str | None = None,
     applied_suggestions: list[str] | None = None,
+    **kwargs: Any,
 ) -> str:
+    """Build Mermaid chat human prompt. Extra *args/**kwargs ignored (legacy callers)."""
     trimmed = trim_chat_messages(messages)
     parts: list[str] = []
 

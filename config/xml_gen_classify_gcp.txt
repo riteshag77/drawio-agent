@@ -1,0 +1,19 @@
+## Service Classification — GCP only
+
+Classify using this decision order — stop at the first match:
+
+| # | Category | GCP examples | Place in |
+|---|----------|--------------|----------|
+| 1 | Global/edge — DNS, CDN, WAF, static | Cloud DNS, Cloud CDN, Cloud Armor, Cloud Storage (static) | Edge/Global Layer |
+| 2 | Identity, encryption, secrets | Cloud IAM, Cloud KMS, Secret Manager | Security Group (NO edges) |
+| 3 | Observability, audit | Cloud Monitoring, Cloud Logging, Cloud Trace, SCC | Monitoring Group (NO edges) |
+| 4 | Messaging / integration bus | Pub/Sub, Cloud Tasks, Eventarc, Workflows | Integration Group (NO edges) |
+| 5 | Operational, management | Deployment Manager, Operations Suite | Management Group (NO edges) |
+| 6 | Stateless compute, app-tier | Compute Engine, GKE, Cloud Run | Zone → Private App Subnet |
+| 7 | Stateful data-tier | Cloud SQL, Spanner, Memorystore, Firestore | Zone → Private Data Subnet |
+| 8 | Network LB / routing | Cloud Load Balancing, API Gateway | Virtual Network (sibling of Zones) |
+| 9 | Zone internet-facing infra | Cloud NAT, IAP | That Zone's Public Subnet |
+
+Cross-cutting groups (rows 2–5): icons only — **never** draw edges to or from them.
+
+NEVER use mxgraph.aws4 or Azure image= paths in GCP diagrams.

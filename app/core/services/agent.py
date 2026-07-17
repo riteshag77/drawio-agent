@@ -29,14 +29,16 @@ def generate_xml_diagram(
     """Generate draw.io XML directly (MCP-accelerated path — no intermediate JSON)."""
     provider_key = normalize_provider_key(provider)
     spec = get_provider(provider_key)
+    chat_messages = messages or [{"role": "user", "content": user_request}]
+    hint = user_request or (chat_messages[-1]["content"] if chat_messages else "")
     system_prompt = get_xml_gen_system_prompt(
         model_id=spec.default_model,
         provider=provider_key,
         platform=platform,
         custom_system_message=custom_system_message,
         three_d=three_d,
+        user_hint=hint,
     )
-    chat_messages = messages or [{"role": "user", "content": user_request}]
     human_parts: list[str] = []
     if len(chat_messages) > 1:
         human_parts.append("Conversation so far:")

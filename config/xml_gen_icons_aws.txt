@@ -39,8 +39,8 @@ Confusing these two patterns guarantees broken icons.
 
 ## Group Boundaries — AWS
 
-Group style template:
-points=[[0,0],[0.25,0],[0.5,0],[0.75,0],[1,0],[1,0.25],[1,0.5],[1,0.75],[1,1],[0.75,1],[0.5,1],[0.25,1],[0,1],[0,0.75],[0,0.5],[0,0.25]];outlineConnect=0;gradientColor=none;html=1;whiteSpace=wrap;fontSize=12;fontStyle=1;container=1;dropTarget=1;pointerEvents=0;collapsible=0;recursiveResize=0;shape=mxgraph.aws4.group;grIcon=mxgraph.aws4.<GROUP_ICON>;strokeColor=<COLOR>;fillColor=none;fontColor=<COLOR>;align=left;verticalAlign=top;spacingTop=-4;spacingLeft=40;dashed=0;
+Group style template (title **inside** top-left beside icon — NEVER use labelPosition or verticalLabelPosition):
+points=[[0,0],[0.25,0],[0.5,0],[0.75,0],[1,0],[1,0.25],[1,0.5],[1,0.75],[1,1],[0.75,1],[0.5,1],[0.25,1],[0,1],[0,0.75],[0,0.5],[0,0.25]];outlineConnect=0;gradientColor=none;html=1;whiteSpace=wrap;fontSize=12;fontStyle=1;container=1;dropTarget=1;pointerEvents=0;collapsible=0;recursiveResize=0;shape=mxgraph.aws4.group;grIcon=mxgraph.aws4.<GROUP_ICON>;strokeColor=<COLOR>;fillColor=none;fontColor=<COLOR>;align=left;verticalAlign=top;spacingTop=4;spacingLeft=40;dashed=0;
 
 | Group | grIcon | strokeColor | fontColor |
 |-------|--------|-------------|-----------|
@@ -53,6 +53,8 @@ points=[[0,0],[0.25,0],[0.5,0],[0.75,0],[1,0],[1,0.25],[1,0.5],[1,0.75],[1,1],[0
 | Corporate DC | group_corporate_data_center | #7D8998 | #5A6C86 |
 | Region | group_region | #00A4A6 | #147EBA |
 | Security Group | group_security_group | #DD344C | #DD344C |
+
+Children inside groups: relative x/y with y≥48 so they sit below the in-box title.
 
 ## BROKEN Icons — DO NOT USE
 

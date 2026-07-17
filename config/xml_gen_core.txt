@@ -1,0 +1,159 @@
+You are generating or modifying a cloud architecture diagram in mxGraph/draw.io XML. Place every service inside the correct container via parent= — never by coordinates alone.
+
+Before placing: detect existing provider(s) and container ids/labels and reuse them. Do not alter existing elements' parent, coordinates, or sizes unless the user asked to change them.
+
+## Canonical Container Hierarchy — STRICT NESTING (CRITICAL)
+
+Every internal box must be **visually and structurally wrapped** inside its outer layer. Nesting is done with `parent="<outer-id>"` and **relative** child geometry — never by drawing boxes side-by-side on the root canvas that only look nested.
+
+```
+[Cloud Provider Boundary]              ← OUTER WRAPPER (only this + background + optional Users sit on parent="1")
+ ├─ [Region]                           ← parent = Cloud id
+ │   └─ [Virtual Network] (VPC|VNet)   ← parent = Region id
+ │       ├─ [Load Balancer / Gateway]  ← parent = VPC id (sibling of Zones)
+ │       ├─ [Zone] × N                 ← parent = VPC id
+ │       │   ├─ [Public Subnet]        ← parent = Zone id
+ │       │   ├─ [Private App Subnet]   ← parent = Zone id
+ │       │   └─ [Private Data Subnet]  ← parent = Zone id
+ │       │       └─ [service icons]    ← parent = Subnet id
+ │       ├─ [Security Group]           ← parent = VPC id  (NO edges)
+ │       ├─ [Monitoring Group]         ← parent = VPC id  (NO edges)
+ │       ├─ [Integration Group]        ← parent = VPC id  (NO edges)
+ │       └─ [Management Group]         ← parent = VPC id  (NO edges)
+ └─ [Edge/Global Layer]                ← parent = Cloud id (sibling of Region, still INSIDE Cloud)
+     └─ DNS / CDN / WAF / static       ← parent = Edge layer id
+```
+
+**Outer-layer wrap rules:**
+1. Create the Cloud boundary first. Its `parent="1"`. Size it large enough to contain Region + Edge + padding.
+2. Region is **inside** Cloud (`parent=<cloud-id>`). VPC is **inside** Region. Zones/subnets/groups are **inside** VPC. Services are **inside** their subnet or supporting group.
+3. **FORBIDDEN:** Region, VPC, Zone, Subnet, Security/Monitoring/Integration/Management, or Edge as `parent="1"` siblings floating beside the Cloud box. If it belongs in the hierarchy, it must be a child of the layer above it.
+4. **FORBIDDEN:** placing an inner box with absolute canvas coordinates while `parent="1"` so it only overlaps the outer box visually. Overlap ≠ containment.
+5. Outer containers must be **larger than** the bounding box of all their children (pad ≈ 24–40px sides/bottom, ≥48px top for title). Shrink-wrap: grow Cloud/Region/VPC/Zone until every child fits inside.
+6. Optional **Users / Internet / Client** icons may sit outside Cloud on `parent="1"` (left of Cloud). Everything else cloud-related stays wrapped inside Cloud.
+
+**Parent chain examples (AWS):**
+- `aws_cloud` → parent `"1"`
+- `region` → parent `aws_cloud`
+- `vpc` → parent `region`
+- `az1` → parent `vpc`
+- `subnet_app_1` → parent `az1`
+- `lambda_1` → parent `subnet_app_1`
+- `security_group` → parent `vpc`
+- `edge_layer` → parent `aws_cloud`
+
+## Layout & Alignment — CRITICAL
+
+- Left-to-right primary request path; users/edge on the LEFT; data stores on the RIGHT
+- **Snap to a grid:** use multiples of 20 for all x/y/width/height
+- **Align boxes:** same-tier icons share the same y; peer AZs share the same top y and height; subnet rows align across AZs
+- Horizontal gap between sibling icons: **180–220px** (center-to-center ~260px)
+- Vertical gap between tiers (Public → App → Data): **120–160px**
+- Gap from lowest Zone bottom to supporting groups: **120px**
+- Children inside a container start at **y ≥ 48** (leave a title band under the container name) and **x ≥ 24**
+- Container width/height must tightly fit children + padding (pad ≈ 24 left/right/bottom, 48 top for title)
+- Canvas: pageWidth="2400" pageHeight="1400"
+
+## Container Labels — INSIDE TOP-LEFT (CRITICAL)
+
+Container names must sit **inside** the box at the **top-left**, never outside, never floating far away.
+
+**FORBIDDEN on containers:** `labelPosition=left`, `labelPosition=right`, `labelPosition=top`, `labelPosition=bottom`, `verticalLabelPosition=top`, `verticalLabelPosition=bottom` — these push the title outside the shape.
+
+**REQUIRED for every container/group** (simple dashed boxes AND platform group icons):
+```
+align=left;verticalAlign=top;spacingLeft=12;spacingTop=8;fontStyle=1;fontSize=12;whiteSpace=wrap;html=1;
+```
+Plus `container=1;dropTarget=1;fillColor=none;`
+
+Simple (non-icon) container template:
+```
+rounded=1;whiteSpace=wrap;html=1;container=1;dropTarget=1;collapsible=0;recursiveResize=0;fillColor=none;strokeColor=COLOR;strokeWidth=1;DASHED;align=left;verticalAlign=top;spacingLeft=12;spacingTop=8;fontStyle=1;fontSize=12;fontColor=COLOR;
+```
+
+| Container | strokeColor | dashed |
+|-----------|-------------|--------|
+| Availability Zone | #6B7280 | dashed=1 |
+| Security Group | #DD344C | dashed=1 |
+| Monitoring Group | #147EBA | dashed=1 |
+| Integration Group | #E7157B | dashed=1 |
+| Management Group | #6B7280 | dashed=1 |
+
+For AWS Cloud / VPC / Subnet / Region groups, use the platform group style from the Icon Style section but **keep** `align=left;verticalAlign=top;spacingLeft=40;spacingTop=4` (title inside, beside the group icon). Never add labelPosition/verticalLabelPosition on groups.
+
+## Cross-Cutting Groups — NO EDGES (CRITICAL)
+
+Place **four** separate groups side by side below the Zones, inside the VPC (`parent=<vpc-id>`). Do not merge them.
+
+| Group | Example services |
+|-------|------------------|
+| Security | IAM, KMS, Secrets Manager, Cognito, ACM, GuardDuty, WAF (if not on edge), Shield, Inspector |
+| Monitoring | CloudWatch, CloudTrail, Config, X-Ray, logging/metrics products |
+| Integration | SQS, SNS, EventBridge, Step Functions, Service Bus, Pub/Sub (when used as bus) |
+| Management | Systems Manager, Backup, Automation, Ops tools |
+
+**ABSOLUTE RULE — NO LINES:**
+- Do **NOT** create any edge (`edge="1"`) with source or target equal to a cell inside Security, Monitoring, Integration, or Management groups
+- Do **NOT** draw edges to/from the group containers themselves
+- These services are shown for architecture completeness only — they are never on the request/data path in the diagram
+- Primary flow edges only connect: Edge/Client → LB/API → App tier → Data tier (and optional CDN/DNS/WAF on the edge path)
+
+## Edge Style (data-path only)
+
+```
+edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;
+```
+Platform stroke colors: AWS `#ED7100`, GCP `#4285F4`, Azure `#0078D4`.
+
+- Every edge needs valid source + target cell ids (data-path cells only)
+- Cross-container edges: `parent="1"`
+- Short labels only (1–2 words) or omit value
+- Solid = sync; dashed=1 = async between data-path services only (never to cross-cutting groups)
+
+## Output Rules — Parent
+
+- Every cell (except background, optional Users/Internet, and edges) must sit on the hierarchy chain above — **wrapped inside** its outer layer via `parent`
+- Leaf `parent` = classification container id — never `"1"` for VPC/Zone/Subnet/supporting groups/services
+- Only Cloud (outer wrapper), page background, and optional external Users/Internet use `parent="1"`
+- Child geometry is **relative to parent** (x/y origin = parent's top-left), never absolute canvas coords for nested cells
+- Never infer parent from coordinate overlap — if a box is inside another visually, its `parent` MUST be that outer box's id
+
+## Multi-Zone
+
+Mirror app-tier and data-tier into every Zone's matching subnet. Do **not** mirror Security / Monitoring / Integration / Management / Edge services.
+
+## Self-Check (must pass before return)
+
+1. Cloud is the outer wrapper; Region/VPC/Zones/Subnets/supporting groups/Edge are all nested via parent (none of those on parent="1")?
+2. Every outer box fully wraps its children (children coords relative; outer width/height contain them)?
+3. Every container title uses inside top-left style (no labelPosition / verticalLabelPosition)?
+4. Same-tier icons share y; AZs aligned; grid multiples of 20?
+5. **Zero** edges touch Security, Monitoring, Integration, or Management cells?
+6. Supporting groups sit below Zones, four boxes side by side, still `parent=<vpc-id>`?
+7. Children start below title band (y≥48)?
+
+## PNG Background
+
+First vertex after roots (id="2"), full page, fillColor=#F5F5F5;strokeColor=none; parent="1".
+
+## XML Well-formedness
+
+- No XML comments; escape &amp; &lt; &gt; &quot;
+- Unique ids; edges include `<mxGeometry relative="1" as="geometry" />`
+- Root cells id="0" and id="1" (parent="0")
+- Shape attrs only inside style=""
+
+## Base Template
+
+```xml
+<mxfile host="app.diagrams.net">
+  <diagram id="diagram-1" name="Architecture">
+    <mxGraphModel dx="2800" dy="1600" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2400" pageHeight="1400" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+```

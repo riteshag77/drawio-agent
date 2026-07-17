@@ -122,6 +122,7 @@ function setComposerRunStatus(text, level = 'info') {
 
 function showError(msg) {
     setComposerRunStatus(msg, 'error');
+    if (typeof showToast === 'function') showToast(msg, 'error');
 }
 
 function hideError() {
@@ -160,6 +161,9 @@ function finishChatRun({ outcome = 'idle', message = '', diagramMessage = '' } =
             : outcome === 'stopped' ? 'warn'
             : 'info';
         setComposerRunStatus(message, level);
+        if (typeof showToast === 'function' && (outcome === 'success' || outcome === 'error' || outcome === 'stopped')) {
+            showToast(message, outcome === 'stopped' ? 'info' : outcome);
+        }
     }
 
     if (diagramMessage) {
@@ -190,17 +194,10 @@ async function handleFileSelect(event) {
 
     for (const file of files.slice(0, 3)) {
         if (file.type.startsWith('image/')) {
-            const dataUrl = await new Promise((res, rej) => {
-                const r = new FileReader();
-                r.onload = () => res(r.result);
-                r.onerror = rej;
-                r.readAsDataURL(file);
-            });
-            attachmentImageData = dataUrl;
-            hasImageAttachment = true;
-            preview.hidden = false;
-            preview.textContent = `📷 ${file.name}`;
-        } else if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+            showToast('Image attach is not available yet — use PDF or text files', 'info');
+            continue;
+        }
+        if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
             preview.hidden = false;
             preview.textContent = `📄 ${file.name} (PDF — describe in prompt or paste text)`;
             attachmentContext += `[Attached PDF: ${file.name} — extract architecture from user description]\n`;
@@ -301,7 +298,7 @@ function setDiagramStatus(text) {
 }
 
 function setActionButtonsEnabled(enabled) {
-    ['btn-download', 'btn-copy', 'btn-open', 'btn-xml'].forEach(id => {
+    ['btn-download', 'btn-copy', 'btn-open', 'btn-xml', 'btn-png'].forEach(id => {
         const btn = document.getElementById(id);
         if (btn) btn.disabled = !enabled;
     });
@@ -376,7 +373,13 @@ function selectPlatform(platform) {
     if (isSending) return;
 
     const previousPlatform = selectedPlatform;
+    if (shouldRegenerateOnPlatformSwitch()) {
+        if (!confirmAction(`Convert the current diagram to ${platform.toUpperCase()}? This regenerates the architecture.`)) {
+            return;
+        }
+    }
     applyPlatformUi(platform);
+    if (typeof updateContextChip === 'function') updateContextChip();
     renderPatternGallery();
 
     if (shouldRegenerateOnPlatformSwitch()) {
@@ -448,11 +451,11 @@ function clearVerboseLogs() {
 }
 
 function updateRightPanelVisibility() {
-    const costPanelActive = document.getElementById('cost-panel').classList.contains('active');
-    const wafPanelActive = document.getElementById('well-architected-panel').classList.contains('active');
-    const compPanelActive = document.getElementById('compliance-panel').classList.contains('active');
-    const open = verboseLogging || validationPanelActive || costPanelActive || wafPanelActive || compPanelActive;
-    document.getElementById('log-panel').classList.toggle('active', open);
+    const costPanelActive = document.getElementById('cost-panel')?.classList.contains('active');
+    const wafPanelActive = !document.getElementById('well-architected-panel')?.hasAttribute('hidden');
+    const compPanelActive = !document.getElementById('compliance-panel')?.hasAttribute('hidden');
+    const open = verboseLogging || costPanelActive || wafPanelActive || compPanelActive;
+    document.getElementById('log-panel')?.classList.toggle('active', open);
 }
 
 function setLogPanelOpen(open) {
@@ -494,6 +497,7 @@ function initVerboseLogging() {
 }
 
 function displayCostEstimate(costData) {
+    if (typeof switchInsightsTab === 'function') switchInsightsTab('cost');
     if (!costData) return;
     const panel = document.getElementById('cost-panel');
     const body = document.getElementById('cost-panel-body');
@@ -599,6 +603,7 @@ function hideWellArchitectedPanel() {
 }
 
 function displayWellArchitected(wafData) {
+    if (typeof switchInsightsTab === 'function') switchInsightsTab('waf');
     if (!wafData) return;
     console.log('WAF data received', wafData.overall_status, wafData.pillars?.length, 'pillars');
     var panel = document.getElementById('well-architected-panel');
@@ -695,6 +700,7 @@ function hideCompliancePanel() {
 }
 
 function displayCompliance(compData) {
+    if (typeof switchInsightsTab === 'function') switchInsightsTab('compliance');
     if (!compData || !compData.frameworks) return;
     var panel = document.getElementById('compliance-panel');
     var tabs = document.getElementById('compliance-tabs');
@@ -831,8 +837,13 @@ function copyXML() {
     if (!currentXml) return;
     navigator.clipboard.writeText(currentXml).then(() => {
         const toast = document.getElementById('copy-toast');
-        toast.classList.add('show');
-        setTimeout(() => toast.classList.remove('show'), 2000);
+        if (toast) {
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 2000);
+        }
+        if (typeof showToast === 'function') showToast('XML copied', 'success');
+    }).catch((err) => {
+        if (typeof showToast === 'function') showToast(err.message || 'Clipboard copy failed', 'error');
     });
 }
 
@@ -1124,7 +1135,7 @@ renderPatternGallery();
 const chatInput = document.getElementById('chat-input');
 chatInput.addEventListener('input', autoResizeChatInput);
 chatInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if ((e.key === 'Enter' && !e.shiftKey) || ((e.ctrlKey || e.metaKey) && e.key === 'Enter')) {
         e.preventDefault();
         sendMessage();
     }

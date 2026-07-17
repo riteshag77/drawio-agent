@@ -34,10 +34,6 @@ class EnvConfigAdapter:
     def static_dir() -> Path:
         return EnvConfigAdapter.base_dir() / "static"
 
-    @staticmethod
-    def patterns_data_dir() -> Path:
-        return EnvConfigAdapter.base_dir() / "app" / "adapters" / "outbound" / "patterns" / "data"
-
     # ── ConfigPort implementation ──────────────────────────────────────
 
     def get(self, key: str, default: Any = None) -> Any:

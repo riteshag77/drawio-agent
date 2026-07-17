@@ -198,6 +198,9 @@ function loadDiagramFromResponse(data) {
     if (data.xml) {
         document.getElementById('xml-output').textContent = data.xml;
         loadDiagramIntoEditor(data.xml);
+        if (typeof pushDiagramVersion === 'function') {
+            pushDiagramVersion(data.xml, `v${(diagramVersions?.length || 0) + 1}`);
+        }
     }
 }
 

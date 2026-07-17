@@ -274,6 +274,9 @@ function implementSuggestions(suggestions, suggWrap) {
 
 function clearChat() {
     if (isSending) return;
+    if (typeof confirmAction === 'function' && !confirmAction('Clear chat and discard the current diagram session?')) {
+        return;
+    }
     chatMessages = [];
     appliedSuggestionTexts = [];
     currentArchitecture = null;
@@ -283,9 +286,14 @@ function clearChat() {
     attachmentContext = '';
     attachmentImageData = null;
     hasImageAttachment = false;
+    if (typeof diagramVersions !== 'undefined') {
+        diagramVersions = [];
+        activeDiagramVersion = -1;
+        if (typeof renderVersionStrip === 'function') renderVersionStrip();
+    }
     const preview = document.getElementById('attachment-preview');
     if (preview) { preview.hidden = true; preview.textContent = ''; }
-    hideValidationBanner();
+    if (typeof hideValidationBanner === 'function') hideValidationBanner();
     setActionButtonsEnabled(false);
     document.getElementById('xml-output').textContent = '';
     const xmlPanel = document.getElementById('xml-panel');

@@ -2,7 +2,7 @@
 
 ## Quick start
 
-1. Edit project-root [`.env`](../.env) (created for you; also see [`.env.example`](../.env.example) if present).
+1. Edit project-root [`.env`](../.env).
 2. Set at least one LLM key, e.g. `OPENAI_API_KEY=sk-...`
 3. Install deps and run:
 
@@ -17,32 +17,25 @@ Open `http://localhost:8000/`.
 
 | Piece | Owns | Does **not** own |
 | --- | --- | --- |
-| **LLM** | Architecture JSON (nodes, edges, labels, `parent_id`) | x/y coordinates, icon styles |
-| **Local layout** | Domain topology + coarse placement: users outside cloud, AZ wrap, Public→App→Data stack, bands, IGW clamp, leaf size `48×48` | Edge path geometry, official AWS/GCP/Azure icon catalogue |
-| **Draw.io MCP** | `search_shapes` → icon styles; `create_diagram(routing=libavoid)` → edge routing **only when it returns mxGraph XML** | VPC/AZ/subnet spatial meaning (do not use `postLayout=elk`) |
-| **UI “Render” select** | Per-request `auto` / `mcp` / `local` override of `DIAGRAM_RENDERER` | — |
-| **Cursor skills** | Manual publish-quality `.drawio` in Cursor chat | FastAPI runtime |
+| **LLM** | Full draw.io XML (structure + coordinates + labels) | Official icon catalogue resolution |
+| **Prompt CORE + platform packs** | Layout hierarchy, classification, icon mechanics | Runtime MCP style lookup |
+| **Draw.io MCP** | `search_shapes` → icon styles; optional `create_diagram(libavoid)` | Spatial meaning of VPC/AZ/subnet |
+| **UI Render select** | Per-request `auto` / `mcp` / `local` | — |
+| **Cursor skills** | Manual publish-quality `.drawio` in Cursor | FastAPI runtime |
 
 ```text
-LLM JSON → topology repair → local AZ/tier placement → MCP styles
-         → (optional) MCP libavoid XML if returned → UI iframe
+LLM XML → validate/fix → (parallel) cost/WAF/compliance + MCP styles
+         → (optional) libavoid → UI iframe
 ```
 
-If MCP returns only a preview URL (no XML), the app **keeps local edges** and does not pretend routing improved.
-
 ## `.env` keys
-
-Project [`.env`](../.env) holds local settings (LLM, server, layout, bands, scaffolds, MCP).
-
-Important groups:
 
 ```env
 # LLM
 OPENAI_API_KEY=
-OPENROUTER_API_KEY=
-BAZAARLINK_API_KEY=
-BAZAARLINK_MODEL=auto:free
 PROVIDER_DEFAULT=openai
+LLM_TIMEOUT=120
+MAX_CONCURRENT_LLM=4
 
 # Server
 HOST=0.0.0.0
@@ -55,27 +48,20 @@ DRAWIO_MCP_TIMEOUT=30
 DRAWIO_MCP_CONCURRENCY=4
 DRAWIO_MCP_LIBAVOID=false
 DRAWIO_STYLE_CACHE_PATH=data/mcp_style_cache.sqlite3
-MAX_CONCURRENT_LLM=4
-
-# Legacy layout leaf/scaffold knobs are unused by the XML-direct pipeline.
 ```
 
-- **`DIAGRAM_RENDERER=auto`** — MCP icon styles (parallel + cached); local edges by default. Set `DRAWIO_MCP_LIBAVOID=true` for an extra create_diagram hop.
-- **`local`** — never call MCP (offline).
-- **`mcp`** — same as auto for styles/routing; still falls back if MCP errors.
+- **`DIAGRAM_RENDERER=auto`** — MCP icon styles (cached + concurrent). Set `DRAWIO_MCP_LIBAVOID=true` for an extra create_diagram hop.
+- **`local`** — skip MCP (offline).
+- Prompt assembly uses `config/xml_gen_core.txt` + platform classify/icon packs (not the legacy monolithic multi-cloud table).
 
 ## Web app flow
 
-1. Chat → LLM builds architecture.
-2. Topology repair (users outside cloud, AZ hierarchy, bands).
-3. Local layout places containers/leaves.
-4. If renderer is `auto`/`mcp`, FastAPI calls `search_shapes` for leaf styles, then `create_diagram` with `routing=libavoid`.
-5. Use returned XML only when present; otherwise keep local XML.
-6. Response includes `renderer_used` and optional `mcp_preview_url` (only when routed XML was applied).
+1. Chat → intent (cloud vs simple Mermaid).
+2. Cloud: LLM emits draw.io XML from CORE + platform packs.
+3. Validate/normalize XML; run cost/WAF/compliance in parallel with MCP icon resolve.
+4. Response includes `xml`, optional insights, and step `logs`. Prefer `POST /chat/stream` for progress.
 
 ## Cursor chat (skills)
-
-Same repo, separate path for stakeholder diagrams:
 
 ```text
 Use the aws-architecture-diagram skill to create …
@@ -83,14 +69,12 @@ Use the azure-diagrams skill for …
 Use the drawio-skill for multi-cloud …
 ```
 
-Cursor MCP config: [`.cursor/mcp.json`](../.cursor/mcp.json). The **app** uses `DRAWIO_MCP_URL` from `.env` independently.
+App MCP URL is independent of Cursor MCP config (`.cursor/mcp.json`).
 
 ## Troubleshooting
 
 | Symptom | Fix |
 | --- | --- |
 | Chat fails with missing API key | Fill `OPENAI_API_KEY` (or another provider) in `.env` |
-| Always `renderer_used: local` | Check network to `DRAWIO_MCP_URL`; `pip install mcp`; set Render to Auto |
-| Icons wrong but XML loads | MCP returned no match — local catalogue fallback; try clearer shape names |
-| Edges still look local | MCP did not return XML (preview-only) — expected; containment layout stays local |
-| Cursor MCP not connected | Cursor Settings → MCP → reload; confirm `.cursor/mcp.json` |
+| Always `renderer_used: local` | Check network to `DRAWIO_MCP_URL`; `pip install mcp` |
+| Icons wrong but XML loads | MCP miss — try clearer service names; cache in `DRAWIO_STYLE_CACHE_PATH` |

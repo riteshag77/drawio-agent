@@ -244,8 +244,27 @@ def _build_llm_prompt(services: list[str], xml: str, fw_ids: list[str], framewor
     fw_contexts: list[str] = []
     for fw_id in fw_ids:
         cfg = frameworks.get(fw_id, {})
-        fw_contexts.append(f"{cfg.get('name', fw_id)}: {cfg.get('description', '')}")
-    framework_description = "\n".join(fw_contexts)
+        lines = [f"{cfg.get('name', fw_id)}: {cfg.get('description', '')}"]
+        controls = cfg.get("controls") or {}
+        for ctrl_id, ctrl in list(controls.items())[:12]:
+            name = ctrl.get("name") or ctrl_id
+            req = ctrl.get("required_services") or {}
+            # required_services may be dict of category→list or a flat list
+            if isinstance(req, dict):
+                svc_bits = []
+                for cat, vals in req.items():
+                    if isinstance(vals, list):
+                        svc_bits.append(f"{cat}: {', '.join(vals[:6])}")
+                    else:
+                        svc_bits.append(f"{cat}: {vals}")
+                req_str = "; ".join(svc_bits) if svc_bits else "n/a"
+            elif isinstance(req, list):
+                req_str = ", ".join(str(x) for x in req[:10])
+            else:
+                req_str = str(req) if req else "n/a"
+            lines.append(f"  - Control `{name}`: required → {req_str}")
+        fw_contexts.append("\n".join(lines))
+    framework_description = "\n\n".join(fw_contexts)
 
     service_list_str = "\n".join(
         f"  - {s} ({_SERVICE_CATEGORIES.get(s, 'unknown')})" for s in services

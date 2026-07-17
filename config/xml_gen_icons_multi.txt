@@ -41,7 +41,7 @@ image;aspect=fixed;html=1;image=img/lib/azure2/<Category>/<Icon>.svg;…
 
 - One container / swimlane per cloud (AWS / GCP / Azure)
 - Container stroke colors: AWS #232F3E, GCP #4285F4, Azure #0078D4
-- Simple group style (all clouds):
-rounded=0;whiteSpace=wrap;html=1;container=1;dropTarget=1;collapsible=0;recursiveResize=0;fillColor=none;strokeColor=<COLOR>;fontColor=<COLOR>;align=left;verticalAlign=top;spacingLeft=10;fontStyle=1;fontSize=12;
-- Left-to-right or top-to-bottom by provider; edges between clouds use dashed optional style when async/hybrid
+- Simple group style (title inside top-left; NEVER labelPosition/verticalLabelPosition):
+rounded=1;whiteSpace=wrap;html=1;container=1;dropTarget=1;collapsible=0;recursiveResize=0;fillColor=none;strokeColor=<COLOR>;fontColor=<COLOR>;align=left;verticalAlign=top;spacingLeft=12;spacingTop=8;fontStyle=1;fontSize=12;
+- Left-to-right or top-to-bottom by provider; edges between clouds only on data-path nodes (never Security/Monitoring/Integration/Management)
 - Icon size 78x78 (main), 65x65 (secondary)

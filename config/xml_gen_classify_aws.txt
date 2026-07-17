@@ -1,0 +1,19 @@
+## Service Classification — AWS only
+
+Classify using this decision order — stop at the first match:
+
+| # | Category | AWS examples | Place in |
+|---|----------|--------------|----------|
+| 1 | Global/edge — DNS, CDN, WAF, static | Route 53, CloudFront, WAF, S3 (static) | Edge/Global Layer |
+| 2 | Identity, encryption, secrets | IAM, KMS, Secrets Manager, ACM, Cognito, GuardDuty | Security Group (NO edges) |
+| 3 | Observability, audit | CloudWatch, CloudTrail, Config, X-Ray | Monitoring Group (NO edges) |
+| 4 | Messaging / integration bus | SQS, SNS, EventBridge, Step Functions | Integration Group (NO edges) |
+| 5 | Operational, management | Systems Manager, AWS Backup | Management Group (NO edges) |
+| 6 | Stateless compute, app-tier | EC2, ECS, Lambda (app) | Zone → Private App Subnet |
+| 7 | Stateful data-tier | RDS, Aurora, ElastiCache, DynamoDB | Zone → Private Data Subnet |
+| 8 | Network LB / routing | ALB, NLB, API Gateway | Virtual Network (sibling of Zones) |
+| 9 | Zone internet-facing infra | NAT Gateway, Bastion | That Zone's Public Subnet |
+
+Cross-cutting groups (rows 2–5): place icons only — **never** draw edges to or from them.
+
+NEVER use mxgraph.gcp2, mxgraph.gcp2020, or img/lib/azure2 in AWS diagrams.

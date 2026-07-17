@@ -81,7 +81,7 @@
             </div>
 
             <div class="sidebar-footer">
-                <input type="file" id="file-input" multiple accept="image/*,.pdf,.txt,.md,.json" hidden onchange="handleFileSelect(event)">
+                <input type="file" id="file-input" multiple accept=".pdf,.txt,.md,.json,.yaml,.yml" hidden onchange="handleFileSelect(event)">
                 <div id="attachment-preview" class="attachment-preview" hidden></div>
                 <div id="voice-status" class="voice-status" hidden>
                     <span class="voice-dot"></span><span id="voice-status-text">Listening…</span>
@@ -91,7 +91,7 @@
                         placeholder="Describe or refine your architecture…"></textarea>
                     <div class="composer-actions">
                         <div class="composer-tools">
-                            <button type="button" class="composer-btn" onclick="document.getElementById('file-input').click()" title="Attach image, PDF, or text" aria-label="Attach file">
+                            <button type="button" class="composer-btn" onclick="document.getElementById('file-input').click()" title="Attach PDF or text (images coming soon)" aria-label="Attach file">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                     <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
                                 </svg>
@@ -248,12 +248,18 @@
             <div class="diagram-toolbar">
                 <div>
                     <div class="title">Diagram Preview</div>
-                    <div id="diagram-status" class="status">Waiting for generation</div>
+                    <div id="diagram-status" class="status" role="status" aria-live="polite">Waiting for generation</div>
+                    <div id="context-chip" class="context-chip" aria-live="polite"></div>
+                    <div id="version-strip" class="version-strip" hidden></div>
                 </div>
                 <div class="toolbar-actions">
                     <button id="btn-download" class="btn-action primary" onclick="downloadXML()" disabled>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
-                        Download
+                        Download .drawio
+                    </button>
+                    <button id="btn-png" class="btn-action" onclick="downloadPNG()" disabled title="Export PNG from Draw.io">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+                        PNG
                     </button>
                     <button id="btn-copy" class="btn-action" onclick="copyXML()" disabled>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
@@ -290,12 +296,12 @@
             </div>
         </main>
 
-        <!-- Right: validation + pipeline logs -->
+        <!-- Right: insights (cost / WAF / compliance / logs) -->
         <aside id="log-panel" class="log-panel">
             <div class="log-panel-header">
                 <div class="title-block">
                     <h2>Diagram Insights</h2>
-                    <p>Validation &amp; pipeline steps</p>
+                    <p>Cost, architecture review, and logs</p>
                 </div>
                 <div class="log-panel-actions">
                     <span id="log-count-badge" class="log-count-badge">0 entries</span>
@@ -303,26 +309,20 @@
                     <button type="button" class="btn-log-action" onclick="closeLogPanel()" title="Close panel">✕</button>
                 </div>
             </div>
-            <div id="validation-panel" class="validation-panel">
-                <div class="validation-panel-header">
-                    <h3>Visual Validation</h3>
-                    <span id="validation-status-badge" class="validation-status-badge">Issues found</span>
-                </div>
-                <div id="validation-panel-body" class="validation-panel-body"></div>
-                <button type="button" id="btn-fix-layout" class="btn-fix-layout" onclick="fixLayoutIssues()">
-                    Fix layout automatically
-                </button>
-                <button type="button" id="btn-apply-layout" class="btn-fix-layout" onclick="applyLayoutToEditor()" style="margin-top: 8px;">
-                    Apply layout
-                </button>
+            <div class="insights-tabs" role="tablist" aria-label="Insights">
+                <button type="button" class="insights-tab active" data-tab="cost" role="tab" aria-selected="true" onclick="switchInsightsTab('cost')">Cost</button>
+                <button type="button" class="insights-tab" data-tab="waf" role="tab" aria-selected="false" onclick="switchInsightsTab('waf')">WAF</button>
+                <button type="button" class="insights-tab" data-tab="compliance" role="tab" aria-selected="false" onclick="switchInsightsTab('compliance')">Compliance</button>
+                <button type="button" class="insights-tab" data-tab="logs" role="tab" aria-selected="false" onclick="switchInsightsTab('logs')">Logs</button>
             </div>
-            <div id="cost-panel" class="cost-panel">
+            <div class="insights-tab-panels">
+            <div id="cost-panel" class="cost-panel insights-panel active" data-panel="cost">
                 <div class="cost-panel-header">
                     <div class="cost-panel-header-left">
                         <svg class="cost-panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
                         <h3>Cost Estimate</h3>
                     </div>
-                    <span class="cost-panel-close" onclick="hideCostEstimate()">&times;</span>
+                    <button type="button" class="cost-panel-close" onclick="hideCostEstimate()" aria-label="Hide cost panel">&times;</button>
                 </div>
                 <div class="cost-panel-total">
                     <span id="cost-total-amount" class="cost-total-amount">A$0</span>
@@ -330,13 +330,13 @@
                 </div>
                 <div id="cost-panel-body" class="cost-panel-body"></div>
             </div>
-            <div id="well-architected-panel" class="waf-panel">
+            <div id="well-architected-panel" class="waf-panel insights-panel" data-panel="waf" hidden>
                 <div class="waf-panel-header">
                     <div class="waf-panel-header-left">
                         <svg class="waf-panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
                         <h3>Well-Architected Review</h3>
                     </div>
-                    <span class="waf-panel-close" onclick="hideWellArchitectedPanel()">&times;</span>
+                    <button type="button" class="waf-panel-close" onclick="hideWellArchitectedPanel()" aria-label="Hide WAF panel">&times;</button>
                 </div>
                 <div class="waf-panel-summary">
                     <span id="waf-overall-badge" class="waf-overall-badge">--</span>
@@ -344,13 +344,13 @@
                 </div>
                 <div id="waf-panel-body" class="waf-panel-body"></div>
             </div>
-            <div id="compliance-panel" class="compliance-panel">
+            <div id="compliance-panel" class="compliance-panel insights-panel" data-panel="compliance" hidden>
                 <div class="compliance-header">
                     <div class="compliance-header-left">
                         <svg class="compliance-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><path d="M12 2a10 10 0 1 0 10 10h-10V2z"/><path d="M12 2v10h10"/></svg>
                         <h3>Compliance</h3>
                     </div>
-                    <span class="compliance-close" onclick="hideCompliancePanel()">&times;</span>
+                    <button type="button" class="compliance-close" onclick="hideCompliancePanel()" aria-label="Hide compliance panel">&times;</button>
                 </div>
                 <div class="compliance-tabs" id="compliance-tabs"></div>
                 <div class="compliance-legend">
@@ -362,12 +362,20 @@
                     <div class="compliance-empty">Generate a diagram with Compliance Assessment enabled to see results</div>
                 </div>
             </div>
-            <div id="verbose-log-body" class="log-panel-body">
+            <div id="verbose-log-body" class="log-panel-body insights-panel" data-panel="logs" hidden>
                 <div class="log-empty">Turn on <strong>Pipeline logs</strong> in Settings, then generate a diagram to see each step here with full details.</div>
+            </div>
             </div>
         </aside>
     </div>
 
+    <nav class="mobile-tab-bar" aria-label="Mobile navigation">
+        <button type="button" class="mobile-tab active" data-mobile="chat" onclick="switchMobilePane('chat')">Chat</button>
+        <button type="button" class="mobile-tab" data-mobile="diagram" onclick="switchMobilePane('diagram')">Diagram</button>
+        <button type="button" class="mobile-tab" data-mobile="insights" onclick="switchMobilePane('insights')">Insights</button>
+    </nav>
+
+    <div id="app-toast" class="app-toast" role="status" aria-live="assertive" hidden></div>
     <div class="copy-feedback" id="copy-toast">Copied to clipboard!</div>
     <script src="/static/js/state.js"></script>
     <script src="/static/js/resizer.js"></script>
@@ -375,7 +383,9 @@
     <script src="/static/js/diagram.js"></script>
     <script src="/static/js/voice.js"></script>
     <script src="/static/js/chat.js"></script>
-    <script src="/static/js/validation.js"></script>
+    <script src="/static/js/toast.js"></script>
+    <script src="/static/js/exports.js"></script>
+    <script src="/static/js/insights-ui.js"></script>
     <script src="/static/js/app.js"></script>
 </body>
 

@@ -1,0 +1,19 @@
+## Service Classification — Azure only
+
+Classify using this decision order — stop at the first match:
+
+| # | Category | Azure examples | Place in |
+|---|----------|----------------|----------|
+| 1 | Global/edge — DNS, CDN, WAF, static | Azure DNS, Front Door, WAF, Blob Storage (static) | Edge/Global Layer |
+| 2 | Identity, encryption, secrets | Entra ID, Key Vault, Managed Identities | Security Group (NO edges) |
+| 3 | Observability, audit | Azure Monitor, Log Analytics, Defender for Cloud | Monitoring Group (NO edges) |
+| 4 | Messaging / integration bus | Service Bus, Event Grid, Event Hubs, Logic Apps | Integration Group (NO edges) |
+| 5 | Operational, management | Azure Automation, Azure Backup, Update Mgmt | Management Group (NO edges) |
+| 6 | Stateless compute, app-tier | Azure VM, AKS, Functions | Zone → Private App Subnet |
+| 7 | Stateful data-tier | Azure SQL, Cosmos DB, Cache for Redis | Zone → Private Data Subnet |
+| 8 | Network LB / routing | Load Balancer, App Gateway, API Management | Virtual Network (sibling of Zones) |
+| 9 | Zone internet-facing infra | NAT Gateway, Azure Bastion | That Zone's Public Subnet |
+
+Cross-cutting groups (rows 2–5): icons only — **never** draw edges to or from them.
+
+NEVER use mxgraph.aws4 or mxgraph.gcp2 in Azure diagrams.
