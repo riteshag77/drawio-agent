@@ -13,6 +13,7 @@ from app.adapters.outbound.diagram.xml_tools import (
     coerce_drawio_xml,
     ensure_diagram_document,
     extract_shape_types,
+    merge_drawio_styles,
     validate_and_fix_xml,
 )
 
@@ -184,25 +185,63 @@ class ShapeTypeAndStyleTests(unittest.TestCase):
         xml = '<mxCell shape_type="aws_waf" style="x;" vertex="1"/>'
         self.assertEqual(extract_shape_types(xml), ["aws_waf"])
 
-    def test_apply_mcp_styles_replaces_and_escapes(self) -> None:
+    def test_apply_mcp_styles_merges_and_escapes(self) -> None:
         xml = (
             '<mxfile host="app.diagrams.net"><diagram name="A" id="d1">'
             "<mxGraphModel><root>"
             '<mxCell id="0"/><mxCell id="1" parent="0"/>'
-            '<mxCell id="2" value="Fn" shape_type="aws_lambda" style="old;" '
+            '<mxCell id="2" value="Fn" shape_type="aws_lambda" '
+            'style="rounded=0;fillColor=#F5F5F5;verticalLabelPosition=bottom;'
+            'verticalAlign=top;align=center;fontSize=12;aspect=fixed;" '
             'vertex="1" parent="1">'
             '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/>'
             "</mxCell>"
             "</root></mxGraphModel></diagram></mxfile>"
         )
-        style = "sketch=0;html=1;fillColor=#ED7100;label=A & B;"
-        out = apply_mcp_styles(xml, {"aws_lambda": style})
+        mcp = (
+            "sketch=0;html=1;fillColor=#ED7100;strokeColor=#ffffff;"
+            "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;"
+            "verticalLabelPosition=middle;label=A & B;"
+        )
+        out = apply_mcp_styles(xml, {"aws_lambda": mcp})
         tree = ET.fromstring(out)
         cell = next(c for c in tree.iter("mxCell") if c.get("id") == "2")
-        self.assertEqual(cell.get("style"), style)
+        style = cell.get("style") or ""
         self.assertIsNone(cell.get("shape_type"))
-        # Round-trip serialization must keep & escaped in the XML text
+        self.assertIn("resIcon=mxgraph.aws4.lambda", style)
+        self.assertIn("fillColor=#ED7100", style)
+        # LLM presentation keys preserved over MCP
+        self.assertIn("verticalLabelPosition=bottom", style)
+        self.assertIn("fontSize=12", style)
+        self.assertIn("aspect=fixed", style)
         self.assertIn("A &amp; B", out)
+
+    def test_merge_drawio_styles_preserves_labels(self) -> None:
+        base = "rounded=0;fillColor=#F5F5F5;verticalLabelPosition=bottom;fontSize=12;aspect=fixed;"
+        mcp = "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.s3;fillColor=#7AA116;verticalLabelPosition=middle;"
+        merged = merge_drawio_styles(base, mcp)
+        self.assertIn("resIcon=mxgraph.aws4.s3", merged)
+        self.assertIn("fillColor=#7AA116", merged)
+        self.assertIn("verticalLabelPosition=bottom", merged)
+        self.assertIn("fontSize=12", merged)
+
+    def test_apply_mcp_styles_miss_leaves_cell_unchanged(self) -> None:
+        xml = (
+            '<mxfile host="app.diagrams.net"><diagram name="A" id="d1">'
+            "<mxGraphModel><root>"
+            '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            '<mxCell id="2" value="Fn" shape_type="aws_lambda" '
+            'style="fillColor=#F5F5F5;verticalLabelPosition=bottom;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/>'
+            "</mxCell>"
+            "</root></mxGraphModel></diagram></mxfile>"
+        )
+        out = apply_mcp_styles(xml, {"aws_s3": "shape=mxgraph.aws4.s3;"})
+        tree = ET.fromstring(out)
+        cell = next(c for c in tree.iter("mxCell") if c.get("id") == "2")
+        self.assertEqual(cell.get("shape_type"), "aws_lambda")
+        self.assertIn("fillColor=#F5F5F5", cell.get("style") or "")
 
 
 class StyleCacheLruTests(unittest.TestCase):

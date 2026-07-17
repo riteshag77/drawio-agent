@@ -23,6 +23,11 @@ _resolve_config()
 
 cfg = get_config()
 
+if cfg.drawio_style_cache_reset:
+    from app.adapters.outbound.diagram.style_cache import clear_style_cache
+
+    clear_style_cache()
+
 logger = None  # lazy import to avoid circular dependency
 
 

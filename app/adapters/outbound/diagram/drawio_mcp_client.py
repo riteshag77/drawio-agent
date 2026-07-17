@@ -209,10 +209,11 @@ async def resolve_shape_styles(
 
     resolved: dict[str, str] = {}
     misses: list[str] = []
+    unresolved: list[str] = []
     for st in unique:
         cloud = _platform_from_shape_type(st, platform)
         cached = cache_get((cloud, st))
-        if cached is not None:
+        if cached is not None and cached.strip():
             resolved[st] = cached
         else:
             misses.append(st)
@@ -229,25 +230,37 @@ async def resolve_shape_styles(
                     payload = await _mcp_call_tool("search_shapes", {"query": query, "limit": 5})
                     cloud = _platform_from_shape_type(st, platform)
                     pick = _pick_style(_extract_styles(payload), cloud)
-                    if pick:
+                    if pick and pick.strip():
                         cache_put((cloud, st), pick)
                         _log.info("MCP resolved %s via %r", st, query)
                         return st, pick, None
-                    _log.info("MCP no style for %s (%r)", st, query)
+                    _log.info("MCP miss for %s (%r)", st, query)
                     return st, None, None
                 except DrawioMcpError as exc:
                     return st, None, exc
 
         results = await asyncio.gather(*[_resolve_one(st) for st in misses])
         for st, pick, err in results:
-            if pick:
+            if pick and pick.strip():
                 resolved[st] = pick
-            elif err is not None and first_error is None:
-                first_error = err
+            else:
+                unresolved.append(st)
+                if err is not None and first_error is None:
+                    first_error = err
 
     if logger:
-        logger.log("mcp_search_output", "MCP search_shapes response",
-                    details={"resolved_count": len(resolved), "resolved": resolved})
+        logger.log(
+            "mcp_search_output",
+            "MCP search_shapes response",
+            details={"resolved_count": len(resolved), "resolved": resolved},
+        )
+        if unresolved:
+            logger.log(
+                "mcp_miss",
+                f"MCP found no style for {len(unresolved)} shape_type(s) — placeholders kept",
+                level="warning",
+                details={"misses": unresolved},
+            )
     # If nothing resolved and MCP is hard-failing, surface the error for fallback.
     if not resolved and first_error is not None and memory_empty():
         raise first_error

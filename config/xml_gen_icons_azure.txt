@@ -1,34 +1,26 @@
 ## Icon Style — Azure (CRITICAL)
 
-- Official Azure Architecture icons in draw.io use **image SVG paths**, not AWS-style resourceIcon frames
-- Correct library prefix: `image=img/lib/azure2/<Category>/<Icon>.svg`
+Service **leaf** icons are resolved by the server via Draw.io MCP (`image=img/lib/azure2/…`). Do not invent conflicting stencil strings.
+
 - NEVER use shape=mxgraph.azure2.resourceIcon or resIcon=mxgraph.azure2.* (blank / wrong)
-- NEVER use mxgraph.aws4.* or mxgraph.gcp2.* / gcp2020
-- Icon size: 78x78px for main services, 65x65px for secondary
+- NEVER use mxgraph.aws4.* or mxgraph.gcp2.* / gcp2020 on Azure leaves
+- Icon size: 78x78 main, 65x65 secondary
 
-## Service Icon Pattern
+## MCP shape_type — REQUIRED for every service leaf
 
-Style template:
-aspect=fixed;html=1;points=[];align=center;image;fontSize=12;image=img/lib/azure2/<Category>/<Icon>.svg;verticalLabelPosition=bottom;labelBackgroundColor=none;verticalAlign=top;fontColor=#232F3E;
-
-Example App Service:
-aspect=fixed;html=1;points=[];align=center;image;fontSize=12;image=img/lib/azure2/App Services/AppService.svg;verticalLabelPosition=bottom;verticalAlign=top;fontColor=#232F3E;
-
-## MCP shape_type — REQUIRED for service icons
-
-Every Azure **service** icon mxCell MUST include shape_type so the server can resolve the official SVG style:
-
+```xml
 <mxCell id="10" value="App Service" shape_type="azure_app_service"
-  style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F5F5F5;fontColor=#232F3E;verticalLabelPosition=bottom;verticalAlign=top;align=center;"
-  vertex="1" parent="1">
-  <mxGeometry x="…" y="…" width="78" height="78" as="geometry" />
+  style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#CCCCCC;fontColor=#232F3E;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontSize=12;aspect=fixed;"
+  vertex="1" parent="<container-id>">
+  <mxGeometry x="24" y="48" width="78" height="78" as="geometry" />
 </mxCell>
+```
 
 Rules:
-- shape_type="azure_<snake_case_service>" (e.g. azure_app_service, azure_sql_database, azure_functions, azure_key_vault)
-- Placeholder style may be plain; MCP will replace it with image=img/lib/azure2/…
-- When you know the path from the reference list, put the full image= style in style="" as well
-- Groups / containers do NOT need shape_type
+- `shape_type="azure_<snake_case_service>"` (e.g. azure_app_service, azure_sql_database, azure_functions, azure_key_vault)
+- Leaf `style` is a **placeholder only**. MCP merges the official SVG `image=` style.
+- Do **NOT** invent full `image=img/lib/azure2/…` on leaves when using MCP (placeholder + shape_type is enough)
+- **Groups / containers MUST NOT** have `shape_type`
 
 ## Group Boundaries — Azure
 
@@ -37,15 +29,9 @@ rounded=1;whiteSpace=wrap;html=1;container=1;dropTarget=1;collapsible=0;recursiv
 
 Common boundaries: Azure Subscription, Resource Group, VNet, Subnet, Region — strokeColor=#0078D4. Children y≥48.
 
-## FORBIDDEN (will blank icons)
+## FORBIDDEN
 
-- shape=mxgraph.azure2.resourceIcon
-- resIcon=mxgraph.azure2.*
-- shape=mxgraph.aws4.resourceIcon / resIcon=mxgraph.aws4.*
-- shape=mxgraph.gcp2020.* / mxgraph.gcp2.* (wrong platform)
-
-## Azure Validation Extras
-
-1. Service icons use image=img/lib/azure2/… or shape_type for MCP
-2. Never invent azure2.resourceIcon
-3. No AWS resourceIcon patterns
+- shape=mxgraph.azure2.resourceIcon / resIcon=mxgraph.azure2.*
+- AWS or GCP stencil libraries on Azure leaves
+- Omitting shape_type on service leaves
+- shape_type on groups/containers

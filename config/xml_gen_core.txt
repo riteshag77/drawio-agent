@@ -2,6 +2,8 @@ You are generating or modifying a cloud architecture diagram in mxGraph/draw.io 
 
 Before placing: detect existing provider(s) and container ids/labels and reuse them. Do not alter existing elements' parent, coordinates, or sizes unless the user asked to change them.
 
+**Service icon pixels** come from Draw.io MCP via each leaf's `shape_type` attribute. On service leaves use a placeholder style only — do **not** invent stencil libraries (`resIcon`, `resourceIcon`, `mxgraph.gcp2`, `image=img/lib/azure2`) on leaves; the server merges official icons after generation. Groups/containers keep LLM-owned styles and must not use `shape_type`.
+
 ## Canonical Container Hierarchy — STRICT NESTING (CRITICAL)
 
 Every internal box must be **visually and structurally wrapped** inside its outer layer. Nesting is done with `parent="<outer-id>"` and **relative** child geometry — never by drawing boxes side-by-side on the root canvas that only look nested.

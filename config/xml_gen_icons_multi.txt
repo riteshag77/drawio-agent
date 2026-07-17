@@ -1,41 +1,19 @@
-## Icon Style — Multi-Cloud (CRITICAL, token-efficient)
+## Icon Style — Multi-Cloud (CRITICAL)
 
-Use the correct icon family **per service**. Do NOT invent stencils. Prefer MCP via shape_type.
+Service **leaf** icons are resolved by Draw.io MCP via `shape_type`. Do not invent full stencil strings on leaves.
 
-### Hard rule — shape_type on EVERY service icon
+### Hard rule — shape_type on EVERY service leaf
 
-Every cloud **service** mxCell MUST include a cloud-prefixed shape_type. Placeholder style is OK; the server replaces style via MCP.
+- AWS: `shape_type="aws_<snake_case>"` (e.g. aws_lambda, aws_s3)
+- GCP: `shape_type="gcp_<snake_case>"` (e.g. gcp_cloud_run, gcp_gke)
+- Azure: `shape_type="azure_<snake_case>"` (e.g. azure_app_service, azure_aks)
 
-- AWS: shape_type="aws_<snake_case>" (e.g. aws_lambda, aws_s3, aws_api_gateway)
-- GCP: shape_type="gcp_<snake_case>" (e.g. gcp_cloud_run, gcp_gke, gcp_pubsub)
-- Azure: shape_type="azure_<snake_case>" (e.g. azure_app_service, azure_functions, azure_aks)
+Placeholder leaf style (MCP merges the official icon):
+```
+rounded=0;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#CCCCCC;fontColor=#232F3E;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontSize=12;aspect=fixed;
+```
 
-Example:
-<mxCell id="10" value="Lambda" shape_type="aws_lambda"
-  style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F5F5F5;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontColor=#232F3E;"
-  vertex="1" parent="1">
-  <mxGeometry x="200" y="200" width="78" height="78" as="geometry" />
-</mxCell>
-
-Groups / swimlanes do NOT need shape_type.
-
-### Three style families (when you know the stencil)
-
-**AWS** — mxgraph.aws4 resourceIcon (strokeColor=#ffffff; fillColor by category):
-shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.<name>;…
-
-**GCP** — mxgraph.gcp2 ONLY (NEVER gcp2020):
-shape=mxgraph.gcp2.<name>;…
-
-**Azure** — SVG image paths ONLY (NEVER azure2.resourceIcon):
-image;aspect=fixed;html=1;image=img/lib/azure2/<Category>/<Icon>.svg;…
-
-### FORBIDDEN
-
-- Mixing AWS resourceIcon onto GCP/Azure cells
-- mxgraph.gcp2020.*
-- shape=mxgraph.azure2.resourceIcon / resIcon=mxgraph.azure2.*
-- Omitting shape_type on service icons
+Groups / swimlanes do NOT need shape_type and must not invent leaf stencils.
 
 ### Layout for multi-cloud
 
@@ -45,3 +23,9 @@ image;aspect=fixed;html=1;image=img/lib/azure2/<Category>/<Icon>.svg;…
 rounded=1;whiteSpace=wrap;html=1;container=1;dropTarget=1;collapsible=0;recursiveResize=0;fillColor=none;strokeColor=<COLOR>;fontColor=<COLOR>;align=left;verticalAlign=top;spacingLeft=12;spacingTop=8;fontStyle=1;fontSize=12;
 - Left-to-right or top-to-bottom by provider; edges between clouds only on data-path nodes (never Security/Monitoring/Integration/Management)
 - Icon size 78x78 (main), 65x65 (secondary)
+
+### FORBIDDEN
+
+- Inventing resIcon / resourceIcon / gcp2 / azure2 image paths on service leaves
+- Omitting shape_type on service leaves
+- Mixing AWS icons inside a GCP/Azure boundary (or vice versa)

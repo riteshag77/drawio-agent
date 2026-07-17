@@ -1,46 +1,36 @@
 ## Icon Style — AWS (CRITICAL)
 
-- Icons use draw.io's built-in mxgraph.aws4 stencil library (official AWS Architecture Icons)
-- Icon size: 78x78px for main services, 65x65px for secondary
-- Use sketch=0;outlineConnect=0; on all icons
-- Use strokeColor=#ffffff on all AWS service icons (resourceIcon pattern)
-- MUST include fillColor — without it, icons render as invisible/white in PNG export
-- Font size: 12px for labels
-- Always include: fontColor=#232F3E;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;aspect=fixed;
+Service **leaf** icons are resolved by the server via Draw.io MCP. You must NOT invent full `mxgraph.aws4.resourceIcon` / `resIcon=` strings on leaves — that fights MCP and causes blank icons.
 
-fillColor by AWS service category:
+### MCP shape_type — REQUIRED for every service leaf
 
-| Category | fillColor | Services |
-|----------|-----------|----------|
-| Compute | #ED7100 | Lambda, EC2, ECS, EKS, Fargate |
-| Networking | #8C4FFF | VPC, ELB, CloudFront, Route 53, API Gateway |
-| Database | #C925D1 | RDS, DynamoDB, Aurora, ElastiCache |
-| Storage | #7AA116 | S3, EFS, EBS |
-| Security | #DD344C | IAM, Cognito, KMS, WAF |
-| Integration | #E7157B | SQS, SNS, EventBridge, Step Functions |
-| Analytics | #8C4FFF | Kinesis, Athena, Redshift |
-| Management | #E7157B | CloudWatch, CloudTrail |
-| AI/ML | #01A88D | Bedrock, SageMaker |
+Every AWS **service** icon mxCell MUST include `shape_type`:
 
-## Two Icon Patterns — CRITICAL
+```xml
+<mxCell id="10" value="Lambda" shape_type="aws_lambda"
+  style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#CCCCCC;fontColor=#232F3E;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontSize=12;aspect=fixed;"
+  vertex="1" parent="<subnet-or-group-id>">
+  <mxGeometry x="24" y="48" width="78" height="78" as="geometry" />
+</mxCell>
+```
 
-Pattern 1: Service-level (resourceIcon frame). Style template:
-sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=<COLOR>;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.<name>
-- MUST use strokeColor=#ffffff — without it, the white glyph disappears
-- Size: 78x78
-- fillColor=<CATEGORY_COLOR> from the table above
+Rules:
+- `shape_type="aws_<snake_case_service>"` (e.g. `aws_lambda`, `aws_rds`, `aws_s3`, `aws_alb`, `aws_api_gateway`, `aws_dynamodb`, `aws_cloudwatch`)
+- Leaf `style` is a **placeholder only** (grey box + label-under-icon). MCP merges the official stencil into it.
+- Do **NOT** put `shape=mxgraph.aws4…`, `resIcon=…`, or `resourceIcon` on service leaves
+- Size: 78x78 main, 65x65 secondary
+- If unsure of the exact name, still emit a best-effort `shape_type` — never omit it on leaves
+- **Groups / containers MUST NOT** have `shape_type`
 
-Pattern 2: Resource-level (standalone shape). Style template:
-sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=<COLOR>;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.<name>
-- MUST use strokeColor=none — using #ffffff breaks these
-- Size: 78x78 or 48x48
-
-Confusing these two patterns guarantees broken icons.
+External non-AWS leaves (client, user, browser) may use a simple rounded rectangle placeholder with `shape_type` omitted, or `shape_type="aws_client"` when appropriate.
 
 ## Group Boundaries — AWS
 
-Group style template (title **inside** top-left beside icon — NEVER use labelPosition or verticalLabelPosition):
+Group styles are owned by the LLM (MCP does not touch them). Title **inside** top-left — NEVER use labelPosition or verticalLabelPosition:
+
+```
 points=[[0,0],[0.25,0],[0.5,0],[0.75,0],[1,0],[1,0.25],[1,0.5],[1,0.75],[1,1],[0.75,1],[0.5,1],[0.25,1],[0,1],[0,0.75],[0,0.5],[0,0.25]];outlineConnect=0;gradientColor=none;html=1;whiteSpace=wrap;fontSize=12;fontStyle=1;container=1;dropTarget=1;pointerEvents=0;collapsible=0;recursiveResize=0;shape=mxgraph.aws4.group;grIcon=mxgraph.aws4.<GROUP_ICON>;strokeColor=<COLOR>;fillColor=none;fontColor=<COLOR>;align=left;verticalAlign=top;spacingTop=4;spacingLeft=40;dashed=0;
+```
 
 | Group | grIcon | strokeColor | fontColor |
 |-------|--------|-------------|-----------|
@@ -56,37 +46,15 @@ points=[[0,0],[0.25,0],[0.5,0],[0.75,0],[1,0],[1,0.25],[1,0.5],[1,0.75],[1,1],[0
 
 Children inside groups: relative x/y with y≥48 so they sit below the in-box title.
 
-## BROKEN Icons — DO NOT USE
+## FORBIDDEN on service leaves
 
-- resIcon=mxgraph.aws4.dynamodb_table — renders as empty colored square
-- resIcon=mxgraph.aws4.dynamodb_stream — renders as empty colored square
-- resIcon=mxgraph.aws4.general_saml_token — renders as black square
-- resIcon=mxgraph.aws4.endpoint — may not render in resourceIcon
-
-Alternatives:
-- DynamoDB tables/streams: use resIcon=mxgraph.aws4.dynamodb with descriptive labels
-- External systems: use shape=mxgraph.aws4.traditional_server
-- Browsers/clients: use shape=mxgraph.aws4.client
-
-## Icon Name Gotchas — CRITICAL
-
-draw.io stencil names do NOT always match current AWS service names:
-
-| AWS Service Name | draw.io resIcon name | Why |
-|---|---|---|
-| Amazon OpenSearch Service | elasticsearch_service | Renamed from Elasticsearch in 2021 |
-| Amazon EventBridge | eventbridge | Was CloudWatch Events |
-| AWS Fargate | fargate | Correct |
-| VPC Peering | peering | Resource-level: shape=mxgraph.aws4.peering;strokeColor=none |
-| Amazon MSK | managed_streaming_for_kafka | NOT msk |
-| IAM Identity Center | single_sign_on | NOT iam_identity_center |
-
-Rule: Verify icon names from the reference files below. If unsure, use the generic fallback:
-sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#232F3E;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.general_AWScloud
+- Inventing `resIcon=mxgraph.aws4.*` or full resourceIcon style strings
+- Using mxgraph.gcp2, mxgraph.gcp2020, or img/lib/azure2
+- Omitting `shape_type` on service icons
 
 ## AWS Validation Extras
 
-1. Every resIcon= value is a known working icon name from the reference files
-2. Service-level icons have strokeColor=#ffffff
-3. Resource-level icons have strokeColor=none
-4. Never use mxgraph.gcp2, mxgraph.gcp2020, or img/lib/azure2 in AWS diagrams
+1. Every service leaf has `shape_type="aws_…"`
+2. Leaf style is placeholder only (no resIcon on leaves)
+3. Groups use aws4.group templates without shape_type
+4. Never use GCP/Azure stencil libraries

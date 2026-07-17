@@ -17,15 +17,19 @@ Open `http://localhost:8000/`.
 
 | Piece | Owns | Does **not** own |
 | --- | --- | --- |
-| **LLM** | Full draw.io XML (structure + coordinates + labels) | Official icon catalogue resolution |
-| **Prompt CORE + platform packs** | Layout hierarchy, classification, icon mechanics | Runtime MCP style lookup |
-| **Draw.io MCP** | `search_shapes` → icon styles; optional `create_diagram(libavoid)` | Spatial meaning of VPC/AZ/subnet |
+| **LLM** | Structure, `parent`, geometry, container/group styles, edges, leaf **placeholder** + `shape_type` | Official leaf icon stencils (`resIcon` / `mxgraph.gcp2` / Azure SVG) |
+| **Prompt CORE + platform packs** | Layout hierarchy, classification, group styles | Runtime MCP style lookup |
+| **Draw.io MCP** | `search_shapes` → leaf icon styles (merged into placeholder); optional `create_diagram(libavoid)` | Nesting / VPC spatial meaning |
+| **App merge** | Merges MCP stencil into leaf `style` while keeping LLM label attrs | — |
 | **UI Render select** | Per-request `auto` / `mcp` / `local` | — |
 | **Cursor skills** | Manual publish-quality `.drawio` in Cursor | FastAPI runtime |
 
 ```text
-LLM XML → validate/fix → (parallel) cost/WAF/compliance + MCP styles
-         → (optional) libavoid → UI iframe
+LLM XML (placeholder + shape_type on leaves)
+  → validate/fix
+  → (parallel) cost/WAF/compliance ∥ MCP search_shapes
+  → merge MCP styles into leaves (preserve labels)
+  → (optional) libavoid → UI iframe
 ```
 
 ## `.env` keys
@@ -48,18 +52,23 @@ DRAWIO_MCP_TIMEOUT=30
 DRAWIO_MCP_CONCURRENCY=4
 DRAWIO_MCP_LIBAVOID=false
 DRAWIO_STYLE_CACHE_PATH=data/mcp_style_cache.sqlite3
+# Set to true once after icon-logic changes, then set back to false
+DRAWIO_STYLE_CACHE_RESET=false
 ```
 
 - **`DIAGRAM_RENDERER=auto`** — MCP icon styles (cached + concurrent). Set `DRAWIO_MCP_LIBAVOID=true` for an extra create_diagram hop.
-- **`local`** — skip MCP (offline).
-- Prompt assembly uses `config/xml_gen_core.txt` + platform classify/icon packs (not the legacy monolithic multi-cloud table).
+- **`local`** — skip MCP (offline); leaves stay as placeholders unless the LLM invented stencils.
+- **`DRAWIO_STYLE_CACHE_RESET=true`** — clears memory + SQLite style cache at process startup (use after changing MCP pick logic or prompts). Turn off afterward so cache stays warm.
+- Manual clear: delete `data/mcp_style_cache.sqlite3` and restart.
+- Prompt assembly uses `config/xml_gen_core.txt` + platform classify/icon packs.
 
 ## Web app flow
 
 1. Chat → intent (cloud vs simple Mermaid).
-2. Cloud: LLM emits draw.io XML from CORE + platform packs.
-3. Validate/normalize XML; run cost/WAF/compliance in parallel with MCP icon resolve.
-4. Response includes `xml`, optional insights, and step `logs`. Prefer `POST /chat/stream` for progress.
+2. Cloud: LLM emits draw.io XML; service leaves use `shape_type` + grey placeholder style.
+3. Validate/normalize; MCP resolves official icons and **merges** them into leaf styles (label attrs kept).
+4. MCP misses leave the placeholder and log `mcp_miss` — no half-overwritten styles.
+5. Prefer `POST /chat/stream` for progress.
 
 ## Cursor chat (skills)
 
@@ -77,4 +86,6 @@ App MCP URL is independent of Cursor MCP config (`.cursor/mcp.json`).
 | --- | --- |
 | Chat fails with missing API key | Fill `OPENAI_API_KEY` (or another provider) in `.env` |
 | Always `renderer_used: local` | Check network to `DRAWIO_MCP_URL`; `pip install mcp` |
-| Icons wrong but XML loads | MCP miss — try clearer service names; cache in `DRAWIO_STYLE_CACHE_PATH` |
+| Grey placeholder icons | Check pipeline logs for `mcp_miss`; clearer `shape_type` names help |
+| Icons wrong after a prompt change | Set `DRAWIO_STYLE_CACHE_RESET=true` once, or delete `data/mcp_style_cache.sqlite3`, then restart |
+| Blank AWS icons | Ensure leaves use `shape_type` placeholders, not invented `resIcon=` (LLM+MCP ownership split) |

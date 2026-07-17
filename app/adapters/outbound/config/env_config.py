@@ -167,6 +167,11 @@ class EnvConfigAdapter:
         """Relative or absolute SQLite path for durable MCP style cache. Empty disables."""
         return self.get("DRAWIO_STYLE_CACHE_PATH", "data/mcp_style_cache.sqlite3")
 
+    @property
+    def drawio_style_cache_reset(self) -> bool:
+        """When true, clear MCP style cache once at process startup."""
+        return self.get_bool("DRAWIO_STYLE_CACHE_RESET", False)
+
 
 # Singleton for app-wide use
 _config_instance: EnvConfigAdapter | None = None

@@ -700,11 +700,76 @@ def extract_shape_types(xml: str) -> list[str]:
     return sorted({m.group(1).strip() for m in _SHAPE_TYPE_ATTR.finditer(xml) if m.group(1).strip()})
 
 
+# Presentation keys the LLM owns on service leaves — never wiped by MCP.
+_STYLE_PRESERVE_KEYS = frozenset({
+    "verticalLabelPosition",
+    "verticalAlign",
+    "align",
+    "fontSize",
+    "fontColor",
+    "fontStyle",
+    "html",
+    "aspect",
+    "whiteSpace",
+    "labelBackgroundColor",
+})
+
+
+def _parse_style(style: str) -> dict[str, str]:
+    """Parse a draw.io style string into an ordered key→value map."""
+    out: dict[str, str] = {}
+    for part in (style or "").split(";"):
+        part = part.strip()
+        if not part:
+            continue
+        if "=" in part:
+            key, _, val = part.partition("=")
+            key = key.strip()
+            if key:
+                out[key] = val.strip()
+        else:
+            # Flag-only tokens (e.g. ``image`` or ``html=1`` already handled)
+            out[part] = ""
+    return out
+
+
+def _format_style(parts: dict[str, str]) -> str:
+    chunks: list[str] = []
+    for key, val in parts.items():
+        if val == "":
+            chunks.append(key)
+        else:
+            chunks.append(f"{key}={val}")
+    text = ";".join(chunks)
+    return text if text.endswith(";") or not text else text + ";"
+
+
+def merge_drawio_styles(base: str, mcp: str) -> str:
+    """Merge MCP stencil style into an LLM placeholder style.
+
+    MCP values win for stencil / fill keys. LLM values are restored for
+    presentation keys (label position, fonts, aspect) so icons stay labeled.
+    """
+    if not (mcp or "").strip():
+        return base or ""
+    if not (base or "").strip():
+        return mcp if mcp.endswith(";") else mcp + ";"
+
+    base_map = _parse_style(base)
+    mcp_map = _parse_style(mcp)
+    merged = {**base_map, **mcp_map}
+    for key in _STYLE_PRESERVE_KEYS:
+        if key in base_map:
+            merged[key] = base_map[key]
+    return _format_style(merged)
+
+
 def apply_mcp_styles(xml: str, style_overrides: dict[str, str]) -> str:
-    """Replace ``style`` on cells whose ``shape_type`` matches *style_overrides*.
+    """Merge MCP styles onto cells whose ``shape_type`` matches *style_overrides*.
 
     Uses ElementTree so MCP style strings with ``&`` / quotes are escaped safely.
-    Matching ``shape_type`` attributes are removed after the style is applied.
+    Matching ``shape_type`` attributes are removed after a successful merge.
+    Cells whose shape_type is missing from *style_overrides* are left unchanged.
     """
     if not style_overrides or not xml:
         return xml
@@ -732,9 +797,11 @@ def apply_mcp_styles(xml: str, style_overrides: dict[str, str]) -> str:
         if not st:
             continue
         resolved = style_overrides.get(st)
-        if resolved is None:
+        if not resolved:
+            # MCP miss — keep placeholder style and shape_type for visibility/debug
             continue
-        cell.set("style", resolved)
+        base_style = cell.get("style") or ""
+        cell.set("style", merge_drawio_styles(base_style, resolved))
         del cell.attrib["shape_type"]
         changed = True
 
