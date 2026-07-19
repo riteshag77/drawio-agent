@@ -136,7 +136,7 @@ class EnvConfigAdapter:
 
     @property
     def provider_default(self) -> str:
-        return self.get("PROVIDER_DEFAULT", "openai")
+        return self.get("PROVIDER_DEFAULT", "claude")
 
     @property
     def diagram_renderer(self) -> str:

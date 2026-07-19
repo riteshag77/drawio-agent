@@ -197,13 +197,13 @@ Route in the **gaps between icons** and between subnet tiers — never across an
 
 ## Label Presence — NO BLANK NODES (CRITICAL)
 
-Every leaf and every container MUST carry a non-empty, specific `value`. Never emit a service icon or a container with an empty `value`, or a generic placeholder like `Service`, `Icon`, `Node`, `Group`. If unsure of the exact product name, use the closest correct short name from Service Naming above — never leave it blank.
+Every leaf and container MUST carry a non-empty, specific `value` — never blank, never a generic placeholder (`Service`, `Icon`, `Node`, `Group`). Unsure of the exact name? Use the closest short form from Service Naming, never leave it empty.
 
 ## Edge Separation & Legend (CRITICAL)
 
-- **Parallel-edge offset:** when two or more edges run through the same corridor (parallel segments crossing the same tier gap or AZ gutter, not only edges sharing one endpoint's face), offset each additional parallel edge by **20px** so their lines never visually merge into one. This is in addition to — not a replacement for — spreading exit/entry points at 0.25/0.5/0.75 when edges share a single face (see Anti-Pattern #10).
-- **Crossing minimization by ordering:** when placing sibling services in a row, order them left-to-right to roughly match their downstream target's left-to-right position, specifically to avoid unforced edge crossings. Prefer an ordering with zero or few crossings over one that is alphabetical or arbitrary.
-- **Legend when line meaning isn't obvious:** if the diagram uses both solid and dashed edges (or more than one edge color), add one small legend box — 2 to 4 lines, e.g. `Solid = sync request`, `Dashed = async/event` — placed outside the main flow (bottom-left or bottom-right of the canvas, `parent="1"`). Use the same inside-top-left label style as containers (`align=left;verticalAlign=top;spacingLeft=12;spacingTop=8;fontStyle=1;fontSize=12`). Omit the legend when only one edge style is used — don't add it if every edge is solid.
+- **Parallel-edge offset:** 2+ edges sharing a corridor (not just a shared face) → offset each by **20px** so lines never merge. Extends, doesn't replace, the 0.25/0.5/0.75 face-spread rule (Anti-Pattern #10).
+- **Order to cut crossings:** order sibling icons in a row to roughly match their downstream target's left-to-right position — not alphabetical/arbitrary.
+- **Legend only if mixed edge styles:** solid **and** dashed both present → add one small legend (2-4 lines, e.g. `Solid = sync`, `Dashed = async`) outside the flow, same inside-top-left container label style. Skip it when every edge is solid.
 
 ## Edge Cases (brief)
 
@@ -259,9 +259,9 @@ Mirror app-tier and data-tier into every Zone's matching subnet. Do **not** mirr
 11. New edges use exit/entry matching relative placement; no edge crosses an unrelated icon face?
 12. Edit mode did not reshuffle unrelated existing nodes (unless user asked to fix layout)?
 13. Page/background sized to content; no clipped labels at container edges?
-14. Every leaf and container has a non-empty, specific `value` — no blank or generic placeholder labels?
-15. Parallel edges sharing a corridor are offset by 20px increments; sibling row ordering minimizes crossings?
-16. A legend is present when both solid and dashed edges appear, and omitted when only one edge style is used?
+14. Every leaf/container has a non-empty, specific `value`?
+15. Parallel edges in a corridor offset 20px; row order minimizes crossings?
+16. Legend present only if solid + dashed both appear?
 
 ## PNG Background
 

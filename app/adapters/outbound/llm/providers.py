@@ -100,7 +100,7 @@ MODEL_IDS: dict[str, str] = {key: spec.default_model for key, spec in PROVIDERS.
 
 
 def normalize_provider_key(provider: str) -> str:
-    return (provider or "openai").strip().lower()
+    return (provider or "claude").strip().lower()
 
 
 def get_provider(provider: str) -> ProviderSpec:

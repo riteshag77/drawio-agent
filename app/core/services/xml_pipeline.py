@@ -10,6 +10,7 @@ from typing import Any
 from app.adapters.outbound.config.env_config import get_config
 from app.adapters.outbound.diagram.drawio_mcp_client import DrawioMcpError, create_diagram, resolve_shape_styles
 from app.adapters.outbound.diagram.mode import is_xml_pipeline_mode
+from app.adapters.outbound.diagram.xml_diagnostics import repair_xml
 from app.adapters.outbound.diagram.xml_tools import (
     apply_mcp_styles,
     choose_fixed_xml,
@@ -25,7 +26,7 @@ from app.adapters.outbound.compliance import assess_compliance
 from app.adapters.outbound.cost_estimator import estimate_monthly_cost
 from app.adapters.outbound.utils.chat import filter_applied_suggestions
 from app.adapters.outbound.well_architected import assess_well_architected
-from app.core.services.agent import generate_xml_diagram
+from app.core.services.agent import generate_xml_diagram, repair_xml_diagram
 
 ProgressCallback = Callable[[str, str, dict[str, Any] | None], Any]
 
@@ -76,7 +77,7 @@ async def run_xml_pipeline(
     *,
     user_prompt: str | None = None,
     messages: list[dict[str, Any]] | None = None,
-    provider: str = "openai",
+    provider: str = "claude",
     platform: str = "aws",
     logger: Any = None,
     custom_system_message: str = "",
@@ -89,7 +90,7 @@ async def run_xml_pipeline(
     compliance_frameworks: list[str] | None = None,
     on_progress: ProgressCallback | None = None,
 ) -> dict[str, Any]:
-    provider_key = (provider or "openai").strip().lower()
+    provider_key = (provider or "claude").strip().lower()
     platform_key = (platform or "aws").strip().lower()
 
     logger.log("request", "MCP XML generation request", details={
@@ -111,6 +112,29 @@ async def run_xml_pipeline(
     check = validate_and_fix_xml(xml_output)
     xml_output = choose_fixed_xml(xml_output, check)
     xml_output = normalize_platform_styles(xml_output, platform_key)
+
+    await _emit(on_progress, "repair", "Checking for overlaps, dangling edges, missing labels…")
+    xml_output, diagnostics = repair_xml(xml_output)
+    if diagnostics.errors or diagnostics.warnings:
+        if logger:
+            logger.log("repair", "Deterministic repair left unresolved issues", level="warning", details={
+                "errors": diagnostics.errors, "warnings": diagnostics.warnings,
+            })
+        await _emit(on_progress, "repair", "Requesting a corrective pass…")
+        repaired = await run_llm_sync(
+            repair_xml_diagram, xml_output, diagnostics, provider_key, platform_key, logger,
+        )
+        if repaired.xml:
+            xml_output = ensure_diagram_document(repaired.xml, PLATFORM_LABELS.get(platform_key, "Architecture"))
+            check = validate_and_fix_xml(xml_output)
+            xml_output = choose_fixed_xml(xml_output, check)
+            xml_output = normalize_platform_styles(xml_output, platform_key)
+            xml_output, diagnostics = repair_xml(xml_output)
+            if logger:
+                logger.log("repair", "Repair pass complete", level="success", details={
+                    "remaining_errors": diagnostics.errors, "remaining_warnings": diagnostics.warnings,
+                })
+        await _emit(on_progress, "repair", "Repair complete")
 
     use_mcp = is_xml_pipeline_mode(diagram_renderer)
     shape_types: list[str] = []

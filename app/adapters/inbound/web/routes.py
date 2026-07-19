@@ -92,7 +92,7 @@ async def generate_diagram(body: PromptRequest, request: Request):
 
 async def _run_chat(body: ChatRequest, logger: StepLogger, *, on_progress=None) -> dict[str, Any]:
     platform = (body.platform or "aws").strip().lower()
-    provider = (body.provider or "openai").strip().lower()
+    provider = (body.provider or "claude").strip().lower()
 
     if not body.messages:
         raise ValueError("messages must not be empty")

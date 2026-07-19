@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import os
 import secrets
 import uuid
 
@@ -27,6 +29,13 @@ if cfg.drawio_style_cache_reset:
     from app.adapters.outbound.diagram.style_cache import clear_style_cache
 
     clear_style_cache()
+
+if cfg.provider_default == "claude" and not os.environ.get("ANTHROPIC_API_KEY"):
+    logging.getLogger("drawio-agent").warning(
+        "Default provider is 'claude' but ANTHROPIC_API_KEY is not set — "
+        "requests that don't specify a provider will fail. Set ANTHROPIC_API_KEY "
+        "in .env, or pass provider=\"openai\" (etc.) per request."
+    )
 
 logger = None  # lazy import to avoid circular dependency
 

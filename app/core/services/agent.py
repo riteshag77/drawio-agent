@@ -13,12 +13,13 @@ from app.adapters.outbound.llm.response_parse import extract_mermaid
 from app.domain.entities import MermaidDiagram, XmlDiagram
 
 if TYPE_CHECKING:
+    from app.adapters.outbound.diagram.xml_diagnostics import XmlDiagnostics
     from app.core.logging import StepLogger
 
 
 def generate_xml_diagram(
     user_request: str,
-    provider: str = "openai",
+    provider: str = "claude",
     platform: str = "aws",
     logger: StepLogger | None = None,
     messages: list[dict[str, str]] | None = None,
@@ -53,8 +54,10 @@ def generate_xml_diagram(
 
     try:
         result = call_llm(system_prompt, human_content, provider_key, XmlDiagram, logger)
-    except Exception:
-        result = XmlDiagram(xml="", assistant_message="Generated diagram.")
+    except Exception as exc:
+        if logger:
+            logger.log("error", f"XML generation LLM call failed: {exc}", level="error")
+        raise
 
     if not result.assistant_message:
         result.assistant_message = "Generated diagram."
@@ -69,9 +72,54 @@ def generate_xml_diagram(
     return result
 
 
+def repair_xml_diagram(
+    previous_xml: str,
+    diagnostics: XmlDiagnostics,
+    provider: str = "claude",
+    platform: str = "aws",
+    logger: StepLogger | None = None,
+) -> XmlDiagram:
+    """One bounded corrective LLM pass — fix only the listed structural problems.
+
+    Reuses the full layout system prompt (the model still needs every rule to
+    avoid introducing new violations) plus the previous XML and the concrete
+    diagnostic strings from ``xml_diagnostics.diagnose_xml``. Never raises —
+    on failure this falls back to the (already deterministically-repaired)
+    input XML, since the caller already has a usable diagram without it.
+    """
+    provider_key = normalize_provider_key(provider)
+    spec = get_provider(provider_key)
+    system_prompt = get_xml_gen_system_prompt(model_id=spec.default_model, provider=provider_key, platform=platform)
+    problems = "\n".join(f"- {p}" for p in (diagnostics.errors + diagnostics.warnings))
+    human_content = (
+        "The following draw.io XML has specific structural problems. Fix ONLY these "
+        "problems and return the complete corrected XML, preserving every other cell, "
+        "id, position, and style exactly as-is.\n\n"
+        f"Problems:\n{problems}\n\n"
+        f"XML:\n{previous_xml}"
+    )
+    if logger:
+        logger.log("repair", "Requesting bounded repair pass", details={
+            "problem_count": len(diagnostics.errors) + len(diagnostics.warnings),
+        })
+    try:
+        result = call_llm(system_prompt, human_content, provider_key, XmlDiagram, logger)
+    except Exception as exc:
+        if logger:
+            logger.log("repair", f"Repair pass failed, keeping prior result: {exc}", level="warning")
+        return XmlDiagram(xml=previous_xml, assistant_message="Generated diagram.")
+    if not result.xml:
+        return XmlDiagram(xml=previous_xml, assistant_message="Generated diagram.")
+    if logger:
+        logger.log("repair", "Repair pass produced corrected XML", level="success", details={
+            "xml_chars": len(result.xml),
+        })
+    return result
+
+
 def generate_mermaid_diagram(
     user_request: str,
-    provider: str = "openai",
+    provider: str = "claude",
     logger: StepLogger | None = None,
     messages: list[dict[str, str]] | None = None,
     applied_suggestions: list[str] | None = None,
