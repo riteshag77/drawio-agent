@@ -77,6 +77,7 @@ function toggleCostPanelPreview() {
         panel.classList.add('active');
         body.innerHTML = '<div class="cost-empty">Generate a diagram to see cost estimates</div>';
         if (total) total.textContent = 'A$--';
+        if (typeof switchInsightsTab === 'function') switchInsightsTab('cost');
     } else {
         panel.classList.remove('active');
         body.innerHTML = '';
@@ -451,10 +452,10 @@ function clearVerboseLogs() {
 }
 
 function updateRightPanelVisibility() {
-    const costPanelActive = document.getElementById('cost-panel')?.classList.contains('active');
-    const wafPanelActive = !document.getElementById('well-architected-panel')?.hasAttribute('hidden');
-    const compPanelActive = !document.getElementById('compliance-panel')?.hasAttribute('hidden');
-    const open = verboseLogging || costPanelActive || wafPanelActive || compPanelActive;
+    const costOn = document.getElementById('cost-estimate-toggle')?.checked;
+    const wafOn = document.getElementById('well-architected-toggle')?.checked;
+    const compOn = document.getElementById('compliance-toggle')?.checked;
+    const open = verboseLogging || costOn || wafOn || compOn;
     document.getElementById('log-panel')?.classList.toggle('active', open);
 }
 
@@ -479,6 +480,9 @@ function toggleVerbosePanel() {
 
 function closeLogPanel() {
     hideValidationBanner();
+    hideCostEstimate();
+    hideWellArchitectedPanel();
+    hideCompliancePanel();
     setLogPanelOpen(false);
 }
 
@@ -602,6 +606,9 @@ function hideCostEstimate() {
     var panel = document.getElementById('cost-panel');
     if (panel) {
         panel.classList.remove('active');
+        var toggle = document.getElementById('cost-estimate-toggle');
+        if (toggle) toggle.checked = false;
+        localStorage.setItem(COST_ESTIMATE_STORAGE_KEY, '0');
         updateRightPanelVisibility();
     }
 }
@@ -615,6 +622,7 @@ function toggleWellArchitectedPanel() {
         panel.classList.add('active');
         if (body) body.innerHTML = '<div class="waf-empty">Generate a diagram to see Well-Architected review</div>';
         if (badge) { badge.textContent = '--'; badge.className = 'waf-overall-badge'; }
+        if (typeof switchInsightsTab === 'function') switchInsightsTab('waf');
     } else {
         panel.classList.remove('active');
         if (body) body.innerHTML = '';
@@ -633,17 +641,25 @@ function hideWellArchitectedPanel() {
     }
 }
 
-function applyInsightFix(message, recommendation, btnEl) {
-    var text = 'Please update the diagram to address: ' + message;
-    if (recommendation) text += ' — ' + recommendation;
+var appliedInsightKeys = new Set();
+
+function isInsightApplied(key) {
+    return appliedInsightKeys.has(key);
+}
+
+function applyInsightFixes(items) {
+    // items: [{key, message, recommendation}]
+    if (!items || items.length === 0) return;
+    var text = 'Please update the diagram to address the following:\n' + items.map(function (it, i) {
+        var line = (i + 1) + '. ' + it.message;
+        if (it.recommendation) line += ' — ' + it.recommendation;
+        return line;
+    }).join('\n');
+    items.forEach(function (it) { appliedInsightKeys.add(it.key); });
     var input = document.getElementById('chat-input');
     if (input) {
         input.value = text;
         if (typeof autoResizeChatInput === 'function') autoResizeChatInput();
-    }
-    if (btnEl) {
-        btnEl.disabled = true;
-        btnEl.textContent = 'Applied ✓';
     }
     sendMessage();
 }
@@ -664,12 +680,33 @@ function displayWellArchitected(wafData) {
     badge.textContent = status.toUpperCase();
     badge.className = 'waf-overall-badge ' + status;
     body.innerHTML = '';
+    appliedInsightKeys = new Set();
     var pillars = wafData.pillars || [];
     if (pillars.length === 0) {
         body.innerHTML = '<div class="waf-empty">No recommendations available</div>';
         return;
     }
-    pillars.forEach(function (p) {
+
+    var registry = []; // { key, message, recommendation, checkbox, label }
+    var headerRow = document.createElement('div');
+    headerRow.className = 'chat-suggestions-header';
+    var headerTitle = document.createElement('div');
+    headerTitle.className = 'chat-suggestions-title';
+    headerTitle.textContent = 'Findings with recommendations';
+    headerRow.appendChild(headerTitle);
+    var selectAllLabel = document.createElement('label');
+    selectAllLabel.className = 'chat-suggestions-select-all';
+    var selectAllCb = document.createElement('input');
+    selectAllCb.type = 'checkbox';
+    selectAllCb.className = 'suggestion-checkbox suggestion-select-all';
+    var selectAllText = document.createElement('span');
+    selectAllText.textContent = 'Select all';
+    selectAllLabel.appendChild(selectAllCb);
+    selectAllLabel.appendChild(selectAllText);
+    headerRow.appendChild(selectAllLabel);
+    body.appendChild(headerRow);
+
+    pillars.forEach(function (p, pillarIdx) {
         var div = document.createElement('div');
         div.className = 'waf-pillar';
         var header = document.createElement('div');
@@ -689,7 +726,7 @@ function displayWellArchitected(wafData) {
             desc.textContent = p.description;
             div.appendChild(desc);
         }
-        (p.findings || []).forEach(function (f) {
+        (p.findings || []).forEach(function (f, findingIdx) {
             var finding = document.createElement('div');
             finding.className = 'waf-finding';
             var dot = document.createElement('span');
@@ -703,20 +740,86 @@ function displayWellArchitected(wafData) {
                 rec.className = 'waf-finding-recommendation';
                 rec.textContent = '→ ' + f.recommendation;
                 text.appendChild(rec);
-                var applyBtn = document.createElement('button');
-                applyBtn.type = 'button';
-                applyBtn.className = 'insight-apply-btn';
-                applyBtn.textContent = 'Apply fix →';
-                applyBtn.addEventListener('click', function (message, recommendation) {
-                    return function (e) { applyInsightFix(message, recommendation, e.currentTarget); };
-                }(f.message || '', f.recommendation));
-                text.appendChild(applyBtn);
+                var key = 'waf:' + pillarIdx + ':' + findingIdx;
+                var applied = isInsightApplied(key);
+                var cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.className = 'suggestion-checkbox item-checkbox';
+                cb.disabled = applied;
+                cb.checked = applied;
+                cb.addEventListener('change', function () {
+                    var pending = registry.filter(function (r) { return !r.checkbox.disabled; });
+                    var checked = pending.filter(function (r) { return r.checkbox.checked; });
+                    selectAllCb.checked = pending.length > 0 && checked.length === pending.length;
+                    selectAllCb.indeterminate = checked.length > 0 && checked.length < pending.length;
+                });
+                finding.insertBefore(cb, dot);
+                var badge = document.createElement('span');
+                badge.className = 'suggestion-applied-badge';
+                badge.textContent = 'Applied';
+                badge.hidden = !applied;
+                text.appendChild(badge);
+                registry.push({ key: key, message: f.message || '', recommendation: f.recommendation, checkbox: cb, badge: badge });
             }
             finding.appendChild(text);
             div.appendChild(finding);
         });
         body.appendChild(div);
     });
+
+    function markApplied(items) {
+        var keys = {};
+        items.forEach(function (it) { keys[it.key] = true; });
+        registry.forEach(function (r) {
+            if (!keys[r.key]) return;
+            r.checkbox.checked = false;
+            r.checkbox.disabled = true;
+            r.badge.hidden = false;
+        });
+        var pending = registry.filter(function (r) { return !r.checkbox.disabled; });
+        selectAllCb.checked = false;
+        selectAllCb.indeterminate = false;
+        selectAllCb.disabled = pending.length === 0;
+        actionRow.hidden = pending.length === 0;
+    }
+
+    selectAllCb.addEventListener('change', function () {
+        registry.forEach(function (r) {
+            if (!r.checkbox.disabled) r.checkbox.checked = selectAllCb.checked;
+        });
+        selectAllCb.indeterminate = false;
+    });
+
+    var actionRow = document.createElement('div');
+    actionRow.className = 'suggestion-actions';
+    var selBtn = document.createElement('button');
+    selBtn.type = 'button';
+    selBtn.className = 'suggestion-btn';
+    selBtn.textContent = 'Apply Selected';
+    selBtn.onclick = function () {
+        var items = registry.filter(function (r) { return !r.checkbox.disabled && r.checkbox.checked; });
+        if (items.length === 0) { if (typeof showError === 'function') showError('Select at least one finding to apply.'); return; }
+        markApplied(items);
+        applyInsightFixes(items);
+    };
+    var allBtn = document.createElement('button');
+    allBtn.type = 'button';
+    allBtn.className = 'suggestion-btn suggestion-btn-primary';
+    allBtn.textContent = 'Apply All';
+    allBtn.onclick = function () {
+        var items = registry.filter(function (r) { return !r.checkbox.disabled; });
+        if (items.length === 0) { if (typeof showError === 'function') showError('All findings are already applied.'); return; }
+        markApplied(items);
+        applyInsightFixes(items);
+    };
+    actionRow.appendChild(selBtn);
+    actionRow.appendChild(allBtn);
+    body.appendChild(actionRow);
+    if (registry.length === 0) {
+        headerRow.hidden = true;
+        actionRow.hidden = true;
+    }
+
     var summary = wafData.summary || '';
     if (summary) {
         var s = document.createElement('div');
@@ -736,6 +839,7 @@ function toggleCompliancePanel() {
     if (document.getElementById('compliance-toggle').checked) {
         panel.classList.add('active');
         if (body) body.innerHTML = '<div class="compliance-empty">Generate a diagram to see compliance assessment results</div>';
+        if (typeof switchInsightsTab === 'function') switchInsightsTab('compliance');
     } else {
         panel.classList.remove('active');
         if (body) body.innerHTML = '';
@@ -764,6 +868,7 @@ function displayCompliance(compData) {
     var toggle = document.getElementById('compliance-toggle');
     if (toggle) toggle.checked = true;
     localStorage.setItem(COMPLIANCE_KEY, '1');
+    appliedInsightKeys = new Set();
 
     var frameworks = compData.frameworks;
     var fwIds = Object.keys(frameworks);
@@ -817,6 +922,15 @@ function switchComplianceTab(fwId) {
     html += '</div>';
 
     var controls = fw.controls || [];
+    var hasFindingsWithRec = controls.some(function (ctrl) {
+        return (ctrl.findings || []).some(function (f) { return !!f.recommendation; });
+    });
+    if (hasFindingsWithRec) {
+        html += '<div class="chat-suggestions-header">';
+        html += '<div class="chat-suggestions-title">Findings with recommendations</div>';
+        html += '<label class="chat-suggestions-select-all"><input type="checkbox" class="suggestion-checkbox suggestion-select-all"><span>Select all</span></label>';
+        html += '</div>';
+    }
     if (controls.length === 0) {
         html += '<div class="compliance-empty">No applicable controls for this diagram</div>';
     } else {
@@ -832,6 +946,14 @@ function switchComplianceTab(fwId) {
                 var sev = f.severity || 'low';
                 var sevIcon = sev === 'high' ? '&#x2717;' : sev === 'medium' ? '&#x26A0;' : '&#x2713;';
                 html += '<div class="compliance-finding ' + sev + '">';
+                if (f.recommendation) {
+                    // Free-text message/recommendation stay out of the HTML string entirely —
+                    // only numeric indices go into the markup; the checkbox wiring looks the
+                    // finding back up from `controls` (still in scope) after render.
+                    var applied = isInsightApplied('compliance:' + fwId + ':' + ctrlIdx + ':' + findingIdx);
+                    html += '<input type="checkbox" class="suggestion-checkbox item-checkbox" data-ctrl-idx="' + ctrlIdx
+                        + '" data-finding-idx="' + findingIdx + '"' + (applied ? ' checked disabled' : '') + '>';
+                }
                 html += '<span class="compliance-finding-dot compliance-severity-' + sev + '">' + sevIcon + '</span>';
                 html += '<div class="compliance-finding-text">';
                 html += '<span>' + escapeHtml(f.message || '') + '</span>';
@@ -840,17 +962,19 @@ function switchComplianceTab(fwId) {
                 }
                 if (f.recommendation) {
                     html += '<span class="compliance-finding-rec">&#x2192; ' + escapeHtml(f.recommendation) + '</span>';
-                    // Free-text message/recommendation stay out of the HTML string entirely —
-                    // only numeric indices go into the markup; the click handler looks the
-                    // finding back up from `controls` (still in scope) after render.
-                    html += '<button type="button" class="insight-apply-btn" data-ctrl-idx="' + ctrlIdx
-                        + '" data-finding-idx="' + findingIdx + '">Apply fix &rarr;</button>';
+                    html += '<span class="suggestion-applied-badge"' + (isInsightApplied('compliance:' + fwId + ':' + ctrlIdx + ':' + findingIdx) ? '' : ' hidden') + '>Applied</span>';
                 }
                 html += '</div>';
                 html += '</div>';
             });
             html += '</div>';
         });
+    }
+    if (hasFindingsWithRec) {
+        html += '<div class="suggestion-actions">';
+        html += '<button type="button" class="suggestion-btn compliance-apply-selected">Apply Selected</button>';
+        html += '<button type="button" class="suggestion-btn suggestion-btn-primary compliance-apply-all">Apply All</button>';
+        html += '</div>';
     }
 
     if (inScope.length > 0 || outScope.length > 0) {
@@ -871,15 +995,72 @@ function switchComplianceTab(fwId) {
 
     body.innerHTML = html;
 
-    body.querySelectorAll('.insight-apply-btn[data-ctrl-idx]').forEach(function (btn) {
-        var ctrlIdx = parseInt(btn.getAttribute('data-ctrl-idx'), 10);
-        var findingIdx = parseInt(btn.getAttribute('data-finding-idx'), 10);
+    var registry = []; // { key, message, recommendation, checkbox, badge }
+    body.querySelectorAll('.item-checkbox[data-ctrl-idx]').forEach(function (cb) {
+        var ctrlIdx = parseInt(cb.getAttribute('data-ctrl-idx'), 10);
+        var findingIdx = parseInt(cb.getAttribute('data-finding-idx'), 10);
         var finding = (controls[ctrlIdx] && controls[ctrlIdx].findings || [])[findingIdx];
         if (!finding) return;
-        btn.addEventListener('click', function (e) {
-            applyInsightFix(finding.message || '', finding.recommendation, e.currentTarget);
+        var badge = cb.parentElement.querySelector('.suggestion-applied-badge');
+        var key = 'compliance:' + fwId + ':' + ctrlIdx + ':' + findingIdx;
+        registry.push({ key: key, message: finding.message || '', recommendation: finding.recommendation, checkbox: cb, badge: badge });
+        cb.addEventListener('change', function () {
+            var pending = registry.filter(function (r) { return !r.checkbox.disabled; });
+            var checked = pending.filter(function (r) { return r.checkbox.checked; });
+            if (selectAllCb) {
+                selectAllCb.checked = pending.length > 0 && checked.length === pending.length;
+                selectAllCb.indeterminate = checked.length > 0 && checked.length < pending.length;
+            }
         });
     });
+
+    var selectAllCb = body.querySelector('.suggestion-select-all');
+    var actionRow = body.querySelector('.suggestion-actions');
+
+    function markApplied(items) {
+        var keys = {};
+        items.forEach(function (it) { keys[it.key] = true; });
+        registry.forEach(function (r) {
+            if (!keys[r.key]) return;
+            r.checkbox.checked = false;
+            r.checkbox.disabled = true;
+            if (r.badge) r.badge.hidden = false;
+        });
+        var pending = registry.filter(function (r) { return !r.checkbox.disabled; });
+        if (selectAllCb) {
+            selectAllCb.checked = false;
+            selectAllCb.indeterminate = false;
+            selectAllCb.disabled = pending.length === 0;
+        }
+        if (actionRow) actionRow.hidden = pending.length === 0;
+    }
+
+    if (selectAllCb) {
+        selectAllCb.addEventListener('change', function () {
+            registry.forEach(function (r) {
+                if (!r.checkbox.disabled) r.checkbox.checked = selectAllCb.checked;
+            });
+            selectAllCb.indeterminate = false;
+        });
+    }
+    var selBtn = body.querySelector('.compliance-apply-selected');
+    if (selBtn) {
+        selBtn.onclick = function () {
+            var items = registry.filter(function (r) { return !r.checkbox.disabled && r.checkbox.checked; });
+            if (items.length === 0) { if (typeof showError === 'function') showError('Select at least one finding to apply.'); return; }
+            markApplied(items);
+            applyInsightFixes(items);
+        };
+    }
+    var allBtn = body.querySelector('.compliance-apply-all');
+    if (allBtn) {
+        allBtn.onclick = function () {
+            var items = registry.filter(function (r) { return !r.checkbox.disabled; });
+            if (items.length === 0) { if (typeof showError === 'function') showError('All findings in this tab are already applied.'); return; }
+            markApplied(items);
+            applyInsightFixes(items);
+        };
+    }
 }
 
 function escapeHtml(str) {

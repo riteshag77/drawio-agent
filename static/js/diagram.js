@@ -1,6 +1,6 @@
 function getDrawioUrl(theme) {
     const ui = DRAWIO_THEMES.includes(theme) ? theme : 'kennedy';
-    return `${DRAWIO_ORIGIN}/?embed=1&ui=${ui}&spin=1&proto=json&configure=1&libs=aws4;gcp2;azure2&nav=1&saveAndExit=0&noSaveBtn=1&noExitBtn=1`;
+    return `${DRAWIO_ORIGIN}/?embed=1&ui=${ui}&spin=1&proto=json&configure=1&libs=aws4;gcp2;azure2&nav=1&saveAndExit=0&noSaveBtn=1&noExitBtn=1&sidebar=0`;
 }
 
 function exportDiagramXml() {

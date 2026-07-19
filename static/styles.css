@@ -1304,6 +1304,8 @@
 
         .cost-panel.active {
             display: flex;
+            flex: 1;
+            min-height: 0;
             flex-direction: column;
         }
 
@@ -1375,7 +1377,8 @@
         .cost-panel-body {
             padding: 0.5rem 1rem 0.75rem;
             overflow-y: auto;
-            max-height: 320px;
+            flex: 1;
+            min-height: 0;
         }
 
         .cost-panel-body:empty {
@@ -1505,6 +1508,8 @@
 
         .waf-panel.active {
             display: flex;
+            flex: 1;
+            min-height: 0;
         }
 
         .waf-panel-header {
@@ -1590,7 +1595,8 @@
         .waf-panel-body {
             padding: 0.25rem 1rem 0.75rem;
             overflow-y: auto;
-            max-height: 340px;
+            flex: 1;
+            min-height: 0;
         }
 
         .waf-panel-body:empty {
@@ -1671,6 +1677,13 @@
             flex: 1;
         }
 
+        .waf-finding > .suggestion-checkbox,
+        .compliance-finding > .suggestion-checkbox {
+            flex-shrink: 0;
+            margin-top: 0.15rem;
+            margin-right: 0.2rem;
+        }
+
         .waf-finding-recommendation {
             display: block;
             font-size: 0.7rem;
@@ -1679,26 +1692,6 @@
             padding-left: 0;
         }
 
-        .insight-apply-btn {
-            display: inline-block;
-            margin-top: 0.3rem;
-            padding: 3px 10px;
-            font-size: 0.7rem;
-            font-weight: 600;
-            color: var(--accent, #2563eb);
-            background: transparent;
-            border: 1px solid var(--accent, #2563eb);
-            border-radius: 999px;
-            cursor: pointer;
-        }
-        .insight-apply-btn:hover { background: var(--accent, #2563eb); color: #fff; }
-        .insight-apply-btn:disabled {
-            cursor: default;
-            opacity: 0.6;
-            color: var(--text-muted);
-            border-color: var(--sidebar-border, #e2e8f0);
-            background: transparent;
-        }
 
         .waf-empty {
             padding: 0.7rem 0;
@@ -2130,6 +2123,8 @@
 
         .compliance-panel.active {
             display: flex;
+            flex: 1;
+            min-height: 0;
         }
 
         .compliance-header {
@@ -2239,7 +2234,8 @@
         .compliance-body {
             padding: 0 1rem 0.75rem;
             overflow-y: auto;
-            max-height: 360px;
+            flex: 1;
+            min-height: 0;
         }
 
         .compliance-body:empty { display: none; }
@@ -2533,7 +2529,6 @@
     flex-direction: column;
 }
 .insights-panel[hidden] { display: none !important; }
-.insights-panel.active { display: block; }
 #verbose-log-body.insights-panel.active { display: block; }
 
 /* ── Mobile tab bar ────────────────────────────────────── */
