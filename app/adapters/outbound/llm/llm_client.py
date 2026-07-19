@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from langchain_core.callbacks.usage import UsageMetadataCallbackHandler
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.adapters.outbound.config.env_config import get_config
+from app.adapters.outbound.llm.pricing import estimate_cost_usd
 from app.adapters.outbound.llm.providers import (
     build_langchain_client,
     get_provider,
@@ -52,11 +54,26 @@ def call_llm(
     kwargs = {"method": "json_mode"} if method == "json_mode" else {}
     if logger:
         logger.log("llm", "Using structured output", details={"structured_output": method or "function_calling"})
-    result = llm.with_structured_output(output_type, **kwargs).invoke(messages)
+    usage_handler = UsageMetadataCallbackHandler()
+    result = llm.with_structured_output(output_type, **kwargs).invoke(
+        messages, config={"callbacks": [usage_handler]},
+    )
     if logger:
         try:
             raw_text = result.model_dump_json()
         except Exception:
             raw_text = str(result)
         logger.log("llm_output", "LLM response", details={"raw": _truncate(raw_text)})
+        for model_name, usage in usage_handler.usage_metadata.items():
+            input_tokens = usage.get("input_tokens", 0)
+            output_tokens = usage.get("output_tokens", 0)
+            cost = estimate_cost_usd(model_name, input_tokens, output_tokens)
+            logger.log("usage", f"{model_name}: {usage.get('total_tokens', 0)} tokens", details={
+                "provider": provider_key,
+                "model": model_name,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "total_tokens": usage.get("total_tokens", 0),
+                "estimated_cost_usd": cost,
+            })
     return result

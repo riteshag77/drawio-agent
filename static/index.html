@@ -249,8 +249,6 @@
                 <div>
                     <div class="title">Diagram Preview</div>
                     <div id="diagram-status" class="status" role="status" aria-live="polite">Waiting for generation</div>
-                    <div id="context-chip" class="context-chip" aria-live="polite"></div>
-                    <div id="version-strip" class="version-strip" hidden></div>
                 </div>
                 <div class="toolbar-actions">
                     <button id="btn-download" class="btn-action primary" onclick="downloadXML()" disabled>
@@ -274,6 +272,14 @@
                         Open
                     </button>
                 </div>
+            </div>
+
+            <div class="diagram-toolbar-meta">
+                <div class="diagram-toolbar-meta-left">
+                    <div id="context-chip" class="context-chip" aria-live="polite"></div>
+                    <div id="token-badge" class="token-badge" hidden title="Estimated LLM tokens/cost for the last generation"></div>
+                </div>
+                <div id="version-strip" class="version-strip" hidden></div>
             </div>
 
             <div id="xml-panel" class="xml-panel">

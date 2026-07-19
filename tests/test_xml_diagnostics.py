@@ -11,6 +11,7 @@ from app.adapters.outbound.diagram.xml_diagnostics import (
     remove_dangling_edges,
     repair_xml,
     resolve_leaf_overlaps,
+    resolve_misplaced_actors,
 )
 
 
@@ -222,6 +223,55 @@ class ResolveLeafOverlapsTests(unittest.TestCase):
             '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>'
         )
         out = resolve_leaf_overlaps(xml)
+        self.assertEqual(out, xml)
+
+
+class ResolveMisplacedActorsTests(unittest.TestCase):
+    def test_actor_nested_in_cloud_is_reparented_to_root(self) -> None:
+        xml = _wrap(
+            '<mxCell id="cloud" value="AWS Cloud" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="160" y="40" width="600" height="800" as="geometry"/></mxCell>'
+            '<mxCell id="users" value="Users" shape_type="aws_users" vertex="1" parent="cloud">'
+            '<mxGeometry x="24" y="48" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = resolve_misplaced_actors(xml)
+        cell = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "users")
+        self.assertEqual(cell.get("parent"), "1")
+        geom = cell.find("mxGeometry")
+        assert geom is not None
+        # left of the cloud box (x=160), clamped to a minimum 20px margin
+        self.assertLess(float(geom.get("x")), 160.0)
+        self.assertGreaterEqual(float(geom.get("x")), 20.0)
+
+    def test_actor_already_on_root_is_untouched(self) -> None:
+        xml = _wrap(
+            '<mxCell id="cloud" value="AWS Cloud" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="160" y="40" width="600" height="800" as="geometry"/></mxCell>'
+            '<mxCell id="users" value="Users" shape_type="aws_users" vertex="1" parent="1">'
+            '<mxGeometry x="20" y="200" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = resolve_misplaced_actors(xml)
+        self.assertEqual(out, xml)
+
+    def test_nested_service_with_user_in_name_is_not_reparented(self) -> None:
+        """A Cognito 'User Pool' or similar must not be mistaken for an external actor."""
+        xml = _wrap(
+            '<mxCell id="cloud" value="AWS Cloud" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="160" y="40" width="600" height="800" as="geometry"/></mxCell>'
+            '<mxCell id="pool" value="User Pool" shape_type="aws_cognito" vertex="1" parent="cloud">'
+            '<mxGeometry x="24" y="48" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = resolve_misplaced_actors(xml)
+        self.assertEqual(out, xml)
+
+    def test_ordinary_nested_leaf_is_not_reparented(self) -> None:
+        xml = _wrap(
+            '<mxCell id="cloud" value="AWS Cloud" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="160" y="40" width="600" height="800" as="geometry"/></mxCell>'
+            '<mxCell id="lambda" value="Lambda" shape_type="aws_lambda" vertex="1" parent="cloud">'
+            '<mxGeometry x="24" y="48" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = resolve_misplaced_actors(xml)
         self.assertEqual(out, xml)
 
 

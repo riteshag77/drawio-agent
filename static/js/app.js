@@ -470,6 +470,10 @@ function toggleVerbosePanel() {
     setLogPanelOpen(open);
     if (open) {
         appendVerboseLog('ui', 'Pipeline log panel opened', 'info');
+        // Checking the box should actually reveal the Logs content, not just
+        // the panel shell — otherwise whatever insights tab was last active
+        // (usually Cost) stays showing instead.
+        if (typeof switchInsightsTab === 'function') switchInsightsTab('logs');
     }
 }
 
@@ -567,6 +571,33 @@ function displayCostEstimate(costData) {
     }
 }
 
+function displayTokenUsage(usage) {
+    var badge = document.getElementById('token-badge');
+    if (!badge) return;
+    if (!usage || !usage.total_tokens) {
+        badge.hidden = true;
+        badge.textContent = '';
+        return;
+    }
+    var tokens = usage.total_tokens;
+    var tokenText = tokens >= 1000 ? (tokens / 1000).toFixed(1) + 'K tokens' : tokens + ' tokens';
+    var text = '~' + tokenText;
+    if (typeof usage.estimated_cost_usd === 'number') {
+        text += ' · ~$' + usage.estimated_cost_usd.toFixed(usage.estimated_cost_usd < 0.01 ? 4 : 2);
+    }
+    badge.textContent = text;
+    badge.hidden = false;
+    badge.title = (usage.calls || []).map(function (c) {
+        return (c.model || 'unknown model') + ': ' + (c.total_tokens || 0) + ' tokens'
+            + (typeof c.estimated_cost_usd === 'number' ? ' (~$' + c.estimated_cost_usd.toFixed(4) + ')' : '');
+    }).join('\n') || 'Estimated LLM tokens/cost for the last generation';
+}
+
+function hideTokenUsage() {
+    var badge = document.getElementById('token-badge');
+    if (badge) { badge.hidden = true; badge.textContent = ''; }
+}
+
 function hideCostEstimate() {
     var panel = document.getElementById('cost-panel');
     if (panel) {
@@ -600,6 +631,21 @@ function hideWellArchitectedPanel() {
         localStorage.setItem(WELL_ARCHITECTED_KEY, '0');
         updateRightPanelVisibility();
     }
+}
+
+function applyInsightFix(message, recommendation, btnEl) {
+    var text = 'Please update the diagram to address: ' + message;
+    if (recommendation) text += ' — ' + recommendation;
+    var input = document.getElementById('chat-input');
+    if (input) {
+        input.value = text;
+        if (typeof autoResizeChatInput === 'function') autoResizeChatInput();
+    }
+    if (btnEl) {
+        btnEl.disabled = true;
+        btnEl.textContent = 'Applied ✓';
+    }
+    sendMessage();
 }
 
 function displayWellArchitected(wafData) {
@@ -657,6 +703,14 @@ function displayWellArchitected(wafData) {
                 rec.className = 'waf-finding-recommendation';
                 rec.textContent = '→ ' + f.recommendation;
                 text.appendChild(rec);
+                var applyBtn = document.createElement('button');
+                applyBtn.type = 'button';
+                applyBtn.className = 'insight-apply-btn';
+                applyBtn.textContent = 'Apply fix →';
+                applyBtn.addEventListener('click', function (message, recommendation) {
+                    return function (e) { applyInsightFix(message, recommendation, e.currentTarget); };
+                }(f.message || '', f.recommendation));
+                text.appendChild(applyBtn);
             }
             finding.appendChild(text);
             div.appendChild(finding);
@@ -766,7 +820,7 @@ function switchComplianceTab(fwId) {
     if (controls.length === 0) {
         html += '<div class="compliance-empty">No applicable controls for this diagram</div>';
     } else {
-        controls.forEach(function (ctrl) {
+        controls.forEach(function (ctrl, ctrlIdx) {
             var statusClass = ctrl.status || 'pass';
             var icon = statusClass === 'pass' ? '&#x2713;' : statusClass === 'warn' ? '&#x26A0;' : '&#x2717;';
             html += '<div class="compliance-control-card ' + statusClass + '">';
@@ -774,7 +828,7 @@ function switchComplianceTab(fwId) {
             html += '<span class="compliance-control-status compliance-status-' + statusClass + '">' + icon + '</span>';
             html += '<span class="compliance-control-name">' + escapeHtml(ctrl.name || ctrl.id || '') + '</span>';
             html += '</div>';
-            (ctrl.findings || []).forEach(function (f) {
+            (ctrl.findings || []).forEach(function (f, findingIdx) {
                 var sev = f.severity || 'low';
                 var sevIcon = sev === 'high' ? '&#x2717;' : sev === 'medium' ? '&#x26A0;' : '&#x2713;';
                 html += '<div class="compliance-finding ' + sev + '">';
@@ -786,6 +840,11 @@ function switchComplianceTab(fwId) {
                 }
                 if (f.recommendation) {
                     html += '<span class="compliance-finding-rec">&#x2192; ' + escapeHtml(f.recommendation) + '</span>';
+                    // Free-text message/recommendation stay out of the HTML string entirely —
+                    // only numeric indices go into the markup; the click handler looks the
+                    // finding back up from `controls` (still in scope) after render.
+                    html += '<button type="button" class="insight-apply-btn" data-ctrl-idx="' + ctrlIdx
+                        + '" data-finding-idx="' + findingIdx + '">Apply fix &rarr;</button>';
                 }
                 html += '</div>';
                 html += '</div>';
@@ -811,6 +870,16 @@ function switchComplianceTab(fwId) {
     }
 
     body.innerHTML = html;
+
+    body.querySelectorAll('.insight-apply-btn[data-ctrl-idx]').forEach(function (btn) {
+        var ctrlIdx = parseInt(btn.getAttribute('data-ctrl-idx'), 10);
+        var findingIdx = parseInt(btn.getAttribute('data-finding-idx'), 10);
+        var finding = (controls[ctrlIdx] && controls[ctrlIdx].findings || [])[findingIdx];
+        if (!finding) return;
+        btn.addEventListener('click', function (e) {
+            applyInsightFix(finding.message || '', finding.recommendation, e.currentTarget);
+        });
+    });
 }
 
 function escapeHtml(str) {
@@ -1063,6 +1132,14 @@ async function sendMessage(options = {}) {
                 updateRightPanelVisibility();
             }
         } catch (e) { console.error('Compliance panel error', e); }
+
+        try {
+            if (data.llm_usage) {
+                displayTokenUsage(data.llm_usage);
+            } else {
+                hideTokenUsage();
+            }
+        } catch (e) { console.error('Token usage badge error', e); }
 
         if (data.validation?.feedback) {
             showValidationBanner(data.validation.structural || data.validation.vlm, data.validation.feedback);

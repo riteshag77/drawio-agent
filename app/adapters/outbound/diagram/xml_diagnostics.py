@@ -290,14 +290,117 @@ def resolve_leaf_overlaps(xml: str) -> str:
     return _serialize_docroot(tree, root, is_mxfile, trimmed)
 
 
+_ACTOR_SHAPE_TYPES = {
+    "aws_users", "aws_user", "users", "user", "aws_client", "client", "aws_mobile_client",
+    "azure_users", "azure_user", "azure_client",
+    "gcp_users", "gcp_user", "gcp_client",
+}
+_ACTOR_EXACT_LABELS = {
+    "users", "user", "client", "mobile client", "internet", "end users",
+    "external users", "end user", "customer", "customers",
+}
+
+
+def _is_external_actor_cell(cell: ET.Element) -> bool:
+    """True for a Users/Client/Internet-style external-actor leaf.
+
+    Deliberately narrow (exact shape_type / exact trimmed label match, not
+    substring) to avoid false positives on real services that merely contain
+    a matching word, e.g. a Cognito "User Pool" or an "API Client" service.
+    """
+    if cell.get("vertex") != "1" or cell.get("edge") == "1" or _is_container_cell(cell):
+        return False
+    shape_type = (cell.get("shape_type") or "").strip().lower()
+    if shape_type in _ACTOR_SHAPE_TYPES:
+        return True
+    value = (cell.get("value") or "").strip().lower()
+    return value in _ACTOR_EXACT_LABELS
+
+
+def _absolute_position(cell: ET.Element, by_id: dict[str, ET.Element]) -> tuple[float, float]:
+    """Sum ancestor container offsets to get a cell's position in canvas (parent="1") space."""
+    geo = _cell_geometry(cell)
+    x, y = (geo[0], geo[1]) if geo else (0.0, 0.0)
+    parent_id, seen = cell.get("parent"), set()
+    while parent_id and parent_id not in _RESERVED_IDS and parent_id in by_id and parent_id not in seen:
+        seen.add(parent_id)
+        parent_cell = by_id[parent_id]
+        pgeo = _cell_geometry(parent_cell)
+        if pgeo:
+            x += pgeo[0]
+            y += pgeo[1]
+        parent_id = parent_cell.get("parent")
+    return x, y
+
+
+def resolve_misplaced_actors(xml: str) -> str:
+    """Reparent external-actor icons nested inside a container back to parent="1".
+
+    The prompt requires Users/Client/Internet-style actors to always sit
+    outside the cloud boundary (they represent people/systems, not a
+    classifiable service) — this is the deterministic safety net for when
+    the LLM nests one inside Cloud/Region/VPC/etc. anyway. Repositions the
+    cell just left of the leftmost top-level container, mirroring the
+    positioning formula already proven in the AWS skill's actor-placement
+    fixer (cloud_x - width - 30, clamped to a 20px minimum margin).
+    """
+    parsed = _parse_docroot(xml)
+    if parsed is None:
+        return xml
+    tree, root, is_mxfile, trimmed = parsed
+
+    cells = [c for c in root.findall("mxCell") if c.get("id")]
+    by_id = {c.get("id"): c for c in cells if c.get("id")}
+
+    misplaced = [c for c in cells if _is_external_actor_cell(c) and c.get("parent") not in (None, "1")]
+    if not misplaced:
+        return xml
+
+    page_w, page_h = _page_size(tree)
+    top_level_containers = [
+        c for c in cells
+        if _is_container_cell(c) and c.get("parent") == "1" and not _is_canvas_background_cell(c, page_w, page_h)
+    ]
+    if not top_level_containers:
+        return xml
+    cloud_geo = min(
+        (g for g in (_cell_geometry(c) for c in top_level_containers) if g is not None),
+        key=lambda g: g[0],
+        default=None,
+    )
+    if cloud_geo is None:
+        return xml
+    cloud_x = cloud_geo[0]
+
+    changed = False
+    for cell in misplaced:
+        abs_x, abs_y = _absolute_position(cell, by_id)
+        geo = _cell_geometry(cell)
+        w = geo[2] if geo else 78.0
+        new_x = max(20.0, cloud_x - w - 30.0)
+        new_y = max(20.0, abs_y)
+        cell.set("parent", "1")
+        geom_el = cell.find("mxGeometry")
+        if geom_el is not None:
+            geom_el.set("x", str(new_x))
+            geom_el.set("y", str(new_y))
+        changed = True
+
+    if not changed:
+        return xml
+    return _serialize_docroot(tree, root, is_mxfile, trimmed)
+
+
 def repair_xml(xml: str) -> tuple[str, XmlDiagnostics]:
     """Run deterministic fixers in sequence, then re-diagnose what's left.
 
     Order matters: drop unfixable dangling edges first (nothing downstream
     should route through cells that are about to disappear), fill missing
-    labels, then resolve overlaps last so the grid math sees final content.
+    labels, fix structural placement (misplaced actors), then resolve
+    overlaps last so the grid math sees final content and final parents.
     """
     fixed = remove_dangling_edges(xml)
     fixed = ensure_leaf_labels(fixed)
+    fixed = resolve_misplaced_actors(fixed)
     fixed = resolve_leaf_overlaps(fixed)
     return fixed, diagnose_xml(fixed)

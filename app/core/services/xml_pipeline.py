@@ -10,7 +10,7 @@ from typing import Any
 from app.adapters.outbound.config.env_config import get_config
 from app.adapters.outbound.diagram.drawio_mcp_client import DrawioMcpError, create_diagram, resolve_shape_styles
 from app.adapters.outbound.diagram.mode import is_xml_pipeline_mode
-from app.adapters.outbound.diagram.xml_diagnostics import repair_xml
+from app.adapters.outbound.diagram.xml_diagnostics import diagnose_xml, repair_xml
 from app.adapters.outbound.diagram.xml_tools import (
     apply_mcp_styles,
     choose_fixed_xml,
@@ -29,6 +29,50 @@ from app.adapters.outbound.well_architected import assess_well_architected
 from app.core.services.agent import generate_xml_diagram, repair_xml_diagram
 
 ProgressCallback = Callable[[str, str, dict[str, Any] | None], Any]
+
+
+def _summarize_llm_usage(logger: Any) -> dict[str, Any] | None:
+    """Sum token usage/cost logged by call_llm across every LLM call this request made.
+
+    Distinct from ``cost_estimate`` (that's the depicted cloud architecture's
+    estimated monthly AWS/Azure/GCP spend) — this is what it cost in LLM API
+    tokens to generate the diagram itself.
+    """
+    entries = getattr(logger, "entries", None) if logger else None
+    if not entries:
+        return None
+    calls = [e for e in entries if e.step == "usage"]
+    if not calls:
+        return None
+
+    total_input = total_output = total_tokens = 0
+    total_cost = 0.0
+    has_cost = False
+    breakdown: list[dict[str, Any]] = []
+    for entry in calls:
+        d = entry.details or {}
+        total_input += d.get("input_tokens", 0)
+        total_output += d.get("output_tokens", 0)
+        total_tokens += d.get("total_tokens", 0)
+        cost = d.get("estimated_cost_usd")
+        if cost is not None:
+            total_cost += cost
+            has_cost = True
+        breakdown.append({
+            "provider": d.get("provider"),
+            "model": d.get("model"),
+            "input_tokens": d.get("input_tokens", 0),
+            "output_tokens": d.get("output_tokens", 0),
+            "total_tokens": d.get("total_tokens", 0),
+            "estimated_cost_usd": cost,
+        })
+    return {
+        "total_input_tokens": total_input,
+        "total_output_tokens": total_output,
+        "total_tokens": total_tokens,
+        "estimated_cost_usd": round(total_cost, 4) if has_cost else None,
+        "calls": breakdown,
+    }
 
 
 def _build_response(
@@ -56,6 +100,7 @@ def _build_response(
         "cost_estimate": cost_estimate,
         "well_architected": well_architected,
         "compliance": compliance,
+        "llm_usage": _summarize_llm_usage(logger),
         "logs": logger.to_list() if logger else [],
     }
 
@@ -106,6 +151,13 @@ async def run_xml_pipeline(
         generate_xml_diagram, human_prompt, provider_key, platform_key, logger, messages,
         custom_system_message, applied_suggestions, three_d,
     )
+    if 'vertex="1"' not in (xml_diagram.xml or ""):
+        # A successful call with no diagram content (empty/near-empty xml) is not
+        # a partial success — nothing downstream should validate/repair/enrich
+        # what is effectively a blank canvas.
+        if logger:
+            logger.log("error", "LLM returned no diagram content", level="error")
+        raise ValueError("LLM returned no diagram content — nothing to validate or enrich.")
 
     await _emit(on_progress, "validate", "Validating and normalizing XML…")
     xml_output = ensure_diagram_document(xml_diagram.xml, PLATFORM_LABELS.get(platform_key, "Architecture"))
@@ -114,7 +166,21 @@ async def run_xml_pipeline(
     xml_output = normalize_platform_styles(xml_output, platform_key)
 
     await _emit(on_progress, "repair", "Checking for overlaps, dangling edges, missing labels…")
+    pre_repair_diagnostics = diagnose_xml(xml_output)
     xml_output, diagnostics = repair_xml(xml_output)
+    fixed_count = (
+        (len(pre_repair_diagnostics.errors) + len(pre_repair_diagnostics.warnings))
+        - (len(diagnostics.errors) + len(diagnostics.warnings))
+    )
+    if fixed_count > 0 and logger:
+        logger.log(
+            "repair",
+            f"Auto-fixed {fixed_count} diagram issue(s) — overlaps, missing labels, "
+            "dangling edges, or misplaced icons",
+            level="success",
+            details={"before": len(pre_repair_diagnostics.errors) + len(pre_repair_diagnostics.warnings),
+                      "after": len(diagnostics.errors) + len(diagnostics.warnings)},
+        )
     if diagnostics.errors or diagnostics.warnings:
         if logger:
             logger.log("repair", "Deterministic repair left unresolved issues", level="warning", details={

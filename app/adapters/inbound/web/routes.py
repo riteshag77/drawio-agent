@@ -15,7 +15,7 @@ from app.adapters.outbound.utils.web import fetch_url_content
 from app.core.logging import StepLogger
 from app.core.services.agent import generate_mermaid_diagram
 from app.core.services.intent import classify_intent
-from app.core.services.xml_pipeline import run_xml_pipeline
+from app.core.services.xml_pipeline import _summarize_llm_usage, run_xml_pipeline
 
 router = APIRouter()
 
@@ -38,6 +38,7 @@ def _mermaid_response(result: Any, logger: StepLogger) -> dict[str, Any]:
         "xml": None,
         "renderer_used": None,
         "mcp_preview_url": None,
+        "llm_usage": _summarize_llm_usage(logger),
         "logs": logger.to_list() if logger else [],
     }
 

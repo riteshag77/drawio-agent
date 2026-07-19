@@ -38,7 +38,8 @@ Every internal box must be **visually and structurally wrapped** inside its oute
 3. **FORBIDDEN:** Region, VPC, Zone, Subnet, Security/Monitoring/Integration/Management, or Edge as `parent="1"` siblings floating beside the Cloud box. If it belongs in the hierarchy, it must be a child of the layer above it.
 4. **FORBIDDEN:** placing an inner box with absolute canvas coordinates while `parent="1"` so it only overlaps the outer box visually. Overlap ≠ containment.
 5. Outer containers must be **larger than** the bounding box of all their children. Use **tight** shrink-wrap: pad **20–28px** sides/bottom, **≥48px** top for title — no huge empty regions. Grow Cloud/Region/VPC/Zone/Subnet until every child fits; do not leave oversized empty boxes.
-6. Optional **Users / Internet / Client** icons may sit outside Cloud on `parent="1"` (left of Cloud). Everything else cloud-related stays wrapped inside Cloud.
+6. Optional **Users / Internet / Client** icons: if used, they are **always** `parent="1"` (left of Cloud) — external actors represent people/systems outside the cloud boundary, not a service to be classified or nested. Everything else cloud-related stays wrapped inside Cloud.
+7. **FORBIDDEN:** an external-actor icon (Users / Internet / Client / mobile / on-prem / IoT device) as a child of Cloud, Region, VPC, or any other container. It never has a classification decision — it is not a service.
 
 ## Leaf Footprint — UNDER-ICON LABELS (CRITICAL)
 
@@ -246,7 +247,7 @@ Mirror app-tier and data-tier into every Zone's matching subnet. Do **not** mirr
 
 ## Self-Check (must pass before return)
 
-1. Cloud is the outer wrapper; Region/VPC/Zones/Subnets/supporting groups/Edge are all nested via parent (none of those on parent="1")?
+1. Cloud is the outer wrapper; Region/VPC/Zones/Subnets/supporting groups/Edge are all nested via parent (none of those on parent="1")? Any Users/Internet/Client external-actor icon is on parent="1", never nested inside Cloud/Region/VPC/any container?
 2. Every outer box fully wraps its children (children coords relative; outer width/height contain them — including leaf under-labels and overhang)?
 3. Every container title uses inside top-left style (no labelPosition / verticalLabelPosition on containers)?
 4. Same-tier icons share y; AZs aligned; grid multiples of 20; containers tightly sized (no huge empty regions)?
