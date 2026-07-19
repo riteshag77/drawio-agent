@@ -2,16 +2,9 @@
 
 from __future__ import annotations
 
-import os
-
 from pydantic import BaseModel, Field
 
-
-def _default_provider() -> str:
-    """Prefer Claude for the rule-dense cloud/XML prompt; fall back to OpenAI
-    if ANTHROPIC_API_KEY isn't configured, so an unconfigured deployment
-    doesn't fail every request that omits ``provider``."""
-    return "claude" if os.environ.get("ANTHROPIC_API_KEY") else "openai"
+from app.adapters.outbound.llm.providers import default_provider_key as _default_provider
 
 
 class PromptRequest(BaseModel):

@@ -1194,10 +1194,30 @@ async function sendMessage(options = {}) {
     }
 }
 
+async function initProviderSelect() {
+    const select = document.getElementById('provider-select');
+    if (!select) return;
+    try {
+        const res = await fetch('/providers');
+        const data = await res.json();
+        select.innerHTML = '';
+        for (const p of (data.providers || [])) {
+            const opt = document.createElement('option');
+            opt.value = p.key;
+            opt.textContent = p.label;
+            select.appendChild(opt);
+        }
+        if (data.default) select.value = data.default;
+    } catch (err) {
+        console.error('Failed to load providers', err);
+    }
+}
+
 // ── Boot sequence ─────────────────────────────────────────
 initVerboseLogging();
 initPromptSettings();
 initDiagramMode();
+initProviderSelect();
 hideValidationBanner();
 updateSendStopButtons();
 loadTemplates();

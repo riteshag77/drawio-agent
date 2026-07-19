@@ -16,6 +16,7 @@ from app.core.logging import StepLogger
 from app.core.services.agent import generate_mermaid_diagram
 from app.core.services.intent import classify_intent
 from app.core.services.xml_pipeline import _summarize_llm_usage, run_xml_pipeline
+from app.adapters.outbound.llm import providers as providers_module
 
 router = APIRouter()
 
@@ -50,6 +51,16 @@ def _sse(payload: dict[str, Any]) -> str:
 @router.get("/")
 async def root() -> RedirectResponse:
     return RedirectResponse(url="/static/index.html")
+
+
+@router.get("/providers")
+async def list_providers() -> dict:
+    return {
+        "providers": [
+            {"key": spec.key, "label": spec.label or spec.key} for spec in providers_module.PROVIDERS.values()
+        ],
+        "default": providers_module.default_provider_key(),
+    }
 
 
 @router.get("/health")

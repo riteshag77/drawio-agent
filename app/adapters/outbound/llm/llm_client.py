@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, Any
 
 from langchain_core.callbacks.usage import UsageMetadataCallbackHandler
+from langchain_core.exceptions import OutputParserException
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.adapters.outbound.config.env_config import get_config
@@ -55,9 +57,19 @@ def call_llm(
     if logger:
         logger.log("llm", "Using structured output", details={"structured_output": method or "function_calling"})
     usage_handler = UsageMetadataCallbackHandler()
-    result = llm.with_structured_output(output_type, **kwargs).invoke(
-        messages, config={"callbacks": [usage_handler]},
-    )
+    structured_llm = llm.with_structured_output(output_type, **kwargs)
+    try:
+        result = structured_llm.invoke(messages, config={"callbacks": [usage_handler]})
+    except OutputParserException as exc:
+        if logger:
+            logger.log("llm", f"Structured output failed validation, retrying once: {exc}", level="warning")
+        schema = json.dumps(output_type.model_json_schema(), ensure_ascii=False)
+        corrective = HumanMessage(content=(
+            "Your previous response failed schema validation: " + _truncate(str(exc), 800) +
+            "\n\nReturn ONLY valid JSON that conforms exactly to this JSON schema — every field must be a "
+            "top-level key of this schema's type, not restructured or decomposed into a different shape:\n" + schema
+        ))
+        result = structured_llm.invoke(messages + [corrective], config={"callbacks": [usage_handler]})
     if logger:
         try:
             raw_text = result.model_dump_json()
