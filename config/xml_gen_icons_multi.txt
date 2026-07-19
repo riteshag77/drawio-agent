@@ -23,6 +23,7 @@ Groups / swimlanes do NOT need shape_type and must not invent leaf stencils.
 rounded=1;whiteSpace=wrap;html=1;container=1;dropTarget=1;collapsible=0;recursiveResize=0;fillColor=none;strokeColor=<COLOR>;fontColor=<COLOR>;align=left;verticalAlign=top;spacingLeft=12;spacingTop=8;fontStyle=1;fontSize=12;
 - Left-to-right or top-to-bottom by provider; edges between clouds only on data-path nodes (never Security/Monitoring/Integration/Management)
 - Icon size 78x78 (main), 65x65 (secondary)
+- Layout/naming/pitch/wrap: follow CORE (max 4 per row, pitch 180–220 in subnets, short under-icon labels)
 
 ### FORBIDDEN
 

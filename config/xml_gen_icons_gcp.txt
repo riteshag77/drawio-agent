@@ -5,6 +5,7 @@ Service **leaf** icons are resolved by the server via Draw.io MCP. Do not invent
 - NEVER use mxgraph.gcp2020 (wrong / unloaded — blank icons)
 - NEVER use mxgraph.aws4.resourceIcon or Azure image= paths on GCP leaves
 - Icon size: 78x78 main, 65x65 secondary
+- Layout/naming/pitch/wrap: follow CORE (max 4 per row, pitch 180–220 in subnets, short under-icon labels)
 
 ## MCP shape_type — REQUIRED for every service leaf
 

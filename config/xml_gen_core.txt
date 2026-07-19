@@ -1,8 +1,14 @@
 You are generating or modifying a cloud architecture diagram in mxGraph/draw.io XML. Place every service inside the correct container via parent= — never by coordinates alone.
 
-Before placing: detect existing provider(s) and container ids/labels and reuse them. Do not alter existing elements' parent, coordinates, or sizes unless the user asked to change them.
-
 **Service icon pixels** come from Draw.io MCP via each leaf's `shape_type` attribute. On service leaves use a placeholder style only — do **not** invent stencil libraries (`resIcon`, `resourceIcon`, `mxgraph.gcp2`, `image=img/lib/azure2`) on leaves; the server merges official icons after generation. Groups/containers keep LLM-owned styles and must not use `shape_type`.
+
+## Create vs Edit Modes (CRITICAL — do not break existing diagrams)
+
+Before placing: detect existing provider(s) and container ids/labels and reuse them.
+
+- **Create (new diagram):** apply the full craft below (pitch, wrap, naming, edge anchors, page size).
+- **Edit (modify existing):** keep existing cells' parent, coordinates, and sizes unless the user asked to fix layout. Place **new** leaves only in the next free grid slot (wrap after 4). Grow the immediate parent (and ancestors) as needed. Do **not** reshuffle unrelated icons "to improve spacing."
+- **Explicit layout-fix request** (user says fix crowding / clean up / re-layout): re-grid **only inside the named container(s)** using the service grid; preserve ids/parents where possible; still avoid rewriting the whole canvas hierarchy.
 
 ## Canonical Container Hierarchy — STRICT NESTING (CRITICAL)
 
@@ -38,9 +44,12 @@ Every internal box must be **visually and structurally wrapped** inside its oute
 
 Service leaves use `verticalLabelPosition=bottom` — the **label draws below** the icon box. Parent sizing must account for that extra band, not only the 78×78 icon geometry.
 
-- Visual footprint height ≈ `icon.height + ~28` (label band) when `verticalLabelPosition=bottom`
-- Parent must contain: `child.x + child.width + pad` and `child.y + child.height + labelBand + pad`
-- Self-check: every child’s **icon and under-label** fit inside its parent box
+- Icon size: 78×78 main, 65×65 secondary
+- Under-label band: leave **≥ 32–40px** clear space below the icon inside the parent (labels must not kiss the subnet border or the next row)
+- Labels may be **wider than the icon** (assume up to ~120px centered) → ~21px overhang each side. Adjacent icons must use enough pitch so overhangs do not collide
+- Parent width must include: last icon `x + max(icon.width, ~labelWidth) + pad` — not merely `x + 78`
+- Parent height must include: `child.y + child.height + labelBand + pad`
+- Self-check: every child's **icon and under-label** fit inside its parent box with no adjacent name overlap
 
 **Parent chain examples (AWS):**
 - `aws_cloud` → parent `"1"`
@@ -52,20 +61,61 @@ Service leaves use `verticalLabelPosition=bottom` — the **label draws below** 
 - `security_group` → parent `vpc`
 - `edge_layer` → parent `aws_cloud`
 
+## Artist / Cloud Architect Principles
+
+1. One primary story: Client → Edge → LB/API → App → Data. Secondary paths are dashed and sparse.
+2. Breathing room over density — white space is structure.
+3. Nest only real boundaries (Cloud → Region → VPC → Zone → Subnet).
+4. Inventory ≠ flow — Security / Monitoring / Integration / Management are icon shelves with **zero** edges.
+5. Align ruthlessly — same-tier icons share y; peer AZs share top/height; subnet rows align across AZs; snap to grid of 20.
+6. Readable before complete — fewer labeled edges and shorter names beat an illegible mesh.
+7. Grow the frame, don't crush the art — prefer a larger page over overlapping labels.
+
 ## Layout & Alignment — CRITICAL
 
 - Left-to-right primary request path; users/edge on the LEFT; data stores on the RIGHT
 - **Snap to a grid:** use multiples of 20 for all x/y/width/height
 - **Align boxes:** same-tier icons share the same y; peer AZs share the same top y and height; subnet rows align across AZs
-- Horizontal gap between sibling icons: **140–180px** (keep supporting groups and subnets compact)
-- Vertical gap between tiers (Public → App → Data): **100–140px**
+- Vertical gap between subnet tiers (Public → App → Data): **100–140px**
 - **Gap below Zones (CRITICAL):** supporting groups (Security / Monitoring / Integration / Management) must sit **strictly below** all Availability Zones — minimum **70–80px** clear space from the **lowest Zone bottom** to the **top** of those groups. Never overlap Zones or Subnets.
 - **Gap between Subnets and supporting groups:** same rule — no shared y-range with any Zone/Subnet box; leave a modest empty band between the subnet tier and the four groups
 - Horizontal gap between the four supporting groups side by side: **20–30px** (do not let them touch or overlap)
-- Horizontal gap between peer AZ containers: **20–30px**
-- Children inside a container start at **y ≥ 48** (leave a title band under the container name) and **x ≥ 24**
-- Container width/height must **tightly** fit children + padding (pad **12–16** left/right/bottom, **48** top for title), including the under-icon label band on leaves
-- Canvas: pageWidth="2400" pageHeight="1400"
+- Horizontal gap between peer AZ containers: **20–30px** (do **not** use icon pitch between AZs)
+- Children inside a container start at **y ≥ 48** (title band) and **x ≥ 24**
+- Container width/height must **tightly** fit children + padding (pad **12–16** left/right/bottom, **48** top for title), including under-icon labels and label overhang
+- Canvas default: pageWidth="2400" pageHeight="1400". If multi-AZ + wrapped rows need room, grow page up to ~**3200×2000** and match the full-page background cell — prefer growing the page over reducing data-path pitch below 180
+
+## Service Grid — MAX 4 PER ROW (CRITICAL)
+
+Inside every **Public / Private App / Private Data subnet** and every **Security / Monitoring / Integration / Management** group:
+
+1. **Hard cap:** at most **4** service icons on any horizontal row. Never 5+ in one row.
+2. **Wrap:** more than 4 → new row beneath (left→right reading order). Example: 5 → 4+1; 7 → 4+3.
+3. **Pitch (canonical):** distance from icon **left edge to next icon left edge**. Data-path subnets (Public/App/Data): **200px** preferred, allowed **180–220**, multiples of 20. Supporting groups only: **160–180** allowed (no edges → slightly denser OK; labels still must not overlap).
+4. **Row-to-row:** **120–140px** from icon top to next-row icon top. Same-column icons share the same x.
+5. **Order:** left = upstream on primary path; right = downstream. When wrapping, continue that order on the next row.
+6. **Grow the parent** after place/wrap so every icon and under-label fits. Grow Zone → VPC → Region → Cloud as needed.
+7. When **adding** into a full row of 4, place on the **next row** (5th slot) — never squeeze a 5th into the first row.
+
+### Density tiers (do not inflate everything)
+
+| Layer | Spacing |
+|-------|---------|
+| Icons in Public / App / Data | Pitch 180–220 (prefer 200) |
+| Icons in Security / Monitoring / Integration / Management | Pitch 160–180, still ≤4/row |
+| Peer AZ containers | 20–30px between boxes |
+| Four supporting group boxes | 20–30px between boxes |
+| Public → App → Data subnet boxes | 100–140px vertical |
+| Zones → supporting groups | 70–80px clear band |
+
+## Service Naming (readable under-icons)
+
+- Short official product names: ALB, NLB, API Gateway, ECS, EKS, Lambda, EC2, RDS, Aurora, DynamoDB, ElastiCache, S3, CloudFront, Route 53, NAT, Bastion
+- Prefer **≤ 18 characters** when a short form exists; never multi-sentence descriptions under icons
+- One line preferred; max two short lines; fontSize=12
+- Do not duplicate the container name in the leaf (`Lambda`, not `Private App Subnet - Lambda`)
+- Role suffixes only when needed: `RDS primary`, `RDS replica`
+- Abbreviate long products: `OpenSearch` not `Amazon OpenSearch Service Domain`
 
 ## Container Labels — INSIDE TOP-LEFT (CRITICAL)
 
@@ -125,8 +175,50 @@ Platform stroke colors: AWS `#ED7100`, GCP `#4285F4`, Azure `#0078D4`.
 
 - Every edge needs valid source + target cell ids (data-path cells only)
 - Cross-container edges: `parent="1"`
-- Short labels only (1–2 words) or omit value
 - Solid = sync; dashed=1 = async between data-path services only (never to cross-cutting groups)
+- Sparse path: connect along the primary story only — no every-to-every meshes
+- Edge labels: **omit by default**. If used → 1–2 words only AND include `labelBackgroundColor=#F5F5F5;fontSize=11;fontColor=#333333` (e.g. HTTPS, async, read)
+- Never place edge label text on top of an icon; prefer mid-segment in the clear corridor between tiers
+- Avoid waypoints unless necessary; when used, keep them outside icon+label boxes and on the grid
+
+### Edge anchors from placement (CRITICAL)
+
+Choose exit/entry from **relative positions** — do not always use right→left.
+
+| Source → Target | Exit (source) | Entry (target) |
+|-----------------|---------------|----------------|
+| Target to the RIGHT (same band) | `exitX=1;exitY=0.5` | `entryX=0;entryY=0.5` |
+| Target to the LEFT | `exitX=0;exitY=0.5` | `entryX=1;entryY=0.5` |
+| Target BELOW (App→Data or wrapped row) | `exitX=0.5;exitY=1` | `entryX=0.5;entryY=0` |
+| Target ABOVE | `exitX=0.5;exitY=0` | `entryX=0.5;entryY=1` |
+| Diagonal | Prefer bottom/top mid then orthogonal jog | Spread multiple faces at 0.25 / 0.5 / 0.75 |
+
+Route in the **gaps between icons** and between subnet tiers — never across an unrelated service icon or its under-label.
+
+## Edge Cases (brief)
+
+- 5–8 services in one App subnet → wrap to 2 rows; grow subnet/Zone height; keep pitch
+- 2–3 AZs mirrored → same relative roles and y-rows across AZs; do **not** mirror Security/Monitoring/Integration/Management/Edge
+- LB / API Gateway → sibling of Zones inside VPC (not inside a subnet)
+- Public subnet with only NAT/Bastion → still use title band + padding; do not invent empty stretch unless aligning AZ columns
+- Empty tier → omit the empty subnet rather than a huge empty box
+- Multi-cloud → each provider keeps its own tree; cross-cloud = edge only, never nesting
+- Users / Internet → outside Cloud on left (`parent="1"`); edge into Edge layer or LB
+- User asks "add X" into a full row of 4 → place on next row; grow parent
+- User asks "fix crowding" → re-grid **that subnet/group only**
+
+## Anti-Patterns — FORBIDDEN
+
+1. More than 4 service icons in one horizontal row inside any subnet/group
+2. Pitch below 180 on Public/App/Data icons (supporting groups may use 160–180)
+3. Long marketing labels under icons
+4. Edges into Security / Monitoring / Integration / Management
+5. `labelPosition` / `verticalLabelPosition` on containers
+6. Absolute canvas coordinates for nested children
+7. Bulk-relayout of an existing diagram on a small edit
+8. Region/VPC/Zone/Subnet as `parent="1"` siblings that only look nested
+9. Huge empty containers "for aesthetics"
+10. Stacking all edge anchors at 0.5 when multiple edges share a face
 
 ## Output Rules — Parent
 
@@ -143,16 +235,22 @@ Mirror app-tier and data-tier into every Zone's matching subnet. Do **not** mirr
 ## Self-Check (must pass before return)
 
 1. Cloud is the outer wrapper; Region/VPC/Zones/Subnets/supporting groups/Edge are all nested via parent (none of those on parent="1")?
-2. Every outer box fully wraps its children (children coords relative; outer width/height contain them — including leaf under-labels)?
+2. Every outer box fully wraps its children (children coords relative; outer width/height contain them — including leaf under-labels and overhang)?
 3. Every container title uses inside top-left style (no labelPosition / verticalLabelPosition on containers)?
 4. Same-tier icons share y; AZs aligned; grid multiples of 20; containers tightly sized (no huge empty regions)?
 5. **Zero** edges touch Security, Monitoring, Integration, or Management cells?
 6. Supporting groups sit below Zones with **≥70px** clear gap (no overlap with Zones/Subnets), four boxes side by side with **≥20px** between them, still `parent=<vpc-id>`?
 7. Children start below title band (y≥48)? Availability Zones use `arcSize=6`?
+8. No subnet/group has more than 4 icons on one row; wrap + pitch (180–220 data-path / 160–180 supporting) respected?
+9. No two adjacent under-labels collide (pitch + short names)?
+10. Every labeled edge has `labelBackgroundColor=#F5F5F5`?
+11. New edges use exit/entry matching relative placement; no edge crosses an unrelated icon face?
+12. Edit mode did not reshuffle unrelated existing nodes (unless user asked to fix layout)?
+13. Page/background sized to content; no clipped labels at container edges?
 
 ## PNG Background
 
-First vertex after roots (id="2"), full page, fillColor=#F5F5F5;strokeColor=none; parent="1".
+First vertex after roots (id="2"), full page (match pageWidth/pageHeight), fillColor=#F5F5F5;strokeColor=none; parent="1".
 
 ## XML Well-formedness
 

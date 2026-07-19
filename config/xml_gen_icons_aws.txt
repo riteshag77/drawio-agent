@@ -21,6 +21,7 @@ Rules:
 - Size: 78x78 main, 65x65 secondary
 - If unsure of the exact name, still emit a best-effort `shape_type` — never omit it on leaves
 - **Groups / containers MUST NOT** have `shape_type`
+- Layout/naming/pitch/wrap: follow CORE (max 4 per row, pitch 180–220 in subnets, short under-icon labels)
 
 External actor leaves (Users / Client / Internet) **must** use these shape_types — do **not** invent styles or omit shape_type:
 

@@ -5,6 +5,7 @@ Service **leaf** icons are resolved by the server via Draw.io MCP (`image=img/li
 - NEVER use shape=mxgraph.azure2.resourceIcon or resIcon=mxgraph.azure2.* (blank / wrong)
 - NEVER use mxgraph.aws4.* or mxgraph.gcp2.* / gcp2020 on Azure leaves
 - Icon size: 78x78 main, 65x65 secondary
+- Layout/naming/pitch/wrap: follow CORE (max 4 per row, pitch 180–220 in subnets, short under-icon labels)
 
 ## MCP shape_type — REQUIRED for every service leaf
 
