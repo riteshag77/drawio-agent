@@ -66,11 +66,43 @@ async def list_providers() -> dict:
 
 @router.get("/health")
 async def health() -> dict:
+    import os
     return {
         "status": "ok",
         "service": get_config().app_title,
-        "version": "1.0.0",
+        "version": os.environ.get("APP_VERSION", "1.0.0"),
     }
+
+
+@router.get("/ready")
+async def ready():
+    """Readiness probe — returns 200 when the app can serve requests, 503 otherwise."""
+    import os
+    from pathlib import Path
+    from fastapi.responses import JSONResponse
+
+    issues: list[str] = []
+
+    # At least one LLM key must be set
+    llm_key_envs = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY", "OPENROUTER_API_KEY", "OPENCODE_API_KEY"]
+    if not any(os.environ.get(k) for k in llm_key_envs):
+        issues.append("No LLM API key configured (set at least one of ANTHROPIC/OPENAI/GOOGLE/OPENROUTER/OPENCODE API key)")
+
+    # Style-cache directory must be writable
+    cache_path = get_config().drawio_style_cache_path
+    if cache_path:
+        cache_dir = Path(cache_path).parent
+        try:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            test_file = cache_dir / ".write_test"
+            test_file.touch()
+            test_file.unlink()
+        except OSError as exc:
+            issues.append(f"Style cache directory not writable: {exc}")
+
+    if issues:
+        return JSONResponse(status_code=503, content={"status": "not ready", "issues": issues})
+    return {"status": "ready"}
 
 
 @router.post("/generate")

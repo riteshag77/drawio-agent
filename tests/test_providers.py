@@ -21,13 +21,6 @@ class ProviderTests(unittest.TestCase):
             self.assertIsInstance(MODEL_IDS[key], str)
             self.assertTrue(len(MODEL_IDS[key]) > 0)
 
-    def test_cursor_is_registered_as_cursor_agents_provider(self) -> None:
-        spec = get_provider("cursor")
-        self.assertEqual(spec.kind, "cursor_agents")
-        self.assertEqual(spec.base_url_env, "CURSOR_API_BASE_URL")
-        self.assertEqual(spec.api_key_env, "CURSOR_API_KEY")
-        self.assertIsNone(spec.client_class)
-
     def test_normalize_gateway_base_url_strips_trailing_slash(self) -> None:
         from app.adapters.outbound.llm.providers import normalize_gateway_base_url
         self.assertEqual(
@@ -176,6 +169,32 @@ class ChatRequestAttachmentSchemaTests(unittest.TestCase):
                     AttachmentDocument(filename=f"{i}.png", mime="image/png", data="x") for i in range(4)
                 ],
             )
+
+
+class LlmPortInjectionTests(unittest.TestCase):
+    """Verify that a fake LlmPort can be injected into generate_xml_diagram."""
+
+    def test_fake_llm_is_used_when_injected(self) -> None:
+        from app.core.services.agent import generate_xml_diagram
+        from app.domain.entities import XmlDiagram
+
+        fake_xml = "<mxfile><diagram><mxGraphModel><root><mxCell id='0'/></root></mxGraphModel></diagram></mxfile>"
+        fake_result = XmlDiagram(xml=fake_xml, assistant_message="ok", suggestions=[])
+        calls: list[tuple] = []
+
+        def fake_llm(system_prompt, human_content, provider, output_type, logger, attachments):
+            calls.append((provider, output_type))
+            return fake_result
+
+        result = generate_xml_diagram(
+            "draw a VPC",
+            provider="claude",
+            platform="aws",
+            llm=fake_llm,
+        )
+        self.assertEqual(result.xml, fake_xml)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], "claude")
 
 
 if __name__ == "__main__":

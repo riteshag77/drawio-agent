@@ -37,20 +37,19 @@ LLM XML (placeholder + shape_type on leaves)
 ```env
 # LLM
 OPENAI_API_KEY=
-PROVIDER_DEFAULT=openai
+ANTHROPIC_API_KEY=
+GOOGLE_API_KEY=
+OPENROUTER_API_KEY=
+OPENCODE_API_KEY=
+PROVIDER_DEFAULT=claude
 LLM_TIMEOUT=120
 MAX_CONCURRENT_LLM=4
-
-# Cursor Cloud Agents (optional — not OpenAI chat/completions)
-CURSOR_API_KEY=
-CURSOR_API_BASE_URL=https://api.cursor.com
-CURSOR_MODEL=auto
-CURSOR_TIMEOUT=600
-# CURSOR_REPO_URL=https://github.com/your-org/your-repo
+LOG_FORMAT=text   # text | json
 
 # Server
 HOST=0.0.0.0
 PORT=8000
+APP_VERSION=1.0.0
 
 # Diagram: auto | mcp | local
 DIAGRAM_RENDERER=auto
@@ -68,6 +67,13 @@ DRAWIO_STYLE_CACHE_RESET=false
 - **`DRAWIO_STYLE_CACHE_RESET=true`** — clears memory + SQLite style cache at process startup (use after changing MCP pick logic or prompts). Turn off afterward so cache stays warm.
 - Manual clear: delete `data/mcp_style_cache.sqlite3` and restart.
 - Prompt assembly uses `config/xml_gen_core.txt` + platform classify/icon packs.
+- **`LOG_FORMAT=json`** — emit one JSON object per log line for structured log ingestion.
+- **`APP_VERSION`** — exposed on `/health` (default `1.0.0`).
+
+## `/ready` and `/health` endpoints
+
+- **`GET /health`** — always returns `{"status": "ok", "version": "..."}`.
+- **`GET /ready`** — returns 200 if at least one LLM API key is set and the style-cache path is writable; returns 503 otherwise.
 
 ## Web app flow
 
@@ -92,8 +98,6 @@ App MCP URL is independent of Cursor MCP config (`.cursor/mcp.json`).
 | Symptom | Fix |
 | --- | --- |
 | Chat fails with missing API key | Fill `OPENAI_API_KEY` (or another provider) in `.env` |
-| Cursor fails with `Route POST:/v1/agents/chat/completions not found` | Cursor is **Cloud Agents API**, not OpenAI chat. Set `CURSOR_API_BASE_URL=https://api.cursor.com` (not `/v1/agents`). Use provider `cursor` with `CURSOR_API_KEY` from Cursor Dashboard → API Keys. For quick diagrams, prefer `gemini`, `claude`, or `openrouter`. |
-| Cursor agent run times out | Increase `CURSOR_TIMEOUT` (default 600s). Cursor runs are async and slower than direct chat APIs. |
 | Always `renderer_used: local` | Check network to `DRAWIO_MCP_URL`; `pip install mcp` |
 | Grey placeholder icons | Check pipeline logs for `mcp_miss`; clearer `shape_type` names help |
 | Icons wrong after a prompt change | Set `DRAWIO_STYLE_CACHE_RESET=true` once, or delete `data/mcp_style_cache.sqlite3`, then restart |

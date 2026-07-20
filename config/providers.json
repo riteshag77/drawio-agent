@@ -44,16 +44,5 @@
     "base_url_env": "OPENCODE_BASE_URL",
     "base_url_default": "https://opencode.ai/zen/v1",
     "structured_output": "json_mode"
-  },
-  {
-    "key": "cursor",
-    "label": "Cursor",
-    "kind": "cursor_agents",
-    "default_model": "auto",
-    "default_model_env": "CURSOR_MODEL",
-    "api_key_env": "CURSOR_API_KEY",
-    "base_url_env": "CURSOR_API_BASE_URL",
-    "base_url_default": "https://api.cursor.com",
-    "structured_output": "none"
   }
 ]

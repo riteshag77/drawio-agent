@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import secrets
+import time
 import uuid
 
 import app.core.ssl_trust  # noqa: F401 — trust the OS CA store before any HTTPS clients
@@ -96,8 +97,20 @@ def create_app() -> FastAPI:
     async def add_request_id(request: Request, call_next):
         request_id = request.headers.get("X-Request-ID", uuid.uuid4().hex[:12])
         request.state.request_id = request_id
+        t0 = time.monotonic()
         response = await call_next(request)
+        duration_ms = round((time.monotonic() - t0) * 1000)
         response.headers["X-Request-ID"] = request_id
+        response.headers["X-Response-Time-Ms"] = str(duration_ms)
+        from app.core.logging import get_logger
+        get_logger().info(
+            "request method=%s path=%s status=%s duration_ms=%s req_id=%s",
+            request.method,
+            request.url.path,
+            response.status_code,
+            duration_ms,
+            request_id,
+        )
         return response
 
     application.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

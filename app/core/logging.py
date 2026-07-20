@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
@@ -47,17 +48,36 @@ class LogEntry:
         return " ".join(parts)
 
 
+_LOG_FORMAT: str = os.environ.get("LOG_FORMAT", "text").strip().lower()  # text | json
+
+
+class _JsonFormatter(logging.Formatter):
+    """Emit one JSON object per log line for log aggregators."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "ts": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "msg": record.getMessage(),
+        }
+        return json.dumps(payload, ensure_ascii=False)
+
+
 # Root logger for server-side output (separate from per-request StepLogger instances).
 _LOGGER: logging.Logger = logging.getLogger("drawio-agent")
 _LOGGER.setLevel(logging.DEBUG)
 
 _console = logging.StreamHandler(sys.stdout)
-_console.setFormatter(
-    logging.Formatter(
-        fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%Y-%m-%dT%H:%M:%S%z",
+if _LOG_FORMAT == "json":
+    _console.setFormatter(_JsonFormatter())
+else:
+    _console.setFormatter(
+        logging.Formatter(
+            fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            datefmt="%Y-%m-%dT%H:%M:%S%z",
+        )
     )
-)
 _LOGGER.addHandler(_console)
 
 _log_dir = os.environ.get("DRAWIO_AGENT_LOG_DIR", "logs")
@@ -71,7 +91,7 @@ try:
     )
     _file.setLevel(logging.DEBUG)
     _file.setFormatter(
-        logging.Formatter(
+        _JsonFormatter() if _LOG_FORMAT == "json" else logging.Formatter(
             fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
             datefmt="%Y-%m-%dT%H:%M:%S%z",
         )

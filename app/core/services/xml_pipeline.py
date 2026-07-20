@@ -105,6 +105,15 @@ def _build_response(
     }
 
 
+def _safe_enrichment(name: str, result: Any, logger: Any) -> Any:
+    """Normalize a gather result: return the value or None on exception, logging a warning."""
+    if isinstance(result, BaseException):
+        if logger:
+            logger.log(name, f"{name} enrichment failed, skipping: {result}", level="warning")
+        return None
+    return result
+
+
 async def _emit(
     on_progress: ProgressCallback | None,
     step: str,
@@ -150,21 +159,9 @@ async def run_xml_pipeline(
 
     human_prompt = user_prompt or (messages[-1]["content"] if messages else "")
 
-    loop = asyncio.get_running_loop()
-
-    def sync_progress(step: str, message: str, details: dict[str, Any] | None = None) -> None:
-        if not on_progress:
-            return
-
-        def _schedule() -> None:
-            asyncio.create_task(_emit(on_progress, step, message, details))
-
-        loop.call_soon_threadsafe(_schedule)
-
     xml_diagram = await run_llm_sync(
         generate_xml_diagram, human_prompt, provider_key, platform_key, logger, messages,
         custom_system_message, applied_suggestions, three_d, context_text, attachment_documents,
-        sync_progress if provider_key == "cursor" else None,
     )
     if 'vertex="1"' not in (xml_diagram.xml or ""):
         # A successful call with no diagram content (empty/near-empty xml) is not
@@ -316,12 +313,23 @@ async def run_xml_pipeline(
         return local_xml, preview_url, renderer_used
 
     await _emit(on_progress, "enrich", "Running post-analysis and icon enrichment…")
-    cost_data, waf_data, compliance_data, mcp_result = await asyncio.gather(
+    _results = await asyncio.gather(
         _run_cost(),
         _run_waf(),
         _run_compliance(),
         _run_mcp(),
+        return_exceptions=True,
     )
+    cost_data = _safe_enrichment("cost", _results[0], logger)
+    waf_data = _safe_enrichment("waf", _results[1], logger)
+    compliance_data = _safe_enrichment("compliance", _results[2], logger)
+    _mcp_raw = _results[3]
+    if isinstance(_mcp_raw, BaseException):
+        if logger:
+            logger.log("mcp", f"MCP task raised unexpectedly: {_mcp_raw}", level="warning")
+        mcp_result = (fit_containers_to_children(xml_output), None, "local")
+    else:
+        mcp_result = _mcp_raw
     xml_output, preview_url, renderer_used = mcp_result
 
     if not use_mcp:

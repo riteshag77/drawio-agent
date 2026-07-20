@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+import time
 from typing import TYPE_CHECKING, Any
 
 from langchain_core.callbacks.usage import UsageMetadataCallbackHandler
@@ -11,7 +11,6 @@ from langchain_core.exceptions import OutputParserException
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.adapters.outbound.config.env_config import get_config
-from app.adapters.outbound.llm.cursor_client import call_cursor_agents
 from app.adapters.outbound.llm.pricing import estimate_cost_usd
 from app.adapters.outbound.llm.providers import (
     build_langchain_client,
@@ -19,10 +18,26 @@ from app.adapters.outbound.llm.providers import (
     normalize_provider_key,
     require_api_key,
 )
+
 if TYPE_CHECKING:
     from app.core.logging import StepLogger
 
-ProgressFn = Callable[[str, str, dict[str, Any] | None], None]
+
+_TRANSIENT_STATUS_CODES = {429, 502, 503, 504}
+
+
+def _is_transient(exc: Exception) -> bool:
+    """Detect rate-limit / overloaded HTTP responses worth retrying once.
+
+    Only matches when the exception carries an explicit HTTP status code
+    (via ``status_code`` or ``response.status_code`` attribute) to avoid
+    false-positives on generic errors whose message happens to mention a number.
+    """
+    status = getattr(exc, "status_code", None)
+    if status is None:
+        resp = getattr(exc, "response", None)
+        status = getattr(resp, "status_code", None)
+    return status in _TRANSIENT_STATUS_CODES
 
 
 def _truncate(text: str, max_chars: int = 5000) -> str:
@@ -53,9 +68,8 @@ def call_llm(
     human_content: str,
     provider: str,
     output_type: type,
-    logger: StepLogger | None = None,
+    logger: "StepLogger | None" = None,
     attachment_documents: list[dict] | None = None,
-    on_progress: ProgressFn | None = None,
 ) -> Any:
     """Run a structured LLM request for any registered provider."""
     provider_key = normalize_provider_key(provider)
@@ -72,28 +86,6 @@ def call_llm(
             "system_prompt": _truncate(system_prompt),
             "human_content": _truncate(human_content),
         })
-
-    if spec.kind == "cursor_agents":
-        if attachment_documents:
-            filenames = ", ".join(a.get("filename", "the attached file") for a in attachment_documents)
-            raise ValueError(
-                f"The '{provider_key}' provider cannot process attachments ({filenames}). "
-                "Use Claude or Gemini for multimodal uploads."
-            )
-        try:
-            result = call_cursor_agents(
-                system_prompt, human_content, spec, output_type,
-                logger=logger, on_progress=on_progress,
-            )
-        except Exception as exc:
-            raise ValueError(f"The '{provider_key}' provider (model {spec.default_model}) failed: {exc}") from exc
-        if logger:
-            try:
-                raw_text = result.model_dump_json()
-            except Exception:
-                raw_text = str(result)
-            logger.log("llm_output", "LLM response", details={"raw": _truncate(raw_text)})
-        return result
 
     messages = [SystemMessage(content=system_prompt), _build_human_message(human_content, attachment_documents)]
     method = spec.structured_output
@@ -121,13 +113,29 @@ def call_llm(
     except OutputParserException:
         raise
     except Exception as exc:
-        if attachment_documents:
-            filenames = ", ".join(a.get("filename", "the attached file") for a in attachment_documents)
-            raise ValueError(
-                f"The '{provider_key}' provider couldn't process the attached file(s) ({filenames}). "
-                "Try Claude or Gemini, or attach a text-based version."
-            ) from exc
-        raise ValueError(f"The '{provider_key}' provider (model {spec.default_model}) failed: {exc}") from exc
+        # One retry on transient provider failures (429/502/503/504)
+        if _is_transient(exc):
+            if logger:
+                logger.log("llm", f"Transient provider error, retrying once in 2s: {exc}", level="warning")
+            time.sleep(2)
+            try:
+                result = structured_llm.invoke(messages, config={"callbacks": [usage_handler]})
+            except Exception as retry_exc:
+                if attachment_documents:
+                    filenames = ", ".join(a.get("filename", "the attached file") for a in attachment_documents)
+                    raise ValueError(
+                        f"The '{provider_key}' provider couldn't process the attached file(s) ({filenames}). "
+                        "Try Claude or Gemini, or attach a text-based version."
+                    ) from retry_exc
+                raise ValueError(f"The '{provider_key}' provider (model {spec.default_model}) failed: {retry_exc}") from retry_exc
+        else:
+            if attachment_documents:
+                filenames = ", ".join(a.get("filename", "the attached file") for a in attachment_documents)
+                raise ValueError(
+                    f"The '{provider_key}' provider couldn't process the attached file(s) ({filenames}). "
+                    "Try Claude or Gemini, or attach a text-based version."
+                ) from exc
+            raise  # re-raise original exception unchanged
     if logger:
         try:
             raw_text = result.model_dump_json()
