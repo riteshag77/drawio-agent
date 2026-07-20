@@ -133,6 +133,8 @@ async def run_xml_pipeline(
     well_architected: bool = False,
     compliance: bool = False,
     compliance_frameworks: list[str] | None = None,
+    context_text: str | None = None,
+    attachment_documents: list[dict[str, Any]] | None = None,
     on_progress: ProgressCallback | None = None,
 ) -> dict[str, Any]:
     provider_key = (provider or "claude").strip().lower()
@@ -147,9 +149,22 @@ async def run_xml_pipeline(
     })
 
     human_prompt = user_prompt or (messages[-1]["content"] if messages else "")
+
+    loop = asyncio.get_running_loop()
+
+    def sync_progress(step: str, message: str, details: dict[str, Any] | None = None) -> None:
+        if not on_progress:
+            return
+
+        def _schedule() -> None:
+            asyncio.create_task(_emit(on_progress, step, message, details))
+
+        loop.call_soon_threadsafe(_schedule)
+
     xml_diagram = await run_llm_sync(
         generate_xml_diagram, human_prompt, provider_key, platform_key, logger, messages,
-        custom_system_message, applied_suggestions, three_d,
+        custom_system_message, applied_suggestions, three_d, context_text, attachment_documents,
+        sync_progress if provider_key == "cursor" else None,
     )
     if 'vertex="1"' not in (xml_diagram.xml or ""):
         # A successful call with no diagram content (empty/near-empty xml) is not

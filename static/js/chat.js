@@ -283,16 +283,12 @@ function clearChat() {
     previousArchitecture = null;
     currentXml = '';
     previousXml = null;
-    attachmentContext = '';
-    attachmentImageData = null;
-    hasImageAttachment = false;
+    clearAttachments();
     if (typeof diagramVersions !== 'undefined') {
         diagramVersions = [];
         activeDiagramVersion = -1;
         if (typeof renderVersionStrip === 'function') renderVersionStrip();
     }
-    const preview = document.getElementById('attachment-preview');
-    if (preview) { preview.hidden = true; preview.textContent = ''; }
     if (typeof hideValidationBanner === 'function') hideValidationBanner();
     setActionButtonsEnabled(false);
     document.getElementById('xml-output').textContent = '';

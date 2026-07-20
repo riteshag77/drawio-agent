@@ -5,12 +5,13 @@ import json
 from collections.abc import AsyncIterator
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, RedirectResponse, Response, StreamingResponse
 
 from app.adapters.inbound.web.schemas import ChatRequest, ParseUrlRequest, PromptRequest
 from app.adapters.outbound.config.env_config import get_config
 from app.adapters.outbound.llm.concurrency import run_llm_sync
+from app.adapters.outbound.utils.documents import MAX_ATTACHMENT_BYTES, extract_document
 from app.adapters.outbound.utils.web import fetch_url_content
 from app.core.logging import StepLogger
 from app.core.services.agent import generate_mermaid_diagram
@@ -116,6 +117,11 @@ async def _run_chat(body: ChatRequest, logger: StepLogger, *, on_progress=None) 
     applied_suggestions = body.applied_suggestions or []
 
     intent = classify_intent(last_user, diagram_mode=body.diagram_mode, platform=platform)
+    has_attachments = bool(body.attachment_documents) or bool(body.context_text)
+    if intent == "simple" and has_attachments:
+        # The mermaid/"simple" path never forwards attachments to the LLM — only
+        # run_xml_pipeline does, so an attached file must not be routed away from it.
+        intent = "cloud"
     if on_progress:
         await on_progress("intent", f"Classified as {intent}", {"intent": intent})
 
@@ -136,6 +142,8 @@ async def _run_chat(body: ChatRequest, logger: StepLogger, *, on_progress=None) 
         well_architected=body.well_architected,
         compliance=body.compliance,
         compliance_frameworks=body.compliance_frameworks,
+        context_text=body.context_text,
+        attachment_documents=[a.model_dump() for a in body.attachment_documents] if body.attachment_documents else None,
         on_progress=on_progress,
     )
 
@@ -249,6 +257,43 @@ async def download_diagram(body: PromptRequest, request: Request):
     except Exception as exc:
         logger.log("error", str(exc), level="error")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/attachments/extract")
+async def extract_attachment(request: Request, file: UploadFile = File(...)):
+    """Read an attached PDF/text/image file and return either extracted text or a
+    base64 payload for vision fallback. Never raises for a bad file — one unreadable
+    attachment must not break the rest of the batch or the chat flow around it."""
+    logger = _logger_from_request(request)
+    filename = file.filename or "attachment"
+
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(65536)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > MAX_ATTACHMENT_BYTES:
+            logger.log("attachment", f"Rejected '{filename}': exceeds size limit", level="warning")
+            return {
+                "status": "error", "filename": filename,
+                "detail": f"'{filename}' is too large — the limit is {MAX_ATTACHMENT_BYTES // 1_048_576} MB.",
+            }
+        chunks.append(chunk)
+    data = b"".join(chunks)
+
+    result = extract_document(filename, data)
+    if result.kind == "error":
+        logger.log("attachment", f"Could not read '{filename}': {result.message}", level="warning")
+        return {"status": "error", "filename": filename, "detail": result.message}
+
+    logger.log("attachment", f"Read '{filename}' as {result.kind}", level="success", details={
+        "kind": result.kind, "truncated": result.truncated,
+    })
+    if result.kind == "text":
+        return {"status": "success", "kind": "text", "filename": filename, "content": result.content, "truncated": result.truncated}
+    return {"status": "success", "kind": "vision", "filename": filename, "mime": result.mime, "data": result.data_b64}
 
 
 @router.post("/parse-url")

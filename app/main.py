@@ -61,7 +61,13 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
 
 class BodySizeLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        limit = get_config().max_request_body_bytes
+        if request.url.path == "/attachments/extract":
+            from app.adapters.outbound.utils.documents import MAX_ATTACHMENT_BYTES
+
+            # Multipart framing adds overhead beyond the raw file bytes; give it headroom.
+            limit = MAX_ATTACHMENT_BYTES + 65_536
+        else:
+            limit = get_config().max_request_body_bytes
         content_length = request.headers.get("content-length")
         if content_length and content_length.isdigit() and int(content_length) > limit:
             return JSONResponse(

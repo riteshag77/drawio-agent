@@ -77,11 +77,21 @@ def _spec_from_record(record: dict) -> ProviderSpec:
     key = str(record.get("key") or "").strip().lower()
     if not key:
         raise ValueError("providers.json: provider record is missing required field 'key'")
+    kind = str(record.get("kind") or "langchain").strip().lower()
     client = str(record.get("client") or "").strip().lower()
-    if client not in _CLIENT_CLASSES:
+    if kind == "cursor_agents":
+        client_class = None
+    elif kind == "langchain":
+        if client not in _CLIENT_CLASSES:
+            raise ValueError(
+                f"providers.json: provider '{key}' has unknown client '{client}' — "
+                f"supported clients: {sorted(_CLIENT_CLASSES)}"
+            )
+        client_class = _CLIENT_CLASSES[client]
+    else:
         raise ValueError(
-            f"providers.json: provider '{key}' has unknown client '{client}' — "
-            f"supported clients: {sorted(_CLIENT_CLASSES)}"
+            f"providers.json: provider '{key}' has unknown kind '{kind}' — "
+            "supported kinds: langchain, cursor_agents"
         )
     structured_output = str(record.get("structured_output") or "function_calling").strip().lower()
     if structured_output not in _VALID_STRUCTURED_OUTPUT:
@@ -94,10 +104,10 @@ def _spec_from_record(record: dict) -> ProviderSpec:
         raise ValueError(f"providers.json: provider '{key}' is missing required field 'api_key_env'")
     return ProviderSpec(
         key=key,
-        client_class=_CLIENT_CLASSES[client],
+        client_class=client_class,
         default_model=_resolve_default_model(record, key),
         api_key_env=api_key_env,
-        kind=str(record.get("kind") or "langchain").strip().lower(),
+        kind=kind,
         base_url_env=str(record.get("base_url_env") or "").strip(),
         base_url_default=str(record.get("base_url_default") or "").strip(),
         structured_output=structured_output,
@@ -176,6 +186,8 @@ def resolve_gateway_base_url(spec: ProviderSpec) -> str:
 
 def build_langchain_client(spec: ProviderSpec, *, timeout: int) -> BaseChatModel:
     """Construct a LangChain chat client for the given provider spec."""
+    if spec.kind == "cursor_agents":
+        raise ValueError(f"Provider {spec.key} uses the Cursor Cloud Agents API, not LangChain.")
     if spec.client_class is None:
         raise ValueError(f"Provider {spec.key} does not use a LangChain client.")
 

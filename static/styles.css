@@ -857,13 +857,67 @@
         .composer-btn.voice-unsupported { opacity: 0.4; }
 
         .attachment-preview {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.4rem;
+            margin-bottom: 0.45rem;
+        }
+
+        .attachment-chip {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
             font-size: 0.75rem;
             color: var(--text-secondary);
-            margin-bottom: 0.45rem;
-            padding: 0.4rem 0.6rem;
+            padding: 0.35rem 0.6rem;
             background: rgba(255, 255, 255, 0.05);
             border: 1px solid var(--sidebar-border);
             border-radius: 8px;
+            max-width: 100%;
+        }
+
+        .attachment-chip-icon {
+            flex-shrink: 0;
+            font-size: 0.85rem;
+            line-height: 1;
+        }
+
+        .attachment-chip-name {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 220px;
+        }
+
+        .attachment-chip-loading {
+            opacity: 0.65;
+        }
+
+        .attachment-chip-ready {
+            border-color: rgba(56, 189, 130, 0.35);
+            color: var(--text-primary);
+        }
+
+        .attachment-chip-error {
+            border-color: rgba(239, 68, 68, 0.45);
+            background: rgba(239, 68, 68, 0.08);
+            color: #fca5a5;
+        }
+
+        .attachment-chip-msg {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 260px;
+            color: #fca5a5;
+            opacity: 0.9;
+        }
+
+        .attachment-chip-note {
+            flex-shrink: 0;
+            font-size: 0.68rem;
+            color: var(--text-secondary);
+            opacity: 0.75;
         }
 
         .voice-status {

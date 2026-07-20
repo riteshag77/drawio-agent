@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Any
 
 from app.adapters.outbound.llm.llm_client import call_llm
 from app.adapters.outbound.llm.prompt_builders import build_chat_prompt
@@ -16,6 +17,8 @@ if TYPE_CHECKING:
     from app.adapters.outbound.diagram.xml_diagnostics import XmlDiagnostics
     from app.core.logging import StepLogger
 
+ProgressFn = Callable[[str, str, dict[str, Any] | None], None]
+
 
 def generate_xml_diagram(
     user_request: str,
@@ -26,6 +29,9 @@ def generate_xml_diagram(
     custom_system_message: str = "",
     applied_suggestions: list[str] | None = None,
     three_d: bool = False,
+    context_text: str | None = None,
+    attachment_documents: list[dict] | None = None,
+    on_progress: ProgressFn | None = None,
 ) -> XmlDiagram:
     """Generate draw.io XML directly (MCP-accelerated path — no intermediate JSON)."""
     provider_key = normalize_provider_key(provider)
@@ -46,6 +52,8 @@ def generate_xml_diagram(
         for msg in chat_messages[:-1]:
             human_parts.append(f"{msg['role'].upper()}: {msg['content']}")
     human_parts.append(f"Platform: {platform.upper()}")
+    if context_text:
+        human_parts.append(f"Document context:\n{context_text}")
     human_parts.append(f"Request:\n{chat_messages[-1]['content']}")
     human_content = "\n".join(human_parts)
 
@@ -53,7 +61,10 @@ def generate_xml_diagram(
         logger.log("prompt", "Prepared XML generation request", details={"provider": provider_key, "platform": platform})
 
     try:
-        result = call_llm(system_prompt, human_content, provider_key, XmlDiagram, logger)
+        result = call_llm(
+            system_prompt, human_content, provider_key, XmlDiagram, logger,
+            attachment_documents, on_progress=on_progress,
+        )
     except Exception as exc:
         if logger:
             logger.log("error", f"XML generation LLM call failed: {exc}", level="error")

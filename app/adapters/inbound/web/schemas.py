@@ -26,6 +26,12 @@ class ChatMessage(BaseModel):
     content: str = Field(max_length=50_000)
 
 
+class AttachmentDocument(BaseModel):
+    filename: str = Field(max_length=255)
+    mime: str
+    data: str  # base64-encoded file bytes
+
+
 class ChatRequest(BaseModel):
     messages: list[ChatMessage] = Field(max_length=100)
     provider: str = Field(default_factory=_default_provider)
@@ -39,6 +45,8 @@ class ChatRequest(BaseModel):
     well_architected: bool = False
     compliance: bool = False
     compliance_frameworks: list[str] | None = None
+    context_text: str | None = Field(default=None, max_length=20_000)
+    attachment_documents: list[AttachmentDocument] | None = Field(default=None, max_length=3)
 
 
 class ParseUrlRequest(BaseModel):

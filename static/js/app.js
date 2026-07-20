@@ -184,32 +184,103 @@ function finishChatRun({ outcome = 'idle', message = '', diagramMessage = '' } =
     }
 }
 
-async function handleFileSelect(event) {
-    const files = Array.from(event.target.files || []);
-    const preview = document.getElementById('attachment-preview');
-    preview.innerHTML = '';
-    preview.hidden = true;
-    attachmentContext = '';
-    attachmentImageData = null;
-    hasImageAttachment = false;
+const MAX_ATTACHMENT_CLIENT_BYTES = 15 * 1024 * 1024;
 
-    for (const file of files.slice(0, 3)) {
-        if (file.type.startsWith('image/')) {
-            showToast('Image attach is not available yet — use PDF or text files', 'info');
+function attachmentChipIcon(status) {
+    if (status === 'loading') return '⏳';
+    if (status === 'error') return '⚠️';
+    return '📄';
+}
+
+function renderAttachmentChips() {
+    const preview = document.getElementById('attachment-preview');
+    if (!preview) return;
+    preview.innerHTML = '';
+    if (!attachments.length) {
+        preview.hidden = true;
+        return;
+    }
+    preview.hidden = false;
+    attachments.forEach((att) => {
+        const chip = document.createElement('div');
+        chip.className = `attachment-chip attachment-chip-${att.status}`;
+        if (att.status === 'error') chip.title = att.message;
+        else if (att.truncated) chip.title = 'Only the first part of this file was used (content truncated).';
+
+        const icon = document.createElement('span');
+        icon.className = 'attachment-chip-icon';
+        icon.textContent = attachmentChipIcon(att.status);
+        chip.appendChild(icon);
+
+        const name = document.createElement('span');
+        name.className = 'attachment-chip-name';
+        name.textContent = att.filename;
+        chip.appendChild(name);
+
+        if (att.status === 'error') {
+            const msg = document.createElement('span');
+            msg.className = 'attachment-chip-msg';
+            msg.textContent = att.message;
+            chip.appendChild(msg);
+        } else if (att.truncated) {
+            const note = document.createElement('span');
+            note.className = 'attachment-chip-note';
+            note.textContent = 'truncated';
+            chip.appendChild(note);
+        }
+        preview.appendChild(chip);
+    });
+}
+
+function clearAttachments() {
+    attachmentContext = '';
+    attachmentDocuments = [];
+    attachments = [];
+    renderAttachmentChips();
+}
+
+async function handleFileSelect(event) {
+    const files = Array.from(event.target.files || []).slice(0, 3);
+    event.target.value = '';
+    if (!files.length) return;
+
+    for (const file of files) {
+        const entry = { filename: file.name, status: 'loading', message: '', truncated: false };
+        attachments.push(entry);
+        renderAttachmentChips();
+
+        if (file.size > MAX_ATTACHMENT_CLIENT_BYTES) {
+            entry.status = 'error';
+            entry.message = `Too large (${(file.size / 1048576).toFixed(1)} MB) — the limit is 15 MB.`;
+            renderAttachmentChips();
+            showToast(`Couldn't read ${file.name}: ${entry.message}`, 'error');
             continue;
         }
-        if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
-            preview.hidden = false;
-            preview.textContent = `📄 ${file.name} (PDF — describe in prompt or paste text)`;
-            attachmentContext += `[Attached PDF: ${file.name} — extract architecture from user description]\n`;
-        } else {
-            const text = await file.text();
-            attachmentContext += `\n--- File: ${file.name} ---\n${text.slice(0, 8000)}\n`;
-            preview.hidden = false;
-            preview.textContent = `📄 ${file.name}`;
+
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            const res = await fetch('/attachments/extract', { method: 'POST', body: formData });
+            const data = await res.json();
+            if (data.status !== 'success') {
+                entry.status = 'error';
+                entry.message = data.detail || 'Could not read this file.';
+                showToast(`Couldn't read ${file.name}: ${entry.message}`, 'error');
+            } else if (data.kind === 'text') {
+                entry.status = 'ready';
+                entry.truncated = !!data.truncated;
+                attachmentContext += `\n--- File: ${data.filename} ---\n${data.content}\n`;
+            } else {
+                entry.status = 'ready';
+                attachmentDocuments.push({ filename: data.filename, mime: data.mime, data: data.data });
+            }
+        } catch (err) {
+            entry.status = 'error';
+            entry.message = 'Network error while reading this file.';
+            showToast(`Couldn't read ${file.name}: ${entry.message}`, 'error');
         }
+        renderAttachmentChips();
     }
-    event.target.value = '';
 }
 
 async function parseUrlContext(url) {
@@ -1235,8 +1306,7 @@ async function sendMessage(options = {}) {
             compliance_frameworks: promptSettings.compliance_frameworks,
             validation_feedback: validationFeedback,
             context_text: contextText || null,
-            image_data: attachmentImageData,
-            has_image_input: hasImageAttachment,
+            attachment_documents: attachmentDocuments.length ? attachmentDocuments : null,
             applied_suggestions: getAppliedSuggestionsPayload(),
         };
 
@@ -1284,11 +1354,7 @@ async function sendMessage(options = {}) {
             currentArchitecture = data.architecture || null;
         }
 
-        attachmentContext = '';
-        attachmentImageData = null;
-        hasImageAttachment = false;
-        const attachPreview = document.getElementById('attachment-preview');
-        if (attachPreview) { attachPreview.hidden = true; attachPreview.textContent = ''; }
+        clearAttachments();
 
         try {
             if (data.cost_estimate) {

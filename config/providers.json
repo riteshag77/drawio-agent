@@ -46,25 +46,14 @@
     "structured_output": "json_mode"
   },
   {
-    "key": "bazaarlink",
-    "label": "BazaarLink",
-    "client": "openai",
-    "default_model": "auto:free",
-    "default_model_env": "BAZAARLINK_MODEL",
-    "api_key_env": "BAZAARLINK_API_KEY",
-    "base_url_env": "BAZAARLINK_BASE_URL",
-    "base_url_default": "https://bazaarlink.ai/api/v1",
-    "structured_output": "json_mode"
-  },
-  {
     "key": "cursor",
     "label": "Cursor",
-    "client": "openai",
+    "kind": "cursor_agents",
     "default_model": "auto",
     "default_model_env": "CURSOR_MODEL",
     "api_key_env": "CURSOR_API_KEY",
-    "base_url_env": "CURSOR_BASE_URL",
-    "base_url_default": "",
-    "structured_output": "json_mode"
+    "base_url_env": "CURSOR_API_BASE_URL",
+    "base_url_default": "https://api.cursor.com",
+    "structured_output": "none"
   }
 ]

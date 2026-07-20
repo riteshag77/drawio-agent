@@ -102,6 +102,11 @@ class EnvConfigAdapter:
         return self.get_int("LLM_TIMEOUT", 120)
 
     @property
+    def cursor_timeout_seconds(self) -> int:
+        """Longer default for Cursor Cloud Agent runs (poll until terminal)."""
+        return self.get_int("CURSOR_TIMEOUT", 600)
+
+    @property
     def max_concurrent_llm(self) -> int:
         """Max simultaneous blocking LLM calls across requests."""
         return self.get_int("MAX_CONCURRENT_LLM", 4)

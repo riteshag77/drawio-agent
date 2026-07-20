@@ -16,10 +16,17 @@ from app.adapters.outbound.llm.providers import MODEL_IDS, ProviderSpec, get_pro
 
 class ProviderTests(unittest.TestCase):
     def test_gateway_providers_are_registered(self) -> None:
-        for key in ("openrouter", "opencode", "bazaarlink"):
+        for key in ("openrouter", "opencode"):
             self.assertIn(key, MODEL_IDS)
             self.assertIsInstance(MODEL_IDS[key], str)
             self.assertTrue(len(MODEL_IDS[key]) > 0)
+
+    def test_cursor_is_registered_as_cursor_agents_provider(self) -> None:
+        spec = get_provider("cursor")
+        self.assertEqual(spec.kind, "cursor_agents")
+        self.assertEqual(spec.base_url_env, "CURSOR_API_BASE_URL")
+        self.assertEqual(spec.api_key_env, "CURSOR_API_KEY")
+        self.assertIsNone(spec.client_class)
 
     def test_normalize_gateway_base_url_strips_trailing_slash(self) -> None:
         from app.adapters.outbound.llm.providers import normalize_gateway_base_url
@@ -31,11 +38,6 @@ class ProviderTests(unittest.TestCase):
             normalize_gateway_base_url("https://example.com/v1", "https://example.com/v1"),
             "https://example.com/v1",
         )
-
-    def test_cursor_is_registered_as_a_gateway_provider(self) -> None:
-        spec = get_provider("cursor")
-        self.assertEqual(spec.base_url_env, "CURSOR_BASE_URL")
-        self.assertEqual(spec.api_key_env, "CURSOR_API_KEY")
 
 
 class ProviderRegistryLoaderTests(unittest.TestCase):
@@ -140,6 +142,40 @@ class CallLlmRetryTests(unittest.TestCase):
             with self.assertRaises(OutputParserException):
                 call_llm("system", "human", "claude", XmlDiagram, None)
         self.assertEqual(structured.invoke.call_count, 2)
+
+
+class ChatRequestAttachmentSchemaTests(unittest.TestCase):
+    def test_accepts_context_text_and_attachment_documents(self) -> None:
+        from app.adapters.inbound.web.schemas import AttachmentDocument, ChatMessage, ChatRequest
+
+        req = ChatRequest(
+            messages=[ChatMessage(role="user", content="hi")],
+            context_text="extracted document text",
+            attachment_documents=[AttachmentDocument(filename="a.png", mime="image/png", data="aGVsbG8=")],
+        )
+        self.assertEqual(req.context_text, "extracted document text")
+        self.assertEqual(len(req.attachment_documents), 1)
+        self.assertEqual(req.attachment_documents[0].mime, "image/png")
+
+    def test_context_text_and_attachment_documents_default_to_none(self) -> None:
+        from app.adapters.inbound.web.schemas import ChatMessage, ChatRequest
+
+        req = ChatRequest(messages=[ChatMessage(role="user", content="hi")])
+        self.assertIsNone(req.context_text)
+        self.assertIsNone(req.attachment_documents)
+
+    def test_attachment_documents_capped_at_three(self) -> None:
+        from pydantic import ValidationError
+
+        from app.adapters.inbound.web.schemas import AttachmentDocument, ChatMessage, ChatRequest
+
+        with self.assertRaises(ValidationError):
+            ChatRequest(
+                messages=[ChatMessage(role="user", content="hi")],
+                attachment_documents=[
+                    AttachmentDocument(filename=f"{i}.png", mime="image/png", data="x") for i in range(4)
+                ],
+            )
 
 
 if __name__ == "__main__":

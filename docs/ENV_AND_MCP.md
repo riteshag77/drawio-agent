@@ -41,6 +41,13 @@ PROVIDER_DEFAULT=openai
 LLM_TIMEOUT=120
 MAX_CONCURRENT_LLM=4
 
+# Cursor Cloud Agents (optional — not OpenAI chat/completions)
+CURSOR_API_KEY=
+CURSOR_API_BASE_URL=https://api.cursor.com
+CURSOR_MODEL=auto
+CURSOR_TIMEOUT=600
+# CURSOR_REPO_URL=https://github.com/your-org/your-repo
+
 # Server
 HOST=0.0.0.0
 PORT=8000
@@ -85,6 +92,8 @@ App MCP URL is independent of Cursor MCP config (`.cursor/mcp.json`).
 | Symptom | Fix |
 | --- | --- |
 | Chat fails with missing API key | Fill `OPENAI_API_KEY` (or another provider) in `.env` |
+| Cursor fails with `Route POST:/v1/agents/chat/completions not found` | Cursor is **Cloud Agents API**, not OpenAI chat. Set `CURSOR_API_BASE_URL=https://api.cursor.com` (not `/v1/agents`). Use provider `cursor` with `CURSOR_API_KEY` from Cursor Dashboard → API Keys. For quick diagrams, prefer `gemini`, `claude`, or `openrouter`. |
+| Cursor agent run times out | Increase `CURSOR_TIMEOUT` (default 600s). Cursor runs are async and slower than direct chat APIs. |
 | Always `renderer_used: local` | Check network to `DRAWIO_MCP_URL`; `pip install mcp` |
 | Grey placeholder icons | Check pipeline logs for `mcp_miss`; clearer `shape_type` names help |
 | Icons wrong after a prompt change | Set `DRAWIO_STYLE_CACHE_RESET=true` once, or delete `data/mcp_style_cache.sqlite3`, then restart |
