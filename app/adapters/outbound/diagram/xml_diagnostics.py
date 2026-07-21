@@ -1,11 +1,17 @@
 """Deterministic structural diagnostics and repair for draw.io XML.
 
 Catches the class of defects the LLM's one-shot geometry can get wrong:
-overlapping leaf icons, dangling edge endpoints, duplicate ids, and empty
-labels. Ported (stdlib-only, no new dependency) from the drawio-skill's
-``validate.py`` linter and adapted to work on an in-memory XML string,
-reusing this app's own cell-parsing helpers from ``xml_tools`` so the
-notion of "container" and "geometry" stays consistent across the pipeline.
+overlapping leaf icons, dangling edge endpoints, duplicate ids, empty
+labels, edges into cross-cutting groups, coordinate-only nesting, and
+service-grid row overflow. Ported (stdlib-only, no new dependency) from the
+drawio-skill's ``validate.py`` linter and adapted to work on an in-memory
+XML string, reusing this app's own cell-parsing helpers from ``xml_tools``
+so the notion of "container" and "geometry" stays consistent across the
+pipeline.
+
+Each new deterministic check here mirrors an "ABSOLUTE RULE"/"FORBIDDEN"
+clause in ``config/xml_gen_core.txt`` — the goal is to catch and auto-fix
+those violations without spending an LLM repair call on them.
 """
 
 from __future__ import annotations
@@ -19,6 +25,7 @@ from app.adapters.outbound.diagram.xml_tools import (
     _is_canvas_background_cell,
     _is_container_cell,
     _page_size,
+    fit_containers_to_children,
 )
 
 _RESERVED_IDS = {"0", "1"}
@@ -28,6 +35,28 @@ _LEAF_GRID_PITCH_Y = 130.0
 _LEAF_GRID_MAX_COLS = 4
 _LEAF_MIN_GAP = 20.0
 _LEAF_GRID_MAX_ROWS = 50
+
+# Rows are clustered by top-y proximity within this tolerance (px).
+_ROW_TOL = 20.0
+
+# Canonical pitch ranges from xml_gen_core.txt's "Density tiers" table —
+# data-path subnets prefer 200, allowed 180-220 (widened slightly here to
+# avoid flagging legitimate edge-of-range layouts); supporting (cross-cutting)
+# groups allow a tighter 160-180.
+_DATA_PITCH_RANGE = (170.0, 230.0)
+_GROUP_PITCH_RANGE = (150.0, 190.0)
+
+# Under-icon label band height (px) added to a leaf's detection rect when its
+# style places the label below the icon — mirrors xml_tools._FIT_LABEL_BAND
+# so overlap detection accounts for the label, not just the icon box.
+_LABEL_BAND_HEIGHT = 28.0
+
+# Cross-cutting group containers (config/xml_gen_core.txt "Cross-Cutting
+# Groups — NO EDGES"): matched by the container's first label word, mirroring
+# the short-form naming already used in this app's fixtures/tests ("Security",
+# "Monitoring", ...) and the longer "Security Group" form from the container-
+# style table — both start with the same keyword.
+_CROSS_CUTTING_KEYWORDS = {"security", "monitoring", "integration", "management"}
 
 
 @dataclass
@@ -84,6 +113,136 @@ def _rects_overlap(a: tuple[float, float, float, float], b: tuple[float, float, 
     return ax < bx + bw + pad and bx < ax + aw + pad and ay < by + bh + pad and by < ay + ah + pad
 
 
+def _rect_contained(inner: tuple[float, float, float, float], outer: tuple[float, float, float, float],
+                     tol: float = 2.0) -> bool:
+    """True if ``inner`` fits fully inside ``outer`` (with a small tolerance)."""
+    ix, iy, iw, ih = inner
+    ox, oy, ow, oh = outer
+    return ix >= ox - tol and iy >= oy - tol and ix + iw <= ox + ow + tol and iy + ih <= oy + oh + tol
+
+
+def _band_height(cell: ET.Element) -> float:
+    """Under-icon label band height for a leaf whose style places the label below it."""
+    return _LABEL_BAND_HEIGHT if "verticalLabelPosition=bottom" in (cell.get("style") or "") else 0.0
+
+
+def _is_cross_cutting_group_cell(cell: ET.Element) -> bool:
+    """True for a Security/Monitoring/Integration/Management container.
+
+    Matched by the container's first label word (case-insensitive) so both the
+    short form ("Security") and the container-style-table form ("Security
+    Group") match — deliberately not a substring match, to avoid mistaking an
+    ordinary leaf service (e.g. a "Security Hub" icon) for the group container.
+    """
+    if not _is_container_cell(cell):
+        return False
+    value = (cell.get("value") or "").strip().lower()
+    first_word = value.split()[0] if value.split() else ""
+    return first_word in _CROSS_CUTTING_KEYWORDS
+
+
+def _cross_cutting_cell_ids(cells: list[ET.Element]) -> set[str]:
+    """All ids belonging to a cross-cutting group: each group container plus every descendant."""
+    children_by_parent: dict[str, list[str]] = {}
+    for c in cells:
+        pid, cid = c.get("parent"), c.get("id")
+        if pid and cid:
+            children_by_parent.setdefault(pid, []).append(cid)
+
+    out: set[str] = set()
+    for c in cells:
+        if not _is_cross_cutting_group_cell(c):
+            continue
+        root_id = c.get("id")
+        if not root_id:
+            continue
+        stack = [root_id]
+        out.add(root_id)
+        while stack:
+            cur = stack.pop()
+            for child_id in children_by_parent.get(cur, ()):
+                if child_id not in out:
+                    out.add(child_id)
+                    stack.append(child_id)
+    return out
+
+
+def _group_rows(kids: list[ET.Element],
+                 geo_by_kid: dict[ET.Element, tuple[float, float, float, float] | None]) -> list[list[ET.Element]]:
+    """Cluster same-parent leaf siblings into visual rows by top-y proximity, left-to-right within a row."""
+    ordered = sorted((k for k in kids if geo_by_kid.get(k) is not None), key=lambda k: geo_by_kid[k][1])
+    rows: list[list[ET.Element]] = []
+    for kid in ordered:
+        y = geo_by_kid[kid][1]
+        if rows and abs(geo_by_kid[rows[-1][0]][1] - y) <= _ROW_TOL:
+            rows[-1].append(kid)
+        else:
+            rows.append([kid])
+    for row in rows:
+        row.sort(key=lambda k: geo_by_kid[k][0])
+    return rows
+
+
+def _leaf_siblings_by_parent(cells: list[ET.Element], parent_ids: set[str | None],
+                              page_w: float, page_h: float) -> dict[str, list[ET.Element]]:
+    """Group same-parent leaf (non-container, non-edge-label, non-background) siblings by parent id."""
+    by_parent: dict[str, list[ET.Element]] = {}
+    for cell in cells:
+        if cell.get("vertex") != "1" or _is_container_cell(cell) or _is_edge_label_cell(cell):
+            continue
+        if _is_canvas_background_cell(cell, page_w, page_h):
+            continue
+        if cell.get("id") in parent_ids:
+            continue
+        pid = cell.get("parent")
+        if pid:
+            by_parent.setdefault(pid, []).append(cell)
+    return by_parent
+
+
+def _top_level_containers(cells: list[ET.Element], page_w: float, page_h: float) -> list[ET.Element]:
+    return [
+        c for c in cells
+        if _is_container_cell(c) and c.get("parent") == "1" and not _is_canvas_background_cell(c, page_w, page_h)
+    ]
+
+
+def _coordinate_nesting_violations(
+    cells: list[ET.Element], page_w: float, page_h: float,
+) -> list[tuple[ET.Element, ET.Element]]:
+    """Pairs of (inner, outer) top-level containers where ``inner`` is fully contained in ``outer``.
+
+    Per xml_gen_core.txt: only the Cloud boundary (plus background/actors) may
+    sit at ``parent="1"`` — any other container visually nested inside another
+    parent="1" container but not reparented to it is a coordinate-only-nesting
+    violation ("Overlap != containment").
+    """
+    top = _top_level_containers(cells, page_w, page_h)
+    if len(top) < 2:
+        return []
+    geo_by = {c: _cell_geometry(c) for c in top}
+    violations: list[tuple[ET.Element, ET.Element]] = []
+    for inner in top:
+        ig = geo_by.get(inner)
+        if ig is None:
+            continue
+        best_outer, best_area = None, None
+        for outer in top:
+            if outer is inner:
+                continue
+            og = geo_by.get(outer)
+            if og is None:
+                continue
+            outer_area = og[2] * og[3]
+            if outer_area <= ig[2] * ig[3]:
+                continue  # candidate outer must be strictly larger
+            if _rect_contained(ig, og) and (best_area is None or outer_area < best_area):
+                best_outer, best_area = outer, outer_area
+        if best_outer is not None:
+            violations.append((inner, best_outer))
+    return violations
+
+
 def diagnose_xml(xml: str) -> XmlDiagnostics:
     """Return structural errors/warnings found in ``xml`` — never raises."""
     diag = XmlDiagnostics()
@@ -102,6 +261,7 @@ def diagnose_xml(xml: str) -> XmlDiagnostics:
         ids[cid] = cell
 
     parent_ids = {c.get("parent") for c in cells}
+    cross_cutting_ids = _cross_cutting_cell_ids(cells)
 
     for cell in cells:
         cid = cell.get("id") or ""
@@ -118,6 +278,14 @@ def diagnose_xml(xml: str) -> XmlDiagnostics:
         if (is_vertex or is_edge) and cid in _RESERVED_IDS:
             diag.errors.append(f"cell {cid!r} reuses reserved id 0/1")
 
+        if is_edge and cross_cutting_ids:
+            src, tgt = cell.get("source"), cell.get("target")
+            if (src and src in cross_cutting_ids) or (tgt and tgt in cross_cutting_ids):
+                diag.errors.append(
+                    f"edge {cid!r} touches a cross-cutting group (Security/Monitoring/"
+                    "Integration/Management) — these groups must have zero edges"
+                )
+
         if is_vertex and not _is_edge_label_cell(cell):
             geo = _cell_geometry(cell)
             if geo is None:
@@ -131,8 +299,18 @@ def diagnose_xml(xml: str) -> XmlDiagnostics:
                 if not (cell.get("value") or "").strip():
                     diag.warnings.append(f"vertex {cid!r} has an empty label")
 
+    # Coordinate-only nesting: a top-level container visually inside another
+    # top-level container but not actually parented to it.
+    for inner, outer in _coordinate_nesting_violations(cells, page_w, page_h):
+        diag.errors.append(
+            f"container {inner.get('id')!r} at parent=\"1\" is visually contained within "
+            f"container {outer.get('id')!r} — must be nested via parent={outer.get('id')!r} "
+            "instead of parent=\"1\" (coordinate-only containment is forbidden)"
+        )
+
     # Sibling leaf overlap — only leaves (containers legitimately wrap children;
-    # the full-page background rect is intentionally under everything).
+    # the full-page background rect is intentionally under everything). Uses a
+    # label-band-extended rect so overlapping under-icon labels are caught too.
     boxes: list[tuple[str, str | None, tuple[float, float, float, float]]] = []
     for cell in cells:
         if cell.get("vertex") != "1" or _is_container_cell(cell) or _is_edge_label_cell(cell):
@@ -143,13 +321,35 @@ def diagnose_xml(xml: str) -> XmlDiagnostics:
             continue
         geo = _cell_geometry(cell)
         if geo:
-            boxes.append((cell.get("id") or "", cell.get("parent"), geo))
+            x, y, w, h = geo
+            boxes.append((cell.get("id") or "", cell.get("parent"), (x, y, w, h + _band_height(cell))))
     for i in range(len(boxes)):
         ia, pa, ra = boxes[i]
         for j in range(i + 1, len(boxes)):
             ib, pb, rb = boxes[j]
             if pa == pb and _rects_overlap(ra, rb):
                 diag.warnings.append(f"vertices {ia!r} and {ib!r} overlap")
+
+    # Service-grid row count / pitch — max 4 icons per row, canonical pitch per layer.
+    by_parent_leaves = _leaf_siblings_by_parent(cells, parent_ids, page_w, page_h)
+    for pid, kids in by_parent_leaves.items():
+        parent_cell = ids.get(pid)
+        is_group = parent_cell is not None and _is_cross_cutting_group_cell(parent_cell)
+        lo, hi = _GROUP_PITCH_RANGE if is_group else _DATA_PITCH_RANGE
+        geo_by_kid = {k: _cell_geometry(k) for k in kids}
+        for row in _group_rows(kids, geo_by_kid):
+            if len(row) > _LEAF_GRID_MAX_COLS:
+                ids_in_row = ", ".join(repr(k.get("id")) for k in row)
+                diag.warnings.append(
+                    f"more than {_LEAF_GRID_MAX_COLS} icons in one row under parent {pid!r}: {ids_in_row}"
+                )
+            for a, b in zip(row, row[1:]):
+                dx = geo_by_kid[b][0] - geo_by_kid[a][0]
+                if dx > 0 and not (lo <= dx <= hi):
+                    diag.warnings.append(
+                        f"icon pitch {dx:g}px between {a.get('id')!r} and {b.get('id')!r} under "
+                        f"parent {pid!r} is outside the {lo:g}-{hi:g}px range"
+                    )
 
     return diag
 
@@ -170,6 +370,34 @@ def remove_dangling_edges(xml: str) -> str:
         c for c in cells
         if c.get("edge") == "1"
         and ((c.get("source") and c.get("source") not in ids) or (c.get("target") and c.get("target") not in ids))
+    ]
+    if not to_remove:
+        return xml
+    for cell in to_remove:
+        root.remove(cell)
+    return _serialize_docroot(tree, root, is_mxfile, trimmed)
+
+
+def remove_cross_cutting_edges(xml: str) -> str:
+    """Drop any edge touching a Security/Monitoring/Integration/Management group.
+
+    Deterministic enforcement of xml_gen_core.txt's "ABSOLUTE RULE — NO LINES":
+    these groups are shown for architecture completeness only and must never
+    be on the request/data path.
+    """
+    parsed = _parse_docroot(xml)
+    if parsed is None:
+        return xml
+    tree, root, is_mxfile, trimmed = parsed
+
+    cells = [c for c in root.findall("mxCell") if c.get("id")]
+    cross_cutting_ids = _cross_cutting_cell_ids(cells)
+    if not cross_cutting_ids:
+        return xml
+    to_remove = [
+        c for c in cells
+        if c.get("edge") == "1"
+        and ((c.get("source") in cross_cutting_ids) or (c.get("target") in cross_cutting_ids))
     ]
     if not to_remove:
         return xml
@@ -237,6 +465,8 @@ def resolve_leaf_overlaps(xml: str) -> str:
 
     Mirrors the prompt's own grid convention (200px pitch, wrap after 4,
     ~130px row height) so the fallback matches what the LLM is asked to do.
+    Detection rects include the under-icon label band (for leaves styled with
+    ``verticalLabelPosition=bottom``) so overlapping labels are also resolved.
     Only repositions cells actually found overlapping — everything else,
     including already-clear siblings, is left untouched.
     """
@@ -248,22 +478,12 @@ def resolve_leaf_overlaps(xml: str) -> str:
 
     cells = [c for c in root.findall("mxCell") if c.get("id")]
     parent_ids = {c.get("parent") for c in cells}
-    by_parent: dict[str, list[ET.Element]] = {}
-    for cell in cells:
-        if cell.get("vertex") != "1" or _is_container_cell(cell) or _is_edge_label_cell(cell):
-            continue
-        if _is_canvas_background_cell(cell, page_w, page_h):
-            continue
-        if cell.get("id") in parent_ids:
-            continue
-        pid = cell.get("parent")
-        if not pid:
-            continue
-        by_parent.setdefault(pid, []).append(cell)
+    by_parent = _leaf_siblings_by_parent(cells, parent_ids, page_w, page_h)
 
     changed = False
     for kids in by_parent.values():
         geo_by_kid = {kid: _cell_geometry(kid) for kid in kids}
+        band_by_kid = {kid: _band_height(kid) for kid in kids}
         ordered = sorted(
             (k for k in kids if geo_by_kid[k] is not None),
             key=lambda k: (geo_by_kid[k][1], geo_by_kid[k][0]),
@@ -273,17 +493,99 @@ def resolve_leaf_overlaps(xml: str) -> str:
         base_x = min(geo_by_kid[k][0] for k in ordered)
         base_y = min(geo_by_kid[k][1] for k in ordered)
 
-        placed: list[tuple[float, float, float, float]] = []
+        placed: list[tuple[float, float, float, float]] = []  # label-band-extended detection rects
         for kid in ordered:
-            rect = geo_by_kid[kid]
-            if any(_rects_overlap(rect, p, pad=_LEAF_MIN_GAP) for p in placed):
-                rect = _next_free_slot(base_x, base_y, rect[2], rect[3], placed)
+            x, y, w, h = geo_by_kid[kid]
+            band = band_by_kid[kid]
+            detect_rect = (x, y, w, h + band)
+            if any(_rects_overlap(detect_rect, p, pad=_LEAF_MIN_GAP) for p in placed):
+                new_x, new_y, _, _ = _next_free_slot(base_x, base_y, w, h + band, placed)
                 geom_el = kid.find("mxGeometry")
                 if geom_el is not None:
-                    geom_el.set("x", str(rect[0]))
-                    geom_el.set("y", str(rect[1]))
+                    geom_el.set("x", str(new_x))
+                    geom_el.set("y", str(new_y))
                     changed = True
-            placed.append(rect)
+                detect_rect = (new_x, new_y, w, h + band)
+            placed.append(detect_rect)
+
+    if not changed:
+        return xml
+    return _serialize_docroot(tree, root, is_mxfile, trimmed)
+
+
+def resolve_row_overflow(xml: str) -> str:
+    """Wrap the 5th+ icon of any over-full visual row onto the next row.
+
+    Deterministic safety net for xml_gen_core.txt's "Service Grid — MAX 4 PER
+    ROW" rule ("When adding into a full row of 4, place on the next row —
+    never squeeze a 5th into the first row"). Only moves the overflow icons of
+    a row that already has more than 4 — properly-sized rows are untouched.
+    Any residual overlap this introduces is cleaned up by the overlap-nudge
+    fixer that runs immediately after in ``repair_xml``.
+    """
+    parsed = _parse_docroot(xml)
+    if parsed is None:
+        return xml
+    tree, root, is_mxfile, trimmed = parsed
+    page_w, page_h = _page_size(tree)
+
+    cells = [c for c in root.findall("mxCell") if c.get("id")]
+    parent_ids = {c.get("parent") for c in cells}
+    by_parent = _leaf_siblings_by_parent(cells, parent_ids, page_w, page_h)
+
+    changed = False
+    for kids in by_parent.values():
+        geo_by_kid = {k: _cell_geometry(k) for k in kids}
+        for row in _group_rows(kids, geo_by_kid):
+            if len(row) <= _LEAF_GRID_MAX_COLS:
+                continue
+            overflow = row[_LEAF_GRID_MAX_COLS:]
+            row_y = geo_by_kid[row[0]][1]
+            base_x = geo_by_kid[row[0]][0]
+            for idx, kid in enumerate(overflow, start=1):
+                geom_el = kid.find("mxGeometry")
+                if geom_el is None:
+                    continue
+                geom_el.set("x", str(base_x))
+                geom_el.set("y", str(row_y + idx * _LEAF_GRID_PITCH_Y))
+                changed = True
+
+    if not changed:
+        return xml
+    return _serialize_docroot(tree, root, is_mxfile, trimmed)
+
+
+def resolve_coordinate_only_nesting(xml: str) -> str:
+    """Reparent a top-level container that's visually nested inside another top-level container.
+
+    Deterministic enforcement of xml_gen_core.txt's "Overlap != containment"
+    rule — only the Cloud boundary (plus background/actors) may legitimately
+    sit at ``parent="1"``. Converts the reparented cell's geometry to be
+    relative to its new parent.
+    """
+    parsed = _parse_docroot(xml)
+    if parsed is None:
+        return xml
+    tree, root, is_mxfile, trimmed = parsed
+    page_w, page_h = _page_size(tree)
+
+    cells = [c for c in root.findall("mxCell") if c.get("id")]
+    violations = _coordinate_nesting_violations(cells, page_w, page_h)
+    if not violations:
+        return xml
+
+    changed = False
+    for inner, outer in violations:
+        inner_geo = _cell_geometry(inner)
+        outer_geo = _cell_geometry(outer)
+        if inner_geo is None or outer_geo is None:
+            continue
+        inner.set("parent", outer.get("id") or "1")
+        geom_el = inner.find("mxGeometry")
+        if geom_el is not None:
+            geom_el.set("x", str(inner_geo[0] - outer_geo[0]))
+            geom_el.set("y", str(inner_geo[1] - outer_geo[1]))
+            changed = True
 
     if not changed:
         return xml
@@ -394,13 +696,20 @@ def resolve_misplaced_actors(xml: str) -> str:
 def repair_xml(xml: str) -> tuple[str, XmlDiagnostics]:
     """Run deterministic fixers in sequence, then re-diagnose what's left.
 
-    Order matters: drop unfixable dangling edges first (nothing downstream
-    should route through cells that are about to disappear), fill missing
-    labels, fix structural placement (misplaced actors), then resolve
-    overlaps last so the grid math sees final content and final parents.
+    Order matters: drop unfixable dangling/forbidden edges first (nothing
+    downstream should route through cells about to disappear or that must
+    never carry an edge), fill missing labels, fix structural placement
+    (misplaced actors, coordinate-only nesting), resolve row overflow before
+    overlaps (so overlap resolution sees the corrected row layout), resolve
+    remaining overlaps, then shrink-wrap containers last so it sees final
+    child positions.
     """
     fixed = remove_dangling_edges(xml)
+    fixed = remove_cross_cutting_edges(fixed)
     fixed = ensure_leaf_labels(fixed)
     fixed = resolve_misplaced_actors(fixed)
+    fixed = resolve_coordinate_only_nesting(fixed)
+    fixed = resolve_row_overflow(fixed)
     fixed = resolve_leaf_overlaps(fixed)
+    fixed = fit_containers_to_children(fixed)
     return fixed, diagnose_xml(fixed)

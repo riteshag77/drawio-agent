@@ -11,7 +11,11 @@ from app.adapters.outbound.diagram.drawio_mcp_client import (
     _shape_query,
 )
 from app.adapters.outbound.diagram.xml_tools import normalize_platform_styles
-from app.adapters.outbound.llm.prompts.system import ESTIMATE_PROMPT_TOKENS, get_xml_gen_system_prompt
+from app.adapters.outbound.llm.prompts.system import (
+    ESTIMATE_PROMPT_TOKENS,
+    _load_prompt,
+    get_xml_gen_system_prompt,
+)
 
 
 class PlatformPromptTests(unittest.TestCase):
@@ -50,8 +54,16 @@ class PlatformPromptTests(unittest.TestCase):
         # Must not dump full AWS category fillColor table
         self.assertNotIn("| Compute | #ED7100 |", prompt)
         self.assertNotIn("aws-icons-compute", prompt)
-        # Token budget: icon overhead beyond shared base should stay lean
-        self.assertLess(ESTIMATE_PROMPT_TOKENS(prompt), 4500)
+        # Token budget: icon overhead beyond the shared CORE pack should stay lean.
+        # Measured as a delta from CORE (not the raw total) — CORE itself is a
+        # fixed, cached cost shared by every platform, so it's not part of
+        # "multi's icon overhead"; folding it into the threshold made this
+        # assertion fail for every platform, not just multi. A regression here
+        # (e.g. multi's reference-catalog filter silently loading all four
+        # platforms' catalogs unfiltered) would push the delta well past this cap.
+        core_tokens = ESTIMATE_PROMPT_TOKENS(_load_prompt("xml_gen_core.txt"))
+        overhead = ESTIMATE_PROMPT_TOKENS(prompt) - core_tokens
+        self.assertLess(overhead, 2000, f"multi platform overhead ~{overhead} tokens exceeds budget")
 
 
 class PickStyleTests(unittest.TestCase):

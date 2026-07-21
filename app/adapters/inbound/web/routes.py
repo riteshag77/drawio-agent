@@ -315,7 +315,9 @@ async def extract_attachment(request: Request, file: UploadFile = File(...)):
         chunks.append(chunk)
     data = b"".join(chunks)
 
-    result = extract_document(filename, data)
+    # extract_document does synchronous PDF/image parsing (pypdf) — run off the
+    # event loop so a large attachment doesn't stall other in-flight requests.
+    result = await asyncio.to_thread(extract_document, filename, data)
     if result.kind == "error":
         logger.log("attachment", f"Could not read '{filename}': {result.message}", level="warning")
         return {"status": "error", "filename": filename, "detail": result.message}

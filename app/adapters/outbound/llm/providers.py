@@ -3,7 +3,15 @@
 Provider wiring lives in ``config/providers.json`` so adding a new provider —
 including a new OpenAI-compatible gateway — never requires touching this
 module. Only a genuinely new client *library* (not currently one of
-openai/anthropic/google) needs a code change, in ``_CLIENT_CLASSES`` below.
+openai/anthropic/google) needs a code change, in ``_resolve_client_class``
+below.
+
+Client libraries (``langchain_anthropic``, ``langchain_openai``,
+``langchain_google_genai``) are imported lazily, one at a time, only when a
+client of that kind is actually constructed — not at module import time.
+``langchain_google_genai`` in particular pulls in grpc/protobuf, and eagerly
+importing all three regardless of which provider is configured dominates
+cold-start time for no benefit.
 """
 
 from __future__ import annotations
@@ -13,22 +21,19 @@ import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
-
-from langchain_anthropic import ChatAnthropic
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_openai import ChatOpenAI
+from typing import TYPE_CHECKING, Any
 
 from app.adapters.outbound.config.env_config import EnvConfigAdapter
 
+if TYPE_CHECKING:
+    from langchain_core.language_models.chat_models import BaseChatModel
+
 PROVIDERS_CONFIG_PATH: Path = EnvConfigAdapter.base_dir() / "config" / "providers.json"
 
-_CLIENT_CLASSES: dict[str, type] = {
-    "openai": ChatOpenAI,
-    "anthropic": ChatAnthropic,
-    "google": ChatGoogleGenerativeAI,
-}
+# Client-library discriminators accepted in providers.json's "client" field.
+# Validated eagerly (cheap — just strings); the actual library import happens
+# lazily in _resolve_client_class, only for the provider(s) actually used.
+_CLIENT_KEYS = frozenset({"openai", "anthropic", "google"})
 
 _VALID_STRUCTURED_OUTPUT = {"function_calling", "json_mode", "none"}
 _VALID_PROMPT_CACHE = {"anthropic", "auto", "none"}
@@ -74,6 +79,10 @@ class ProviderSpec:
     default_model_env: str = ""
     omit_temperature: bool = False
     prompt_cache: str = "none"  # anthropic | auto | none
+    # Lazy client-library discriminator ("openai" | "anthropic" | "google"), set for
+    # specs built from providers.json. When client_class is also set (test/override
+    # path), client_class wins and the library is never imported via this key.
+    client_key: str = ""
 
 
 def _resolve_default_model(record: dict, key: str) -> str:
@@ -92,10 +101,10 @@ def _spec_from_record(record: dict) -> ProviderSpec:
     if not key:
         raise ValueError("providers.json: provider record is missing required field 'key'")
     client = str(record.get("client") or "").strip().lower()
-    if client not in _CLIENT_CLASSES:
+    if client not in _CLIENT_KEYS:
         raise ValueError(
             f"providers.json: provider '{key}' has unknown client '{client}' — "
-            f"supported clients: {sorted(_CLIENT_CLASSES)}"
+            f"supported clients: {sorted(_CLIENT_KEYS)}"
         )
     structured_output = str(record.get("structured_output") or "function_calling").strip().lower()
     if structured_output not in _VALID_STRUCTURED_OUTPUT:
@@ -114,7 +123,7 @@ def _spec_from_record(record: dict) -> ProviderSpec:
         )
     return ProviderSpec(
         key=key,
-        client_class=_CLIENT_CLASSES[client],
+        client_key=client,  # lazily resolved to the real class on first use — see _resolve_client_class
         default_model=_resolve_default_model(record, key),
         api_key_env=api_key_env,
         kind="langchain",
@@ -154,6 +163,7 @@ def reload_providers() -> dict[str, ProviderSpec]:
     """Clear the cache and rebuild — used by tests, and available for a future ops reload path."""
     global PROVIDERS, MODEL_IDS
     _build_registry.cache_clear()
+    _cached_langchain_client.cache_clear()  # old ProviderSpec instances would otherwise leak in the client cache
     PROVIDERS = _build_registry()
     MODEL_IDS = {key: spec.default_model for key, spec in PROVIDERS.items()}
     return PROVIDERS
@@ -196,15 +206,47 @@ def resolve_gateway_base_url(spec: ProviderSpec) -> str:
     return base_url
 
 
-def build_langchain_client(spec: ProviderSpec, *, timeout: int) -> BaseChatModel:
-    """Construct a LangChain chat client for the given provider spec."""
-    if spec.client_class is None:
-        raise ValueError(f"Provider {spec.key} does not use a LangChain client.")
+def _resolve_client_class(client_key: str) -> type:
+    """Import and return the LangChain client class for one provider library.
 
+    Imported one at a time, on first actual use of that provider — not at
+    module load. ``langchain_google_genai`` especially (grpc/protobuf) should
+    never be paid for by a process that only ever calls Claude or OpenAI.
+    """
+    if client_key == "anthropic":
+        from langchain_anthropic import ChatAnthropic  # noqa: PLC0415
+        return ChatAnthropic
+    if client_key == "openai":
+        from langchain_openai import ChatOpenAI  # noqa: PLC0415
+        return ChatOpenAI
+    if client_key == "google":
+        from langchain_google_genai import ChatGoogleGenerativeAI  # noqa: PLC0415
+        return ChatGoogleGenerativeAI
+    raise ValueError(f"Unknown client library key: {client_key!r}")
+
+
+@lru_cache(maxsize=64)
+def _cached_langchain_client(spec: ProviderSpec, timeout: int) -> BaseChatModel:
+    client_cls = spec.client_class or _resolve_client_class(spec.client_key)
     kwargs: dict[str, Any] = {"model": spec.default_model, "timeout": timeout}
     if not spec.omit_temperature:
         kwargs["temperature"] = 0
     if spec.base_url_env:
         kwargs["api_key"] = os.getenv(spec.api_key_env)
         kwargs["base_url"] = resolve_gateway_base_url(spec)
-    return spec.client_class(**kwargs)
+    return client_cls(**kwargs)
+
+
+def build_langchain_client(spec: ProviderSpec, *, timeout: int) -> BaseChatModel:
+    """Construct (or reuse a cached) LangChain chat client for the given provider spec.
+
+    Memoized by ``(spec, timeout)`` — ``ProviderSpec`` is a frozen, hashable
+    dataclass — so the underlying client and its httpx connection pool are
+    reused across the multiple LLM calls one request can make (generate →
+    repair → compliance) and across requests, instead of rebuilding a fresh
+    client (and connection pool) on every call. The client *library* import
+    itself is deferred to this first call — see ``_resolve_client_class``.
+    """
+    if spec.client_class is None and not spec.client_key:
+        raise ValueError(f"Provider {spec.key} does not use a LangChain client.")
+    return _cached_langchain_client(spec, timeout)

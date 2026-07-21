@@ -239,6 +239,15 @@ async def _mcp_call_tools(calls: list[tuple[str, dict[str, Any]]]) -> list[str]:
         raise DrawioMcpError(f"Draw.io MCP {names} failed: {exc}") from exc
 
 
+def _chunk(items: list[str], max_chunks: int) -> list[list[str]]:
+    """Split ``items`` into at most ``max_chunks`` roughly-equal, order-preserving groups."""
+    if max_chunks <= 1 or len(items) <= 1:
+        return [items]
+    n_chunks = min(max_chunks, len(items))
+    size = -(-len(items) // n_chunks)  # ceil division
+    return [items[i:i + size] for i in range(0, len(items), size)]
+
+
 async def search_shapes(query: str, *, limit: int = 5) -> list[str]:
     """Return candidate draw.io style strings for a keyword query."""
     text = await _mcp_call_tool("search_shapes", {"query": query, "limit": limit})
@@ -250,10 +259,14 @@ async def resolve_shape_styles(
     platform: str = "aws",
     logger: StepLogger | None = None,
 ) -> dict[str, str]:
-    """Map shape_type → best MCP style string (cached + concurrent MCP lookup).
+    """Map shape_type → best MCP style string (cached + batched MCP lookup).
 
-    Cache hits use memory LRU backed by optional SQLite. Misses are resolved
-    concurrently up to ``DRAWIO_MCP_CONCURRENCY`` parallel MCP sessions.
+    Cache hits use memory LRU backed by optional SQLite. Misses are split into
+    at most ``DRAWIO_MCP_CONCURRENCY`` chunks, each resolved over a *single*
+    MCP session handling all of that chunk's ``search_shapes`` calls — so N
+    misses cost at most ``DRAWIO_MCP_CONCURRENCY`` connection handshakes
+    instead of N, while chunks still run concurrently and a failure in one
+    chunk doesn't take down the others' results.
     For ``platform=multi``, each shape_type's cloud prefix selects vendor/style.
     """
     platform = (platform or "aws").lower()
@@ -283,32 +296,34 @@ async def resolve_shape_styles(
     first_error: DrawioMcpError | None = None
     if misses:
         concurrency = max(1, int(get_config().drawio_mcp_concurrency))
-        sem = asyncio.Semaphore(concurrency)
+        chunks = _chunk(misses, concurrency)
 
-        async def _resolve_one(st: str) -> tuple[str, str | None, DrawioMcpError | None]:
-            async with sem:
-                try:
-                    query = _shape_query(st, platform)
-                    payload = await _mcp_call_tool("search_shapes", {"query": query, "limit": 5})
+        async def _resolve_chunk(chunk: list[str]) -> tuple[list[tuple[str, str | None]], DrawioMcpError | None]:
+            calls = [("search_shapes", {"query": _shape_query(st, platform), "limit": 5}) for st in chunk]
+            try:
+                payloads = await _mcp_call_tools(calls)
+            except DrawioMcpError as exc:
+                return [(st, None) for st in chunk], exc
+            out: list[tuple[str, str | None]] = []
+            for st, payload in zip(chunk, payloads):
+                cloud = _platform_from_shape_type(st, platform)
+                pick = _pick_style(_extract_styles(payload), cloud, shape_type=st)
+                out.append((st, pick if pick and pick.strip() else None))
+            return out, None
+
+        chunk_results = await asyncio.gather(*[_resolve_chunk(c) for c in chunks])
+        for results, err in chunk_results:
+            if err is not None and first_error is None:
+                first_error = err
+            for st, pick in results:
+                if pick:
                     cloud = _platform_from_shape_type(st, platform)
-                    pick = _pick_style(_extract_styles(payload), cloud, shape_type=st)
-                    if pick and pick.strip():
-                        cache_put((cloud, st), pick)
-                        _log.info("MCP resolved %s via %r", st, query)
-                        return st, pick, None
-                    _log.info("MCP miss for %s (%r)", st, query)
-                    return st, None, None
-                except DrawioMcpError as exc:
-                    return st, None, exc
-
-        results = await asyncio.gather(*[_resolve_one(st) for st in misses])
-        for st, pick, err in results:
-            if pick and pick.strip():
-                resolved[st] = pick
-            else:
-                unresolved.append(st)
-                if err is not None and first_error is None:
-                    first_error = err
+                    cache_put((cloud, st), pick)
+                    resolved[st] = pick
+                    _log.info("MCP resolved %s", st)
+                else:
+                    unresolved.append(st)
+                    _log.info("MCP miss for %s", st)
 
     if logger:
         logger.log(

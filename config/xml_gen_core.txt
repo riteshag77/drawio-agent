@@ -35,11 +35,10 @@ Every internal box must be **visually and structurally wrapped** inside its oute
 **Outer-layer wrap rules:**
 1. Create the Cloud boundary first. Its `parent="1"`. Size it large enough to contain Region + Edge + padding.
 2. Region is **inside** Cloud (`parent=<cloud-id>`). VPC is **inside** Region. Zones/subnets/groups are **inside** VPC. Services are **inside** their subnet or supporting group.
-3. **FORBIDDEN:** Region, VPC, Zone, Subnet, Security/Monitoring/Integration/Management, or Edge as `parent="1"` siblings floating beside the Cloud box. If it belongs in the hierarchy, it must be a child of the layer above it.
-4. **FORBIDDEN:** placing an inner box with absolute canvas coordinates while `parent="1"` so it only overlaps the outer box visually. Overlap ≠ containment.
-5. Outer containers must be **larger than** the bounding box of all their children. Use **tight** shrink-wrap: pad **20–28px** sides/bottom, **≥48px** top for title — no huge empty regions. Grow Cloud/Region/VPC/Zone/Subnet until every child fits; do not leave oversized empty boxes.
-6. Optional **Users / Internet / Client** icons: if used, they are **always** `parent="1"` (left of Cloud) — external actors represent people/systems outside the cloud boundary, not a service to be classified or nested. Everything else cloud-related stays wrapped inside Cloud.
-7. **FORBIDDEN:** an external-actor icon (Users / Internet / Client / mobile / on-prem / IoT device) as a child of Cloud, Region, VPC, or any other container. It never has a classification decision — it is not a service.
+3. **FORBIDDEN:** Region, VPC, Zone, Subnet, Security/Monitoring/Integration/Management, or Edge as `parent="1"` siblings floating beside the Cloud box, including via absolute canvas coordinates that only make a box *look* nested. Overlap ≠ containment — if it belongs in the hierarchy, it must be a real child (via `parent=`) of the layer above it.
+4. Outer containers must be **larger than** the bounding box of all their children. Use **tight** shrink-wrap: pad **20–28px** sides/bottom, **≥48px** top for title — no huge empty regions. Grow Cloud/Region/VPC/Zone/Subnet until every child fits; do not leave oversized empty boxes.
+5. Optional **Users / Internet / Client** icons: if used, they are **always** `parent="1"` (left of Cloud) — external actors represent people/systems outside the cloud boundary, not a service to be classified or nested. Everything else cloud-related stays wrapped inside Cloud.
+6. **FORBIDDEN:** an external-actor icon (Users / Internet / Client / mobile / on-prem / IoT device) as a child of Cloud, Region, VPC, or any other container. It never has a classification decision — it is not a service.
 
 ## Leaf Footprint — UNDER-ICON LABELS (CRITICAL)
 
@@ -215,8 +214,6 @@ Every leaf and container MUST carry a non-empty, specific `value` — never blan
 - Empty tier → omit the empty subnet rather than a huge empty box
 - Multi-cloud → each provider keeps its own tree; cross-cloud = edge only, never nesting
 - Users / Internet → outside Cloud on left (`parent="1"`); edge into Edge layer or LB
-- User asks "add X" into a full row of 4 → place on next row; grow parent
-- User asks "fix crowding" → re-grid **that subnet/group only**
 
 ## Anti-Patterns — FORBIDDEN
 
