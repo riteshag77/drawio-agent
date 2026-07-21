@@ -1,5 +1,0 @@
-## Visual style (SUPERSEDED — not loaded by the app; see xml_gen_core.txt)
-
-- Edge colors: AWS `#ED7100`, GCP `#4285F4`, Azure `#0078D4`.
-- Security, Monitoring, Integration, and Management are cross-cutting — NO edges to/from them.
-- Container titles: inside top-left only (`align=left;verticalAlign=top;spacingLeft=12;spacingTop=8`). Never `labelPosition=left` or `verticalLabelPosition=top`.
