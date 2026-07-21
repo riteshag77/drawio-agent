@@ -326,12 +326,6 @@ async function sendMessage(options = {}) {
             }
         } catch (e) { console.error('Token usage badge error', e); }
 
-        if (data.validation?.feedback) {
-            showValidationBanner(data.validation.structural || data.validation.vlm, data.validation.feedback);
-        } else if (data.validation?.structural && !data.validation.structural.valid) {
-            showValidationBanner(data.validation.structural, data.validation.feedback);
-        }
-
         setTyping(false);
         appendChatBubble('assistant', assistantText, data.suggestions || []);
 

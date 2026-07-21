@@ -31,6 +31,18 @@ _CLIENT_CLASSES: dict[str, type] = {
 }
 
 _VALID_STRUCTURED_OUTPUT = {"function_calling", "json_mode", "none"}
+_VALID_PROMPT_CACHE = {"anthropic", "auto", "none"}
+
+# Default prompt-caching strategy per client library, used when providers.json
+# does not set "prompt_cache" explicitly:
+#   anthropic → explicit cache_control breakpoints (ChatAnthropic)
+#   openai    → "auto": provider does native prefix caching, send a plain string
+#   google    → "none": no supported prefix caching in this path
+_DEFAULT_PROMPT_CACHE: dict[str, str] = {
+    "anthropic": "anthropic",
+    "openai": "auto",
+    "google": "none",
+}
 
 
 def normalize_gateway_model_id(model_id: str, *, default: str, prefix: str = "") -> str:
@@ -61,6 +73,7 @@ class ProviderSpec:
     label: str = ""
     default_model_env: str = ""
     omit_temperature: bool = False
+    prompt_cache: str = "none"  # anthropic | auto | none
 
 
 def _resolve_default_model(record: dict, key: str) -> str:
@@ -93,6 +106,12 @@ def _spec_from_record(record: dict) -> ProviderSpec:
     api_key_env = str(record.get("api_key_env") or "").strip()
     if not api_key_env:
         raise ValueError(f"providers.json: provider '{key}' is missing required field 'api_key_env'")
+    prompt_cache = str(record.get("prompt_cache") or _DEFAULT_PROMPT_CACHE.get(client, "none")).strip().lower()
+    if prompt_cache not in _VALID_PROMPT_CACHE:
+        raise ValueError(
+            f"providers.json: provider '{key}' has invalid prompt_cache "
+            f"'{prompt_cache}' — must be one of {sorted(_VALID_PROMPT_CACHE)}"
+        )
     return ProviderSpec(
         key=key,
         client_class=_CLIENT_CLASSES[client],
@@ -105,6 +124,7 @@ def _spec_from_record(record: dict) -> ProviderSpec:
         label=str(record.get("label") or key).strip(),
         default_model_env=str(record.get("default_model_env") or "").strip(),
         omit_temperature=bool(record.get("omit_temperature")),
+        prompt_cache=prompt_cache,
     )
 
 

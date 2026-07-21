@@ -201,6 +201,7 @@ async def run_xml_pipeline(
         await _emit(on_progress, "repair", "Requesting a corrective pass…")
         repaired = await run_llm_sync(
             repair_xml_diagram, xml_output, diagnostics, provider_key, platform_key, logger,
+            human_prompt,
         )
         if repaired.xml:
             xml_output = ensure_diagram_document(repaired.xml, PLATFORM_LABELS.get(platform_key, "Architecture"))

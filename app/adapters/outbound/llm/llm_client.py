@@ -11,7 +11,9 @@ from langchain_core.exceptions import OutputParserException
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.adapters.outbound.config.env_config import get_config
+from app.adapters.outbound.llm.caching import build_system_message
 from app.adapters.outbound.llm.pricing import estimate_cost_usd
+from app.adapters.outbound.llm.prompts.system import CACHE_BREAKPOINT
 from app.adapters.outbound.llm.providers import (
     build_langchain_client,
     get_provider,
@@ -83,11 +85,11 @@ def call_llm(
             details={"provider": provider_key, "model": spec.default_model, "output_type": output_type.__name__},
         )
         logger.log("llm_input", "LLM request", details={
-            "system_prompt": _truncate(system_prompt),
+            "system_prompt": _truncate(system_prompt.replace(CACHE_BREAKPOINT, "")),
             "human_content": _truncate(human_content),
         })
 
-    messages = [SystemMessage(content=system_prompt), _build_human_message(human_content, attachment_documents)]
+    messages = [build_system_message(spec, system_prompt), _build_human_message(human_content, attachment_documents)]
     method = spec.structured_output
     timeout = get_config().llm_timeout_seconds
     llm = build_langchain_client(spec, timeout=timeout)
@@ -145,12 +147,17 @@ def call_llm(
         for model_name, usage in usage_handler.usage_metadata.items():
             input_tokens = usage.get("input_tokens", 0)
             output_tokens = usage.get("output_tokens", 0)
+            token_details = usage.get("input_token_details") or {}
+            cache_read = token_details.get("cache_read", 0)
+            cache_creation = token_details.get("cache_creation", 0)
             cost = estimate_cost_usd(model_name, input_tokens, output_tokens)
             logger.log("usage", f"{model_name}: {usage.get('total_tokens', 0)} tokens", details={
                 "provider": provider_key,
                 "model": model_name,
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
+                "cache_read_tokens": cache_read,
+                "cache_creation_tokens": cache_creation,
                 "total_tokens": usage.get("total_tokens", 0),
                 "estimated_cost_usd": cost,
             })
