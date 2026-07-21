@@ -9,8 +9,8 @@ from app.adapters.outbound.config.env_config import EnvConfigAdapter
 
 MAX_CUSTOM_SYSTEM_MESSAGE_LEN = 5000
 # Soft budget for assembled system prompt (~tokens ≈ chars/4).
-# Nesting + no-edge + label rules need headroom; still below legacy ~4.9k AWS monolith.
-MAX_SYSTEM_PROMPT_TOKENS = 4600
+# CORE + platform packs + filtered catalog.
+MAX_SYSTEM_PROMPT_TOKENS = 8000
 
 CONFIG_DIR = EnvConfigAdapter.base_dir() / "config"
 REFERENCES_DIR = CONFIG_DIR / "references"

@@ -16,10 +16,25 @@ from app.adapters.outbound.llm.providers import MODEL_IDS, ProviderSpec, get_pro
 
 class ProviderTests(unittest.TestCase):
     def test_gateway_providers_are_registered(self) -> None:
-        for key in ("openrouter", "opencode"):
+        for key in ("openrouter", "opencode", "kimi"):
             self.assertIn(key, MODEL_IDS)
             self.assertIsInstance(MODEL_IDS[key], str)
             self.assertTrue(len(MODEL_IDS[key]) > 0)
+
+    def test_kimi_omits_temperature(self) -> None:
+        from dataclasses import replace
+
+        from app.adapters.outbound.llm.providers import build_langchain_client
+
+        spec = get_provider("kimi")
+        self.assertTrue(spec.omit_temperature)
+        mock_cls = MagicMock(return_value=MagicMock())
+        patched = replace(spec, client_class=mock_cls)
+        with patch.dict("os.environ", {"MOONSHOT_API_KEY": "test-key"}, clear=False):
+            build_langchain_client(patched, timeout=30)
+        kwargs = mock_cls.call_args.kwargs
+        self.assertNotIn("temperature", kwargs)
+        self.assertEqual(kwargs.get("model"), spec.default_model)
 
     def test_normalize_gateway_base_url_strips_trailing_slash(self) -> None:
         from app.adapters.outbound.llm.providers import normalize_gateway_base_url

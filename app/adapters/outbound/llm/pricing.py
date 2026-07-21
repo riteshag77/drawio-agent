@@ -24,6 +24,7 @@ _PRICING: dict[str, ModelPrice] = {
     "gpt-4o": ModelPrice(input_per_million=2.50, output_per_million=10.00),
     "claude-sonnet-4-6": ModelPrice(input_per_million=3.00, output_per_million=15.00),
     "gemini-2.5-flash": ModelPrice(input_per_million=0.30, output_per_million=2.50),
+    "kimi-k3": ModelPrice(input_per_million=3.00, output_per_million=15.00),
 }
 
 

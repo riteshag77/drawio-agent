@@ -60,6 +60,7 @@ class ProviderSpec:
     structured_output: str = "function_calling"  # function_calling | json_mode | none
     label: str = ""
     default_model_env: str = ""
+    omit_temperature: bool = False
 
 
 def _resolve_default_model(record: dict, key: str) -> str:
@@ -103,6 +104,7 @@ def _spec_from_record(record: dict) -> ProviderSpec:
         structured_output=structured_output,
         label=str(record.get("label") or key).strip(),
         default_model_env=str(record.get("default_model_env") or "").strip(),
+        omit_temperature=bool(record.get("omit_temperature")),
     )
 
 
@@ -179,7 +181,9 @@ def build_langchain_client(spec: ProviderSpec, *, timeout: int) -> BaseChatModel
     if spec.client_class is None:
         raise ValueError(f"Provider {spec.key} does not use a LangChain client.")
 
-    kwargs: dict[str, Any] = {"model": spec.default_model, "temperature": 0, "timeout": timeout}
+    kwargs: dict[str, Any] = {"model": spec.default_model, "timeout": timeout}
+    if not spec.omit_temperature:
+        kwargs["temperature"] = 0
     if spec.base_url_env:
         kwargs["api_key"] = os.getenv(spec.api_key_env)
         kwargs["base_url"] = resolve_gateway_base_url(spec)

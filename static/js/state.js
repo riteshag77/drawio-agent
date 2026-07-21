@@ -42,8 +42,8 @@ let vlmAutoRetryCount = 0;
 
 const EXAMPLE_PROMPTS = {
     aws: [
-        'Highly available web app with API Gateway, Fargate in public/private subnets, Aurora, ElastiCache, CloudFront, Route 53, WAF, and CloudWatch',
-        'Serverless data pipeline: S3 → Lambda → SQS → ECS workers → Redshift with KMS encryption',
+        'Highly available web app with API Gateway, Fargate in public/private subnets, Aurora, ElastiCache, CloudFront, Route 53, WAF, and CloudWatch with Overview panel',
+        'Serverless data pipeline: S3 → Lambda → SQS → ECS workers → Redshift with KMS encryption with Overview panel',
     ],
     gcp: [
         'Cloud Run in Shared VPC with Cloud SQL, Memorystore, Cloud CDN, Cloud DNS, Cloud Armor, and Cloud Monitoring',
