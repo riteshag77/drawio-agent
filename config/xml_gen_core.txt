@@ -83,7 +83,7 @@ Service leaves use `verticalLabelPosition=bottom` — the **label draws below** 
 - Horizontal gap between peer AZ containers: **20–30px** (do **not** use icon pitch between AZs)
 - Children inside a container start at **y ≥ 48** (title band) and **x ≥ 24**
 - Container width/height must **tightly** fit children + padding (pad **12–16** left/right/bottom, **48** top for title), including under-icon labels and label overhang
-- Canvas default: pageWidth="2400" pageHeight="1400". If multi-AZ + wrapped rows need room, grow page up to ~**3200×2000** and match the full-page background cell — prefer growing the page over reducing data-path pitch below 180
+- Canvas default: pageWidth="2400" pageHeight="1400". If multi-AZ + wrapped rows need room, grow page up to ~**3200×2000** and match the full-page background cell — prefer growing the page over reducing data-path pitch below 180. This budget is for the architecture only — the right-hand Overview Panel's width is added **on top** of it (see below), so the final page is often wider still
 
 ## Service Grid — MAX 4 PER ROW (CRITICAL)
 
@@ -205,6 +205,20 @@ Every leaf and container MUST carry a non-empty, specific `value` — never blan
 - **Order to cut crossings:** order sibling icons in a row to roughly match their downstream target's left-to-right position — not alphabetical/arbitrary.
 - **Legend only if mixed edge styles:** solid **and** dashed both present → add one small legend (2-4 lines, e.g. `Solid = sync`, `Dashed = async`) outside the flow, same inside-top-left container label style. Skip it when every edge is solid.
 
+## Overview Panel — RIGHT-HAND SIDE (REQUIRED)
+
+Every **Create**-mode diagram gets one explanatory text box, in addition to (never instead of) the architecture itself:
+
+- **id:** always exactly `overview_panel`, `parent="1"`. This id is load-bearing — a deterministic fixer downstream repositions this exact cell if it overlaps the architecture, so do not vary it and do not create more than one.
+- **Placement:** to the right of **all** other top-level content (Cloud boundary/boundaries, optional Users/Internet actor, edge-style legend if present) — never overlapping any of them. Top-aligned with the topmost of that content.
+- **Size:** width **340–420px**; height = title band (~40px) + **~28–34px per step line** + bottom padding, minimum **160px**.
+- **Style (plain box, not a container — no `container=1`, no `shape_type`):**
+  `rounded=1;whiteSpace=wrap;html=1;fillColor=#F8F9FA;strokeColor=#6B7280;strokeWidth=1;align=left;verticalAlign=top;spacingLeft=14;spacingTop=10;fontSize=12;`
+- **Content:** a short bold title naming the depicted system/flow, then **3–6 numbered steps** (1-2 sentences each, plain prose) explaining what the diagram shows and how the flow works end to end — written for *this* request, not generic boilerplate.
+- **Canvas growth:** grow `pageWidth` (and match the background rect) to fit existing content width + ~40px gap + panel width + ~24px right margin — this is in addition to, and may push further than, the multi-AZ growth already described below.
+- **Edit mode:** if `overview_panel` already exists, update its text in place — never duplicate it. Only reposition it if the architecture's bounding box grew.
+- **Multi-cloud:** one shared panel describing the overall flow — never one per provider.
+
 ## Edge Cases (brief)
 
 - 5–8 services in one App subnet → wrap to 2 rows; grow subnet/Zone height; keep pitch
@@ -260,6 +274,7 @@ Mirror app-tier and data-tier into every Zone's matching subnet. Do **not** mirr
 14. Every leaf/container has a non-empty, specific `value`?
 15. Parallel edges in a corridor offset 20px; row order minimizes crossings?
 16. Legend present only if solid + dashed both appear?
+17. Overview panel present (`id=overview_panel`), positioned right of all other top-level content with no overlap, page width grown to fit it?
 
 ## PNG Background
 

@@ -2,8 +2,9 @@
 
 Catches the class of defects the LLM's one-shot geometry can get wrong:
 overlapping leaf icons, dangling edge endpoints, duplicate ids, empty
-labels, edges into cross-cutting groups, coordinate-only nesting, and
-service-grid row overflow. Ported (stdlib-only, no new dependency) from the
+labels, edges into cross-cutting groups, coordinate-only nesting,
+service-grid row overflow, and right-hand overview-panel placement. Ported
+(stdlib-only, no new dependency) from the
 drawio-skill's ``validate.py`` linter and adapted to work on an in-memory
 XML string, reusing this app's own cell-parsing helpers from ``xml_tools``
 so the notion of "container" and "geometry" stays consistent across the
@@ -57,6 +58,14 @@ _LABEL_BAND_HEIGHT = 28.0
 # "Monitoring", ...) and the longer "Security Group" form from the container-
 # style table — both start with the same keyword.
 _CROSS_CUTTING_KEYWORDS = {"security", "monitoring", "integration", "management"}
+
+# Stable id the prompt (config/xml_gen_core.txt, "Overview Panel — RIGHT-HAND
+# SIDE") requires for the right-hand explanatory text box. It is deliberately
+# excluded from the leaf-grid helpers below (pitch/row/overlap checks) since
+# it's a prose annotation, not a service icon in the architecture grid.
+_OVERVIEW_PANEL_ID = "overview_panel"
+_OVERVIEW_PANEL_GAP = 40.0
+_OVERVIEW_PANEL_MARGIN = 24.0
 
 
 @dataclass
@@ -141,6 +150,10 @@ def _is_cross_cutting_group_cell(cell: ET.Element) -> bool:
     return first_word in _CROSS_CUTTING_KEYWORDS
 
 
+def _is_overview_panel_cell(cell: ET.Element) -> bool:
+    return cell.get("id") == _OVERVIEW_PANEL_ID
+
+
 def _cross_cutting_cell_ids(cells: list[ET.Element]) -> set[str]:
     """All ids belonging to a cross-cutting group: each group container plus every descendant."""
     children_by_parent: dict[str, list[str]] = {}
@@ -190,7 +203,7 @@ def _leaf_siblings_by_parent(cells: list[ET.Element], parent_ids: set[str | None
     for cell in cells:
         if cell.get("vertex") != "1" or _is_container_cell(cell) or _is_edge_label_cell(cell):
             continue
-        if _is_canvas_background_cell(cell, page_w, page_h):
+        if _is_canvas_background_cell(cell, page_w, page_h) or _is_overview_panel_cell(cell):
             continue
         if cell.get("id") in parent_ids:
             continue
@@ -315,7 +328,7 @@ def diagnose_xml(xml: str) -> XmlDiagnostics:
     for cell in cells:
         if cell.get("vertex") != "1" or _is_container_cell(cell) or _is_edge_label_cell(cell):
             continue
-        if _is_canvas_background_cell(cell, page_w, page_h):
+        if _is_canvas_background_cell(cell, page_w, page_h) or _is_overview_panel_cell(cell):
             continue
         if cell.get("id") in parent_ids:
             continue
@@ -693,6 +706,75 @@ def resolve_misplaced_actors(xml: str) -> str:
     return _serialize_docroot(tree, root, is_mxfile, trimmed)
 
 
+def ensure_overview_panel_position(xml: str) -> str:
+    """Keep the right-hand overview panel clear of the architecture and the page wide enough for it.
+
+    config/xml_gen_core.txt requires exactly one explanatory text box with
+    ``id="overview_panel"``, placed to the right of every other top-level
+    element. The LLM places it itself; this only repositions it (never
+    invents or edits its text) when its one-shot geometry overlaps the rest
+    of the diagram or sits left of it, and grows ``pageWidth`` (and the
+    full-page background rect) to fit — mirroring resolve_misplaced_actors'
+    "reposition, don't fabricate" shape. No-ops if the panel is absent.
+    """
+    parsed = _parse_docroot(xml)
+    if parsed is None:
+        return xml
+    tree, root, is_mxfile, trimmed = parsed
+
+    cells = [c for c in root.findall("mxCell") if c.get("id")]
+    panel = next((c for c in cells if _is_overview_panel_cell(c)), None)
+    if panel is None:
+        return xml
+    panel_geo = _cell_geometry(panel)
+    if panel_geo is None:
+        return xml
+
+    page_w, page_h = _page_size(tree)
+    others = [
+        c for c in cells
+        if c is not panel and c.get("edge") != "1"
+        and c.get("parent") == "1" and not _is_canvas_background_cell(c, page_w, page_h)
+    ]
+    other_geoms = [g for g in (_cell_geometry(c) for c in others) if g is not None]
+    if not other_geoms:
+        return xml
+
+    content_max_x = max(g[0] + g[2] for g in other_geoms)
+    content_min_y = min(g[1] for g in other_geoms)
+
+    px, py, pw, ph = panel_geo
+    needs_move = px < content_max_x or any(_rects_overlap((px, py, pw, ph), g) for g in other_geoms)
+
+    changed = False
+    if needs_move:
+        px, py = content_max_x + _OVERVIEW_PANEL_GAP, content_min_y
+        geom_el = panel.find("mxGeometry")
+        if geom_el is not None:
+            geom_el.set("x", str(px))
+            geom_el.set("y", str(py))
+            changed = True
+
+    required_w = px + pw + _OVERVIEW_PANEL_MARGIN
+    if required_w > page_w:
+        model = tree.find(".//mxGraphModel")
+        if model is None and tree.tag == "mxGraphModel":
+            model = tree
+        if model is not None:
+            model.set("pageWidth", str(required_w))
+            changed = True
+        for c in cells:
+            if _is_canvas_background_cell(c, page_w, page_h):
+                geom_el = c.find("mxGeometry")
+                if geom_el is not None:
+                    geom_el.set("width", str(required_w))
+                    changed = True
+
+    if not changed:
+        return xml
+    return _serialize_docroot(tree, root, is_mxfile, trimmed)
+
+
 def repair_xml(xml: str) -> tuple[str, XmlDiagnostics]:
     """Run deterministic fixers in sequence, then re-diagnose what's left.
 
@@ -701,8 +783,9 @@ def repair_xml(xml: str) -> tuple[str, XmlDiagnostics]:
     never carry an edge), fill missing labels, fix structural placement
     (misplaced actors, coordinate-only nesting), resolve row overflow before
     overlaps (so overlap resolution sees the corrected row layout), resolve
-    remaining overlaps, then shrink-wrap containers last so it sees final
-    child positions.
+    remaining overlaps, then shrink-wrap containers. The overview panel is
+    positioned last of all, since it must clear the architecture's *final*
+    extents (containers may still grow during the fit-to-children pass).
     """
     fixed = remove_dangling_edges(xml)
     fixed = remove_cross_cutting_edges(fixed)
@@ -712,4 +795,5 @@ def repair_xml(xml: str) -> tuple[str, XmlDiagnostics]:
     fixed = resolve_row_overflow(fixed)
     fixed = resolve_leaf_overlaps(fixed)
     fixed = fit_containers_to_children(fixed)
+    fixed = ensure_overview_panel_position(fixed)
     return fixed, diagnose_xml(fixed)
