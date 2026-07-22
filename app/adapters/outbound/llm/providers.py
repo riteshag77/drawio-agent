@@ -23,7 +23,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from app.adapters.outbound.config.env_config import EnvConfigAdapter
+from app.adapters.outbound.config.env_config import EnvConfigAdapter, get_config
 
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
@@ -174,7 +174,7 @@ MODEL_IDS: dict[str, str] = {key: spec.default_model for key, spec in PROVIDERS.
 
 
 def normalize_provider_key(provider: str) -> str:
-    return (provider or "claude").strip().lower()
+    return (provider or default_provider_key()).strip().lower()
 
 
 def get_provider(provider: str) -> ProviderSpec:
@@ -186,7 +186,10 @@ def get_provider(provider: str) -> ProviderSpec:
 
 
 def default_provider_key() -> str:
-    return "claude" if os.environ.get("ANTHROPIC_API_KEY") else "openai"
+    configured = get_config().provider_default.strip().lower()
+    if configured in PROVIDERS:
+        return configured
+    return "gemini" if os.environ.get("GOOGLE_API_KEY") else "openai"
 
 
 def require_api_key(spec: ProviderSpec) -> None:

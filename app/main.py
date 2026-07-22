@@ -18,6 +18,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.adapters.inbound.web.routes import router
 from app.adapters.outbound.config.env_config import get_config
+from app.adapters.outbound.llm import providers as providers_module
 from app.core.config import STATIC_DIR, init_config, _resolve_config
 
 # Initialize configuration before any other imports.
@@ -31,11 +32,15 @@ if cfg.drawio_style_cache_reset:
 
     clear_style_cache()
 
-if cfg.provider_default == "claude" and not os.environ.get("ANTHROPIC_API_KEY"):
+_default_provider_key = providers_module.default_provider_key()
+_default_provider_spec = providers_module.get_provider(_default_provider_key)
+if _default_provider_spec.api_key_env and not os.environ.get(_default_provider_spec.api_key_env):
     logging.getLogger("drawio-agent").warning(
-        "Default provider is 'claude' but ANTHROPIC_API_KEY is not set — "
-        "requests that don't specify a provider will fail. Set ANTHROPIC_API_KEY "
-        "in .env, or pass provider=\"openai\" (etc.) per request."
+        "Default provider is '%s' but %s is not set — requests that don't specify "
+        "a provider will fail. Set %s in .env, or pass a different provider per request.",
+        _default_provider_key,
+        _default_provider_spec.api_key_env,
+        _default_provider_spec.api_key_env,
     )
 
 logger = None  # lazy import to avoid circular dependency

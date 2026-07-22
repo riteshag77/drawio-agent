@@ -37,15 +37,18 @@ LLM XML (placeholder + shape_type on leaves)
 ```env
 # LLM
 OPENAI_API_KEY=
+# OPENAI_MODEL=gpt-4o
 ANTHROPIC_API_KEY=
+# CLAUDE_MODEL=claude-sonnet-4-6
 GOOGLE_API_KEY=
+# GEMINI_MODEL=gemini-2.5-flash
 OPENROUTER_API_KEY=
 OPENCODE_API_KEY=
 MOONSHOT_API_KEY=
 # Optional overrides for Kimi K3 (provider key: kimi)
 # MOONSHOT_BASE_URL=https://api.moonshot.ai/v1
 # KIMI_MODEL=kimi-k3
-PROVIDER_DEFAULT=claude
+PROVIDER_DEFAULT=gemini
 LLM_TIMEOUT=120
 MAX_CONCURRENT_LLM=4
 LOG_FORMAT=text   # text | json

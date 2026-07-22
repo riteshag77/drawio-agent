@@ -4,6 +4,7 @@
     "label": "GPT-4o",
     "client": "openai",
     "default_model": "gpt-4o",
+    "default_model_env": "OPENAI_MODEL",
     "api_key_env": "OPENAI_API_KEY",
     "structured_output": "function_calling"
   },
@@ -12,6 +13,7 @@
     "label": "Claude",
     "client": "anthropic",
     "default_model": "claude-sonnet-4-6",
+    "default_model_env": "CLAUDE_MODEL",
     "api_key_env": "ANTHROPIC_API_KEY",
     "structured_output": "function_calling"
   },
@@ -20,6 +22,7 @@
     "label": "Gemini",
     "client": "google",
     "default_model": "gemini-2.5-flash",
+    "default_model_env": "GEMINI_MODEL",
     "api_key_env": "GOOGLE_API_KEY",
     "structured_output": "json_mode"
   },
