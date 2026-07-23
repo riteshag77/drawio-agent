@@ -212,5 +212,49 @@ class LlmPortInjectionTests(unittest.TestCase):
         self.assertEqual(calls[0][0], "claude")
 
 
+class CurrentXmlPromptAssemblyTests(unittest.TestCase):
+    """generate_xml_diagram must surface current_xml as edit-mode ground truth when provided."""
+
+    @staticmethod
+    def _fake_result() -> "XmlDiagram":
+        from app.domain.entities import XmlDiagram
+        return XmlDiagram(
+            xml='<mxfile><diagram><mxGraphModel><root><mxCell id="0"/></root></mxGraphModel></diagram></mxfile>',
+            assistant_message="ok", suggestions=[],
+        )
+
+    def test_current_xml_included_as_current_diagram_block(self) -> None:
+        from app.core.services.agent import generate_xml_diagram
+
+        captured: dict[str, str] = {}
+
+        def fake_llm(system_prompt, human_content, provider, output_type, logger, attachments):
+            captured["human_content"] = human_content
+            return self._fake_result()
+
+        prior_xml = '<mxfile><diagram><mxGraphModel><root><mxCell id="overview_panel" value="Old"/></root></mxGraphModel></diagram></mxfile>'
+        generate_xml_diagram(
+            "add a Lambda function", provider="claude", platform="aws",
+            current_xml=prior_xml, llm=fake_llm,
+        )
+        self.assertIn("## Current diagram", captured["human_content"])
+        self.assertIn(prior_xml, captured["human_content"])
+        self.assertIn("Edit mode", captured["human_content"])
+
+    def test_no_current_xml_omits_block_and_matches_prior_behavior(self) -> None:
+        from app.core.services.agent import generate_xml_diagram
+
+        captured: dict[str, str] = {}
+
+        def fake_llm(system_prompt, human_content, provider, output_type, logger, attachments):
+            captured["human_content"] = human_content
+            return self._fake_result()
+
+        generate_xml_diagram(
+            "draw a VPC", provider="claude", platform="aws", llm=fake_llm,
+        )
+        self.assertNotIn("## Current diagram", captured["human_content"])
+
+
 if __name__ == "__main__":
     unittest.main()

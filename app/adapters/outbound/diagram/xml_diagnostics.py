@@ -17,8 +17,11 @@ those violations without spending an LLM repair call on them.
 
 from __future__ import annotations
 
+import html
+import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
+from typing import Any
 
 from app.adapters.outbound.diagram.xml_tools import (
     _cell_geometry,
@@ -66,6 +69,22 @@ _CROSS_CUTTING_KEYWORDS = {"security", "monitoring", "integration", "management"
 _OVERVIEW_PANEL_ID = "overview_panel"
 _OVERVIEW_PANEL_GAP = 40.0
 _OVERVIEW_PANEL_MARGIN = 24.0
+
+# Stable id the prompt requires for the edge-style legend box (same
+# load-bearing-id pattern as the Overview Panel) — lets ensure_legend_position
+# find and place it deterministically under the panel.
+_LEGEND_ID = "legend_box"
+_LEGEND_GAP = 20.0
+# Rough characters-per-line at the panel's chosen font/width, matching the
+# estimate config/xml_gen_core.txt already documents to the LLM — used to
+# compute the panel's actual needed height from its real text content instead
+# of trusting whatever height the LLM emitted.
+_PANEL_CHARS_PER_LINE = 50
+_PANEL_LINE_HEIGHT = 28.0
+_PANEL_TITLE_BAND = 60.0
+_PANEL_BLOCK_GAP = 14.0
+_PANEL_BOTTOM_PAD = 16.0
+_PANEL_MIN_HEIGHT = 160.0
 
 
 @dataclass
@@ -154,6 +173,22 @@ def _is_overview_panel_cell(cell: ET.Element) -> bool:
     return cell.get("id") == _OVERVIEW_PANEL_ID
 
 
+def _is_legend_cell(cell: ET.Element) -> bool:
+    return cell.get("id") == _LEGEND_ID
+
+
+def _is_step_badge_cell(cell: ET.Element) -> bool:
+    """True for a backend-inserted step-marker badge (see apply_step_markers).
+
+    Excluded from the leaf-grid helpers below for the same reason as the
+    Overview Panel: an annotation cell, never a service icon, must stay
+    invisible to pitch/row/overlap checks by construction — not merely
+    because today's pipeline happens to insert badges after those checks run.
+    """
+    cell_id = cell.get("id") or ""
+    return cell_id.startswith(_STEP_BADGE_ID_PREFIX)
+
+
 def _cross_cutting_cell_ids(cells: list[ET.Element]) -> set[str]:
     """All ids belonging to a cross-cutting group: each group container plus every descendant."""
     children_by_parent: dict[str, list[str]] = {}
@@ -204,6 +239,8 @@ def _leaf_siblings_by_parent(cells: list[ET.Element], parent_ids: set[str | None
         if cell.get("vertex") != "1" or _is_container_cell(cell) or _is_edge_label_cell(cell):
             continue
         if _is_canvas_background_cell(cell, page_w, page_h) or _is_overview_panel_cell(cell):
+            continue
+        if _is_legend_cell(cell) or _is_step_badge_cell(cell):
             continue
         if cell.get("id") in parent_ids:
             continue
@@ -631,7 +668,7 @@ def _is_external_actor_cell(cell: ET.Element) -> bool:
     return value in _ACTOR_EXACT_LABELS
 
 
-def _absolute_position(cell: ET.Element, by_id: dict[str, ET.Element]) -> tuple[float, float]:
+def absolute_position(cell: ET.Element, by_id: dict[str, ET.Element]) -> tuple[float, float]:
     """Sum ancestor container offsets to get a cell's position in canvas (parent="1") space."""
     geo = _cell_geometry(cell)
     x, y = (geo[0], geo[1]) if geo else (0.0, 0.0)
@@ -688,7 +725,7 @@ def resolve_misplaced_actors(xml: str) -> str:
 
     changed = False
     for cell in misplaced:
-        abs_x, abs_y = _absolute_position(cell, by_id)
+        abs_x, abs_y = absolute_position(cell, by_id)
         geo = _cell_geometry(cell)
         w = geo[2] if geo else 78.0
         new_x = max(20.0, cloud_x - w - 30.0)
@@ -705,15 +742,131 @@ def resolve_misplaced_actors(xml: str) -> str:
     return _serialize_docroot(tree, root, is_mxfile, trimmed)
 
 
+# A gap this many times the canonical max pitch is a clear outlier (one child
+# sitting far away from its row, not just a minor deviation) — generic to any
+# leaf/service, not a specific named list of shape_types.
+_PITCH_OUTLIER_MULTIPLIER = 3.0
+
+
+def resolve_pitch_outliers(xml: str) -> str:
+    """Snap any leaf sitting anomalously far from its row-mates back to a normal pitch.
+
+    Generic geometric safety net, deliberately shape_type-agnostic — applies
+    to *any* service, not a hardcoded list of "connectivity hub" types.
+    Whatever the reason an LLM places one icon far outside the normal pitch
+    range from its previous same-row sibling (e.g. trying to visually reach
+    toward something in a different container), that single outlier forces
+    every ancestor container to balloon in width to contain it — this
+    detects a clear outlier (gap beyond ``_PITCH_OUTLIER_MULTIPLIER`` times
+    the canonical max for that layer) and snaps it back to a normal pitch
+    from its predecessor. Never touches gaps already within or moderately
+    outside the normal range — that's ``diagnose_xml``'s warning +
+    corrective-LLM-pass territory, not this fixer's.
+    """
+    parsed = _parse_docroot(xml)
+    if parsed is None:
+        return xml
+    tree, root, is_mxfile, trimmed = parsed
+
+    cells = [c for c in root.findall("mxCell") if c.get("id")]
+    ids = {c.get("id"): c for c in cells if c.get("id")}
+    parent_ids = {c.get("parent") for c in cells}
+    page_w, page_h = _page_size(tree)
+    by_parent_leaves = _leaf_siblings_by_parent(cells, parent_ids, page_w, page_h)
+
+    changed = False
+    for pid, kids in by_parent_leaves.items():
+        parent_cell = ids.get(pid)
+        is_group = parent_cell is not None and _is_cross_cutting_group_cell(parent_cell)
+        _, hi = _GROUP_PITCH_RANGE if is_group else _DATA_PITCH_RANGE
+        outlier_threshold = hi * _PITCH_OUTLIER_MULTIPLIER
+        geo_by_kid = {k: _cell_geometry(k) for k in kids}
+        for row in _group_rows(kids, geo_by_kid):
+            for a, b in zip(row, row[1:]):
+                ga, gb = geo_by_kid.get(a), geo_by_kid.get(b)
+                if ga is None or gb is None:
+                    continue
+                dx = gb[0] - ga[0]
+                if dx <= outlier_threshold:
+                    continue
+                new_x = ga[0] + _LEAF_GRID_PITCH_X
+                geom_el = b.find("mxGeometry")
+                if geom_el is not None:
+                    geom_el.set("x", str(new_x))
+                    geo_by_kid[b] = (new_x, gb[1], gb[2], gb[3])
+                    changed = True
+
+    if not changed:
+        return xml
+    return _serialize_docroot(tree, root, is_mxfile, trimmed)
+
+
+_DIV_BLOCK = re.compile(r"<div[^>]*>(.*?)</div>", re.IGNORECASE | re.DOTALL)
+_TAG_STRIP = re.compile(r"<[^>]+>")
+
+
+def _estimate_panel_content_height(value: str) -> float:
+    """Estimate the overview panel's actual needed height from its real text.
+
+    Decodes the XML-escaped ``value`` attribute, splits it into its <div>
+    blocks (title + each step), strips any nested tags (e.g. <b>), and
+    estimates wrapped-line count per block from character length using the
+    same chars-per-line budget the prompt documents to the LLM — rather than
+    trusting whatever height the LLM emitted for the box itself.
+    """
+    decoded = html.unescape(value or "")
+    blocks = _DIV_BLOCK.findall(decoded) or [decoded]
+
+    total = _PANEL_TITLE_BAND + _PANEL_BOTTOM_PAD
+    for i, block in enumerate(blocks):
+        if i == 0:
+            continue  # title — already accounted for by the title band above
+        text = _TAG_STRIP.sub("", block).strip()
+        if not text:
+            continue
+        lines = max(1, -(-len(text) // _PANEL_CHARS_PER_LINE))  # ceil division
+        total += lines * _PANEL_LINE_HEIGHT + _PANEL_BLOCK_GAP
+    return max(_PANEL_MIN_HEIGHT, total)
+
+
+def _grow_page(tree: ET.Element, cells: list[ET.Element], page_w: float, page_h: float,
+                required_w: float | None = None, required_h: float | None = None) -> bool:
+    """Grow pageWidth/pageHeight (and the background rect) to fit, if needed."""
+    grow_w = required_w is not None and required_w > page_w
+    grow_h = required_h is not None and required_h > page_h
+    if not grow_w and not grow_h:
+        return False
+    model = tree.find(".//mxGraphModel")
+    if model is None and tree.tag == "mxGraphModel":
+        model = tree
+    if model is not None:
+        if grow_w:
+            model.set("pageWidth", str(required_w))
+        if grow_h:
+            model.set("pageHeight", str(required_h))
+    for c in cells:
+        if _is_canvas_background_cell(c, page_w, page_h):
+            geom_el = c.find("mxGeometry")
+            if geom_el is not None:
+                if grow_w:
+                    geom_el.set("width", str(required_w))
+                if grow_h:
+                    geom_el.set("height", str(required_h))
+    return True
+
+
 def ensure_overview_panel_position(xml: str) -> str:
-    """Keep the right-hand overview panel clear of the architecture and the page wide enough for it.
+    """Keep the right-hand overview panel clear of the architecture, sized to its real text, and the page big enough for it.
 
     config/xml_gen_core.txt requires exactly one explanatory text box with
     ``id="overview_panel"``, placed to the right of every other top-level
-    element. The LLM places it itself; this only repositions it (never
+    element. The LLM places and sizes it itself; this repositions it (never
     invents or edits its text) when its one-shot geometry overlaps the rest
-    of the diagram or sits left of it, and grows ``pageWidth`` (and the
-    full-page background rect) to fit — mirroring resolve_misplaced_actors'
+    of the diagram or sits left of it, shrinks/grows its height to what its
+    actual text content needs (never trusting the LLM's own height estimate —
+    the same "don't trust the LLM's size" reasoning as the container
+    shrink-fit in xml_tools.py), and grows ``pageWidth``/``pageHeight`` (and
+    the full-page background rect) to fit — mirroring resolve_misplaced_actors'
     "reposition, don't fabricate" shape. No-ops if the panel is absent.
     """
     parsed = _parse_docroot(xml)
@@ -732,44 +885,179 @@ def ensure_overview_panel_position(xml: str) -> str:
     page_w, page_h = _page_size(tree)
     others = [
         c for c in cells
-        if c is not panel and c.get("edge") != "1"
-        and c.get("parent") == "1" and not _is_canvas_background_cell(c, page_w, page_h)
+        if c is not panel and c.get("edge") != "1" and c.get("parent") == "1"
+        and not _is_canvas_background_cell(c, page_w, page_h) and not _is_legend_cell(c)
     ]
     other_geoms = [g for g in (_cell_geometry(c) for c in others) if g is not None]
-    if not other_geoms:
-        return xml
-
-    content_max_x = max(g[0] + g[2] for g in other_geoms)
-    content_min_y = min(g[1] for g in other_geoms)
 
     px, py, pw, ph = panel_geo
-    needs_move = px < content_max_x or any(_rects_overlap((px, py, pw, ph), g) for g in other_geoms)
-
     changed = False
-    if needs_move:
-        px, py = content_max_x + _OVERVIEW_PANEL_GAP, content_min_y
+
+    # Shrink/grow height to the panel's actual text content — independent of
+    # whether the panel needs to move, so a stale LLM-emitted height never
+    # survives regardless of position.
+    needed_h = _estimate_panel_content_height(panel.get("value") or "")
+    if abs(needed_h - ph) > 0.5:
+        ph = needed_h
         geom_el = panel.find("mxGeometry")
         if geom_el is not None:
-            geom_el.set("x", str(px))
-            geom_el.set("y", str(py))
+            geom_el.set("height", str(ph))
             changed = True
 
-    required_w = px + pw + _OVERVIEW_PANEL_MARGIN
-    if required_w > page_w:
-        model = tree.find(".//mxGraphModel")
-        if model is None and tree.tag == "mxGraphModel":
-            model = tree
-        if model is not None:
-            model.set("pageWidth", str(required_w))
-            changed = True
-        for c in cells:
-            if _is_canvas_background_cell(c, page_w, page_h):
-                geom_el = c.find("mxGeometry")
-                if geom_el is not None:
-                    geom_el.set("width", str(required_w))
-                    changed = True
+    if other_geoms:
+        content_max_x = max(g[0] + g[2] for g in other_geoms)
+        content_min_y = min(g[1] for g in other_geoms)
+        needs_move = px < content_max_x or any(_rects_overlap((px, py, pw, ph), g) for g in other_geoms)
+        if needs_move:
+            px, py = content_max_x + _OVERVIEW_PANEL_GAP, content_min_y
+            geom_el = panel.find("mxGeometry")
+            if geom_el is not None:
+                geom_el.set("x", str(px))
+                geom_el.set("y", str(py))
+                changed = True
+
+    if _grow_page(tree, cells, page_w, page_h,
+                  required_w=px + pw + _OVERVIEW_PANEL_MARGIN,
+                  required_h=py + ph + _OVERVIEW_PANEL_MARGIN):
+        changed = True
 
     if not changed:
+        return xml
+    return _serialize_docroot(tree, root, is_mxfile, trimmed)
+
+
+def ensure_legend_position(xml: str) -> str:
+    """Force the edge-style legend (if present) to sit directly below the Overview Panel.
+
+    config/xml_gen_core.txt asks the LLM for "outside the flow" placement,
+    which is too vague for a wide multi-account diagram — the model has been
+    observed placing the legend at an arbitrary interior point that overlaps
+    real architecture content. This always pins it to the same x as the
+    panel, immediately below the panel's (already-finalized) bottom edge —
+    call this *after* ``ensure_overview_panel_position`` so the panel's
+    position/height are final. No-ops if either the legend or the panel is
+    absent (nothing well-defined to anchor to).
+    """
+    parsed = _parse_docroot(xml)
+    if parsed is None:
+        return xml
+    tree, root, is_mxfile, trimmed = parsed
+
+    cells = [c for c in root.findall("mxCell") if c.get("id")]
+    legend = next((c for c in cells if _is_legend_cell(c)), None)
+    panel = next((c for c in cells if _is_overview_panel_cell(c)), None)
+    if legend is None or panel is None:
+        return xml
+    legend_geo = _cell_geometry(legend)
+    panel_geo = _cell_geometry(panel)
+    if legend_geo is None or panel_geo is None:
+        return xml
+
+    px, py, pw, ph = panel_geo
+    lx, ly, lw, lh = legend_geo
+    target_x, target_y = px, py + ph + _LEGEND_GAP
+
+    changed = False
+    if abs(target_x - lx) > 0.5 or abs(target_y - ly) > 0.5:
+        geom_el = legend.find("mxGeometry")
+        if geom_el is not None:
+            geom_el.set("x", str(target_x))
+            geom_el.set("y", str(target_y))
+            changed = True
+        lx, ly = target_x, target_y
+
+    page_w, page_h = _page_size(tree)
+    if _grow_page(tree, cells, page_w, page_h,
+                  required_h=ly + lh + _OVERVIEW_PANEL_MARGIN):
+        changed = True
+
+    if not changed:
+        return xml
+    return _serialize_docroot(tree, root, is_mxfile, trimmed)
+
+
+_STEP_BADGE_ID_PREFIX = "step_badge_"
+_STEP_BADGE_SIZE = 24.0
+_STEP_BADGE_OFFSET = 11.0  # px up/left from the target cell's top-left corner
+_STEP_BADGE_COLLISION_OFFSET = 14.0  # px diagonal nudge per extra marker on the same cell
+_STEP_BADGE_STYLE = (
+    "ellipse;whiteSpace=wrap;html=1;fillColor=#F5A623;strokeColor=#FFFFFF;strokeWidth=2;"
+    "fontColor=#FFFFFF;fontSize=12;fontStyle=1;align=center;verticalAlign=middle;"
+)
+
+
+def apply_step_markers(xml: str, step_markers: list[Any], logger: Any = None) -> str:
+    """Deterministically place numbered badge cells for Overview Panel steps.
+
+    Each ``step_markers`` entry (e.g. the LLM's structured ``StepMarker``
+    output) carries a ``step_number`` and a ``cell_id`` referencing an id the
+    LLM already assigned to some leaf or container in the same response — no
+    LLM geometry math involved. This looks up that cell's real canvas
+    position via ``absolute_position`` (already sums ancestor container
+    offsets) and appends a small numbered badge at ``parent="1"`` positioned
+    at the cell's top-left corner, last in document order so it always
+    renders on top regardless of nesting depth. Entries with a missing/blank
+    ``cell_id``, or a ``cell_id`` not found in the document (typo, or a
+    fixer removed it), are skipped and logged — never fabricates a position,
+    never raises.
+    """
+    if not step_markers:
+        return xml
+    parsed = _parse_docroot(xml)
+    if parsed is None:
+        return xml
+    tree, root, is_mxfile, trimmed = parsed
+
+    cells = [c for c in root.findall("mxCell") if c.get("id")]
+    by_id = {c.get("id"): c for c in cells if c.get("id")}
+    existing_ids = set(by_id)
+
+    collisions: dict[str, int] = {}
+    added = False
+    for marker in step_markers:
+        step_number = getattr(marker, "step_number", None)
+        cell_id = getattr(marker, "cell_id", None)
+        if step_number is None or not cell_id:
+            continue
+        target = by_id.get(cell_id)
+        if target is None:
+            if logger:
+                logger.log(
+                    "step_markers",
+                    f"step {step_number}: cell_id {cell_id!r} not found in final XML, skipping badge",
+                    level="warning",
+                )
+            continue
+
+        abs_x, abs_y = absolute_position(target, by_id)
+        collision_index = collisions.get(cell_id, 0)
+        collisions[cell_id] = collision_index + 1
+        nudge = collision_index * _STEP_BADGE_COLLISION_OFFSET
+        badge_x = abs_x - _STEP_BADGE_OFFSET + nudge
+        badge_y = abs_y - _STEP_BADGE_OFFSET + nudge
+
+        badge_id = f"{_STEP_BADGE_ID_PREFIX}{step_number}"
+        suffix = 0
+        while badge_id in existing_ids:
+            suffix += 1
+            badge_id = f"{_STEP_BADGE_ID_PREFIX}{step_number}_{suffix}"
+        existing_ids.add(badge_id)
+
+        badge = ET.SubElement(root, "mxCell")
+        badge.set("id", badge_id)
+        badge.set("value", str(step_number))
+        badge.set("style", _STEP_BADGE_STYLE)
+        badge.set("vertex", "1")
+        badge.set("parent", "1")
+        geom = ET.SubElement(badge, "mxGeometry")
+        geom.set("x", str(badge_x))
+        geom.set("y", str(badge_y))
+        geom.set("width", str(_STEP_BADGE_SIZE))
+        geom.set("height", str(_STEP_BADGE_SIZE))
+        geom.set("as", "geometry")
+        added = True
+
+    if not added:
         return xml
     return _serialize_docroot(tree, root, is_mxfile, trimmed)
 
@@ -781,10 +1069,15 @@ def repair_xml(xml: str) -> tuple[str, XmlDiagnostics]:
     downstream should route through cells about to disappear or that must
     never carry an edge), fill missing labels, fix structural placement
     (misplaced actors, coordinate-only nesting), resolve row overflow before
-    overlaps (so overlap resolution sees the corrected row layout), resolve
-    remaining overlaps, then shrink-wrap containers. The overview panel is
-    positioned last of all, since it must clear the architecture's *final*
-    extents (containers may still grow during the fit-to-children pass).
+    pitch outliers/overlaps (so later passes see the corrected row layout),
+    snap extreme pitch outliers back to a normal gap (this can introduce a
+    new close-overlap, which the next step then cleans up), resolve
+    remaining overlaps, then shrink-wrap containers — this also absorbs any
+    container-width relief from no longer having to stretch around an
+    outlier. The overview panel is positioned last of all, since it must
+    clear the architecture's *final* extents (containers may still grow
+    during the fit-to-children pass); the legend runs immediately after,
+    since it depends on the panel's now-final position and height.
     """
     fixed = remove_dangling_edges(xml)
     fixed = remove_cross_cutting_edges(fixed)
@@ -792,7 +1085,9 @@ def repair_xml(xml: str) -> tuple[str, XmlDiagnostics]:
     fixed = resolve_misplaced_actors(fixed)
     fixed = resolve_coordinate_only_nesting(fixed)
     fixed = resolve_row_overflow(fixed)
+    fixed = resolve_pitch_outliers(fixed)
     fixed = resolve_leaf_overlaps(fixed)
     fixed = fit_containers_to_children(fixed)
     fixed = ensure_overview_panel_position(fixed)
+    fixed = ensure_legend_position(fixed)
     return fixed, diagnose_xml(fixed)

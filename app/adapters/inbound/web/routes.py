@@ -205,6 +205,7 @@ async def _run_chat(body: ChatRequest, logger: StepLogger, *, on_progress=None) 
         compliance_frameworks=body.compliance_frameworks,
         context_text=body.context_text,
         attachment_documents=[a.model_dump() for a in body.attachment_documents] if body.attachment_documents else None,
+        current_xml=body.current_xml,
         on_progress=on_progress,
     ))
 

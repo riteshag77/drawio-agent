@@ -28,10 +28,17 @@ def generate_xml_diagram(
     three_d: bool = False,
     context_text: str | None = None,
     attachment_documents: list[dict] | None = None,
+    current_xml: str | None = None,
     *,
     llm: LlmPort | None = None,
 ) -> XmlDiagram:
-    """Generate draw.io XML directly (MCP-accelerated path — no intermediate JSON)."""
+    """Generate draw.io XML directly (MCP-accelerated path — no intermediate JSON).
+
+    ``current_xml``, when provided, is the live diagram exported straight from
+    the draw.io iframe — the real ground truth for an edit turn (ids, parents,
+    coordinates, the existing Overview Panel text), as opposed to inferring
+    prior state from prose conversation history alone.
+    """
     provider_key = normalize_provider_key(provider)
     spec = get_provider(provider_key)
     chat_messages = messages or [{"role": "user", "content": user_request}]
@@ -45,6 +52,14 @@ def generate_xml_diagram(
         user_hint=hint,
     )
     human_parts: list[str] = []
+    if current_xml:
+        human_parts.append(
+            "## Current diagram (edit this exact XML — this is Edit mode)\n"
+            "```xml\n" + current_xml + "\n```\n"
+            "Preserve every id/parent/coordinate not relevant to the requested change, "
+            "per Create vs Edit Modes. Rewrite the Overview Panel's full description to "
+            "match the diagram after your edit, per the Overview Panel section."
+        )
     if len(chat_messages) > 1:
         human_parts.append("Conversation so far:")
         for msg in chat_messages[:-1]:

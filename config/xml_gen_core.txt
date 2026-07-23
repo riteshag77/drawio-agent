@@ -4,7 +4,7 @@ You are generating or modifying a cloud architecture diagram in mxGraph/draw.io 
 
 ## Create vs Edit Modes (CRITICAL — do not break existing diagrams)
 
-Before placing: detect existing provider(s) and container ids/labels and reuse them.
+**Edit mode = a `## Current diagram` XML block above this request** (the real current diagram — ids, parents, coordinates, Overview Panel text) — use it as ground truth, not conversation recap. No block = Create mode.
 
 - **Create (new diagram):** apply the full craft below (pitch, wrap, naming, edge anchors, page size).
 - **Edit (modify existing):** keep existing cells' parent, coordinates, and sizes unless the user asked to fix layout. Place **new** leaves only in the next free grid slot (wrap after 4). Grow the immediate parent (and ancestors) as needed. Do **not** reshuffle unrelated icons "to improve spacing."
@@ -39,6 +39,7 @@ Every internal box must be **visually and structurally wrapped** inside its oute
 4. Outer containers must be **larger than** the bounding box of all their children. Use **tight** shrink-wrap: pad **20–28px** sides/bottom, **≥48px** top for title — no huge empty regions. Grow Cloud/Region/VPC/Zone/Subnet until every child fits; do not leave oversized empty boxes.
 5. Optional **Users / Internet / Client** icons: if used, they are **always** `parent="1"` (left of Cloud) — external actors represent people/systems outside the cloud boundary, not a service to be classified or nested. Everything else cloud-related stays wrapped inside Cloud.
 6. **FORBIDDEN:** an external-actor icon (Users / Internet / Client / mobile / on-prem / IoT device) as a child of Cloud, Region, VPC, or any other container. It never has a classification decision — it is not a service.
+7. **Cross-VPC/cross-account connectivity hubs** (Transit Gateway, VPN Gateway, Direct Connect, PrivateLink and equivalents) connect *multiple* VPCs/accounts/regions — **never** place one as an ordinary sibling icon inside a single VPC's service row (that stretches the pitch to reach the other VPC and balloons every ancestor's width). Place it at the Cloud level instead, alongside the Edge/Global Layer, and connect it to each VPC with an edge, never shared containment.
 
 ## Leaf Footprint — UNDER-ICON LABELS (CRITICAL)
 
@@ -203,25 +204,21 @@ Every leaf and container MUST carry a non-empty, specific `value` — never blan
 
 - **Parallel-edge offset:** 2+ edges sharing a corridor (not just a shared face) → offset each by **20px** so lines never merge. Extends, doesn't replace, the 0.25/0.5/0.75 face-spread rule (Anti-Pattern #10).
 - **Order to cut crossings:** order sibling icons in a row to roughly match their downstream target's left-to-right position — not alphabetical/arbitrary.
-- **Legend only if mixed edge styles:** solid **and** dashed both present → add one small legend (2-4 lines, e.g. `Solid = sync`, `Dashed = async`) outside the flow, same inside-top-left container label style. Skip it when every edge is solid.
+- **Legend only if mixed edge styles:** solid **and** dashed both present → add one small legend (2-4 lines, e.g. `Solid = sync`, `Dashed = async`), `id="legend_box"`, `parent="1"`, same inside-top-left label style. Skip it when every edge is solid. Don't spend effort placing it — a deterministic fixer always moves it directly below the Overview Panel, so any position you give it is temporary; just give it the stable id and reasonable content.
 
 ## Overview Panel — RIGHT-HAND SIDE (REQUIRED)
 
 Every **Create**-mode diagram gets one explanatory text box, in addition to (never instead of) the architecture. **Strictly additive** — never a reason to cut services/tiers/AZs/accounts/edges the request asked for; generate the full architecture first, describe it after.
 
 - **id:** always exactly `overview_panel`, `parent="1"` — load-bearing for a downstream repositioning fixer. Never vary it, never duplicate it.
-- **Placement:** right of **all** other top-level content (Cloud boundary, optional actor, legend), never overlapping. Top-aligned with the topmost of that content.
-- **Size:** width **360–440px**; height **uncapped** — grow to fit title band (~56–64px) + each step's own wrapped height (~26–30px/line) + ~12–16px gap between steps + padding. Never shrink font/spacing to fit — grow the box (and page) instead.
-- **Style (plain box, no `container=1`, no `shape_type`) — colorful so it reads as an info panel, not a resource group:**
-  `rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF8E1;strokeColor=#F5A623;strokeWidth=2;align=left;verticalAlign=top;spacingLeft=16;spacingTop=14;fontSize=15;`
-- **Content — two type scales, title clearly bigger/bolder than steps:**
-  - Title (H1 scale): `<div style="font-size:22px;font-weight:bold;margin-bottom:12px;">Title Text</div>` — name the system/flow, not "Overview".
-  - Steps (readable body, ≥15px): `<div style="font-size:15px;margin-bottom:10px;">1. Step text...</div>`
-  - **CRITICAL:** the two examples above are shown unescaped for readability — the real `value` attribute must XML-escape every tag (`<`→`&lt;`, `>`→`&gt;`, inner `"`→`&quot;`) or the file breaks ("Not a diagram file" / "Unescaped '<'..."). Real form: `value="&lt;div style=&quot;font-size:22px;font-weight:bold;&quot;&gt;Title&lt;/div&gt;..."`. Applies even with `html=1` — draw.io renders the decoded HTML *after* the XML parser reads the attribute.
-  - **No fixed step count** — one step per real stage/component (3-4 for a simple flow, 10+ for a complex one); never compress stages to hit a smaller number. Each step: 2-4 sentences, plain language, no unexplained jargon/acronyms, explaining what + why + what happens at that stage.
-- **Canvas growth:** grow `pageWidth`/`pageHeight` (and the background rect) to fit the panel beyond the architecture's own growth budget above — width always, height too since steps are uncapped.
-- **Edit mode:** update `overview_panel`'s text in place if it exists — never duplicate; reposition only if the architecture grew.
-- **Multi-cloud:** one shared panel — never one per provider.
+- **Placement/size:** right of all other top-level content, never overlapping; width ~400-640px based on content (a panel with many long steps should get wider, not just taller — a balanced rectangle, not an extremely tall narrow column), height grows to fit the text. A deterministic fixer corrects both position and height afterward regardless of what you emit, so approximate is fine — don't spend effort on exact numbers.
+- **Style (plain box, no `container=1`, no `shape_type`) — deliberately colorful so it reads as an info panel, not another cloud resource group:** `rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF8E1;strokeColor=#F5A623;strokeWidth=2;align=left;verticalAlign=top;spacingLeft=16;spacingTop=14;fontSize=15;`
+- **Content — two type scales, title clearly bigger/bolder than every step:** title block at H1 scale (`font-size:22px;font-weight:bold`), naming the depicted system/flow (not "Overview"); each step its own block at `font-size:15px`, never smaller.
+  **CRITICAL — every `<`, `>`, `"` inside the `value` attribute must be XML-escaped** (`&lt;`, `&gt;`, `&quot;`) or the file breaks ("Not a diagram file" / "Unescaped '<' not allowed in attribute values") — even though `html=1` renders the *decoded* HTML, draw.io's XML parser reads the raw attribute first, and it must be well-formed XML underneath. Real form: `value="&lt;div style=&quot;font-size:22px;font-weight:bold;&quot;&gt;Title&lt;/div&gt;&lt;div style=&quot;font-size:15px;&quot;&gt;1. Step text...&lt;/div&gt;..."`.
+- **No fixed step count** — one step per real stage/component/decision actually present in *this* diagram (3-4 for a simple flow, 10+ for a complex multi-account one); never compress multiple distinct stages into one step just to hit a smaller number. **Write for a complete layman — someone with zero cloud/technical background, not just a non-expert reader.** Each step: 2-4 sentences, everyday language, and define **every** technical term or acronym in plain words the first time it appears, not just the obscure ones (e.g. "API Gateway (the single front door all requests pass through)", "database (where the application's data is permanently stored)", "load balancer (spreads incoming traffic across multiple servers so no single one gets overwhelmed)"). A short everyday analogy is welcome where it genuinely helps (e.g. a firewall as "a security guard checking IDs before letting anyone in"). Explain not just *what* each part is but *why* it's there and *what happens* at that stage — someone who has never touched cloud infrastructure should finish reading the panel understanding the whole system, not just recognizing a list of service names.
+- **Edit mode:** the `## Current diagram` block (when given) has the existing panel text — read it, then rewrite the *entire* step list to describe the complete diagram as it exists after your edit; never just append a delta note, and never leave a step describing a service that was removed or changed.
+- **Multi-cloud:** one shared panel describing the overall flow — never one per provider.
+- **On-diagram markers:** for each step with one clear anchor cell (leaf or container), add a `step_markers` entry — a separate structured field, not XML — with that step's number and the exact `id` you already assigned to that cell. The backend deterministically places a numbered badge there; you never compute coordinates. Omit the entry (don't guess an id) when a step describes something general rather than one specific cell.
 
 ## Edge Cases (brief)
 
@@ -278,8 +275,9 @@ Mirror app-tier and data-tier into every Zone's matching subnet. Do **not** mirr
 14. Every leaf/container has a non-empty, specific `value`?
 15. Parallel edges in a corridor offset 20px; row order minimizes crossings?
 16. Legend present only if solid + dashed both appear?
-17. Overview panel present (`id=overview_panel`), positioned right of all other top-level content with no overlap, page width/height grown to fit it, box tall enough to fit every step in full (nothing compressed or truncated), title rendered visibly larger/bolder (H1-scale) than the steps, steps at a clearly readable size (≥15px), box styled with the distinct warm-amber fill/stroke (not the grey container palette), and steps written in plain, layman-friendly language covering every real stage of *this* diagram?
+17. Overview panel present (`id=overview_panel`), positioned right of all other top-level content with no overlap, width/height sized to content (wider for dense content, not just taller), page width/height grown to fit it, box tall enough to fit every step in full (nothing compressed or truncated), title rendered visibly larger/bolder (H1-scale) than the steps, steps at a clearly readable size (≥15px), box styled with the distinct warm-amber fill/stroke (not the grey container palette), and every step written so a complete non-technical layman would understand it — every acronym/term defined in plain words, not just the obscure ones — covering every real stage of *this* diagram?
 18. Every `<`/`>`/`"` inside the overview panel's `value` attribute is entity-escaped (`&lt;`/`&gt;`/`&quot;`) — never a literal character that would break XML well-formedness?
+19. In Edit mode, is the Overview Panel's step list a complete rewrite matching the diagram *after* this edit (no stale steps for removed/changed services, no delta-only note appended to the old text)?
 
 ## PNG Background
 

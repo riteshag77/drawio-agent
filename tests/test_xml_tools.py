@@ -10,10 +10,12 @@ import xml.etree.ElementTree as ET
 from app.adapters.outbound.diagram.xml_tools import (
     apply_mcp_styles,
     auto_fix_xml,
+    choose_fixed_xml,
     coerce_drawio_xml,
     ensure_diagram_document,
     extract_shape_types,
     fit_containers_to_children,
+    guarantee_loadable_xml,
     merge_drawio_styles,
     validate_and_fix_xml,
 )
@@ -163,6 +165,76 @@ class AutoFixXmlTests(unittest.TestCase):
         self.assertNotIn("Escaped stray markup inside a value attribute", clean_fixes)
         self.assertIn('value="CloudFront"', clean)
 
+    def test_value_span_boundary_survives_shape_type_attribute(self) -> None:
+        """Regression: an enumerated attribute-name lookahead missed shape_type,
+        merging it into the escaped value and corrupting the cell (recurrence
+        of the "Not a diagram file" bug in a new location)."""
+        snippet = (
+            '<mxfile host="app.diagrams.net"><diagram name="A" id="d1">'
+            "<mxGraphModel><root>"
+            '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            '<mxCell id="legend_txt" '
+            'value="<div style="font-weight:bold">Legend</div><div><b>Solid:</b> sync</div>" '
+            'shape_type="" style="text;html=1;" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="300" height="80" as="geometry"/>'
+            "</mxCell>"
+            '<mxCell id="next_cell" value="NextService" shape_type="aws_lambda" '
+            'style="html=1;" vertex="1" parent="1">'
+            '<mxGeometry x="400" y="0" width="78" height="78" as="geometry"/>'
+            "</mxCell>"
+            "</root></mxGraphModel></diagram></mxfile>"
+        )
+        fixed, _ = auto_fix_xml(snippet)
+        tree = ET.fromstring(fixed)
+        legend = next(c for c in tree.iter("mxCell") if c.get("id") == "legend_txt")
+        next_cell = next(c for c in tree.iter("mxCell") if c.get("id") == "next_cell")
+        # shape_type must survive as its own attribute, not get swallowed into value.
+        self.assertEqual(legend.get("shape_type"), "")
+        self.assertEqual(legend.get("value"), '<div style="font-weight:bold">Legend</div><div><b>Solid:</b> sync</div>')
+        # The following cell must be completely unaffected.
+        self.assertEqual(next_cell.get("shape_type"), "aws_lambda")
+        self.assertEqual(next_cell.get("value"), "NextService")
+
+    def test_already_escaped_value_survives_unquoted_attr_fixer(self) -> None:
+        """Regression: value="..." content that the LLM already escaped
+        correctly (real entities like &quot;/&lt;/&gt;, no literal quote
+        chars) was getting corrupted by _UNQUOTED_ATTR, which runs earlier in
+        the pipeline and has no concept of "inside a value attribute" — it
+        saw `style=&quot;font-size:12px;&quot;&gt;...Solid` (no literal `"`
+        immediately after `style=`) as a bare/unquoted attribute and wrapped
+        it in real quotes, splicing stray quote characters into the middle of
+        legitimate escaped text (surfaced to the user as a libxml2
+        "AttValue: \" or ' expected" parse error). Fixed by masking value
+        spans before the blunt structural fixers run, then restoring them
+        verbatim afterward."""
+        snippet = (
+            '<mxfile host="app.diagrams.net"><diagram name="A" id="d1">'
+            "<mxGraphModel><root>"
+            '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            '<mxCell id="legend_box" value="Legend / Line Types" '
+            'style="rounded=1;container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="500" height="100" as="geometry"/>'
+            "</mxCell>"
+            '<mxCell id="legend_txt" '
+            'value="&lt;div style=&quot;font-size:12px;&quot;&gt;&lt;b&gt;Solid Line:&lt;/b&gt; '
+            "Primary Data Path&lt;br/&gt;&lt;b&gt;Dashed Line:&lt;/b&gt; Control&lt;/div&gt;\" "
+            'style="text;html=1;align=left;verticalAlign=top;fontSize=12;fontColor=#333333;" '
+            'vertex="1" parent="legend_box">'
+            '<mxGeometry x="16" y="32" width="460" height="60" as="geometry"/>'
+            "</mxCell>"
+            "</root></mxGraphModel></diagram></mxfile>"
+        )
+        fixed, _ = auto_fix_xml(snippet)
+        tree = ET.fromstring(fixed)
+        legend_txt = next(c for c in tree.iter("mxCell") if c.get("id") == "legend_txt")
+        # ET already decodes entities on attribute access — must round-trip
+        # to exactly the original HTML, with no stray/misplaced quotes.
+        self.assertEqual(
+            legend_txt.get("value"),
+            '<div style="font-size:12px;"><b>Solid Line:</b> Primary Data Path'
+            "<br/><b>Dashed Line:</b> Control</div>",
+        )
+
     def test_canvas_background_stays_behind_shapes(self) -> None:
         """Full-page gray backdrop must not paint over icons after id/reorder."""
         # Put background after CloudFront in source order with a high id — classic hide bug
@@ -190,6 +262,86 @@ class AutoFixXmlTests(unittest.TestCase):
         ids = [c.get("id") for c in root.findall("mxCell")]
         self.assertEqual(ids[:2], ["0", "1"])
         self.assertLess(ids.index("99"), ids.index("10"), ids)
+
+
+class McpRoundTripRepairTests(unittest.TestCase):
+    """Regression: xml_pipeline._run_mcp() feeds the external MCP libavoid-
+    routing response through ensure_diagram_document() alone, which repairs
+    missing wrapper tags but has no escaping-repair fallback — a malformed
+    value="..." attribute coming back from that untrusted external round-trip
+    sailed through untouched and reached the user as a "Not a diagram file /
+    Unescaped '<'" error, even though auto_fix_xml() (exercised elsewhere in
+    this file) already knows how to repair exactly this. The pipeline fix is
+    to route the MCP response through validate_and_fix_xml()+choose_fixed_xml()
+    instead — the same pair already used for LLM output earlier in the same
+    function. This test guards that pairing, not the pipeline's async
+    plumbing (which needs the external MCP client mocked to test directly)."""
+
+    def test_ensure_diagram_document_alone_leaves_it_broken(self) -> None:
+        routed_xml = (
+            '<mxfile host="app.diagrams.net"><diagram name="A" id="d1">'
+            "<mxGraphModel><root>"
+            '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            '<mxCell id="legend_txt" value="<div style="font-weight:bold">Legend</div>" '
+            'style="text;html=1;" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="300" height="80" as="geometry"/>'
+            "</mxCell>"
+            "</root></mxGraphModel></diagram></mxfile>"
+        )
+        with self.assertRaises(ET.ParseError):
+            ET.fromstring(ensure_diagram_document(routed_xml))
+
+    def test_validate_and_fix_xml_repairs_the_mcp_round_trip(self) -> None:
+        routed_xml = (
+            '<mxfile host="app.diagrams.net"><diagram name="A" id="d1">'
+            "<mxGraphModel><root>"
+            '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            '<mxCell id="legend_txt" value="<div style="font-weight:bold">Legend</div>" '
+            'style="text;html=1;" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="300" height="80" as="geometry"/>'
+            "</mxCell>"
+            "</root></mxGraphModel></diagram></mxfile>"
+        )
+        check = validate_and_fix_xml(routed_xml)
+        fixed = choose_fixed_xml(routed_xml, check)
+        tree = ET.fromstring(fixed)  # must not raise
+        legend = next(c for c in tree.iter("mxCell") if c.get("id") == "legend_txt")
+        self.assertEqual(legend.get("value"), '<div style="font-weight:bold">Legend</div>')
+
+
+class GuaranteeLoadableXmlTests(unittest.TestCase):
+    """The final circuit breaker: whatever exits the pipeline must parse, no
+    matter which upstream step is at fault — never chase the next leak
+    reactively again."""
+
+    def test_already_valid_xml_passes_through_unchanged(self) -> None:
+        xml, ok = guarantee_loadable_xml(SAMPLE_MXFILE)
+        self.assertTrue(ok)
+        tree = ET.fromstring(xml)
+        self.assertEqual(len(tree.findall(".//mxCell")), 4)
+
+    def test_repairable_corruption_is_fixed(self) -> None:
+        broken = (
+            '<mxfile host="app.diagrams.net"><diagram name="A" id="d1">'
+            "<mxGraphModel><root>"
+            '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            '<mxCell id="legend_txt" value="<div style="font-weight:bold">Legend</div>" '
+            'style="text;html=1;" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="300" height="80" as="geometry"/>'
+            "</mxCell>"
+            "</root></mxGraphModel></diagram></mxfile>"
+        )
+        xml, ok = guarantee_loadable_xml(broken)
+        self.assertTrue(ok)
+        ET.fromstring(xml)  # must not raise
+
+    def test_unrepairable_input_degrades_to_empty_canvas_not_broken_xml(self) -> None:
+        # Deliberately pathological: no amount of regex/ET repair can recover
+        # a real diagram from this, so the guarantee is just "still parses".
+        hopeless = "<mxfile><diagram><mxGraphModel><root><mxCell id=\"0"
+        xml, ok = guarantee_loadable_xml(hopeless)
+        self.assertFalse(ok)
+        ET.fromstring(xml)  # must not raise — this is the actual guarantee
 
 
 class ShapeTypeAndStyleTests(unittest.TestCase):

@@ -47,6 +47,7 @@ class ChatRequest(BaseModel):
     compliance_frameworks: list[str] | None = None
     context_text: str | None = Field(default=None, max_length=20_000)
     attachment_documents: list[AttachmentDocument] | None = Field(default=None, max_length=3)
+    current_xml: str | None = Field(default=None, max_length=300_000)
 
 
 class ParseUrlRequest(BaseModel):

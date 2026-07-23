@@ -10,13 +10,14 @@ from typing import Any
 from app.adapters.outbound.config.env_config import get_config
 from app.adapters.outbound.diagram.drawio_mcp_client import DrawioMcpError, create_diagram, resolve_shape_styles
 from app.adapters.outbound.diagram.mode import is_xml_pipeline_mode
-from app.adapters.outbound.diagram.xml_diagnostics import diagnose_xml, repair_xml
+from app.adapters.outbound.diagram.xml_diagnostics import apply_step_markers, diagnose_xml, repair_xml
 from app.adapters.outbound.diagram.xml_tools import (
     apply_mcp_styles,
     choose_fixed_xml,
     ensure_diagram_document,
     extract_shape_types,
     fit_containers_to_children,
+    guarantee_loadable_xml,
     normalize_platform_styles,
     validate_and_fix_xml,
 )
@@ -149,6 +150,7 @@ async def run_xml_pipeline(
     compliance_frameworks: list[str] | None = None,
     context_text: str | None = None,
     attachment_documents: list[dict[str, Any]] | None = None,
+    current_xml: str | None = None,
     on_progress: ProgressCallback | None = None,
 ) -> dict[str, Any]:
     provider_key = (provider or "claude").strip().lower()
@@ -167,6 +169,7 @@ async def run_xml_pipeline(
     xml_diagram = await run_llm_sync(
         generate_xml_diagram, human_prompt, provider_key, platform_key, logger, messages,
         custom_system_message, applied_suggestions, three_d, context_text, attachment_documents,
+        current_xml=current_xml,
     )
     if 'vertex="1"' not in (xml_diagram.xml or ""):
         # A successful call with no diagram content (empty/near-empty xml) is not
@@ -298,7 +301,17 @@ async def run_xml_pipeline(
                 await _emit(on_progress, "mcp", "Applying libavoid edge routing…")
                 preview_url, routed_xml = await create_diagram(local_xml, routing="libavoid", logger=logger)
                 if routed_xml:
-                    local_xml = ensure_diagram_document(routed_xml)
+                    # routed_xml comes back from the external MCP service — never
+                    # trust it as well-formed. ensure_diagram_document() alone only
+                    # repairs missing wrapper tags; it has no escaping-repair
+                    # fallback, so a broken value="..." attribute from the MCP
+                    # round-trip would sail through untouched (the recurring
+                    # "Unescaped '<'" bug). Route it through the same
+                    # validate_and_fix_xml/choose_fixed_xml pair already used
+                    # above for LLM output, so auto_fix_xml's escaping repair
+                    # applies here too.
+                    routed_check = validate_and_fix_xml(routed_xml)
+                    local_xml = choose_fixed_xml(routed_xml, routed_check)
                     if logger:
                         logger.log(
                             "mcp",
@@ -339,6 +352,23 @@ async def run_xml_pipeline(
     else:
         mcp_result = _mcp_raw
     xml_output, preview_url, renderer_used = mcp_result
+
+    if xml_diagram.step_markers:
+        xml_output = apply_step_markers(xml_output, xml_diagram.step_markers, logger)
+
+    # Final circuit breaker — every escaping/corruption bug hit so far surfaced
+    # here, at the exit point, regardless of which upstream step caused it.
+    # Guarantee loadability once, right before the response leaves the service,
+    # instead of trusting every step above to have been gap-free.
+    page_label = PLATFORM_LABELS.get(platform_key, "Architecture")
+    xml_output, xml_ok = guarantee_loadable_xml(xml_output, page_label)
+    if not xml_ok and logger:
+        logger.log(
+            "error",
+            "Diagram XML failed to parse after every repair pass — served an "
+            "empty canvas instead of a broken diagram file",
+            level="error",
+        )
 
     if not use_mcp:
         logger.log(

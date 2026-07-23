@@ -6,16 +6,21 @@ import unittest
 import xml.etree.ElementTree as ET
 
 from app.adapters.outbound.diagram.xml_diagnostics import (
+    apply_step_markers,
     diagnose_xml,
     ensure_leaf_labels,
+    ensure_legend_position,
+    ensure_overview_panel_position,
     remove_cross_cutting_edges,
     remove_dangling_edges,
     repair_xml,
     resolve_coordinate_only_nesting,
     resolve_leaf_overlaps,
     resolve_misplaced_actors,
+    resolve_pitch_outliers,
     resolve_row_overflow,
 )
+from app.domain.entities import StepMarker
 
 
 def _wrap(cells: str) -> str:
@@ -481,6 +486,251 @@ class LabelBandOverlapTests(unittest.TestCase):
         )
         diag = diagnose_xml(xml)
         self.assertEqual([w for w in diag.warnings if "overlap" in w], [])
+
+
+class ApplyStepMarkersTests(unittest.TestCase):
+    def test_badge_placed_at_nested_leaf_absolute_position(self) -> None:
+        xml = _wrap(
+            '<mxCell id="cloud" value="AWS Cloud" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="160" y="40" width="600" height="800" as="geometry"/></mxCell>'
+            '<mxCell id="lambda_1" value="Lambda" shape_type="aws_lambda" vertex="1" parent="cloud">'
+            '<mxGeometry x="24" y="48" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = apply_step_markers(xml, [StepMarker(step_number=1, cell_id="lambda_1")])
+        tree = ET.fromstring(out)
+        badge = next(c for c in tree.iter("mxCell") if c.get("id") == "step_badge_1")
+        self.assertEqual(badge.get("parent"), "1")
+        self.assertEqual(badge.get("value"), "1")
+        geom = badge.find("mxGeometry")
+        assert geom is not None
+        # absolute = cloud(160,40) + lambda(24,48) = (184,88), minus the badge offset
+        self.assertAlmostEqual(float(geom.get("x")), 184.0 - 11.0)
+        self.assertAlmostEqual(float(geom.get("y")), 88.0 - 11.0)
+
+    def test_badge_is_last_cell_in_document_order(self) -> None:
+        xml = _wrap(
+            '<mxCell id="lambda_1" value="Lambda" shape_type="aws_lambda" vertex="1" parent="1">'
+            '<mxGeometry x="24" y="48" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = apply_step_markers(xml, [StepMarker(step_number=1, cell_id="lambda_1")])
+        ids_in_order = [c.get("id") for c in ET.fromstring(out).iter("mxCell")]
+        self.assertEqual(ids_in_order[-1], "step_badge_1")
+
+    def test_missing_cell_id_is_skipped_without_error(self) -> None:
+        xml = _wrap(
+            '<mxCell id="lambda_1" value="Lambda" vertex="1" parent="1">'
+            '<mxGeometry x="24" y="48" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = apply_step_markers(xml, [StepMarker(step_number=1, cell_id="does_not_exist")])
+        self.assertEqual(out, xml)
+
+    def test_marker_without_cell_id_is_skipped(self) -> None:
+        xml = _wrap(
+            '<mxCell id="lambda_1" value="Lambda" vertex="1" parent="1">'
+            '<mxGeometry x="24" y="48" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = apply_step_markers(xml, [StepMarker(step_number=1, cell_id=None)])
+        self.assertEqual(out, xml)
+
+    def test_empty_markers_list_returns_input_unchanged(self) -> None:
+        xml = _wrap(
+            '<mxCell id="lambda_1" value="Lambda" vertex="1" parent="1">'
+            '<mxGeometry x="24" y="48" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        self.assertEqual(apply_step_markers(xml, []), xml)
+
+    def test_duplicate_target_cells_get_diagonally_offset_badges(self) -> None:
+        xml = _wrap(
+            '<mxCell id="rds_1" value="RDS" vertex="1" parent="1">'
+            '<mxGeometry x="100" y="100" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = apply_step_markers(
+            xml, [StepMarker(step_number=1, cell_id="rds_1"), StepMarker(step_number=3, cell_id="rds_1")],
+        )
+        tree = ET.fromstring(out)
+        b1 = next(c for c in tree.iter("mxCell") if c.get("id") == "step_badge_1").find("mxGeometry")
+        b3 = next(c for c in tree.iter("mxCell") if c.get("id") == "step_badge_3").find("mxGeometry")
+        assert b1 is not None and b3 is not None
+        self.assertNotEqual((b1.get("x"), b1.get("y")), (b3.get("x"), b3.get("y")))
+
+    def test_badge_id_collision_gets_suffixed(self) -> None:
+        xml = _wrap(
+            '<mxCell id="step_badge_1" value="preexisting" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="10" height="10" as="geometry"/></mxCell>'
+            '<mxCell id="lambda_1" value="Lambda" vertex="1" parent="1">'
+            '<mxGeometry x="24" y="48" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = apply_step_markers(xml, [StepMarker(step_number=1, cell_id="lambda_1")])
+        ids = [c.get("id") for c in ET.fromstring(out).iter("mxCell")]
+        self.assertIn("step_badge_1_1", ids)
+        self.assertEqual(ids.count("step_badge_1"), 1)  # the pre-existing one, untouched
+
+
+class EnsureOverviewPanelPositionTests(unittest.TestCase):
+    def test_shrinks_oversized_panel_to_actual_text_content(self) -> None:
+        xml = _wrap(
+            '<mxCell id="cloud" value="AWS Cloud" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="200" y="100" width="600" height="400" as="geometry"/></mxCell>'
+            '<mxCell id="overview_panel" '
+            'value="&lt;div style=&quot;font-size:22px;font-weight:bold;&quot;&gt;Title&lt;/div&gt;'
+            '&lt;div style=&quot;font-size:15px;&quot;&gt;1. Short step.&lt;/div&gt;" '
+            'style="rounded=1;html=1;fillColor=#FFF8E1;strokeColor=#F5A623;" vertex="1" parent="1">'
+            '<mxGeometry x="840" y="100" width="400" height="900" as="geometry"/></mxCell>'
+        )
+        out = ensure_overview_panel_position(xml)
+        panel = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "overview_panel")
+        h = float(panel.find("mxGeometry").get("height"))
+        self.assertLess(h, 900.0)  # shrunk, not left at the LLM's inflated value
+
+    def test_grows_undersized_panel_to_fit_many_steps(self) -> None:
+        steps = "".join(
+            f'&lt;div style=&quot;font-size:15px;&quot;&gt;{i}. A reasonably long step description here.&lt;/div&gt;'
+            for i in range(1, 8)
+        )
+        xml = _wrap(
+            '<mxCell id="cloud" value="AWS Cloud" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="200" y="100" width="600" height="400" as="geometry"/></mxCell>'
+            f'<mxCell id="overview_panel" value="&lt;div style=&quot;font-size:22px;&quot;&gt;Title&lt;/div&gt;{steps}" '
+            'style="rounded=1;html=1;fillColor=#FFF8E1;strokeColor=#F5A623;" vertex="1" parent="1">'
+            '<mxGeometry x="840" y="100" width="400" height="50" as="geometry"/></mxCell>'
+        )
+        out = ensure_overview_panel_position(xml)
+        panel = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "overview_panel")
+        h = float(panel.find("mxGeometry").get("height"))
+        self.assertGreater(h, 50.0)  # grown to fit 7 real steps, not left tiny
+
+    def test_grows_page_height_when_panel_bottom_exceeds_it(self) -> None:
+        xml = _wrap(
+            '<mxCell id="cloud" value="AWS Cloud" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="200" y="100" width="600" height="400" as="geometry"/></mxCell>'
+            '<mxCell id="overview_panel" value="&lt;div&gt;Title&lt;/div&gt;&lt;div&gt;1. Step.&lt;/div&gt;" '
+            'style="rounded=1;html=1;" vertex="1" parent="1">'
+            '<mxGeometry x="840" y="1300" width="400" height="160" as="geometry"/></mxCell>'
+        )
+        out = ensure_overview_panel_position(xml)
+        model = ET.fromstring(out).find(".//mxGraphModel")
+        self.assertGreater(float(model.get("pageHeight")), 1400.0)
+
+
+class EnsureLegendPositionTests(unittest.TestCase):
+    def test_legend_moved_directly_below_panel(self) -> None:
+        xml = _wrap(
+            '<mxCell id="cloud" value="AWS Cloud" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="200" y="100" width="600" height="900" as="geometry"/></mxCell>'
+            '<mxCell id="overview_panel" value="&lt;div&gt;Title&lt;/div&gt;&lt;div&gt;1. Step.&lt;/div&gt;" '
+            'style="rounded=1;html=1;" vertex="1" parent="1">'
+            '<mxGeometry x="840" y="100" width="400" height="160" as="geometry"/></mxCell>'
+            '<mxCell id="legend_box" value="Legend" style="rounded=1;" vertex="1" parent="1">'
+            '<mxGeometry x="500" y="800" width="380" height="100" as="geometry"/></mxCell>'
+        )
+        out = ensure_legend_position(xml)
+        tree = ET.fromstring(out)
+        panel = next(c for c in tree.iter("mxCell") if c.get("id") == "overview_panel")
+        legend = next(c for c in tree.iter("mxCell") if c.get("id") == "legend_box")
+        pg, lg = panel.find("mxGeometry"), legend.find("mxGeometry")
+        self.assertEqual(float(lg.get("x")), float(pg.get("x")))
+        self.assertAlmostEqual(
+            float(lg.get("y")), float(pg.get("y")) + float(pg.get("height")) + 20.0,
+        )
+
+    def test_no_legend_is_a_no_op(self) -> None:
+        xml = _wrap(
+            '<mxCell id="overview_panel" value="Title" style="rounded=1;" vertex="1" parent="1">'
+            '<mxGeometry x="840" y="100" width="400" height="160" as="geometry"/></mxCell>'
+        )
+        self.assertEqual(ensure_legend_position(xml), xml)
+
+    def test_no_panel_is_a_no_op(self) -> None:
+        xml = _wrap(
+            '<mxCell id="legend_box" value="Legend" style="rounded=1;" vertex="1" parent="1">'
+            '<mxGeometry x="500" y="800" width="380" height="100" as="geometry"/></mxCell>'
+        )
+        self.assertEqual(ensure_legend_position(xml), xml)
+
+
+class ResolvePitchOutliersTests(unittest.TestCase):
+    """Generic, shape_type-agnostic fix for a leaf sitting far from its row-mates."""
+
+    def test_extreme_gap_snapped_back_to_normal_pitch(self) -> None:
+        xml = _wrap(
+            '<mxCell id="vpc" value="VPC" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="20" y="50" width="2000" height="300" as="geometry"/></mxCell>'
+            '<mxCell id="alb" value="ALB" shape_type="aws_alb" vertex="1" parent="vpc">'
+            '<mxGeometry x="20" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="tgw" value="Transit Gateway" shape_type="aws_transit_gateway" '
+            'vertex="1" parent="vpc">'
+            '<mxGeometry x="1600" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = resolve_pitch_outliers(xml)
+        tgw = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "tgw")
+        self.assertEqual(float(tgw.find("mxGeometry").get("x")), 220.0)  # 20 + canonical 200px pitch
+
+    def test_generic_not_tied_to_any_specific_shape_type(self) -> None:
+        """The fixer must trigger for any far-flung leaf, not a hardcoded service list."""
+        xml = _wrap(
+            '<mxCell id="vpc" value="VPC" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="20" y="50" width="2000" height="300" as="geometry"/></mxCell>'
+            '<mxCell id="svc_a" value="Some Service" shape_type="aws_some_random_service" '
+            'vertex="1" parent="vpc">'
+            '<mxGeometry x="20" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="svc_b" value="Another Service" vertex="1" parent="vpc">'
+            '<mxGeometry x="1700" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = resolve_pitch_outliers(xml)
+        svc_b = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "svc_b")
+        self.assertEqual(float(svc_b.find("mxGeometry").get("x")), 220.0)
+
+    def test_normal_pitch_is_untouched(self) -> None:
+        xml = _wrap(
+            '<mxCell id="vpc" value="VPC" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="20" y="50" width="600" height="300" as="geometry"/></mxCell>'
+            '<mxCell id="a" value="A" vertex="1" parent="vpc">'
+            '<mxGeometry x="20" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="b" value="B" vertex="1" parent="vpc">'
+            '<mxGeometry x="220" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        self.assertEqual(resolve_pitch_outliers(xml), xml)
+
+    def test_moderate_out_of_range_pitch_is_left_for_the_llm_repair_pass(self) -> None:
+        """Only a clear outlier (>3x max) is auto-fixed here; smaller deviations stay diagnose_xml's job."""
+        xml = _wrap(
+            '<mxCell id="vpc" value="VPC" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="20" y="50" width="600" height="300" as="geometry"/></mxCell>'
+            '<mxCell id="a" value="A" vertex="1" parent="vpc">'
+            '<mxGeometry x="20" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="b" value="B" vertex="1" parent="vpc">'
+            '<mxGeometry x="320" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        self.assertEqual(resolve_pitch_outliers(xml), xml)
+
+
+class StepBadgeExclusionTests(unittest.TestCase):
+    """Badges must be invisible to the leaf-grid machinery regardless of pipeline ordering."""
+
+    def test_badge_near_users_actor_triggers_no_overlap_warning(self) -> None:
+        xml = _wrap(
+            '<mxCell id="users" value="Users" shape_type="aws_users" vertex="1" parent="1">'
+            '<mxGeometry x="20" y="20" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="step_badge_1" value="1" style="ellipse;" vertex="1" parent="1">'
+            '<mxGeometry x="25" y="25" width="24" height="24" as="geometry"/></mxCell>'
+        )
+        diag = diagnose_xml(xml)
+        self.assertEqual(diag.warnings, [])
+        self.assertEqual(diag.errors, [])
+
+    def test_repair_xml_does_not_move_badges(self) -> None:
+        xml = _wrap(
+            '<mxCell id="users" value="Users" shape_type="aws_users" vertex="1" parent="1">'
+            '<mxGeometry x="20" y="20" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="step_badge_1" value="1" style="ellipse;" vertex="1" parent="1">'
+            '<mxGeometry x="25" y="25" width="24" height="24" as="geometry"/></mxCell>'
+        )
+        fixed, _ = repair_xml(xml)
+        badge = next(c for c in ET.fromstring(fixed).iter("mxCell") if c.get("id") == "step_badge_1")
+        geom = badge.find("mxGeometry")
+        # Numeric position unchanged (some fixers reformat "25" -> "25.0" on
+        # unrelated cells they touch; that's a string-format detail, not movement).
+        self.assertEqual((float(geom.get("x")), float(geom.get("y"))), (25.0, 25.0))
 
 
 if __name__ == "__main__":

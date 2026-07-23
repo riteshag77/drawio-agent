@@ -23,14 +23,37 @@ _FENCE_BLOCK = re.compile(
 _ATTR_SPACE = re.compile(
     r'([a-zA-Z_][\w:.-]*="[^"]*")([a-zA-Z_][\w:.-]*=)',
 )
-# Matches a value="..." span up to the next recognized attribute name rather
-# than the first '"' — needed because inline HTML inside value (e.g. the
-# Overview Panel's <div style="..."> content) can legitimately contain literal
-# '"' characters that would otherwise truncate a naive match early.
+# Matches a value="..." span up to the next XML attribute (any name, matched
+# generically — not an enumerated list) OR the end of the tag — rather than
+# the first '"' — needed because inline HTML inside value (e.g. the Overview
+# Panel's or Legend's <div style="..."> content) can legitimately contain
+# literal '"' characters that would otherwise truncate a naive match early.
+# An earlier version used a fixed attribute-name list (style/vertex/edge/
+# parent/...) — that missed shape_type (and any future attribute name),
+# causing the boundary detection to overrun into the next real attribute and
+# corrupt it. Matching any `identifier="` generically closes that gap for
+# good. Deliberately does NOT also accept "end of tag" (`/>` or `>`) as a
+# terminator: a raw unescaped HTML value can itself contain a literal '>'
+# (e.g. `<div style="...">`), which would let that alternative prematurely
+# close the span mid-content. Real cells always have another quoted
+# attribute (shape_type=/style=) after value=, so this is not a practical gap.
 _VALUE_ATTR_SPAN = re.compile(
-    r'value="(.*?)"(?=\s+(?:style|vertex|edge|parent|source|target|connectable|id)=)',
+    r'value="(.*?)"(?=\s+[a-zA-Z_][\w:.-]*=")',
     re.DOTALL,
 )
+# Placeholder used to shield value="..." content from the blunt structural
+# regex fixers below (_UNQUOTED_ATTR, tag-typo fixes, _ATTR_SPACE) while they
+# run. Those fixers scan raw text with no concept of "inside an attribute
+# value" — already-escaped inline HTML like value="&lt;div style=&quot;
+# font-size:12px;&quot;&gt;...Solid Line..." contains no literal quote
+# characters, so _UNQUOTED_ATTR's "bare attribute" pattern matches `style=`
+# inside it and wraps it in real quotes, corrupting legitimate escaped
+# content (observed as "AttValue: \" or ' expected" parse errors). Masking
+# the span before those fixers run, then restoring + escaping afterward,
+# makes them structurally blind to value content instead of relying on
+# fixer ordering (which broke twice already this way).
+_VALUE_SPAN_PLACEHOLDER = "\x00VSPAN{}\x00"
+_VALUE_SPAN_RESTORE = re.compile(r'value="\x00VSPAN(\d+)\x00"')
 
 
 @dataclass
@@ -555,6 +578,18 @@ def auto_fix_xml(graph_xml: str) -> tuple[str, list[str]]:
     if fixed != before_amp:
         fixes.append("Escaped unescaped & characters")
 
+    # Shield value="..." spans from the blunt fixers below — see
+    # _VALUE_SPAN_PLACEHOLDER docstring. Captured content already has stray
+    # '&' normalized (previous step), so it is safe to restore verbatim later.
+    value_spans: list[str] = []
+
+    def _mask_value_span(match: re.Match[str]) -> str:
+        idx = len(value_spans)
+        value_spans.append(match.group(1))
+        return f'value="{_VALUE_SPAN_PLACEHOLDER.format(idx)}"'
+
+    fixed = _VALUE_ATTR_SPAN.sub(_mask_value_span, fixed)
+
     new_fixed = _UNQUOTED_ATTR.sub(r'\1="\2"', fixed)
     if new_fixed != fixed:
         fixes.append("Quoted bare attribute values")
@@ -610,26 +645,27 @@ def auto_fix_xml(graph_xml: str) -> tuple[str, list[str]]:
             "Duplicate mxCell id(s) detected — reject rather than silent rename"
         ]
 
-    # Last textual pass, right before ET parsing: escape stray markup inside
-    # value="..." spans (e.g. the Overview Panel's inline HTML). Must run last
-    # — running it earlier lets the other naive regex fixers above (which
-    # expect raw, still-broken XML) misinterpret the now-escaped content as
-    # bare attributes and re-corrupt it.
+    # Restore the masked value="..." spans, escaping any stray markup in the
+    # original (unmodified-by-the-blunt-fixers-above) content. Must run last,
+    # right before ET parsing, for the same reason spans were masked in the
+    # first place: the fixers above expect raw, still-broken XML and would
+    # misinterpret already-escaped HTML as bare attributes.
     value_markup_changed = False
 
-    def _escape_value_markup(match: re.Match[str]) -> str:
+    def _restore_value_span(match: re.Match[str]) -> str:
         nonlocal value_markup_changed
-        inner = match.group(1)
-        # Escape stray '"' too (e.g. inline style="...") — the span above is
-        # already correctly bounded by the *real* closing quote (found via the
-        # next-attribute-name lookahead), so any '"' still inside it is not a
-        # legitimate attribute boundary and must be escaped, not left bare.
+        inner = value_spans[int(match.group(1))]
+        # Escape stray '"' too (e.g. inline style="...") — the span was
+        # already correctly bounded by the *real* closing quote (found via
+        # the next-attribute-name/tag-close lookahead) when it was masked, so
+        # any '"' still inside it is not a legitimate attribute boundary and
+        # must be escaped, not left bare.
         cleaned = inner.replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
         if cleaned != inner:
             value_markup_changed = True
         return f'value="{cleaned}"'
 
-    fixed = _VALUE_ATTR_SPAN.sub(_escape_value_markup, fixed)
+    fixed = _VALUE_SPAN_RESTORE.sub(_restore_value_span, fixed)
     if value_markup_changed:
         fixes.append("Escaped stray markup inside a value attribute")
 
@@ -687,6 +723,43 @@ def choose_fixed_xml(original: str, result: XmlValidationResult) -> str:
         except ET.ParseError:
             pass
     return ensure_diagram_document(original)
+
+
+def guarantee_loadable_xml(xml: str, page_name: str = "Architecture") -> tuple[str, bool]:
+    """Last-resort circuit breaker — call this once, immediately before a diagram
+    XML string leaves the service (API response / download / any other exit
+    point), never in the middle of the pipeline.
+
+    Every escaping/corruption bug this app has hit (three separate recurrences,
+    from three different code paths: the LLM's own raw output, this module's
+    own text-level fixers, and an external MCP round-trip) surfaced the same
+    way — "Not a diagram file" in the draw.io viewer — because no single place
+    ever *guaranteed* the outgoing XML was loadable; each fix only closed the
+    one leak found that time. This closes the class of bug instead of the
+    instance: re-run the existing repair machinery once more here, and if the
+    result still fails to parse, degrade to an empty-but-loadable canvas
+    rather than ever shipping something the client will reject outright.
+
+    Returns ``(xml, ok)`` — ``ok`` is False only when the empty-canvas
+    fallback had to be used (log this loudly; it means every repair path
+    upstream failed and is worth investigating, not something to hide).
+    """
+    candidate = ensure_diagram_document(xml, page_name)
+    try:
+        ET.fromstring(candidate)
+        return candidate, True
+    except ET.ParseError:
+        pass
+
+    check = validate_and_fix_xml(xml)
+    candidate = choose_fixed_xml(xml, check)
+    try:
+        ET.fromstring(candidate)
+        return candidate, True
+    except ET.ParseError:
+        pass
+
+    return wrap_with_mxfile("", page_name), False
 
 
 def normalize_platform_styles(xml: str, platform: str) -> str:
@@ -1008,10 +1081,14 @@ def _fit_one_pass(
             cur_h = float(geom.get("height") or 0)
         except ValueError:
             cur_w, cur_h = 0.0, 0.0
-        if need_w > cur_w + 0.5:
+        # Bidirectional: shrink oversized containers back down to their actual
+        # need, not just grow undersized ones — an LLM-overestimated box (the
+        # "huge empty region" anti-pattern) would otherwise stay oversized
+        # through the entire deterministic repair pipeline forever.
+        if abs(need_w - cur_w) > 0.5:
             geom.set("width", str(need_w))
             changed = True
-        if need_h > cur_h + 0.5:
+        if abs(need_h - cur_h) > 0.5:
             geom.set("height", str(need_h))
             changed = True
     return changed
