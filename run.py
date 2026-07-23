@@ -16,4 +16,10 @@ if __name__ == "__main__":
         host=HOST,
         port=PORT,
         reload=True,
+        # Prompt packs (config/*.txt) and provider config (config/*.json) are
+        # read once and cached in-process (see prompts/system.py's lru_cache) —
+        # without these, editing them while the dev server runs has no effect
+        # until a manual restart, since uvicorn's default reload watch only
+        # covers .py files.
+        reload_includes=["*.txt", "*.json"],
     )

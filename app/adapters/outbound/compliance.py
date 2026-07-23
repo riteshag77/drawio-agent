@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Any
 from functools import lru_cache
@@ -9,6 +8,7 @@ import yaml
 from pydantic import BaseModel, Field
 
 from app.adapters.outbound.config.env_config import get_config
+from app.adapters.outbound.diagram.xml_tools import find_service_keys
 from app.adapters.outbound.llm.llm_client import call_llm
 from app.adapters.outbound.llm.providers import get_provider, normalize_provider_key
 from app.core.logging import StepLogger
@@ -101,24 +101,6 @@ def _load_frameworks() -> dict[str, dict]:
         except yaml.YAMLError as exc:
             raise ValueError(f"Invalid YAML in {p.name}: {exc}") from exc
     return frameworks
-
-
-def reload_frameworks() -> dict[str, dict]:
-    _load_frameworks.cache_clear()
-    return _load_frameworks()
-
-
-def _find_service_keys(xml: str) -> list[str]:
-    keys: list[str] = []
-    for m in re.finditer(r'shape_type\s*=\s*"([^"]+)"', xml):
-        st = m.group(1).strip().lower()
-        if st.startswith(("aws_", "gcp_", "azure_")):
-            keys.append(st)
-    if not keys:
-        for m in re.finditer(r'mxgraph\.(aws4|gcp2|azure2)\.(\w+)', xml):
-            vendor = {"aws4": "aws_", "gcp2": "gcp_", "azure2": "azure_"}[m.group(1)]
-            keys.append(vendor + m.group(2).lower())
-    return list(dict.fromkeys(keys))
 
 
 def _services_in_categories(services: list[str], categories: list[str]) -> list[str]:
@@ -352,7 +334,7 @@ def assess_compliance(
     provider: str | None = None,
     logger: StepLogger | None = None,
 ) -> dict[str, Any]:
-    services = _find_service_keys(xml or "")
+    services = find_service_keys(xml or "")
     if not services:
         return {"frameworks": {}, "services_analyzed": 0, "llm_enhanced": False}
 

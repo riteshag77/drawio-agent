@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import re
 from typing import Any
+
+from app.adapters.outbound.diagram.xml_tools import find_service_keys
 
 PILLARS: dict[str, dict[str, Any]] = {
     "security": {
@@ -74,19 +75,6 @@ PILLAR_SERVICE_MAP: dict[str, tuple[set[str], str, str]] = {
     "operational_excellence": (OPS_SERVICES, "Monitor, log, and continuously improve", "operational_excellence"),
     "sustainability": (SUSTAINABILITY_SERVICES, "Reduce environmental impact", "sustainability"),
 }
-
-
-def _find_service_keys(xml: str) -> list[str]:
-    keys: list[str] = []
-    for m in re.finditer(r'shape_type\s*=\s*"([^"]+)"', xml):
-        st = m.group(1).strip().lower()
-        if st.startswith(("aws_", "gcp_", "azure_")):
-            keys.append(st)
-    if not keys:
-        for m in re.finditer(r'mxgraph\.(aws4|gcp2|azure2)\.(\w+)', xml):
-            vendor = {"aws4": "aws_", "gcp2": "gcp_", "azure2": "azure_"}[m.group(1)]
-            keys.append(vendor + m.group(2).lower())
-    return list(dict.fromkeys(keys))
 
 
 def _pillar_findings(pillar_key: str, services: list[str]) -> list[dict[str, str]]:
@@ -213,7 +201,7 @@ def _pillar_status(findings: list[dict[str, str]]) -> str:
 
 
 def assess_well_architected(xml: str, platform: str = "aws") -> dict[str, Any]:
-    services = _find_service_keys(xml)
+    services = find_service_keys(xml)
     pillars_result: list[dict[str, Any]] = []
     total_pass = 0
     total_warn = 0

@@ -86,20 +86,36 @@ class EnvConfigAdapter:
         return self.get_int("MAX_REQUEST_BODY_BYTES", 2_000_000)
 
     @property
-    def max_xml_chars(self) -> int:
-        return self.get_int("MAX_XML_CHARS", 500_000)
-
-    @property
-    def max_message_chars(self) -> int:
-        return self.get_int("MAX_MESSAGE_CHARS", 20_000)
-
-    @property
     def max_custom_message_len(self) -> int:
         return self.get_int("MAX_CUSTOM_MESSAGE_LEN", 5000)
 
     @property
     def llm_timeout_seconds(self) -> int:
         return self.get_int("LLM_TIMEOUT", 120)
+
+    @property
+    def llm_max_retries(self) -> int:
+        """Retry attempts for a transient provider error (429/502/503/504), beyond the first try."""
+        return max(0, self.get_int("LLM_MAX_RETRIES", 1))
+
+    @property
+    def llm_retry_backoff_base(self) -> float:
+        """Seconds before the first retry; doubles each subsequent attempt up to llm_retry_backoff_max."""
+        return max(0.0, self.get_float("BACKOFF_BASE", 2.0))
+
+    @property
+    def llm_retry_backoff_max(self) -> float:
+        return max(0.0, self.get_float("BACKOFF_MAX", 30.0))
+
+    @property
+    def request_timeout_seconds(self) -> float:
+        """Overall wall-clock budget for a single /generate, /chat, or /chat/stream request."""
+        return max(30.0, self.get_float("REQUEST_TIMEOUT_SECONDS", 300.0))
+
+    @property
+    def enrichment_branch_timeout_seconds(self) -> float:
+        """Per-branch budget for each cost/WAF/compliance/MCP task in the enrichment gather."""
+        return max(10.0, self.get_float("ENRICHMENT_BRANCH_TIMEOUT_SECONDS", 150.0))
 
     @property
     def max_concurrent_llm(self) -> int:
@@ -121,18 +137,6 @@ class EnvConfigAdapter:
     @property
     def drawio_lib_azure(self) -> str:
         return self.get("DRAWIO_LIB_AZURE", "img/lib/azure2")
-
-    @property
-    def drawio_origin(self) -> str:
-        return self.get("DRAWIO_ORIGIN", "https://embed.diagrams.net")
-
-    @property
-    def drawio_themes(self) -> list[str]:
-        return self.get_list("DRAWIO_THEMES", ["kennedy", "atlas", "dark", "min", "sketch", "simple"])
-
-    @property
-    def llm_default_model(self) -> str:
-        return self.get("LLM_DEFAULT_MODEL", "gpt-4o")
 
     @property
     def provider_default(self) -> str:

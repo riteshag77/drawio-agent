@@ -321,30 +321,29 @@ def diagnose_xml(xml: str) -> XmlDiagnostics:
             "instead of parent=\"1\" (coordinate-only containment is forbidden)"
         )
 
+    # Grouped by parent once, reused by both checks below — a leaf only ever
+    # needs comparing against its true siblings, never every leaf in the whole
+    # diagram regardless of container.
+    by_parent_leaves = _leaf_siblings_by_parent(cells, parent_ids, page_w, page_h)
+
     # Sibling leaf overlap — only leaves (containers legitimately wrap children;
     # the full-page background rect is intentionally under everything). Uses a
     # label-band-extended rect so overlapping under-icon labels are caught too.
-    boxes: list[tuple[str, str | None, tuple[float, float, float, float]]] = []
-    for cell in cells:
-        if cell.get("vertex") != "1" or _is_container_cell(cell) or _is_edge_label_cell(cell):
-            continue
-        if _is_canvas_background_cell(cell, page_w, page_h) or _is_overview_panel_cell(cell):
-            continue
-        if cell.get("id") in parent_ids:
-            continue
-        geo = _cell_geometry(cell)
-        if geo:
-            x, y, w, h = geo
-            boxes.append((cell.get("id") or "", cell.get("parent"), (x, y, w, h + _band_height(cell))))
-    for i in range(len(boxes)):
-        ia, pa, ra = boxes[i]
-        for j in range(i + 1, len(boxes)):
-            ib, pb, rb = boxes[j]
-            if pa == pb and _rects_overlap(ra, rb):
-                diag.warnings.append(f"vertices {ia!r} and {ib!r} overlap")
+    for kids in by_parent_leaves.values():
+        boxes: list[tuple[str, tuple[float, float, float, float]]] = []
+        for kid in kids:
+            geo = _cell_geometry(kid)
+            if geo:
+                x, y, w, h = geo
+                boxes.append((kid.get("id") or "", (x, y, w, h + _band_height(kid))))
+        for i in range(len(boxes)):
+            ia, ra = boxes[i]
+            for j in range(i + 1, len(boxes)):
+                ib, rb = boxes[j]
+                if _rects_overlap(ra, rb):
+                    diag.warnings.append(f"vertices {ia!r} and {ib!r} overlap")
 
     # Service-grid row count / pitch — max 4 icons per row, canonical pitch per layer.
-    by_parent_leaves = _leaf_siblings_by_parent(cells, parent_ids, page_w, page_h)
     for pid, kids in by_parent_leaves.items():
         parent_cell = ids.get(pid)
         is_group = parent_cell is not None and _is_cross_cutting_group_cell(parent_cell)

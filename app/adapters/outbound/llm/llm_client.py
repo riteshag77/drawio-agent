@@ -89,8 +89,8 @@ def call_llm(
             "human_content": _truncate(human_content),
         })
 
-    messages = [build_system_message(spec, system_prompt), _build_human_message(human_content, attachment_documents)]
     method = spec.structured_output
+    messages = [build_system_message(spec, system_prompt), _build_human_message(human_content, attachment_documents)]
     timeout = get_config().llm_timeout_seconds
     llm = build_langchain_client(spec, timeout=timeout)
 
@@ -115,22 +115,8 @@ def call_llm(
     except OutputParserException:
         raise
     except Exception as exc:
-        # One retry on transient provider failures (429/502/503/504)
-        if _is_transient(exc):
-            if logger:
-                logger.log("llm", f"Transient provider error, retrying once in 2s: {exc}", level="warning")
-            time.sleep(2)
-            try:
-                result = structured_llm.invoke(messages, config={"callbacks": [usage_handler]})
-            except Exception as retry_exc:
-                if attachment_documents:
-                    filenames = ", ".join(a.get("filename", "the attached file") for a in attachment_documents)
-                    raise ValueError(
-                        f"The '{provider_key}' provider couldn't process the attached file(s) ({filenames}). "
-                        "Try Claude or Gemini, or attach a text-based version."
-                    ) from retry_exc
-                raise ValueError(f"The '{provider_key}' provider (model {spec.default_model}) failed: {retry_exc}") from retry_exc
-        else:
+        # Retry transient provider failures (429/502/503/504) with exponential backoff.
+        if not _is_transient(exc):
             if attachment_documents:
                 filenames = ", ".join(a.get("filename", "the attached file") for a in attachment_documents)
                 raise ValueError(
@@ -138,6 +124,34 @@ def call_llm(
                     "Try Claude or Gemini, or attach a text-based version."
                 ) from exc
             raise  # re-raise original exception unchanged
+
+        config = get_config()
+        max_retries = config.llm_max_retries
+        backoff_base = config.llm_retry_backoff_base
+        backoff_max = config.llm_retry_backoff_max
+        last_exc = exc
+        for attempt in range(max_retries):
+            delay = min(backoff_base * (2 ** attempt), backoff_max)
+            if logger:
+                logger.log(
+                    "llm",
+                    f"Transient provider error, retrying ({attempt + 1}/{max_retries}) in {delay:g}s: {last_exc}",
+                    level="warning",
+                )
+            time.sleep(delay)
+            try:
+                result = structured_llm.invoke(messages, config={"callbacks": [usage_handler]})
+                break
+            except Exception as retry_exc:
+                last_exc = retry_exc
+        else:
+            if attachment_documents:
+                filenames = ", ".join(a.get("filename", "the attached file") for a in attachment_documents)
+                raise ValueError(
+                    f"The '{provider_key}' provider couldn't process the attached file(s) ({filenames}). "
+                    "Try Claude or Gemini, or attach a text-based version."
+                ) from last_exc
+            raise ValueError(f"The '{provider_key}' provider (model {spec.default_model}) failed: {last_exc}") from last_exc
     if logger:
         try:
             raw_text = result.model_dump_json()

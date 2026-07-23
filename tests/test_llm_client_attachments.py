@@ -60,7 +60,9 @@ class CallLlmProviderMismatchTests(unittest.TestCase):
     ) -> None:
         mock_normalize.return_value = "openrouter"
         mock_get_provider.return_value = MagicMock(default_model="some-model", structured_output=None)
-        mock_get_config.return_value = MagicMock(llm_timeout_seconds=30)
+        mock_get_config.return_value = MagicMock(
+            llm_timeout_seconds=30, llm_max_retries=1, llm_retry_backoff_base=0.0, llm_retry_backoff_max=0.0,
+        )
         mock_build_client.return_value = _mock_provider_chain(RuntimeError("400 unsupported content type"))
 
         with self.assertRaises(ValueError) as ctx:
@@ -82,12 +84,91 @@ class CallLlmProviderMismatchTests(unittest.TestCase):
     ) -> None:
         mock_normalize.return_value = "claude"
         mock_get_provider.return_value = MagicMock(default_model="some-model", structured_output=None)
-        mock_get_config.return_value = MagicMock(llm_timeout_seconds=30)
+        mock_get_config.return_value = MagicMock(
+            llm_timeout_seconds=30, llm_max_retries=1, llm_retry_backoff_base=0.0, llm_retry_backoff_max=0.0,
+        )
         mock_build_client.return_value = _mock_provider_chain(RuntimeError("rate limited"))
 
         with self.assertRaises(RuntimeError) as ctx:
             call_llm("system", "human", "claude", dict, None, None)
         self.assertEqual(str(ctx.exception), "rate limited")
+
+
+class _TransientError(RuntimeError):
+    def __init__(self, status_code: int) -> None:
+        super().__init__(f"{status_code} transient")
+        self.status_code = status_code
+
+
+class CallLlmTransientRetryTests(unittest.TestCase):
+    @patch("app.adapters.outbound.llm.llm_client.time.sleep")
+    @patch("app.adapters.outbound.llm.llm_client.build_langchain_client")
+    @patch("app.adapters.outbound.llm.llm_client.require_api_key")
+    @patch("app.adapters.outbound.llm.llm_client.get_provider")
+    @patch("app.adapters.outbound.llm.llm_client.normalize_provider_key")
+    @patch("app.adapters.outbound.llm.llm_client.get_config")
+    def test_succeeds_after_configured_retries(
+        self, mock_get_config, mock_normalize, mock_get_provider, mock_require_key, mock_build_client, mock_sleep,
+    ) -> None:
+        mock_normalize.return_value = "gemini"
+        mock_get_provider.return_value = MagicMock(default_model="gemini-2.5-flash", structured_output="json_mode")
+        mock_get_config.return_value = MagicMock(
+            llm_timeout_seconds=30, llm_max_retries=2, llm_retry_backoff_base=1.0, llm_retry_backoff_max=10.0,
+        )
+        expected = {"ok": True}
+        mock_build_client.return_value = _mock_provider_chain(
+            [_TransientError(429), _TransientError(429), expected]
+        )
+
+        result = call_llm("system", "human", "gemini", dict, None, None)
+
+        self.assertEqual(result, expected)
+        # Two retries needed (attempts 2 and 3 succeed on the 3rd call) -> sleep called twice, backoff doubling.
+        self.assertEqual(mock_sleep.call_count, 2)
+        self.assertEqual([c.args[0] for c in mock_sleep.call_args_list], [1.0, 2.0])
+
+    @patch("app.adapters.outbound.llm.llm_client.time.sleep")
+    @patch("app.adapters.outbound.llm.llm_client.build_langchain_client")
+    @patch("app.adapters.outbound.llm.llm_client.require_api_key")
+    @patch("app.adapters.outbound.llm.llm_client.get_provider")
+    @patch("app.adapters.outbound.llm.llm_client.normalize_provider_key")
+    @patch("app.adapters.outbound.llm.llm_client.get_config")
+    def test_raises_after_exhausting_configured_retries(
+        self, mock_get_config, mock_normalize, mock_get_provider, mock_require_key, mock_build_client, mock_sleep,
+    ) -> None:
+        mock_normalize.return_value = "gemini"
+        mock_get_provider.return_value = MagicMock(default_model="gemini-2.5-flash", structured_output="json_mode")
+        mock_get_config.return_value = MagicMock(
+            llm_timeout_seconds=30, llm_max_retries=1, llm_retry_backoff_base=1.0, llm_retry_backoff_max=10.0,
+        )
+        mock_build_client.return_value = _mock_provider_chain(_TransientError(429))
+
+        with self.assertRaises(ValueError) as ctx:
+            call_llm("system", "human", "gemini", dict, None, None)
+
+        self.assertIn("gemini", str(ctx.exception))
+        self.assertEqual(mock_sleep.call_count, 1)
+
+    @patch("app.adapters.outbound.llm.llm_client.time.sleep")
+    @patch("app.adapters.outbound.llm.llm_client.build_langchain_client")
+    @patch("app.adapters.outbound.llm.llm_client.require_api_key")
+    @patch("app.adapters.outbound.llm.llm_client.get_provider")
+    @patch("app.adapters.outbound.llm.llm_client.normalize_provider_key")
+    @patch("app.adapters.outbound.llm.llm_client.get_config")
+    def test_zero_retries_fails_immediately(
+        self, mock_get_config, mock_normalize, mock_get_provider, mock_require_key, mock_build_client, mock_sleep,
+    ) -> None:
+        mock_normalize.return_value = "gemini"
+        mock_get_provider.return_value = MagicMock(default_model="gemini-2.5-flash", structured_output="json_mode")
+        mock_get_config.return_value = MagicMock(
+            llm_timeout_seconds=30, llm_max_retries=0, llm_retry_backoff_base=1.0, llm_retry_backoff_max=10.0,
+        )
+        mock_build_client.return_value = _mock_provider_chain(_TransientError(429))
+
+        with self.assertRaises(ValueError):
+            call_llm("system", "human", "gemini", dict, None, None)
+
+        mock_sleep.assert_not_called()
 
 
 if __name__ == "__main__":

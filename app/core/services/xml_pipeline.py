@@ -109,7 +109,12 @@ def _safe_enrichment(name: str, result: Any, logger: Any) -> Any:
     """Normalize a gather result: return the value or None on exception, logging a warning."""
     if isinstance(result, BaseException):
         if logger:
-            logger.log(name, f"{name} enrichment failed, skipping: {result}", level="warning")
+            # str(TimeoutError()) is empty — spell out what happened instead of a blank message.
+            detail = (
+                f"timed out after {get_config().enrichment_branch_timeout_seconds:g}s"
+                if isinstance(result, asyncio.TimeoutError) else str(result)
+            )
+            logger.log(name, f"{name} enrichment failed, skipping: {detail}", level="warning")
         return None
     return result
 
@@ -314,11 +319,12 @@ async def run_xml_pipeline(
         return local_xml, preview_url, renderer_used
 
     await _emit(on_progress, "enrich", "Running post-analysis and icon enrichment…")
+    branch_timeout = get_config().enrichment_branch_timeout_seconds
     _results = await asyncio.gather(
-        _run_cost(),
-        _run_waf(),
-        _run_compliance(),
-        _run_mcp(),
+        asyncio.wait_for(_run_cost(), timeout=branch_timeout),
+        asyncio.wait_for(_run_waf(), timeout=branch_timeout),
+        asyncio.wait_for(_run_compliance(), timeout=branch_timeout),
+        asyncio.wait_for(_run_mcp(), timeout=branch_timeout),
         return_exceptions=True,
     )
     cost_data = _safe_enrichment("cost", _results[0], logger)
@@ -327,7 +333,8 @@ async def run_xml_pipeline(
     _mcp_raw = _results[3]
     if isinstance(_mcp_raw, BaseException):
         if logger:
-            logger.log("mcp", f"MCP task raised unexpectedly: {_mcp_raw}", level="warning")
+            detail = f"timed out after {branch_timeout:g}s" if isinstance(_mcp_raw, asyncio.TimeoutError) else str(_mcp_raw)
+            logger.log("mcp", f"MCP task raised unexpectedly: {detail}", level="warning")
         mcp_result = (fit_containers_to_children(xml_output), None, "local")
     else:
         mcp_result = _mcp_raw

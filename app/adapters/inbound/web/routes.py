@@ -22,6 +22,29 @@ from app.adapters.outbound.llm import providers as providers_module
 router = APIRouter()
 
 
+class PipelineTimeoutError(RuntimeError):
+    """Raised when a request exceeds the configured overall time budget (REQUEST_TIMEOUT_SECONDS)."""
+
+
+async def _with_request_timeout(coro: Any) -> Any:
+    """Bound a diagram-generation coroutine to request_timeout_seconds.
+
+    A stuck/retrying LLM call can otherwise stall a request indefinitely — this
+    cancels the *awaiting coroutine* on timeout so the user gets a clean 504
+    instead of an infinite wait. It does not kill the underlying worker thread
+    (Python threads can't be forcibly killed); see llm_client.call_llm's retry
+    backoff for the actual source of long-running background threads.
+    """
+    timeout = get_config().request_timeout_seconds
+    try:
+        return await asyncio.wait_for(coro, timeout=timeout)
+    except asyncio.TimeoutError as exc:
+        raise PipelineTimeoutError(
+            f"The request took longer than {timeout:g}s and was cancelled. "
+            "The LLM provider (or a retry/backoff) may be taking unusually long — try again shortly."
+        ) from exc
+
+
 def _logger_from_request(request: Request) -> StepLogger:
     return StepLogger(request_id=getattr(request.state, "request_id", None))
 
@@ -111,11 +134,11 @@ async def generate_diagram(body: PromptRequest, request: Request):
     try:
         intent = classify_intent(body.user_prompt, diagram_mode=body.diagram_mode, platform=body.platform)
         if intent == "simple":
-            result = await run_llm_sync(
+            result = await _with_request_timeout(run_llm_sync(
                 generate_mermaid_diagram, body.user_prompt, body.provider, logger, None,
-            )
+            ))
             return _mermaid_response(result, logger)
-        return await run_xml_pipeline(
+        return await _with_request_timeout(run_xml_pipeline(
             user_prompt=body.user_prompt, messages=None,
             provider=body.provider, platform=body.platform,
             logger=logger,
@@ -126,6 +149,12 @@ async def generate_diagram(body: PromptRequest, request: Request):
             well_architected=body.well_architected,
             compliance=body.compliance,
             compliance_frameworks=body.compliance_frameworks,
+        ))
+    except PipelineTimeoutError as exc:
+        logger.log("error", str(exc), level="error")
+        return JSONResponse(
+            status_code=504,
+            content={"status": "error", "detail": str(exc), "logs": logger.to_list()},
         )
     except Exception as exc:
         logger.log("error", str(exc), level="error")
@@ -158,12 +187,12 @@ async def _run_chat(body: ChatRequest, logger: StepLogger, *, on_progress=None) 
         await on_progress("intent", f"Classified as {intent}", {"intent": intent})
 
     if intent == "simple":
-        result = await run_llm_sync(
+        result = await _with_request_timeout(run_llm_sync(
             generate_mermaid_diagram, last_user, provider, logger, messages, applied_suggestions,
-        )
+        ))
         return _mermaid_response(result, logger)
 
-    return await run_xml_pipeline(
+    return await _with_request_timeout(run_xml_pipeline(
         user_prompt=None, messages=messages, provider=provider, platform=platform,
         logger=logger,
         custom_system_message=_sanitize_custom_msg(body.custom_system_message),
@@ -177,7 +206,7 @@ async def _run_chat(body: ChatRequest, logger: StepLogger, *, on_progress=None) 
         context_text=body.context_text,
         attachment_documents=[a.model_dump() for a in body.attachment_documents] if body.attachment_documents else None,
         on_progress=on_progress,
-    )
+    ))
 
 
 @router.post("/chat")
@@ -187,6 +216,12 @@ async def chat_diagram(body: ChatRequest, request: Request):
         return await _run_chat(body, logger)
     except ValueError as exc:
         return JSONResponse(status_code=400, content={"status": "error", "detail": str(exc)})
+    except PipelineTimeoutError as exc:
+        logger.log("error", str(exc), level="error")
+        return JSONResponse(
+            status_code=504,
+            content={"status": "error", "detail": str(exc), "logs": logger.to_list()},
+        )
     except Exception as exc:
         logger.log("error", str(exc), level="error")
         return JSONResponse(
@@ -216,6 +251,15 @@ async def chat_diagram_stream(body: ChatRequest, request: Request):
             await queue.put({"type": "result", **result})
         except ValueError as exc:
             await queue.put({"type": "error", "status": "error", "detail": str(exc), "logs": logger.to_list()})
+        except PipelineTimeoutError as exc:
+            logger.log("error", str(exc), level="error")
+            await queue.put({
+                "type": "error",
+                "status": "error",
+                "detail": str(exc),
+                "timeout": True,
+                "logs": logger.to_list(),
+            })
         except Exception as exc:
             logger.log("error", str(exc), level="error")
             await queue.put({
@@ -268,7 +312,7 @@ async def chat_diagram_stream(body: ChatRequest, request: Request):
 async def download_diagram(body: PromptRequest, request: Request):
     logger = _logger_from_request(request)
     try:
-        result = await run_xml_pipeline(
+        result = await _with_request_timeout(run_xml_pipeline(
             user_prompt=body.user_prompt, messages=None,
             provider=body.provider, platform=body.platform,
             logger=logger,
@@ -279,13 +323,16 @@ async def download_diagram(body: PromptRequest, request: Request):
             well_architected=body.well_architected,
             compliance=body.compliance,
             compliance_frameworks=body.compliance_frameworks,
-        )
+        ))
         xml_output = result.get("xml", "")
         return Response(
             content=xml_output,
             media_type="application/xml",
             headers={"Content-Disposition": "attachment; filename=architecture.drawio"},
         )
+    except PipelineTimeoutError as exc:
+        logger.log("error", str(exc), level="error")
+        raise HTTPException(status_code=504, detail=str(exc)) from exc
     except Exception as exc:
         logger.log("error", str(exc), level="error")
         raise HTTPException(status_code=500, detail=str(exc)) from exc

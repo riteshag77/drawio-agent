@@ -1,9 +1,3 @@
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text == null ? '' : String(text);
-    return div.innerHTML;
-}
-
 function formatLogTime(isoOrDate) {
     const d = isoOrDate ? new Date(isoOrDate) : new Date();
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });

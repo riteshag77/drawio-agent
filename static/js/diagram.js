@@ -1,6 +1,6 @@
 function getDrawioUrl(theme) {
     const ui = DRAWIO_THEMES.includes(theme) ? theme : 'kennedy';
-    return `${DRAWIO_ORIGIN}/?embed=1&ui=${ui}&spin=1&proto=json&configure=1&libs=aws4;gcp2;azure2&nav=1&saveAndExit=0&noSaveBtn=1&noExitBtn=1&sidebar=0`;
+    return `${DRAWIO_ORIGIN}/?embed=1&ui=${ui}&spin=1&proto=json&configure=1&libs=aws4;gcp2;azure2&nav=1&saveAndExit=0&noSaveBtn=1&noExitBtn=1&sidebar=0&format=0`;
 }
 
 function exportDiagramXml() {
@@ -250,19 +250,3 @@ function loadDiagramIntoEditor(xml) {
     }, 15000);
 }
 
-function applyLayoutToEditor() {
-    const iframe = ensureDrawioFrame();
-    if (!drawioReady) {
-        appendVerboseLog('drawio', 'Editor not ready for layout', 'warn');
-        return;
-    }
-    const payload = {
-        action: 'layout',
-        layouts: [{
-            layout: 'mxHierarchicalLayout',
-            config: { orientation: 'west', resizeParent: true }
-        }]
-    };
-    appendVerboseLog('drawio', 'Applying hierarchical layout in editor', 'info');
-    iframe.contentWindow.postMessage(JSON.stringify(payload), DRAWIO_ORIGIN);
-}

@@ -12,10 +12,6 @@ function showError(msg) {
     if (typeof showToast === 'function') showToast(msg, 'error');
 }
 
-function hideError() {
-    // Merged into pipeline logs — no separate panel needed
-}
-
 function updateSendStopButtons() {
     const sendBtn = document.getElementById('send-btn');
     const stopBtn = document.getElementById('stop-btn');

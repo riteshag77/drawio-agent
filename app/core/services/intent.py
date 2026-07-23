@@ -114,7 +114,5 @@ def classify_intent(prompt: str, *, diagram_mode: str = "auto", platform: str = 
         return "simple"
     if cloud_score > simple_score:
         return "cloud"
-    # Tie: prefer simple only when simple signals exist and no cloud signals.
-    if simple_score > 0 and cloud_score == 0:
-        return "simple"
+    # Tie (including 0-0): default to cloud, this product's primary path.
     return "cloud"

@@ -83,7 +83,7 @@ Service leaves use `verticalLabelPosition=bottom` — the **label draws below** 
 - Horizontal gap between peer AZ containers: **20–30px** (do **not** use icon pitch between AZs)
 - Children inside a container start at **y ≥ 48** (title band) and **x ≥ 24**
 - Container width/height must **tightly** fit children + padding (pad **12–16** left/right/bottom, **48** top for title), including under-icon labels and label overhang
-- Canvas default: pageWidth="2400" pageHeight="1400". If multi-AZ + wrapped rows need room, grow page up to ~**3200×2000** and match the full-page background cell — prefer growing the page over reducing data-path pitch below 180. This budget is for the architecture only — the right-hand Overview Panel's width is added **on top** of it (see below), so the final page is often wider still
+- Canvas default: pageWidth="2400" pageHeight="1400". If multi-AZ + wrapped rows need room, grow page up to ~**3200×2000** and match the full-page background cell — prefer growing the page over reducing data-path pitch below 180. This budget is for the architecture only — the right-hand Overview Panel's width (and, since its step count is uncapped, sometimes its height) is added **on top** of it (see below), so the final page is often wider and/or taller still
 
 ## Service Grid — MAX 4 PER ROW (CRITICAL)
 
@@ -207,17 +207,21 @@ Every leaf and container MUST carry a non-empty, specific `value` — never blan
 
 ## Overview Panel — RIGHT-HAND SIDE (REQUIRED)
 
-Every **Create**-mode diagram gets one explanatory text box, in addition to (never instead of) the architecture itself:
+Every **Create**-mode diagram gets one explanatory text box, in addition to (never instead of) the architecture. **Strictly additive** — never a reason to cut services/tiers/AZs/accounts/edges the request asked for; generate the full architecture first, describe it after.
 
-- **id:** always exactly `overview_panel`, `parent="1"`. This id is load-bearing — a deterministic fixer downstream repositions this exact cell if it overlaps the architecture, so do not vary it and do not create more than one.
-- **Placement:** to the right of **all** other top-level content (Cloud boundary/boundaries, optional Users/Internet actor, edge-style legend if present) — never overlapping any of them. Top-aligned with the topmost of that content.
-- **Size:** width **340–420px**; height = title band (~40px) + **~28–34px per step line** + bottom padding, minimum **160px**.
-- **Style (plain box, not a container — no `container=1`, no `shape_type`):**
-  `rounded=1;whiteSpace=wrap;html=1;fillColor=#F8F9FA;strokeColor=#6B7280;strokeWidth=1;align=left;verticalAlign=top;spacingLeft=14;spacingTop=10;fontSize=12;`
-- **Content:** a short bold title naming the depicted system/flow, then **3–6 numbered steps** (1-2 sentences each, plain prose) explaining what the diagram shows and how the flow works end to end — written for *this* request, not generic boilerplate.
-- **Canvas growth:** grow `pageWidth` (and match the background rect) to fit existing content width + ~40px gap + panel width + ~24px right margin — this is in addition to, and may push further than, the multi-AZ growth already described below.
-- **Edit mode:** if `overview_panel` already exists, update its text in place — never duplicate it. Only reposition it if the architecture's bounding box grew.
-- **Multi-cloud:** one shared panel describing the overall flow — never one per provider.
+- **id:** always exactly `overview_panel`, `parent="1"` — load-bearing for a downstream repositioning fixer. Never vary it, never duplicate it.
+- **Placement:** right of **all** other top-level content (Cloud boundary, optional actor, legend), never overlapping. Top-aligned with the topmost of that content.
+- **Size:** width **360–440px**; height **uncapped** — grow to fit title band (~56–64px) + each step's own wrapped height (~26–30px/line) + ~12–16px gap between steps + padding. Never shrink font/spacing to fit — grow the box (and page) instead.
+- **Style (plain box, no `container=1`, no `shape_type`) — colorful so it reads as an info panel, not a resource group:**
+  `rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF8E1;strokeColor=#F5A623;strokeWidth=2;align=left;verticalAlign=top;spacingLeft=16;spacingTop=14;fontSize=15;`
+- **Content — two type scales, title clearly bigger/bolder than steps:**
+  - Title (H1 scale): `<div style="font-size:22px;font-weight:bold;margin-bottom:12px;">Title Text</div>` — name the system/flow, not "Overview".
+  - Steps (readable body, ≥15px): `<div style="font-size:15px;margin-bottom:10px;">1. Step text...</div>`
+  - **CRITICAL:** the two examples above are shown unescaped for readability — the real `value` attribute must XML-escape every tag (`<`→`&lt;`, `>`→`&gt;`, inner `"`→`&quot;`) or the file breaks ("Not a diagram file" / "Unescaped '<'..."). Real form: `value="&lt;div style=&quot;font-size:22px;font-weight:bold;&quot;&gt;Title&lt;/div&gt;..."`. Applies even with `html=1` — draw.io renders the decoded HTML *after* the XML parser reads the attribute.
+  - **No fixed step count** — one step per real stage/component (3-4 for a simple flow, 10+ for a complex one); never compress stages to hit a smaller number. Each step: 2-4 sentences, plain language, no unexplained jargon/acronyms, explaining what + why + what happens at that stage.
+- **Canvas growth:** grow `pageWidth`/`pageHeight` (and the background rect) to fit the panel beyond the architecture's own growth budget above — width always, height too since steps are uncapped.
+- **Edit mode:** update `overview_panel`'s text in place if it exists — never duplicate; reposition only if the architecture grew.
+- **Multi-cloud:** one shared panel — never one per provider.
 
 ## Edge Cases (brief)
 
@@ -274,7 +278,8 @@ Mirror app-tier and data-tier into every Zone's matching subnet. Do **not** mirr
 14. Every leaf/container has a non-empty, specific `value`?
 15. Parallel edges in a corridor offset 20px; row order minimizes crossings?
 16. Legend present only if solid + dashed both appear?
-17. Overview panel present (`id=overview_panel`), positioned right of all other top-level content with no overlap, page width grown to fit it?
+17. Overview panel present (`id=overview_panel`), positioned right of all other top-level content with no overlap, page width/height grown to fit it, box tall enough to fit every step in full (nothing compressed or truncated), title rendered visibly larger/bolder (H1-scale) than the steps, steps at a clearly readable size (≥15px), box styled with the distinct warm-amber fill/stroke (not the grey container palette), and steps written in plain, layman-friendly language covering every real stage of *this* diagram?
+18. Every `<`/`>`/`"` inside the overview panel's `value` attribute is entity-escaped (`&lt;`/`&gt;`/`&quot;`) — never a literal character that would break XML well-formedness?
 
 ## PNG Background
 

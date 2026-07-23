@@ -24,7 +24,6 @@ __all__ = [
     "clear_style_cache",
     "create_diagram",
     "resolve_shape_styles",
-    "search_shapes",
 ]
 
 
@@ -246,12 +245,6 @@ def _chunk(items: list[str], max_chunks: int) -> list[list[str]]:
     n_chunks = min(max_chunks, len(items))
     size = -(-len(items) // n_chunks)  # ceil division
     return [items[i:i + size] for i in range(0, len(items), size)]
-
-
-async def search_shapes(query: str, *, limit: int = 5) -> list[str]:
-    """Return candidate draw.io style strings for a keyword query."""
-    text = await _mcp_call_tool("search_shapes", {"query": query, "limit": limit})
-    return _extract_styles(text)
 
 
 async def resolve_shape_styles(

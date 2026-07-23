@@ -50,14 +50,6 @@ _DEFAULT_PROMPT_CACHE: dict[str, str] = {
 }
 
 
-def normalize_gateway_model_id(model_id: str, *, default: str, prefix: str = "") -> str:
-    """Strip optional gateway prefix (e.g. ``provider/model`` → ``model``)."""
-    model_id = (model_id or default).strip()
-    if prefix and model_id.startswith(prefix):
-        return model_id.split("/", 1)[1]
-    return model_id or default
-
-
 def normalize_gateway_base_url(base_url: str, default: str) -> str:
     """Normalize OpenAI-compatible gateway base URLs (strip trailing slash)."""
     return (base_url or default).strip().rstrip("/")
@@ -71,7 +63,6 @@ class ProviderSpec:
     client_class: type | None = None
     default_model: str = ""
     api_key_env: str = ""
-    kind: str = "langchain"
     base_url_env: str = ""
     base_url_default: str = ""
     structured_output: str = "function_calling"  # function_calling | json_mode | none
@@ -126,7 +117,6 @@ def _spec_from_record(record: dict) -> ProviderSpec:
         client_key=client,  # lazily resolved to the real class on first use — see _resolve_client_class
         default_model=_resolve_default_model(record, key),
         api_key_env=api_key_env,
-        kind="langchain",
         base_url_env=str(record.get("base_url_env") or "").strip(),
         base_url_default=str(record.get("base_url_default") or "").strip(),
         structured_output=structured_output,

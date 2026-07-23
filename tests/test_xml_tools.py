@@ -134,6 +134,35 @@ class AutoFixXmlTests(unittest.TestCase):
         self.assertNotIn("Escaped unescaped & characters", clean_fixes)
         self.assertIn("<mxfile", clean)
 
+    def test_escapes_stray_markup_inside_value_attribute(self) -> None:
+        """Overview-panel-style inline HTML in `value` must be XML-escaped or draw.io rejects the file."""
+        snippet = (
+            '<mxfile host="app.diagrams.net"><diagram name="A" id="d1">'
+            "<mxGraphModel><root>"
+            '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            '<mxCell id="overview_panel" '
+            'value="<div style="font-size:22px;font-weight:bold;">Title</div>'
+            '<div style="font-size:15px;">1. Step one</div>" '
+            'style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF8E1;strokeColor=#F5A623;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="380" height="160" as="geometry"/>'
+            "</mxCell>"
+            "</root></mxGraphModel></diagram></mxfile>"
+        )
+        fixed, fixes = auto_fix_xml(snippet)
+        self.assertIn("Escaped stray markup inside a value attribute", fixes)
+        self.assertIn("&lt;div style=", fixed)
+        self.assertIn("Title&lt;/div&gt;", fixed)
+        self.assertNotIn('value="<div', fixed)
+        # Must now be well-formed XML end to end (the actual reported failure mode).
+        tree = ET.fromstring(fixed)
+        cell = next(c for c in tree.iter("mxCell") if c.get("id") == "overview_panel")
+        self.assertIn("<div", cell.get("value") or "")  # decoded back to real HTML by the parser
+        # A normal, already-clean value elsewhere must be untouched.
+        clean, clean_fixes = auto_fix_xml(SAMPLE_MXFILE)
+        self.assertNotIn("Escaped stray markup inside a value attribute", clean_fixes)
+        self.assertIn('value="CloudFront"', clean)
+
     def test_canvas_background_stays_behind_shapes(self) -> None:
         """Full-page gray backdrop must not paint over icons after id/reorder."""
         # Put background after CloudFront in source order with a high id — classic hide bug

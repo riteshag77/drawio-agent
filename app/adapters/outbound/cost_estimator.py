@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import re
 from typing import Any
+
+from app.adapters.outbound.diagram.xml_tools import find_service_keys
 
 _SERVICE_COSTS: dict[str, dict[str, Any]] = {
     "aws_ec2": {"name": "EC2 (t3.medium)", "monthly": 30.0, "category": "Compute"},
@@ -82,21 +83,8 @@ _SERVICE_COSTS: dict[str, dict[str, Any]] = {
 _FALLBACK_COST = 15.0
 
 
-def _find_service_keys(xml: str) -> list[str]:
-    keys: list[str] = []
-    for m in re.finditer(r'shape_type\s*=\s*"([^"]+)"', xml):
-        st = m.group(1).strip().lower()
-        if st.startswith(("aws_", "gcp_", "azure_")):
-            keys.append(st)
-    if not keys:
-        for m in re.finditer(r'mxgraph\.(aws4|gcp2|azure2)\.(\w+)', xml):
-            vendor = {"aws4": "aws_", "gcp2": "gcp_", "azure2": "azure_"}[m.group(1)]
-            keys.append(vendor + m.group(2).lower())
-    return list(dict.fromkeys(keys))
-
-
 def estimate_monthly_cost(xml: str, platform: str = "aws") -> dict[str, Any]:
-    services = _find_service_keys(xml)
+    services = find_service_keys(xml)
     breakdown: dict[str, list[dict[str, Any]]] = {}
     total = 0.0
     matched = 0

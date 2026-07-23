@@ -23,6 +23,14 @@ _FENCE_BLOCK = re.compile(
 _ATTR_SPACE = re.compile(
     r'([a-zA-Z_][\w:.-]*="[^"]*")([a-zA-Z_][\w:.-]*=)',
 )
+# Matches a value="..." span up to the next recognized attribute name rather
+# than the first '"' — needed because inline HTML inside value (e.g. the
+# Overview Panel's <div style="..."> content) can legitimately contain literal
+# '"' characters that would otherwise truncate a naive match early.
+_VALUE_ATTR_SPAN = re.compile(
+    r'value="(.*?)"(?=\s+(?:style|vertex|edge|parent|source|target|connectable|id)=)',
+    re.DOTALL,
+)
 
 
 @dataclass
@@ -602,6 +610,29 @@ def auto_fix_xml(graph_xml: str) -> tuple[str, list[str]]:
             "Duplicate mxCell id(s) detected — reject rather than silent rename"
         ]
 
+    # Last textual pass, right before ET parsing: escape stray markup inside
+    # value="..." spans (e.g. the Overview Panel's inline HTML). Must run last
+    # — running it earlier lets the other naive regex fixers above (which
+    # expect raw, still-broken XML) misinterpret the now-escaped content as
+    # bare attributes and re-corrupt it.
+    value_markup_changed = False
+
+    def _escape_value_markup(match: re.Match[str]) -> str:
+        nonlocal value_markup_changed
+        inner = match.group(1)
+        # Escape stray '"' too (e.g. inline style="...") — the span above is
+        # already correctly bounded by the *real* closing quote (found via the
+        # next-attribute-name lookahead), so any '"' still inside it is not a
+        # legitimate attribute boundary and must be escaped, not left bare.
+        cleaned = inner.replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+        if cleaned != inner:
+            value_markup_changed = True
+        return f'value="{cleaned}"'
+
+    fixed = _VALUE_ATTR_SPAN.sub(_escape_value_markup, fixed)
+    if value_markup_changed:
+        fixes.append("Escaped stray markup inside a value attribute")
+
     struct_fixed, struct_fixes = _fix_xml_with_elementtree(fixed)
     if struct_fixes:
         fixes.extend(struct_fixes)
@@ -623,7 +654,11 @@ def validate_and_fix_xml(graph_xml: str) -> XmlValidationResult:
             fixes=struct_fixes,
         )
 
-    fixed, fixes = auto_fix_xml(graph_xml)
+    # Feed the already-ElementTree-fixed content forward rather than the raw
+    # original — _fix_xml_with_elementtree only ran once above; auto_fix_xml's
+    # own textual pre-fixes are no-ops on already-clean XML, so starting from
+    # struct_fixed avoids redoing the same structural repair pass twice.
+    fixed, fixes = auto_fix_xml(struct_fixed)
     fixed = ensure_diagram_document(fixed)
     all_fixes = struct_fixes + [f for f in fixes if f not in struct_fixes]
     if fixed != (graph_xml or "").strip() and "Re-wrapped as mxfile document" not in all_fixes:
@@ -640,16 +675,6 @@ def validate_and_fix_xml(graph_xml: str) -> XmlValidationResult:
         fixed=fixed if all_fixes else ensure_diagram_document(graph_xml or ""),
         fixes=all_fixes,
     )
-
-
-def validate_and_fix_xml_legacy(graph_xml: str) -> tuple[str, list[str]]:
-    result = validate_and_fix_xml(graph_xml)
-    output = result.fixed if result.fixed is not None else graph_xml
-    if result.valid and not result.fixed:
-        output = graph_xml
-    if not _is_diagram_document(output):
-        output = ensure_diagram_document(output)
-    return output, result.fixes
 
 
 def choose_fixed_xml(original: str, result: XmlValidationResult) -> str:
@@ -698,6 +723,30 @@ def extract_shape_types(xml: str) -> list[str]:
     if not xml or "shape_type=" not in xml:
         return []
     return sorted({m.group(1).strip() for m in _SHAPE_TYPE_ATTR.finditer(xml) if m.group(1).strip()})
+
+
+_VENDOR_PREFIXES = ("aws_", "gcp_", "azure_")
+_VENDOR_STENCIL_MAP = {"aws4": "aws_", "gcp2": "gcp_", "azure2": "azure_"}
+_VENDOR_STENCIL_PATTERN = re.compile(r'mxgraph\.(aws4|gcp2|azure2)\.(\w+)')
+
+
+def find_service_keys(xml: str) -> list[str]:
+    """Return unique vendor-prefixed service keys (``aws_``/``gcp_``/``azure_``) referenced in draw.io XML.
+
+    Shared by cost_estimator.py, well_architected.py, and compliance.py — all three
+    need the same lookup (LLM-owned ``shape_type`` first, falling back to parsing
+    official stencil paths for XML that never carried ``shape_type``, e.g. a
+    user-uploaded pre-existing diagram).
+    """
+    keys: list[str] = []
+    for m in re.finditer(r'shape_type\s*=\s*"([^"]+)"', xml):
+        st = m.group(1).strip().lower()
+        if st.startswith(_VENDOR_PREFIXES):
+            keys.append(st)
+    if not keys:
+        for m in _VENDOR_STENCIL_PATTERN.finditer(xml):
+            keys.append(_VENDOR_STENCIL_MAP[m.group(1)] + m.group(2).lower())
+    return list(dict.fromkeys(keys))
 
 
 # Presentation keys the LLM owns on service leaves — never wiped by MCP.
