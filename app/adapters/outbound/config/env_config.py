@@ -95,8 +95,15 @@ class EnvConfigAdapter:
 
     @property
     def llm_max_retries(self) -> int:
-        """Retry attempts for a transient provider error (429/502/503/504), beyond the first try."""
-        return max(0, self.get_int("LLM_MAX_RETRIES", 1))
+        """Retry attempts for a transient provider error (429/502/503/504), beyond the first try.
+
+        Defaults to 0 — a provider returning 503 ("model overloaded/unavailable")
+        is telling you it's already busy; waiting a few seconds and re-hitting the
+        same overloaded model rarely helps and just adds latency/cost on top of
+        an already-failed call. Raise this only if your provider's rate limits
+        (429) are known to reset quickly and a retry is actually likely to help.
+        """
+        return max(0, self.get_int("LLM_MAX_RETRIES", 0))
 
     @property
     def llm_retry_backoff_base(self) -> float:
@@ -175,6 +182,29 @@ class EnvConfigAdapter:
     def drawio_style_cache_reset(self) -> bool:
         """When true, clear MCP style cache once at process startup."""
         return self.get_bool("DRAWIO_STYLE_CACHE_RESET", False)
+
+    @property
+    def xml_repair_max_attempts(self) -> int:
+        """Max corrective LLM repair passes when deterministic repair leaves structural
+        errors unresolved. Bounded (default 1) so a persistently-broken diagram can't
+        loop through repeated LLM calls and exhaust API quota/budget."""
+        return max(1, self.get_int("XML_REPAIR_MAX_ATTEMPTS", 1))
+
+    @property
+    def log_format(self) -> str:
+        """text | json — file/console log line format."""
+        value = (self.get("LOG_FORMAT", "text") or "text").strip().lower()
+        return value if value in ("text", "json") else "text"
+
+    @property
+    def log_dir(self) -> str:
+        """Directory for rotating log files."""
+        return self.get("DRAWIO_AGENT_LOG_DIR", "logs")
+
+    @property
+    def log_retention_days(self) -> int:
+        """How many rotated daily log files to keep before the oldest is deleted."""
+        return max(1, self.get_int("LOG_RETENTION_DAYS", 14))
 
 
 # Singleton for app-wide use

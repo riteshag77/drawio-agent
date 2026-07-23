@@ -49,6 +49,22 @@ _ROW_TOL = 20.0
 # groups allow a tighter 160-180.
 _DATA_PITCH_RANGE = (170.0, 230.0)
 _GROUP_PITCH_RANGE = (150.0, 190.0)
+# Canonical snap-to pitch when a fixer corrects a bad gap — _LEAF_GRID_PITCH_X
+# (200.0) is used for ordinary data-path rows; cross-cutting groups need
+# their own canonical value since 200 sits outside _GROUP_PITCH_RANGE (a bug
+# found while auditing this: resolve_pitch_outliers used to snap every row
+# to 200 unconditionally, which "fixed" an extreme outlier under a group
+# container into a new moderate-range violation). 170 sits inside both the
+# code's _GROUP_PITCH_RANGE and the prompt's documented 160-180.
+_GROUP_CANONICAL_PITCH = 170.0
+
+# Default geometry handed to a vertex missing <mxGeometry> entirely (see
+# ensure_valid_vertex_geometry) — 78x78 matches the canonical leaf icon size
+# documented in config/xml_gen_core.txt; the container default is safely
+# above xml_tools._FIT_MIN_W/_FIT_MIN_H (120.0/80.0) so fit_containers_to_
+# children never has to grow it from a degenerate starting size.
+_DEFAULT_LEAF_SIZE = (78.0, 78.0)
+_DEFAULT_CONTAINER_SIZE = (160.0, 120.0)
 
 # Under-icon label band height (px) added to a leaf's detection rect when its
 # style places the label below the icon — mirrors xml_tools._FIT_LABEL_BAND
@@ -401,6 +417,202 @@ def diagnose_xml(xml: str) -> XmlDiagnostics:
                     )
 
     return diag
+
+
+def _fresh_id(base: str, existing_ids: set[str]) -> str:
+    """Return a new id derived from ``base``, guaranteed not in ``existing_ids``.
+
+    Reserves the returned id into ``existing_ids`` so a caller renaming
+    several cells in one pass never hands out the same fresh id twice.
+    Always returns something different from ``base`` — callers only use
+    this when ``base`` itself must change (duplicate/reserved id), never
+    when the original id would do.
+    """
+    suffix = 0
+    while True:
+        candidate = f"{base}_dup{suffix}"
+        if candidate not in existing_ids:
+            existing_ids.add(candidate)
+            return candidate
+        suffix += 1
+
+
+def resolve_reserved_id_reuse(xml: str) -> str:
+    """Rename any vertex/edge that squats on the reserved id "0" or "1".
+
+    Those ids are structurally reserved for the document's true root and
+    default layer (mirrors ``diagnose_xml``'s own predicate for this check,
+    ``cid in _RESERVED_IDS`` combined with ``vertex="1"``/``edge="1"``) — a
+    cell claiming one of them anyway is renamed to a fresh id. The two
+    canonical cells (neither a vertex nor an edge) are never touched. Must
+    run before ``resolve_duplicate_ids`` so a rogue offender never gets to
+    "win" a duplicate-id decision against the true canonical cell.
+    """
+    parsed = _parse_docroot(xml)
+    if parsed is None:
+        return xml
+    tree, root, is_mxfile, trimmed = parsed
+
+    cells = [c for c in root.findall("mxCell") if c.get("id")]
+    existing_ids = {c.get("id") for c in cells}
+    offenders = [
+        c for c in cells
+        if c.get("id") in _RESERVED_IDS and (c.get("vertex") == "1" or c.get("edge") == "1")
+    ]
+    if not offenders:
+        return xml
+    for cell in offenders:
+        cell.set("id", _fresh_id(cell.get("id") or "cell", existing_ids))
+    return _serialize_docroot(tree, root, is_mxfile, trimmed)
+
+
+def resolve_duplicate_ids(xml: str) -> str:
+    """Rename earlier occurrences of a duplicate id, keeping the last one.
+
+    Every other id-keyed lookup in this file already treats the *last*
+    occurrence in document order as canonical whenever a duplicate id
+    exists: ``diagnose_xml``'s own ``ids[cid] = cell`` (unconditional
+    overwrite every iteration), and the id-keyed dict comprehensions in
+    ``resolve_pitch_outliers``, ``resolve_misplaced_actors``, and
+    ``apply_step_markers``. Keeping the last and renaming earlier ones
+    agrees with what those helpers already silently assume, rather than
+    introducing a second, inconsistent convention. Never rewrites
+    ``parent=``/``source=``/``target=`` references anywhere: if one was
+    meant for an earlier (now renamed) occurrence, it silently binds to the
+    kept cell instead — inherent to duplicate-id ambiguity, not fully
+    resolvable without semantic judgment, but this never produces a
+    dangling reference or drops content. Reserved ids are
+    ``resolve_reserved_id_reuse``'s job, not this fixer's — must run after it.
+    """
+    parsed = _parse_docroot(xml)
+    if parsed is None:
+        return xml
+    tree, root, is_mxfile, trimmed = parsed
+
+    cells = [c for c in root.findall("mxCell") if c.get("id")]
+    existing_ids = {c.get("id") for c in cells}
+    seen_from_end: set[str] = set()
+    changed = False
+    for cell in reversed(cells):
+        cid = cell.get("id") or ""
+        if cid in _RESERVED_IDS:
+            continue
+        if cid in seen_from_end:
+            cell.set("id", _fresh_id(cid, existing_ids))
+            changed = True
+        else:
+            seen_from_end.add(cid)
+
+    if not changed:
+        return xml
+    return _serialize_docroot(tree, root, is_mxfile, trimmed)
+
+
+def resolve_orphaned_parents(xml: str) -> str:
+    """Reparent any cell whose ``parent=`` id doesn't exist to ``parent="1"``.
+
+    Mirrors ``resolve_misplaced_actors``'s "reposition, never delete or
+    fabricate" philosophy — a cell referencing a parent that was never
+    emitted (or was dropped by an earlier fixer) still renders, just at the
+    root layer, instead of vanishing or leaving ``diagnose_xml``'s "parent
+    does not exist" error unresolved forever. Existing x/y is left as-is (no
+    longer meaningful relative to a real parent) — later fixers in the
+    ``repair_xml`` chain (row/pitch/overlap) declutter it same as any other
+    leaf. Must run after ``resolve_reserved_id_reuse``/``resolve_duplicate_ids``
+    so parent resolution sees the final id set.
+    """
+    parsed = _parse_docroot(xml)
+    if parsed is None:
+        return xml
+    tree, root, is_mxfile, trimmed = parsed
+
+    cells = [c for c in root.findall("mxCell") if c.get("id")]
+    ids = {c.get("id") for c in cells}
+    orphans = [
+        c for c in cells
+        if c.get("parent") is not None
+        and c.get("parent") not in ids
+        and c.get("parent") not in _RESERVED_IDS
+    ]
+    if not orphans:
+        return xml
+    for cell in orphans:
+        cell.set("parent", "1")
+    return _serialize_docroot(tree, root, is_mxfile, trimmed)
+
+
+def ensure_valid_vertex_geometry(xml: str) -> str:
+    """Give every vertex a valid, non-degenerate ``mxGeometry``.
+
+    Combines three related geometry defects into one pass (same precedent as
+    ``ensure_overview_panel_position`` combining resize+reposition+page-grow
+    into one function): missing geometry gets a default box inserted,
+    non-positive width/height is clamped to the canonical leaf size, negative
+    x/y is clamped to 0. Containers are exempt from the size/position clamp
+    (same exemption ``diagnose_xml`` itself uses) since they're shrink-wrapped
+    to their children later by ``fit_containers_to_children`` anyway — only a
+    missing element is filled in for them here.
+
+    Must run before every downstream fixer that consumes geometry (row
+    overflow, pitch, overlap, fit-to-children all filter out cells whose
+    ``_cell_geometry()`` is ``None``) — a vertex with missing geometry is
+    invisible to all of them today and would otherwise stay an unfixable
+    error forever.
+    """
+    parsed = _parse_docroot(xml)
+    if parsed is None:
+        return xml
+    tree, root, is_mxfile, trimmed = parsed
+    page_w, page_h = _page_size(tree)
+
+    changed = False
+    for cell in root.findall("mxCell"):
+        if cell.get("vertex") != "1" or cell.get("edge") == "1":
+            continue
+        if _is_edge_label_cell(cell) or _is_canvas_background_cell(cell, page_w, page_h):
+            continue
+
+        geom = cell.find("mxGeometry")
+        if geom is None:
+            default_w, default_h = (
+                _DEFAULT_CONTAINER_SIZE if _is_container_cell(cell) else _DEFAULT_LEAF_SIZE
+            )
+            geom = ET.SubElement(cell, "mxGeometry")
+            geom.set("x", "0")
+            geom.set("y", "0")
+            geom.set("width", str(default_w))
+            geom.set("height", str(default_h))
+            geom.set("as", "geometry")
+            changed = True
+            continue
+
+        if _is_container_cell(cell):
+            continue
+
+        try:
+            x = float(geom.get("x") or 0)
+            y = float(geom.get("y") or 0)
+            w = float(geom.get("width") or 0)
+            h = float(geom.get("height") or 0)
+        except ValueError:
+            continue
+
+        if w <= 0:
+            geom.set("width", str(_DEFAULT_LEAF_SIZE[0]))
+            changed = True
+        if h <= 0:
+            geom.set("height", str(_DEFAULT_LEAF_SIZE[1]))
+            changed = True
+        if x < 0:
+            geom.set("x", "0")
+            changed = True
+        if y < 0:
+            geom.set("y", "0")
+            changed = True
+
+    if not changed:
+        return xml
+    return _serialize_docroot(tree, root, is_mxfile, trimmed)
 
 
 def remove_dangling_edges(xml: str) -> str:
@@ -780,6 +992,11 @@ def resolve_pitch_outliers(xml: str) -> str:
         is_group = parent_cell is not None and _is_cross_cutting_group_cell(parent_cell)
         _, hi = _GROUP_PITCH_RANGE if is_group else _DATA_PITCH_RANGE
         outlier_threshold = hi * _PITCH_OUTLIER_MULTIPLIER
+        # Groups snap to their own canonical pitch — snapping every row to the
+        # data-path value (200) would land outside _GROUP_PITCH_RANGE
+        # (150-190) and "fix" an extreme outlier into a new moderate-range
+        # violation. See _GROUP_CANONICAL_PITCH's comment.
+        canonical_pitch = _GROUP_CANONICAL_PITCH if is_group else _LEAF_GRID_PITCH_X
         geo_by_kid = {k: _cell_geometry(k) for k in kids}
         for row in _group_rows(kids, geo_by_kid):
             for a, b in zip(row, row[1:]):
@@ -789,7 +1006,59 @@ def resolve_pitch_outliers(xml: str) -> str:
                 dx = gb[0] - ga[0]
                 if dx <= outlier_threshold:
                     continue
-                new_x = ga[0] + _LEAF_GRID_PITCH_X
+                new_x = ga[0] + canonical_pitch
+                geom_el = b.find("mxGeometry")
+                if geom_el is not None:
+                    geom_el.set("x", str(new_x))
+                    geo_by_kid[b] = (new_x, gb[1], gb[2], gb[3])
+                    changed = True
+
+    if not changed:
+        return xml
+    return _serialize_docroot(tree, root, is_mxfile, trimmed)
+
+
+def resolve_moderate_pitch_deviations(xml: str) -> str:
+    """Snap any remaining out-of-canonical-range adjacent pitch, either direction.
+
+    ``resolve_pitch_outliers`` only clears extreme outliers (beyond
+    ``_PITCH_OUTLIER_MULTIPLIER`` times the canonical max) by design,
+    deliberately leaving moderate deviations — too tight, or moderately too
+    wide — for what used to be the LLM repair pass. The fix is the same
+    mechanical "snap to canonical pitch from predecessor" regardless of how
+    far off the gap is, so there's no reason to pay for an LLM call here
+    either. Runs immediately after ``resolve_pitch_outliers`` in the
+    ``repair_xml`` chain — by the time this runs, any gap still outside the
+    canonical range is by definition moderate (extreme ones were already
+    snapped), so the two fixers compose without double-handling anything.
+    """
+    parsed = _parse_docroot(xml)
+    if parsed is None:
+        return xml
+    tree, root, is_mxfile, trimmed = parsed
+
+    cells = [c for c in root.findall("mxCell") if c.get("id")]
+    ids = {c.get("id"): c for c in cells if c.get("id")}
+    parent_ids = {c.get("parent") for c in cells}
+    page_w, page_h = _page_size(tree)
+    by_parent_leaves = _leaf_siblings_by_parent(cells, parent_ids, page_w, page_h)
+
+    changed = False
+    for pid, kids in by_parent_leaves.items():
+        parent_cell = ids.get(pid)
+        is_group = parent_cell is not None and _is_cross_cutting_group_cell(parent_cell)
+        lo, hi = _GROUP_PITCH_RANGE if is_group else _DATA_PITCH_RANGE
+        canonical_pitch = _GROUP_CANONICAL_PITCH if is_group else _LEAF_GRID_PITCH_X
+        geo_by_kid = {k: _cell_geometry(k) for k in kids}
+        for row in _group_rows(kids, geo_by_kid):
+            for a, b in zip(row, row[1:]):
+                ga, gb = geo_by_kid.get(a), geo_by_kid.get(b)
+                if ga is None or gb is None:
+                    continue
+                dx = gb[0] - ga[0]
+                if dx <= 0 or lo <= dx <= hi:
+                    continue
+                new_x = ga[0] + canonical_pitch
                 geom_el = b.find("mxGeometry")
                 if geom_el is not None:
                     geom_el.set("x", str(new_x))
@@ -1065,27 +1334,44 @@ def apply_step_markers(xml: str, step_markers: list[Any], logger: Any = None) ->
 def repair_xml(xml: str) -> tuple[str, XmlDiagnostics]:
     """Run deterministic fixers in sequence, then re-diagnose what's left.
 
-    Order matters: drop unfixable dangling/forbidden edges first (nothing
-    downstream should route through cells about to disappear or that must
-    never carry an edge), fill missing labels, fix structural placement
-    (misplaced actors, coordinate-only nesting), resolve row overflow before
-    pitch outliers/overlaps (so later passes see the corrected row layout),
-    snap extreme pitch outliers back to a normal gap (this can introduce a
-    new close-overlap, which the next step then cleans up), resolve
-    remaining overlaps, then shrink-wrap containers — this also absorbs any
-    container-width relief from no longer having to stretch around an
-    outlier. The overview panel is positioned last of all, since it must
-    clear the architecture's *final* extents (containers may still grow
-    during the fit-to-children pass); the legend runs immediately after,
-    since it depends on the panel's now-final position and height.
+    Order matters. A leading "structural sanity" phase runs first — every
+    later fixer assumes valid ids/parents/geometry, so these must be settled
+    before anything else touches the document: resolve reserved-id (0/1)
+    reuse before duplicate ids (so a rogue offender can never "win" a
+    duplicate-id decision against the true canonical cell), then duplicate
+    ids, then orphaned parents (needs the final id set from the previous
+    two), then missing/degenerate vertex geometry (a vertex with no geometry
+    is invisible to every geometry-consuming fixer below, so this must
+    precede all of them).
+
+    Then the original chain, unchanged: drop unfixable dangling/forbidden
+    edges first (nothing downstream should route through cells about to
+    disappear or that must never carry an edge), fill missing labels, fix
+    structural placement (misplaced actors, coordinate-only nesting),
+    resolve row overflow before pitch outliers/overlaps (so later passes see
+    the corrected row layout), snap extreme pitch outliers back to a normal
+    gap, then moderate pitch deviations (both directions, using the same
+    canonical-pitch snap — extreme ones are already gone by this point so
+    the two never double-handle the same gap), resolve remaining overlaps,
+    then shrink-wrap containers — this also absorbs any container-width
+    relief from no longer having to stretch around an outlier. The overview
+    panel is positioned last of all, since it must clear the architecture's
+    *final* extents (containers may still grow during the fit-to-children
+    pass); the legend runs immediately after, since it depends on the
+    panel's now-final position and height.
     """
-    fixed = remove_dangling_edges(xml)
+    fixed = resolve_reserved_id_reuse(xml)
+    fixed = resolve_duplicate_ids(fixed)
+    fixed = resolve_orphaned_parents(fixed)
+    fixed = ensure_valid_vertex_geometry(fixed)
+    fixed = remove_dangling_edges(fixed)
     fixed = remove_cross_cutting_edges(fixed)
     fixed = ensure_leaf_labels(fixed)
     fixed = resolve_misplaced_actors(fixed)
     fixed = resolve_coordinate_only_nesting(fixed)
     fixed = resolve_row_overflow(fixed)
     fixed = resolve_pitch_outliers(fixed)
+    fixed = resolve_moderate_pitch_deviations(fixed)
     fixed = resolve_leaf_overlaps(fixed)
     fixed = fit_containers_to_children(fixed)
     fixed = ensure_overview_panel_position(fixed)

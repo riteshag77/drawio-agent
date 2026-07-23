@@ -206,22 +206,41 @@ async def run_xml_pipeline(
             logger.log("repair", "Deterministic repair left unresolved issues", level="warning", details={
                 "errors": diagnostics.errors, "warnings": diagnostics.warnings,
             })
-        await _emit(on_progress, "repair", "Requesting a corrective pass…")
-        repaired = await run_llm_sync(
-            repair_xml_diagram, xml_output, diagnostics, provider_key, platform_key, logger,
-            human_prompt,
-        )
-        if repaired.xml:
-            xml_output = ensure_diagram_document(repaired.xml, PLATFORM_LABELS.get(platform_key, "Architecture"))
-            check = validate_and_fix_xml(xml_output)
-            xml_output = choose_fixed_xml(xml_output, check)
-            xml_output = normalize_platform_styles(xml_output, platform_key)
-            xml_output, diagnostics = repair_xml(xml_output)
-            if logger:
-                logger.log("repair", "Repair pass complete", level="success", details={
-                    "remaining_errors": diagnostics.errors, "remaining_warnings": diagnostics.warnings,
-                })
-        await _emit(on_progress, "repair", "Repair complete")
+        # Only spend a second, expensive LLM round-trip on real structural errors —
+        # a cosmetic warning (e.g. an icon pitch a few px outside the ideal range)
+        # isn't worth doubling the request's LLM cost/latency for, and with a slow
+        # model/provider this extra call is what pushes requests past
+        # request_timeout_seconds, wasting the *whole* generation (the timeout
+        # can't actually cancel the in-flight call — see _with_request_timeout —
+        # so a warnings-only repair pass that overruns the budget is 100% wasted
+        # tokens on top of the retry the user then has to make).
+        if diagnostics.errors:
+            # Bounded, configurable — default 1 attempt. Never loop unbounded: each
+            # attempt is a full LLM round-trip, and a diagram whose errors the model
+            # can't actually fix would otherwise burn API budget attempt after attempt
+            # for no gain. XML_REPAIR_MAX_ATTEMPTS lets an operator raise this if they
+            # want extra attempts on a flaky provider, without changing the default.
+            max_attempts = get_config().xml_repair_max_attempts
+            attempt = 0
+            while diagnostics.errors and attempt < max_attempts:
+                attempt += 1
+                await _emit(on_progress, "repair", f"Requesting a corrective pass ({attempt}/{max_attempts})…")
+                repaired = await run_llm_sync(
+                    repair_xml_diagram, xml_output, diagnostics, provider_key, platform_key, logger,
+                    human_prompt,
+                )
+                if not repaired.xml:
+                    break
+                xml_output = ensure_diagram_document(repaired.xml, PLATFORM_LABELS.get(platform_key, "Architecture"))
+                check = validate_and_fix_xml(xml_output)
+                xml_output = choose_fixed_xml(xml_output, check)
+                xml_output = normalize_platform_styles(xml_output, platform_key)
+                xml_output, diagnostics = repair_xml(xml_output)
+                if logger:
+                    logger.log("repair", f"Repair pass {attempt}/{max_attempts} complete", level="success", details={
+                        "remaining_errors": diagnostics.errors, "remaining_warnings": diagnostics.warnings,
+                    })
+            await _emit(on_progress, "repair", "Repair complete")
 
     use_mcp = is_xml_pipeline_mode(diagram_renderer)
     shape_types: list[str] = []

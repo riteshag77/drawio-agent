@@ -11,13 +11,18 @@ from app.adapters.outbound.diagram.xml_diagnostics import (
     ensure_leaf_labels,
     ensure_legend_position,
     ensure_overview_panel_position,
+    ensure_valid_vertex_geometry,
     remove_cross_cutting_edges,
     remove_dangling_edges,
     repair_xml,
     resolve_coordinate_only_nesting,
+    resolve_duplicate_ids,
     resolve_leaf_overlaps,
     resolve_misplaced_actors,
+    resolve_moderate_pitch_deviations,
+    resolve_orphaned_parents,
     resolve_pitch_outliers,
+    resolve_reserved_id_reuse,
     resolve_row_overflow,
 )
 from app.domain.entities import StepMarker
@@ -305,6 +310,36 @@ class RepairXmlTests(unittest.TestCase):
         fixed, diag = repair_xml("")
         self.assertEqual(fixed, "")
         self.assertTrue(diag.ok)
+
+    def test_fixes_duplicate_id_orphaned_parent_missing_geometry_and_moderate_pitch(self) -> None:
+        """Combined-defects regression: every category diagnose_xml can produce now
+        has a deterministic fixer — this is the concrete evidence the LLM repair
+        pass is no longer needed for any of them."""
+        xml = _wrap(
+            '<mxCell id="vpc" value="VPC" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="20" y="50" width="900" height="300" as="geometry"/></mxCell>'
+            '<mxCell id="dup" value="First" vertex="1" parent="vpc">'
+            '<mxGeometry x="24" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="dup" value="Second" vertex="1" parent="vpc">'
+            '<mxGeometry x="600" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="orphan" value="Orphan" vertex="1" parent="missing_parent">'
+            '<mxGeometry x="24" y="200" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="no_geom" value="NoGeom" vertex="1" parent="vpc"/>'
+            '<mxCell id="a" value="A" vertex="1" parent="vpc">'
+            '<mxGeometry x="700" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="b" value="B" vertex="1" parent="vpc">'
+            '<mxGeometry x="1000" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        fixed, diag = repair_xml(xml)
+        self.assertEqual(diag.errors, [])
+        self.assertEqual(diag.warnings, [])
+        tree = ET.fromstring(fixed)
+        ids = [c.get("id") for c in tree.iter("mxCell")]
+        self.assertEqual(len(ids), len(set(ids)), "no duplicate ids should remain")
+        orphan = next(c for c in tree.iter("mxCell") if c.get("value") == "Orphan")
+        self.assertEqual(orphan.get("parent"), "1")
+        no_geom = next(c for c in tree.iter("mxCell") if c.get("value") == "NoGeom")
+        self.assertIsNotNone(no_geom.find("mxGeometry"))
 
 
 class CrossCuttingGroupEdgeTests(unittest.TestCase):
@@ -692,7 +727,9 @@ class ResolvePitchOutliersTests(unittest.TestCase):
         self.assertEqual(resolve_pitch_outliers(xml), xml)
 
     def test_moderate_out_of_range_pitch_is_left_for_the_llm_repair_pass(self) -> None:
-        """Only a clear outlier (>3x max) is auto-fixed here; smaller deviations stay diagnose_xml's job."""
+        """Only a clear outlier (>3x max) is auto-fixed here; smaller deviations are
+        resolve_moderate_pitch_deviations's job (see that class below) — this fixer
+        alone must still leave them untouched."""
         xml = _wrap(
             '<mxCell id="vpc" value="VPC" style="container=1;" vertex="1" parent="1">'
             '<mxGeometry x="20" y="50" width="600" height="300" as="geometry"/></mxCell>'
@@ -702,6 +739,283 @@ class ResolvePitchOutliersTests(unittest.TestCase):
             '<mxGeometry x="320" y="40" width="78" height="78" as="geometry"/></mxCell>'
         )
         self.assertEqual(resolve_pitch_outliers(xml), xml)
+
+    def test_extreme_outlier_under_cross_cutting_group_snaps_within_group_range(self) -> None:
+        """Regression: this fixer used to always snap to the data-path pitch (200px),
+        which sits outside a cross-cutting group's valid range (150-190px) — "fixing"
+        an extreme outlier into a brand-new moderate-range violation."""
+        xml = _wrap(
+            '<mxCell id="sec" value="Security" style="container=1;strokeColor=#DD344C;dashed=1;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="20" y="50" width="2000" height="300" as="geometry"/></mxCell>'
+            '<mxCell id="a" value="A" vertex="1" parent="sec">'
+            '<mxGeometry x="20" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="b" value="B" vertex="1" parent="sec">'
+            '<mxGeometry x="1600" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = resolve_pitch_outliers(xml)
+        b = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "b")
+        dx = float(b.find("mxGeometry").get("x")) - 20.0
+        self.assertTrue(150.0 <= dx <= 190.0, f"snapped pitch {dx} is outside the group range")
+
+
+class ResolveModeratePitchDeviationsTests(unittest.TestCase):
+    """Closes the gap resolve_pitch_outliers deliberately leaves open — moderate
+    deviations no longer need the LLM repair pass either."""
+
+    def test_moderate_wide_gap_snapped_to_canonical_pitch(self) -> None:
+        xml = _wrap(
+            '<mxCell id="vpc" value="VPC" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="20" y="50" width="600" height="300" as="geometry"/></mxCell>'
+            '<mxCell id="a" value="A" vertex="1" parent="vpc">'
+            '<mxGeometry x="20" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="b" value="B" vertex="1" parent="vpc">'
+            '<mxGeometry x="320" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = resolve_moderate_pitch_deviations(xml)
+        b = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "b")
+        self.assertEqual(float(b.find("mxGeometry").get("x")), 220.0)
+
+    def test_too_tight_gap_snapped_to_canonical_pitch(self) -> None:
+        xml = _wrap(
+            '<mxCell id="vpc" value="VPC" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="20" y="50" width="600" height="300" as="geometry"/></mxCell>'
+            '<mxCell id="a" value="A" vertex="1" parent="vpc">'
+            '<mxGeometry x="20" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="b" value="B" vertex="1" parent="vpc">'
+            '<mxGeometry x="120" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = resolve_moderate_pitch_deviations(xml)
+        b = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "b")
+        self.assertEqual(float(b.find("mxGeometry").get("x")), 220.0)
+
+    def test_cross_cutting_group_moderate_deviation_snaps_within_group_range(self) -> None:
+        xml = _wrap(
+            '<mxCell id="sec" value="Security" style="container=1;strokeColor=#DD344C;dashed=1;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="20" y="50" width="600" height="300" as="geometry"/></mxCell>'
+            '<mxCell id="a" value="A" vertex="1" parent="sec">'
+            '<mxGeometry x="20" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="b" value="B" vertex="1" parent="sec">'
+            '<mxGeometry x="240" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = resolve_moderate_pitch_deviations(xml)
+        b = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "b")
+        dx = float(b.find("mxGeometry").get("x")) - 20.0
+        self.assertTrue(150.0 <= dx <= 190.0, f"snapped pitch {dx} is outside the group range")
+
+    def test_normal_pitch_untouched(self) -> None:
+        xml = _wrap(
+            '<mxCell id="vpc" value="VPC" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="20" y="50" width="600" height="300" as="geometry"/></mxCell>'
+            '<mxCell id="a" value="A" vertex="1" parent="vpc">'
+            '<mxGeometry x="20" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="b" value="B" vertex="1" parent="vpc">'
+            '<mxGeometry x="220" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        self.assertEqual(resolve_moderate_pitch_deviations(xml), xml)
+
+    def test_repair_xml_clears_moderate_pitch_warning(self) -> None:
+        xml = _wrap(
+            '<mxCell id="vpc" value="VPC" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="20" y="50" width="600" height="300" as="geometry"/></mxCell>'
+            '<mxCell id="a" value="A" vertex="1" parent="vpc">'
+            '<mxGeometry x="20" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="b" value="B" vertex="1" parent="vpc">'
+            '<mxGeometry x="320" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        _, diag = repair_xml(xml)
+        self.assertEqual([w for w in diag.warnings if "pitch" in w], [])
+
+
+class ResolveReservedIdReuseTests(unittest.TestCase):
+    def test_vertex_reusing_id_1_gets_renamed(self) -> None:
+        xml = _wrap(
+            '<mxCell id="1" value="Rogue" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = resolve_reserved_id_reuse(xml)
+        tree = ET.fromstring(out)
+        rogue = next(c for c in tree.iter("mxCell") if c.get("value") == "Rogue")
+        self.assertNotEqual(rogue.get("id"), "1")
+        # the canonical root/layer cells from _wrap() must be untouched
+        self.assertIsNotNone(tree.find(".//mxCell[@id='0']"))
+        canonical_layer = next(c for c in tree.iter("mxCell") if c.get("id") == "1")
+        self.assertEqual(canonical_layer.get("parent"), "0")
+        self.assertIsNone(canonical_layer.get("vertex"))
+
+    def test_canonical_root_and_layer_are_untouched_on_clean_doc(self) -> None:
+        xml = _wrap(
+            '<mxCell id="a" value="A" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        self.assertEqual(resolve_reserved_id_reuse(xml), xml)
+
+    def test_repair_xml_clears_the_reserved_id_error(self) -> None:
+        xml = _wrap(
+            '<mxCell id="1" value="Rogue" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        _, diag = repair_xml(xml)
+        self.assertEqual([e for e in diag.errors if "reserved id" in e], [])
+
+
+class ResolveDuplicateIdsTests(unittest.TestCase):
+    def test_duplicate_ids_get_unique_ids(self) -> None:
+        xml = _wrap(
+            '<mxCell id="dup" value="First" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="dup" value="Second" vertex="1" parent="1">'
+            '<mxGeometry x="300" y="0" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = resolve_duplicate_ids(xml)
+        tree = ET.fromstring(out)
+        ids = [c.get("id") for c in tree.iter("mxCell")]
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_last_occurrence_in_document_order_keeps_the_original_id(self) -> None:
+        xml = _wrap(
+            '<mxCell id="dup" value="First" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="dup" value="Second" vertex="1" parent="1">'
+            '<mxGeometry x="300" y="0" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = resolve_duplicate_ids(xml)
+        tree = ET.fromstring(out)
+        first = next(c for c in tree.iter("mxCell") if c.get("value") == "First")
+        second = next(c for c in tree.iter("mxCell") if c.get("value") == "Second")
+        self.assertEqual(second.get("id"), "dup")
+        self.assertNotEqual(first.get("id"), "dup")
+
+    def test_existing_references_to_the_kept_id_still_resolve(self) -> None:
+        xml = _wrap(
+            '<mxCell id="dup" value="First" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="dup" value="Second" vertex="1" parent="1">'
+            '<mxGeometry x="300" y="0" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="other" value="Other" vertex="1" parent="1">'
+            '<mxGeometry x="600" y="0" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="e1" edge="1" parent="1" source="other" target="dup">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        out = resolve_duplicate_ids(xml)
+        diag = diagnose_xml(out)
+        self.assertEqual([e for e in diag.errors if "does not exist" in e], [])
+
+    def test_three_way_duplicate_all_but_last_renamed(self) -> None:
+        xml = _wrap(
+            '<mxCell id="dup" value="First" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="dup" value="Second" vertex="1" parent="1">'
+            '<mxGeometry x="300" y="0" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="dup" value="Third" vertex="1" parent="1">'
+            '<mxGeometry x="600" y="0" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = resolve_duplicate_ids(xml)
+        tree = ET.fromstring(out)
+        ids = [c.get("id") for c in tree.iter("mxCell")]
+        self.assertEqual(len(ids), len(set(ids)))
+        third = next(c for c in tree.iter("mxCell") if c.get("value") == "Third")
+        self.assertEqual(third.get("id"), "dup")
+
+    def test_repair_xml_clears_the_duplicate_id_error(self) -> None:
+        xml = _wrap(
+            '<mxCell id="dup" value="First" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="dup" value="Second" vertex="1" parent="1">'
+            '<mxGeometry x="300" y="0" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        _, diag = repair_xml(xml)
+        self.assertEqual([e for e in diag.errors if "duplicate id" in e], [])
+
+
+class ResolveOrphanedParentsTests(unittest.TestCase):
+    def test_cell_with_missing_parent_is_reparented_to_root(self) -> None:
+        xml = _wrap(
+            '<mxCell id="a" value="A" vertex="1" parent="ghost_parent">'
+            '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = resolve_orphaned_parents(xml)
+        a = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "a")
+        self.assertEqual(a.get("parent"), "1")
+
+    def test_cell_with_valid_parent_untouched(self) -> None:
+        xml = _wrap(
+            '<mxCell id="a" value="A" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        self.assertEqual(resolve_orphaned_parents(xml), xml)
+
+    def test_repair_xml_clears_the_missing_parent_error(self) -> None:
+        xml = _wrap(
+            '<mxCell id="a" value="A" vertex="1" parent="ghost_parent">'
+            '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        _, diag = repair_xml(xml)
+        self.assertEqual([e for e in diag.errors if "does not exist" in e and "parent" in e], [])
+
+
+class EnsureValidVertexGeometryTests(unittest.TestCase):
+    def test_missing_geometry_gets_default_leaf_size(self) -> None:
+        xml = _wrap('<mxCell id="a" value="A" vertex="1" parent="1"/>')
+        out = ensure_valid_vertex_geometry(xml)
+        a = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "a")
+        geom = a.find("mxGeometry")
+        self.assertIsNotNone(geom)
+        self.assertEqual(float(geom.get("width")), 78.0)
+        self.assertEqual(float(geom.get("height")), 78.0)
+
+    def test_missing_geometry_on_container_gets_container_default_size(self) -> None:
+        xml = _wrap('<mxCell id="c" value="Container" style="container=1;" vertex="1" parent="1"/>')
+        out = ensure_valid_vertex_geometry(xml)
+        c = next(cell for cell in ET.fromstring(out).iter("mxCell") if cell.get("id") == "c")
+        geom = c.find("mxGeometry")
+        self.assertIsNotNone(geom)
+        self.assertEqual(float(geom.get("width")), 160.0)
+        self.assertEqual(float(geom.get("height")), 120.0)
+
+    def test_non_positive_size_clamped_to_minimum(self) -> None:
+        xml = _wrap(
+            '<mxCell id="a" value="A" vertex="1" parent="1">'
+            '<mxGeometry x="10" y="10" width="0" height="-5" as="geometry"/></mxCell>'
+        )
+        out = ensure_valid_vertex_geometry(xml)
+        a = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "a")
+        geom = a.find("mxGeometry")
+        self.assertEqual(float(geom.get("width")), 78.0)
+        self.assertEqual(float(geom.get("height")), 78.0)
+
+    def test_negative_position_clamped_to_zero(self) -> None:
+        xml = _wrap(
+            '<mxCell id="a" value="A" vertex="1" parent="1">'
+            '<mxGeometry x="-40" y="-10" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = ensure_valid_vertex_geometry(xml)
+        a = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "a")
+        geom = a.find("mxGeometry")
+        self.assertEqual(float(geom.get("x")), 0.0)
+        self.assertEqual(float(geom.get("y")), 0.0)
+
+    def test_valid_geometry_untouched(self) -> None:
+        xml = _wrap(
+            '<mxCell id="a" value="A" vertex="1" parent="1">'
+            '<mxGeometry x="10" y="10" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        self.assertEqual(ensure_valid_vertex_geometry(xml), xml)
+
+    def test_repair_xml_clears_missing_geometry_and_the_leaf_participates_in_overlap_resolution(self) -> None:
+        xml = _wrap(
+            '<mxCell id="a" value="A" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="b" value="B" vertex="1" parent="1"/>'
+        )
+        fixed, diag = repair_xml(xml)
+        self.assertEqual([e for e in diag.errors if "missing geometry" in e], [])
+        b = next(c for c in ET.fromstring(fixed).iter("mxCell") if c.get("id") == "b")
+        geom = b.find("mxGeometry")
+        self.assertIsNotNone(geom)
+        # proves b is no longer invisible to overlap resolution — it moved off (0,0)
+        self.assertNotEqual((float(geom.get("x")), float(geom.get("y"))), (0.0, 0.0))
 
 
 class StepBadgeExclusionTests(unittest.TestCase):

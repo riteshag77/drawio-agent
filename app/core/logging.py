@@ -8,8 +8,10 @@ import os
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from logging.handlers import RotatingFileHandler
+from logging.handlers import TimedRotatingFileHandler
 from typing import Any
+
+from app.adapters.outbound.config.env_config import get_config
 
 
 @dataclass
@@ -48,7 +50,8 @@ class LogEntry:
         return " ".join(parts)
 
 
-_LOG_FORMAT: str = os.environ.get("LOG_FORMAT", "text").strip().lower()  # text | json
+_config = get_config()  # also guarantees .env is loaded before the raw env reads below
+_LOG_FORMAT: str = _config.log_format  # text | json
 
 
 class _JsonFormatter(logging.Formatter):
@@ -80,13 +83,17 @@ else:
     )
 _LOGGER.addHandler(_console)
 
-_log_dir = os.environ.get("DRAWIO_AGENT_LOG_DIR", "logs")
+_log_dir = _config.log_dir
 try:
     os.makedirs(_log_dir, exist_ok=True)
-    _file = RotatingFileHandler(
+    # Rotates at midnight into drawio-agent.log.YYYY-MM-DD (TimedRotatingFileHandler's
+    # default suffix for when="midnight"); the active file stays at the same
+    # well-known drawio-agent.log path in between rollovers. backupCount prunes
+    # rotated files older than the retention window instead of keeping them forever.
+    _file = TimedRotatingFileHandler(
         os.path.join(_log_dir, "drawio-agent.log"),
-        maxBytes=10 * 1024 * 1024,
-        backupCount=5,
+        when="midnight",
+        backupCount=_config.log_retention_days,
         encoding="utf-8",
     )
     _file.setLevel(logging.DEBUG)

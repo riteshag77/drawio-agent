@@ -52,6 +52,9 @@ PROVIDER_DEFAULT=gemini
 LLM_TIMEOUT=120
 MAX_CONCURRENT_LLM=4
 LOG_FORMAT=text   # text | json
+DRAWIO_AGENT_LOG_DIR=logs
+LOG_RETENTION_DAYS=14
+XML_REPAIR_MAX_ATTEMPTS=1
 
 # Server
 HOST=0.0.0.0
@@ -75,6 +78,9 @@ DRAWIO_STYLE_CACHE_RESET=false
 - Manual clear: delete `data/mcp_style_cache.sqlite3` and restart.
 - Prompt assembly uses `config/xml_gen_core.txt` + platform classify/icon packs.
 - **`LOG_FORMAT=json`** — emit one JSON object per log line for structured log ingestion.
+- **`DRAWIO_AGENT_LOG_DIR`** — directory for log files (default `logs`). Rotates daily at midnight into `drawio-agent.log.YYYY-MM-DD`; the active file stays at `drawio-agent.log`.
+- **`LOG_RETENTION_DAYS`** — how many rotated daily log files to keep before the oldest is deleted (default `14`).
+- **`XML_REPAIR_MAX_ATTEMPTS`** — max corrective LLM repair passes when deterministic repair leaves structural errors unresolved (default `1`). Bounded so a diagram whose errors the model can't actually fix doesn't loop through repeated LLM calls burning API budget; raise it only if you want extra attempts on a flaky provider.
 - **`APP_VERSION`** — exposed on `/health` (default `1.0.0`).
 
 ## `/ready` and `/health` endpoints
