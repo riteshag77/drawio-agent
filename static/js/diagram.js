@@ -46,8 +46,11 @@ function exportDiagramPng() {
     });
 }
 
-function changeDrawioTheme() {
-    const theme = document.getElementById('drawio-theme-select').value;
+/** Reloads the embedded Draw.io iframe with the given canvas skin.
+ *  Called by theme.js whenever the App theme changes (draw.io theme follows
+ *  it automatically, see APP_THEME_TO_DRAWIO_THEME) — there is no manual
+ *  Draw.io-theme control in Settings anymore. */
+function applyDrawioTheme(theme) {
     localStorage.setItem(THEME_STORAGE_KEY, theme);
     drawioReady = false;
     pendingXml = currentXml || pendingXml;
@@ -60,8 +63,6 @@ function changeDrawioTheme() {
 function ensureDrawioFrame() {
     const iframe = document.getElementById('drawio-frame');
     const theme = localStorage.getItem(THEME_STORAGE_KEY) || 'kennedy';
-    const themeSelect = document.getElementById('drawio-theme-select');
-    if (themeSelect) themeSelect.value = theme;
     if (!iframe.src) {
         iframe.src = getDrawioUrl(theme);
         bindDrawioMessages(iframe);

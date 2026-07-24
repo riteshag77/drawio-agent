@@ -8,26 +8,13 @@ function applyPlatformUi(platform) {
         card.setAttribute('aria-selected', isActive ? 'true' : 'false');
     });
 
-    const root = document.documentElement;
     const chatInput = document.getElementById('chat-input');
 
-    if (platform === 'aws') {
-        root.style.setProperty('--accent', '#ED7100');
-        root.style.setProperty('--accent-glow', 'rgba(237, 113, 0, 0.2)');
-        root.style.setProperty('--accent-hover', '#ff8c2a');
-    } else if (platform === 'gcp') {
-        root.style.setProperty('--accent', '#4285F4');
-        root.style.setProperty('--accent-glow', 'rgba(66, 133, 244, 0.2)');
-        root.style.setProperty('--accent-hover', '#669df6');
-    } else if (platform === 'azure') {
-        root.style.setProperty('--accent', '#0078D4');
-        root.style.setProperty('--accent-glow', 'rgba(0, 120, 212, 0.2)');
-        root.style.setProperty('--accent-hover', '#2b90f5');
-    } else {
-        root.style.setProperty('--accent', '#8C4FFF');
-        root.style.setProperty('--accent-glow', 'rgba(140, 79, 255, 0.2)');
-        root.style.setProperty('--accent-hover', '#a67cff');
-    }
+    // --accent/--accent-hover/--accent-glow are owned by the selected app
+    // theme (static/themes/*.css) — platform selection no longer overrides
+    // them with a hardcoded per-cloud color (that used to be set here as an
+    // inline style on <html>, which always beat every theme's accent
+    // regardless of specificity, silently defeating the whole theme system).
 
     chatInput.placeholder = CHAT_PLACEHOLDERS[platform] || CHAT_PLACEHOLDERS.aws;
     if (document.getElementById('example-chips')) {

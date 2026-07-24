@@ -947,6 +947,8 @@ _FIT_CHILD_MIN = 24.0  # clamp negative/near-zero child coords
 _SIBLING_GAP = 24.0  # clear space between sibling containers (zones vs supporting groups)
 _SAME_ROW_TOL = 24.0  # treat tops within this as the same horizontal row
 _AZ_ARC_SIZE = "6"
+_OVERVIEW_PANEL_ID = "overview_panel"
+_OVERVIEW_PANEL_ARC_SIZE = "2"
 
 
 def _is_container_cell(cell: ET.Element) -> bool:
@@ -1025,6 +1027,22 @@ def _soften_az_corners(cells: list[ET.Element]) -> bool:
             continue
         parts["rounded"] = "1"
         parts["arcSize"] = _AZ_ARC_SIZE
+        cell.set("style", _format_style(parts))
+        changed = True
+    return changed
+
+
+def _soften_overview_panel_corners(cells: list[ET.Element]) -> bool:
+    changed = False
+    for cell in cells:
+        if cell.get("id") != _OVERVIEW_PANEL_ID:
+            continue
+        style = cell.get("style") or ""
+        parts = _parse_style(style)
+        if parts.get("arcSize") == _OVERVIEW_PANEL_ARC_SIZE and parts.get("rounded", "1") == "1":
+            continue
+        parts["rounded"] = "1"
+        parts["arcSize"] = _OVERVIEW_PANEL_ARC_SIZE
         cell.set("style", _format_style(parts))
         changed = True
     return changed
@@ -1214,6 +1232,9 @@ def fit_containers_to_children(xml: str) -> str:
         _fit_one_pass(containers, children)
 
     if _soften_az_corners(cells):
+        changed = True
+
+    if _soften_overview_panel_corners(cells):
         changed = True
 
     if not changed:

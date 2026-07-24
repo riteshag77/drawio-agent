@@ -9,7 +9,17 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/styles.css?v=20260724d">
+    <link rel="stylesheet" href="/static/themes/midnight-slate.css?v=20260724d">
+    <link rel="stylesheet" href="/static/themes/daylight.css?v=20260724d">
+    <link rel="stylesheet" href="/static/themes/aurora-contrast.css?v=20260724d">
+    <script>
+        (function () {
+            var known = ['midnight-slate', 'daylight', 'aurora-contrast'];
+            var stored = localStorage.getItem('drawio-agent-app-theme');
+            document.documentElement.setAttribute('data-theme', known.indexOf(stored) !== -1 ? stored : 'midnight-slate');
+        })();
+    </script>
 </head>
 
 <body>
@@ -207,14 +217,11 @@
 
                     <div class="drawer-group">
                         <div class="drawer-group-title">Appearance</div>
-                        <label for="drawio-theme-select">Draw.io theme</label>
-                        <select id="drawio-theme-select" onchange="changeDrawioTheme()">
-                            <option value="kennedy">Kennedy (default)</option>
-                            <option value="atlas">Atlas</option>
-                            <option value="dark">Dark</option>
-                            <option value="min">Minimal</option>
-                            <option value="sketch">Sketch</option>
-                            <option value="simple">Simple</option>
+                        <label for="app-theme-select">App theme</label>
+                        <select id="app-theme-select" aria-label="Application theme" onchange="changeAppTheme()">
+                            <option value="midnight-slate">Midnight Slate (default)</option>
+                            <option value="daylight">Daylight</option>
+                            <option value="aurora-contrast">Aurora Contrast</option>
                         </select>
                     </div>
 
@@ -312,8 +319,7 @@
             </div>
             <div class="insights-tabs" role="tablist" aria-label="Insights">
                 <button type="button" class="insights-tab active" data-tab="cost" role="tab" aria-selected="true" onclick="switchInsightsTab('cost')">Cost</button>
-                <button type="button" class="insights-tab" data-tab="waf" role="tab" aria-selected="false" onclick="switchInsightsTab('waf')">WAF</button>
-                <button type="button" class="insights-tab" data-tab="compliance" role="tab" aria-selected="false" onclick="switchInsightsTab('compliance')">Compliance</button>
+                <button type="button" class="insights-tab" data-tab="waf-compliance" role="tab" aria-selected="false" onclick="switchInsightsTab('waf-compliance')">WAF &amp; Compliance</button>
                 <button type="button" class="insights-tab" data-tab="logs" role="tab" aria-selected="false" onclick="switchInsightsTab('logs')">Logs</button>
             </div>
             <div class="insights-tab-panels">
@@ -329,38 +335,52 @@
                     <span id="cost-total-amount" class="cost-total-amount">A$0</span>
                     <span class="cost-total-period">per month estimated</span>
                 </div>
+                <div id="cost-donut" class="cost-donut" hidden></div>
                 <div id="cost-panel-body" class="cost-panel-body"></div>
             </div>
-            <div id="well-architected-panel" class="waf-panel insights-panel" data-panel="waf" hidden>
-                <div class="waf-panel-header">
-                    <div class="waf-panel-header-left">
-                        <svg class="waf-panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
-                        <h3>Well-Architected Review</h3>
+            <div id="waf-compliance-panel" class="insights-panel" data-panel="waf-compliance" hidden>
+                <div class="chat-suggestions-header" id="insight-select-all-row" hidden>
+                    <div class="chat-suggestions-title">Findings with recommendations</div>
+                    <label class="chat-suggestions-select-all">
+                        <input type="checkbox" id="insight-select-all" class="suggestion-checkbox suggestion-select-all">
+                        <span>Select all</span>
+                    </label>
+                </div>
+                <div id="well-architected-panel" class="waf-panel">
+                    <div class="waf-panel-header">
+                        <div class="waf-panel-header-left">
+                            <svg class="waf-panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+                            <h3>Well-Architected Review</h3>
+                        </div>
+                        <button type="button" class="waf-panel-close" onclick="hideWellArchitectedPanel()" aria-label="Hide WAF panel">&times;</button>
                     </div>
-                    <button type="button" class="waf-panel-close" onclick="hideWellArchitectedPanel()" aria-label="Hide WAF panel">&times;</button>
-                </div>
-                <div class="waf-panel-summary">
-                    <span id="waf-overall-badge" class="waf-overall-badge">--</span>
-                    <span class="waf-summary-text">Generate a diagram to assess against Well-Architected pillars</span>
-                </div>
-                <div id="waf-panel-body" class="waf-panel-body"></div>
-            </div>
-            <div id="compliance-panel" class="compliance-panel insights-panel" data-panel="compliance" hidden>
-                <div class="compliance-header">
-                    <div class="compliance-header-left">
-                        <svg class="compliance-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><path d="M12 2a10 10 0 1 0 10 10h-10V2z"/><path d="M12 2v10h10"/></svg>
-                        <h3>Compliance</h3>
+                    <div class="waf-panel-summary">
+                        <span id="waf-overall-badge" class="waf-overall-badge">--</span>
+                        <span class="waf-summary-text">Generate a diagram to assess against Well-Architected pillars</span>
                     </div>
-                    <button type="button" class="compliance-close" onclick="hideCompliancePanel()" aria-label="Hide compliance panel">&times;</button>
+                    <div id="waf-panel-body" class="waf-panel-body"></div>
                 </div>
-                <div class="compliance-tabs" id="compliance-tabs"></div>
-                <div class="compliance-legend">
-                    <span class="legend-item legend-pass">&#x25CF; Pass</span>
-                    <span class="legend-item legend-warn">&#x25CF; Warn</span>
-                    <span class="legend-item legend-fail">&#x25CF; Fail</span>
+                <div id="compliance-panel" class="compliance-panel">
+                    <div class="compliance-header">
+                        <div class="compliance-header-left">
+                            <svg class="compliance-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><path d="M12 2a10 10 0 1 0 10 10h-10V2z"/><path d="M12 2v10h10"/></svg>
+                            <h3>Compliance</h3>
+                        </div>
+                        <button type="button" class="compliance-close" onclick="hideCompliancePanel()" aria-label="Hide compliance panel">&times;</button>
+                    </div>
+                    <div class="compliance-tabs" id="compliance-tabs"></div>
+                    <div class="compliance-legend">
+                        <span class="legend-item legend-pass">&#x25CF; Pass</span>
+                        <span class="legend-item legend-warn">&#x25CF; Warn</span>
+                        <span class="legend-item legend-fail">&#x25CF; Fail</span>
+                    </div>
+                    <div id="compliance-body" class="compliance-body">
+                        <div class="compliance-empty">Generate a diagram with Compliance Assessment enabled to see results</div>
+                    </div>
                 </div>
-                <div id="compliance-body" class="compliance-body">
-                    <div class="compliance-empty">Generate a diagram with Compliance Assessment enabled to see results</div>
+                <div class="suggestion-actions" id="insight-action-row" hidden>
+                    <button type="button" class="suggestion-btn" id="insight-apply-selected">Apply Selected</button>
+                    <button type="button" class="suggestion-btn suggestion-btn-primary" id="insight-apply-all">Apply All</button>
                 </div>
             </div>
             <div id="verbose-log-body" class="log-panel-body insights-panel" data-panel="logs" hidden>
@@ -378,22 +398,23 @@
 
     <div id="app-toast" class="app-toast" role="status" aria-live="assertive" hidden></div>
     <div class="copy-feedback" id="copy-toast">Copied to clipboard!</div>
-    <script src="/static/js/state.js"></script>
-    <script src="/static/js/resizer.js"></script>
-    <script src="/static/js/settings.js"></script>
-    <script src="/static/js/prompt-settings.js"></script>
-    <script src="/static/js/diagram.js"></script>
-    <script src="/static/js/voice.js"></script>
-    <script src="/static/js/chat.js"></script>
-    <script src="/static/js/toast.js"></script>
-    <script src="/static/js/exports.js"></script>
-    <script src="/static/js/attachments.js"></script>
-    <script src="/static/js/platform-ui.js"></script>
-    <script src="/static/js/run-controls.js"></script>
-    <script src="/static/js/verbose-logs.js"></script>
-    <script src="/static/js/insights-ui.js"></script>
-    <script src="/static/js/insights-panels.js"></script>
-    <script src="/static/js/app.js"></script>
+    <script src="/static/js/state.js?v=20260724d"></script>
+    <script src="/static/js/theme.js?v=20260724d"></script>
+    <script src="/static/js/resizer.js?v=20260724d"></script>
+    <script src="/static/js/settings.js?v=20260724d"></script>
+    <script src="/static/js/prompt-settings.js?v=20260724d"></script>
+    <script src="/static/js/diagram.js?v=20260724d"></script>
+    <script src="/static/js/voice.js?v=20260724d"></script>
+    <script src="/static/js/chat.js?v=20260724d"></script>
+    <script src="/static/js/toast.js?v=20260724d"></script>
+    <script src="/static/js/exports.js?v=20260724d"></script>
+    <script src="/static/js/attachments.js?v=20260724d"></script>
+    <script src="/static/js/platform-ui.js?v=20260724d"></script>
+    <script src="/static/js/run-controls.js?v=20260724d"></script>
+    <script src="/static/js/verbose-logs.js?v=20260724d"></script>
+    <script src="/static/js/insights-ui.js?v=20260724d"></script>
+    <script src="/static/js/insights-panels.js?v=20260724d"></script>
+    <script src="/static/js/app.js?v=20260724d"></script>
 </body>
 
 </html>

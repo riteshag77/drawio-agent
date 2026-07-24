@@ -395,6 +395,8 @@ async function initProviderSelect() {
 }
 
 // ── Boot sequence ─────────────────────────────────────────
+initAppTheme();
+initInsightSelection();
 initVerboseLogging();
 initPromptSettings();
 initDiagramMode();

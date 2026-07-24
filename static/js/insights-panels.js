@@ -2,6 +2,140 @@
 
 // ── Cost Panel ────────────────────────────────────────────
 
+// Fixed nominal-categorical order (never cycled) mapping each cost category
+// to a --chart-cat-N token defined per-theme in static/themes/*.css. "Other"
+// intentionally gets no slot — it reads as a neutral gray, not a generated hue.
+var COST_CATEGORY_COLOR_SLOT = {
+    'Compute': 1,
+    'Networking': 2,
+    'Storage': 3,
+    'Database': 4,
+    'Security': 5,
+    'Analytics': 6,
+    'Integration': 7,
+    'Management': 8,
+};
+
+function costCategoryColor(cat) {
+    var slot = COST_CATEGORY_COLOR_SLOT[cat];
+    return slot ? 'var(--chart-cat-' + slot + ')' : 'var(--text-muted)';
+}
+
+function renderCostDonut(catTotals, grandTotal) {
+    var wrap = document.getElementById('cost-donut');
+    if (!wrap) return;
+    var catKeys = Object.keys(catTotals).filter(function (c) { return catTotals[c] > 0; });
+    if (!(grandTotal > 0) || catKeys.length === 0) {
+        wrap.hidden = true;
+        wrap.innerHTML = '';
+        return;
+    }
+    wrap.hidden = false;
+
+    var size = 140;
+    var cx = size / 2;
+    var cy = size / 2;
+    var r = 54;
+    var strokeWidth = 20;
+    var circumference = 2 * Math.PI * r;
+    var GAP_PX = 3;
+    var svgNs = 'http://www.w3.org/2000/svg';
+
+    var svg = document.createElementNS(svgNs, 'svg');
+    svg.setAttribute('viewBox', '0 0 ' + size + ' ' + size);
+    svg.setAttribute('width', size);
+    svg.setAttribute('height', size);
+    svg.classList.add('cost-donut-svg');
+
+    var group = document.createElementNS(svgNs, 'g');
+    group.setAttribute('transform', 'rotate(-90 ' + cx + ' ' + cy + ')');
+
+    var track = document.createElementNS(svgNs, 'circle');
+    track.setAttribute('cx', cx);
+    track.setAttribute('cy', cy);
+    track.setAttribute('r', r);
+    track.setAttribute('fill', 'none');
+    track.setAttribute('stroke', 'var(--border-subtle)');
+    track.setAttribute('stroke-width', strokeWidth);
+    group.appendChild(track);
+
+    var offsetSoFar = 0;
+    var legendRows = [];
+    catKeys.forEach(function (cat) {
+        var subTotal = catTotals[cat];
+        var pct = subTotal / grandTotal * 100;
+        var length = Math.max((pct / 100) * circumference - GAP_PX, 0);
+        var color = costCategoryColor(cat);
+
+        var seg = document.createElementNS(svgNs, 'circle');
+        seg.setAttribute('cx', cx);
+        seg.setAttribute('cy', cy);
+        seg.setAttribute('r', r);
+        seg.setAttribute('fill', 'none');
+        seg.setAttribute('stroke', color);
+        seg.setAttribute('stroke-width', strokeWidth);
+        seg.setAttribute('stroke-linecap', 'round');
+        seg.setAttribute('stroke-dasharray', length + ' ' + circumference);
+        seg.setAttribute('stroke-dashoffset', -offsetSoFar);
+        var title = document.createElementNS(svgNs, 'title');
+        title.textContent = cat + ': A$' + subTotal.toFixed(0) + ' (' + pct.toFixed(0) + '%)';
+        seg.appendChild(title);
+        group.appendChild(seg);
+
+        offsetSoFar += (pct / 100) * circumference;
+        legendRows.push({ cat: cat, subTotal: subTotal, pct: pct, color: color, segEl: seg });
+    });
+
+    svg.appendChild(group);
+
+    var centerWrap = document.createElement('div');
+    centerWrap.className = 'cost-donut-center';
+    var centerAmount = document.createElement('div');
+    centerAmount.className = 'cost-donut-center-amount';
+    centerAmount.textContent = 'A$' + grandTotal.toFixed(0);
+    var centerLabel = document.createElement('div');
+    centerLabel.className = 'cost-donut-center-label';
+    centerLabel.textContent = '/mo';
+    centerWrap.appendChild(centerAmount);
+    centerWrap.appendChild(centerLabel);
+
+    var ring = document.createElement('div');
+    ring.className = 'cost-donut-ring';
+    ring.appendChild(svg);
+    ring.appendChild(centerWrap);
+
+    var legend = document.createElement('div');
+    legend.className = 'cost-donut-legend';
+    legendRows.forEach(function (row) {
+        var item = document.createElement('div');
+        item.className = 'cost-donut-legend-row';
+        item.title = row.cat + ': A$' + row.subTotal.toFixed(0) + ' (' + row.pct.toFixed(0) + '%)';
+        var swatch = document.createElement('span');
+        swatch.className = 'cost-donut-swatch';
+        swatch.style.background = row.color;
+        var name = document.createElement('span');
+        name.className = 'cost-donut-legend-name';
+        name.textContent = row.cat;
+        var value = document.createElement('span');
+        value.className = 'cost-donut-legend-value';
+        value.textContent = 'A$' + row.subTotal.toFixed(0) + ' · ' + row.pct.toFixed(0) + '%';
+        item.appendChild(swatch);
+        item.appendChild(name);
+        item.appendChild(value);
+        item.addEventListener('mouseenter', function () {
+            row.segEl.setAttribute('stroke-width', strokeWidth + 4);
+        });
+        item.addEventListener('mouseleave', function () {
+            row.segEl.setAttribute('stroke-width', strokeWidth);
+        });
+        legend.appendChild(item);
+    });
+
+    wrap.innerHTML = '';
+    wrap.appendChild(ring);
+    wrap.appendChild(legend);
+}
+
 function displayCostEstimate(costData) {
     if (typeof switchInsightsTab === 'function') switchInsightsTab('cost');
     if (!costData) return;
@@ -17,6 +151,7 @@ function displayCostEstimate(costData) {
     var catKeys = Object.keys(categories);
     if (catKeys.length === 0) {
         body.innerHTML = '<div class="cost-empty">No billable services detected</div>';
+        renderCostDonut({}, 0);
         return;
     }
     var catTotals = {};
@@ -26,6 +161,7 @@ function displayCostEstimate(costData) {
         svcs.forEach(function (s) { sub += s.monthly || 0; });
         catTotals[cat] = sub;
     });
+    renderCostDonut(catTotals, grandTotal);
     catKeys.forEach(function (cat) {
         var svcs = categories[cat] || [];
         var subTotal = catTotals[cat] || 0;
@@ -122,7 +258,7 @@ function toggleWellArchitectedPanel() {
         panel.classList.add('active');
         if (body) body.innerHTML = '<div class="waf-empty">Generate a diagram to see Well-Architected review</div>';
         if (badge) { badge.textContent = '--'; badge.className = 'waf-overall-badge'; }
-        if (typeof switchInsightsTab === 'function') switchInsightsTab('waf');
+        if (typeof switchInsightsTab === 'function') switchInsightsTab('waf-compliance');
     } else {
         panel.classList.remove('active');
         if (body) body.innerHTML = '';
@@ -147,6 +283,78 @@ function isInsightApplied(key) {
     return appliedInsightKeys.has(key);
 }
 
+// Shared select-all/apply controls spanning both the WAF and Compliance
+// sections of the merged "WAF & Compliance" tab — each section registers its
+// own current item list here instead of building its own select-all/apply UI.
+var insightRegistryBySource = { waf: [], compliance: [] };
+
+function allInsightItems() {
+    return insightRegistryBySource.waf.concat(insightRegistryBySource.compliance);
+}
+
+function registerInsightItems(source, items) {
+    insightRegistryBySource[source] = items;
+    refreshUnifiedInsightControls();
+}
+
+function refreshUnifiedInsightControls() {
+    var selectAllCb = document.getElementById('insight-select-all');
+    var headerRow = document.getElementById('insight-select-all-row');
+    var actionRow = document.getElementById('insight-action-row');
+    var allItems = allInsightItems();
+    var pending = allItems.filter(function (r) { return !r.checkbox.disabled; });
+    var checked = pending.filter(function (r) { return r.checkbox.checked; });
+    if (headerRow) headerRow.hidden = allItems.length === 0;
+    if (actionRow) actionRow.hidden = pending.length === 0;
+    if (selectAllCb) {
+        selectAllCb.checked = pending.length > 0 && checked.length === pending.length;
+        selectAllCb.indeterminate = checked.length > 0 && checked.length < pending.length;
+        selectAllCb.disabled = pending.length === 0;
+    }
+}
+
+function markInsightItemsApplied(items) {
+    var keys = {};
+    items.forEach(function (it) { keys[it.key] = true; });
+    allInsightItems().forEach(function (r) {
+        if (!keys[r.key]) return;
+        r.checkbox.checked = false;
+        r.checkbox.disabled = true;
+        if (r.badge) r.badge.hidden = false;
+    });
+    refreshUnifiedInsightControls();
+}
+
+function initInsightSelection() {
+    var selectAllCb = document.getElementById('insight-select-all');
+    var selBtn = document.getElementById('insight-apply-selected');
+    var allBtn = document.getElementById('insight-apply-all');
+    if (selectAllCb) {
+        selectAllCb.addEventListener('change', function () {
+            allInsightItems().forEach(function (r) {
+                if (!r.checkbox.disabled) r.checkbox.checked = selectAllCb.checked;
+            });
+            selectAllCb.indeterminate = false;
+        });
+    }
+    if (selBtn) {
+        selBtn.onclick = function () {
+            var items = allInsightItems().filter(function (r) { return !r.checkbox.disabled && r.checkbox.checked; });
+            if (items.length === 0) { if (typeof showError === 'function') showError('Select at least one finding to apply.'); return; }
+            markInsightItemsApplied(items);
+            applyInsightFixes(items);
+        };
+    }
+    if (allBtn) {
+        allBtn.onclick = function () {
+            var items = allInsightItems().filter(function (r) { return !r.checkbox.disabled; });
+            if (items.length === 0) { if (typeof showError === 'function') showError('All findings are already applied.'); return; }
+            markInsightItemsApplied(items);
+            applyInsightFixes(items);
+        };
+    }
+}
+
 function applyInsightFixes(items) {
     if (!items || items.length === 0) return;
     var text = 'Please update the diagram to address the following:\n' + items.map(function (it, i) {
@@ -164,7 +372,7 @@ function applyInsightFixes(items) {
 }
 
 function displayWellArchitected(wafData) {
-    if (typeof switchInsightsTab === 'function') switchInsightsTab('waf');
+    if (typeof switchInsightsTab === 'function') switchInsightsTab('waf-compliance');
     if (!wafData) return;
     console.log('WAF data received', wafData.overall_status, wafData.pillars?.length, 'pillars');
     var panel = document.getElementById('well-architected-panel');
@@ -179,31 +387,15 @@ function displayWellArchitected(wafData) {
     badge.textContent = status.toUpperCase();
     badge.className = 'waf-overall-badge ' + status;
     body.innerHTML = '';
-    appliedInsightKeys = new Set();
+    appliedInsightKeys.forEach(function (k) { if (k.indexOf('waf:') === 0) appliedInsightKeys.delete(k); });
     var pillars = wafData.pillars || [];
     if (pillars.length === 0) {
         body.innerHTML = '<div class="waf-empty">No recommendations available</div>';
+        registerInsightItems('waf', []);
         return;
     }
 
-    var registry = [];
-    var headerRow = document.createElement('div');
-    headerRow.className = 'chat-suggestions-header';
-    var headerTitle = document.createElement('div');
-    headerTitle.className = 'chat-suggestions-title';
-    headerTitle.textContent = 'Findings with recommendations';
-    headerRow.appendChild(headerTitle);
-    var selectAllLabel = document.createElement('label');
-    selectAllLabel.className = 'chat-suggestions-select-all';
-    var selectAllCb = document.createElement('input');
-    selectAllCb.type = 'checkbox';
-    selectAllCb.className = 'suggestion-checkbox suggestion-select-all';
-    var selectAllText = document.createElement('span');
-    selectAllText.textContent = 'Select all';
-    selectAllLabel.appendChild(selectAllCb);
-    selectAllLabel.appendChild(selectAllText);
-    headerRow.appendChild(selectAllLabel);
-    body.appendChild(headerRow);
+    var wafItems = [];
 
     pillars.forEach(function (p, pillarIdx) {
         var div = document.createElement('div');
@@ -250,19 +442,14 @@ function displayWellArchitected(wafData) {
                 cb.className = 'suggestion-checkbox item-checkbox';
                 cb.disabled = applied;
                 cb.checked = applied;
-                cb.addEventListener('change', function () {
-                    var pending = registry.filter(function (r) { return !r.checkbox.disabled; });
-                    var checked = pending.filter(function (r) { return r.checkbox.checked; });
-                    selectAllCb.checked = pending.length > 0 && checked.length === pending.length;
-                    selectAllCb.indeterminate = checked.length > 0 && checked.length < pending.length;
-                });
+                cb.addEventListener('change', refreshUnifiedInsightControls);
                 finding.insertBefore(cb, dot);
                 var badge = document.createElement('span');
                 badge.className = 'suggestion-applied-badge';
                 badge.textContent = 'Applied';
                 badge.hidden = !applied;
                 text.appendChild(badge);
-                registry.push({ key: key, message: f.message || '', recommendation: f.recommendation, checkbox: cb, badge: badge });
+                wafItems.push({ key: key, message: f.message || '', recommendation: f.recommendation, checkbox: cb, badge: badge });
             }
             finding.appendChild(text);
             div.appendChild(finding);
@@ -270,58 +457,7 @@ function displayWellArchitected(wafData) {
         body.appendChild(div);
     });
 
-    function markApplied(items) {
-        var keys = {};
-        items.forEach(function (it) { keys[it.key] = true; });
-        registry.forEach(function (r) {
-            if (!keys[r.key]) return;
-            r.checkbox.checked = false;
-            r.checkbox.disabled = true;
-            r.badge.hidden = false;
-        });
-        var pending = registry.filter(function (r) { return !r.checkbox.disabled; });
-        selectAllCb.checked = false;
-        selectAllCb.indeterminate = false;
-        selectAllCb.disabled = pending.length === 0;
-        actionRow.hidden = pending.length === 0;
-    }
-
-    selectAllCb.addEventListener('change', function () {
-        registry.forEach(function (r) {
-            if (!r.checkbox.disabled) r.checkbox.checked = selectAllCb.checked;
-        });
-        selectAllCb.indeterminate = false;
-    });
-
-    var actionRow = document.createElement('div');
-    actionRow.className = 'suggestion-actions';
-    var selBtn = document.createElement('button');
-    selBtn.type = 'button';
-    selBtn.className = 'suggestion-btn';
-    selBtn.textContent = 'Apply Selected';
-    selBtn.onclick = function () {
-        var items = registry.filter(function (r) { return !r.checkbox.disabled && r.checkbox.checked; });
-        if (items.length === 0) { if (typeof showError === 'function') showError('Select at least one finding to apply.'); return; }
-        markApplied(items);
-        applyInsightFixes(items);
-    };
-    var allBtn = document.createElement('button');
-    allBtn.type = 'button';
-    allBtn.className = 'suggestion-btn suggestion-btn-primary';
-    allBtn.textContent = 'Apply All';
-    allBtn.onclick = function () {
-        var items = registry.filter(function (r) { return !r.checkbox.disabled; });
-        if (items.length === 0) { if (typeof showError === 'function') showError('All findings are already applied.'); return; }
-        markApplied(items);
-        applyInsightFixes(items);
-    };
-    actionRow.appendChild(selBtn);
-    actionRow.appendChild(allBtn);
-    body.appendChild(actionRow);
-    if (registry.length === 0) {
-        headerRow.hidden = true;
-        actionRow.hidden = true;
-    }
+    registerInsightItems('waf', wafItems);
 
     var summary = wafData.summary || '';
     if (summary) {
@@ -342,7 +478,7 @@ function toggleCompliancePanel() {
     if (document.getElementById('compliance-toggle').checked) {
         panel.classList.add('active');
         if (body) body.innerHTML = '<div class="compliance-empty">Generate a diagram to see compliance assessment results</div>';
-        if (typeof switchInsightsTab === 'function') switchInsightsTab('compliance');
+        if (typeof switchInsightsTab === 'function') switchInsightsTab('waf-compliance');
     } else {
         panel.classList.remove('active');
         if (body) body.innerHTML = '';
@@ -361,7 +497,7 @@ function hideCompliancePanel() {
 }
 
 function displayCompliance(compData) {
-    if (typeof switchInsightsTab === 'function') switchInsightsTab('compliance');
+    if (typeof switchInsightsTab === 'function') switchInsightsTab('waf-compliance');
     if (!compData || !compData.frameworks) return;
     var panel = document.getElementById('compliance-panel');
     var tabs = document.getElementById('compliance-tabs');
@@ -371,12 +507,13 @@ function displayCompliance(compData) {
     var toggle = document.getElementById('compliance-toggle');
     if (toggle) toggle.checked = true;
     localStorage.setItem(COMPLIANCE_KEY, '1');
-    appliedInsightKeys = new Set();
+    appliedInsightKeys.forEach(function (k) { if (k.indexOf('compliance:') === 0) appliedInsightKeys.delete(k); });
 
     var frameworks = compData.frameworks;
     var fwIds = Object.keys(frameworks);
     if (fwIds.length === 0) {
         body.innerHTML = '<div class="compliance-empty">No compliance frameworks evaluated</div>';
+        registerInsightItems('compliance', []);
         return;
     }
 
@@ -425,15 +562,6 @@ function switchComplianceTab(fwId) {
     html += '</div>';
 
     var controls = fw.controls || [];
-    var hasFindingsWithRec = controls.some(function (ctrl) {
-        return (ctrl.findings || []).some(function (f) { return !!f.recommendation; });
-    });
-    if (hasFindingsWithRec) {
-        html += '<div class="chat-suggestions-header">';
-        html += '<div class="chat-suggestions-title">Findings with recommendations</div>';
-        html += '<label class="chat-suggestions-select-all"><input type="checkbox" class="suggestion-checkbox suggestion-select-all"><span>Select all</span></label>';
-        html += '</div>';
-    }
     if (controls.length === 0) {
         html += '<div class="compliance-empty">No applicable controls for this diagram</div>';
     } else {
@@ -470,13 +598,6 @@ function switchComplianceTab(fwId) {
             html += '</div>';
         });
     }
-    if (hasFindingsWithRec) {
-        html += '<div class="suggestion-actions">';
-        html += '<button type="button" class="suggestion-btn compliance-apply-selected">Apply Selected</button>';
-        html += '<button type="button" class="suggestion-btn suggestion-btn-primary compliance-apply-all">Apply All</button>';
-        html += '</div>';
-    }
-
     if (inScope.length > 0 || outScope.length > 0) {
         html += '<div class="compliance-scope-section">';
         html += '<div class="compliance-scope-title">Service Scope</div>';
@@ -495,7 +616,7 @@ function switchComplianceTab(fwId) {
 
     body.innerHTML = html;
 
-    var registry = [];
+    var complianceItems = [];
     body.querySelectorAll('.item-checkbox[data-ctrl-idx]').forEach(function (cb) {
         var ctrlIdx = parseInt(cb.getAttribute('data-ctrl-idx'), 10);
         var findingIdx = parseInt(cb.getAttribute('data-finding-idx'), 10);
@@ -503,64 +624,14 @@ function switchComplianceTab(fwId) {
         if (!finding) return;
         var badge = cb.parentElement.querySelector('.suggestion-applied-badge');
         var key = 'compliance:' + fwId + ':' + ctrlIdx + ':' + findingIdx;
-        registry.push({ key: key, message: finding.message || '', recommendation: finding.recommendation, checkbox: cb, badge: badge });
-        cb.addEventListener('change', function () {
-            var pending = registry.filter(function (r) { return !r.checkbox.disabled; });
-            var checked = pending.filter(function (r) { return r.checkbox.checked; });
-            if (selectAllCb) {
-                selectAllCb.checked = pending.length > 0 && checked.length === pending.length;
-                selectAllCb.indeterminate = checked.length > 0 && checked.length < pending.length;
-            }
-        });
+        complianceItems.push({ key: key, message: finding.message || '', recommendation: finding.recommendation, checkbox: cb, badge: badge });
+        cb.addEventListener('change', refreshUnifiedInsightControls);
     });
 
-    var selectAllCb = body.querySelector('.suggestion-select-all');
-    var actionRow = body.querySelector('.suggestion-actions');
-
-    function markApplied(items) {
-        var keys = {};
-        items.forEach(function (it) { keys[it.key] = true; });
-        registry.forEach(function (r) {
-            if (!keys[r.key]) return;
-            r.checkbox.checked = false;
-            r.checkbox.disabled = true;
-            if (r.badge) r.badge.hidden = false;
-        });
-        var pending = registry.filter(function (r) { return !r.checkbox.disabled; });
-        if (selectAllCb) {
-            selectAllCb.checked = false;
-            selectAllCb.indeterminate = false;
-            selectAllCb.disabled = pending.length === 0;
-        }
-        if (actionRow) actionRow.hidden = pending.length === 0;
-    }
-
-    if (selectAllCb) {
-        selectAllCb.addEventListener('change', function () {
-            registry.forEach(function (r) {
-                if (!r.checkbox.disabled) r.checkbox.checked = selectAllCb.checked;
-            });
-            selectAllCb.indeterminate = false;
-        });
-    }
-    var selBtn = body.querySelector('.compliance-apply-selected');
-    if (selBtn) {
-        selBtn.onclick = function () {
-            var items = registry.filter(function (r) { return !r.checkbox.disabled && r.checkbox.checked; });
-            if (items.length === 0) { if (typeof showError === 'function') showError('Select at least one finding to apply.'); return; }
-            markApplied(items);
-            applyInsightFixes(items);
-        };
-    }
-    var allBtn = body.querySelector('.compliance-apply-all');
-    if (allBtn) {
-        allBtn.onclick = function () {
-            var items = registry.filter(function (r) { return !r.checkbox.disabled; });
-            if (items.length === 0) { if (typeof showError === 'function') showError('All findings in this tab are already applied.'); return; }
-            markApplied(items);
-            applyInsightFixes(items);
-        };
-    }
+    // Only the currently-selected framework tab's findings are registered —
+    // switching frameworks naturally replaces this source's contribution to
+    // the shared select-all/apply controls.
+    registerInsightItems('compliance', complianceItems);
 }
 
 function escapeHtml(str) {

@@ -1,0 +1,77 @@
+/* Daylight — bright, high-legibility theme for well-lit rooms, screen-sharing,
+   and users who find dark UIs harder to scan. Sidebar, drawer, insights rail,
+   and canvas chrome all share one warm-white surface family, so there's no
+   seam anywhere. Accent/status colors are deepened from the brand hue for
+   WCAG AA contrast on white. */
+:root[data-theme="daylight"] {
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #64748b;
+
+    --sidebar-bg: #ffffff;
+    --sidebar-border: rgba(15, 23, 42, 0.10);
+    --surface-well: #eef1f5;
+    --surface-raised: rgba(15, 23, 42, 0.03);
+    --surface-hover: rgba(15, 23, 42, 0.05);
+    --surface-active: rgba(15, 23, 42, 0.08);
+    --border-subtle: rgba(15, 23, 42, 0.06);
+    --border-strong: rgba(15, 23, 42, 0.18);
+    --surface-panel-right: #f8fafc;
+
+    --accent: #C45A00;
+    --accent-hover: #A84B00;
+    --accent-glow: rgba(196, 90, 0, 0.16);
+
+    --success: #16a34a;
+    --success-soft: #15803d;
+    --success-bg-soft: rgba(22, 163, 74, 0.12);
+    --warning: #b45309;
+    --warning-soft: #92400e;
+    --warning-bg-soft: rgba(180, 83, 9, 0.12);
+    --error: #dc2626;
+    --error-soft: #b91c1c;
+    --error-bg-soft: rgba(220, 38, 38, 0.10);
+    --info: #4f46e5;
+    --info-soft: #4338ca;
+    --info-bg-soft: rgba(79, 70, 229, 0.10);
+
+    --cost-accent: #0d9488;
+    --cost-accent-dim: rgba(13, 148, 136, 0.08);
+    --cost-bar-bg: rgba(15, 23, 42, 0.06);
+
+    --panel-bg: #f8fafc;
+    --canvas-surface: #ffffff;
+    --canvas-overlay: rgba(255, 255, 255, 0.85);
+    --canvas-toolbar-bg: linear-gradient(to bottom, #ffffff, #f8fafc);
+    --canvas-toolbar-meta-bg: #f8fafc;
+    --canvas-border: #e2e8f0;
+    --canvas-text: #0f172a;
+    --canvas-text-muted: #64748b;
+
+    --btn-bg: #ffffff;
+    --btn-border: #dfe3e8;
+    --btn-text: #334155;
+    --btn-hover-bg: #f1f5f9;
+    --btn-hover-border: #cbd5e1;
+    --btn-primary-bg: #0f172a;
+    --btn-primary-text: #ffffff;
+    --btn-primary-hover-bg: #1e293b;
+
+    /* Cost donut categorical palette — dataviz-skill validated 8-hue set, light column. */
+    --chart-cat-1: #2a78d6;
+    --chart-cat-2: #eb6834;
+    --chart-cat-3: #1baf7a;
+    --chart-cat-4: #eda100;
+    --chart-cat-5: #e87ba4;
+    --chart-cat-6: #008300;
+    --chart-cat-7: #4a3aa7;
+    --chart-cat-8: #e34948;
+}
+
+:root[data-theme="daylight"] select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23475569' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+}
+
+:root[data-theme="daylight"] .composer-tools select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='%23475569' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+}

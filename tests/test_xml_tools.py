@@ -570,6 +570,24 @@ class FitContainersToChildrenTests(unittest.TestCase):
         az_cell = next(c for c in tree.iter("mxCell") if c.get("id") == "az1")
         self.assertIn("arcSize=6", az_cell.get("style") or "")
 
+    def test_overview_panel_gets_soft_arc_size(self) -> None:
+        """overview_panel arcSize is normalized to 2 even when the LLM omits it."""
+        xml = (
+            '<mxfile host="app.diagrams.net"><diagram name="A" id="d1">'
+            "<mxGraphModel><root>"
+            '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            '<mxCell id="overview_panel" value="Overview" '
+            'style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF8E1;strokeColor=#F5A623;strokeWidth=2;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="500" y="0" width="400" height="200" as="geometry"/>'
+            "</mxCell>"
+            "</root></mxGraphModel></diagram></mxfile>"
+        )
+        out = fit_containers_to_children(xml)
+        tree = ET.fromstring(out)
+        panel = next(c for c in tree.iter("mxCell") if c.get("id") == "overview_panel")
+        self.assertIn("arcSize=2", panel.get("style") or "")
+
     def test_side_by_side_supporting_groups_get_horizontal_gap(self) -> None:
         xml = (
             '<mxfile host="app.diagrams.net"><diagram name="A" id="d1">'
