@@ -282,6 +282,37 @@
             border-color: var(--border-strong);
         }
 
+        .voice-help-lead,
+        .voice-help-limits {
+            margin: 0;
+            font-size: 0.78rem;
+            line-height: 1.45;
+            color: var(--text-secondary);
+        }
+
+        .voice-help-limits {
+            color: var(--text-muted);
+        }
+
+        .voice-help-list {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            line-height: 1.4;
+        }
+
+        .voice-help-list li span {
+            display: block;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 0.1rem;
+        }
+
         .sidebar-header h1 {
             font-size: 1rem;
             font-weight: 700;

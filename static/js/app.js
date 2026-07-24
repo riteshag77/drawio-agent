@@ -440,6 +440,7 @@ initProviderSelect();
 hideValidationBanner();
 updateSendStopButtons();
 loadTemplates();
+if (typeof initVoiceCommands === 'function') initVoiceCommands();
 initVoiceInput();
 ensureDrawioFrame();
 const bootTheme = localStorage.getItem(THEME_STORAGE_KEY) || 'kennedy';

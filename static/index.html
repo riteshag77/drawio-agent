@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/styles.css?v=20260724f">
+    <link rel="stylesheet" href="/static/styles.css?v=20260725g">
     <link rel="stylesheet" href="/static/themes/midnight-slate.css?v=20260724f">
     <link rel="stylesheet" href="/static/themes/daylight.css?v=20260724f">
     <link rel="stylesheet" href="/static/themes/aurora-contrast.css?v=20260724f">
@@ -106,7 +106,7 @@
                                     <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
                                 </svg>
                             </button>
-                            <button type="button" id="btn-voice" class="composer-btn btn-voice" onclick="toggleVoiceInput()" title="Dictate with microphone" aria-label="Voice input">
+                            <button type="button" id="btn-voice" class="composer-btn btn-voice" onclick="toggleVoiceInput()" title="Voice: Space or click to toggle (dictate or say a command; say “help”)" aria-label="Voice: press Space or click to toggle microphone">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                     <rect x="9" y="2" width="6" height="12" rx="3"/>
                                     <path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3"/>
@@ -247,6 +247,22 @@
                         <textarea id="custom-system-message"
                             placeholder="Optional: e.g. Always use multi-AZ, prefer serverless, keep labels in Spanish…"
                             oninput="savePromptSettings()"></textarea>
+                    </div>
+
+                    <div class="drawer-group">
+                        <div class="drawer-group-title">Voice commands</div>
+                        <p class="voice-help-lead">Press <strong>Space</strong> (or the mic button) to start/stop listening. Dictate a diagram prompt or say a command. Say <strong>help</strong> for the full list in chat. While typing in the composer, Space inserts a normal space — press Space outside the field, or again while listening, to toggle the mic.</p>
+                        <ul class="voice-help-list">
+                            <li><span>Send / stop</span> “send message”, “stop”, “stop listening”</li>
+                            <li><span>Chat</span> “clear chat”, “attach file”, “clear attachments”</li>
+                            <li><span>Platform</span> “switch to aws / gcp / azure / multi”</li>
+                            <li><span>Settings</span> “open settings”, “theme daylight”, “enable cost”</li>
+                            <li><span>Diagram</span> “download diagram”, “export png”, “copy xml”</li>
+                            <li><span>Insights</span> “apply waf”, “apply compliance”, “apply all insights”</li>
+                            <li><span>Patterns</span> “list patterns”, “use pattern 1”, “pattern serverless”</li>
+                        </ul>
+                        <p class="voice-help-limits">Limits: attach only opens the file picker; editing inside the draw.io canvas is mouse/keyboard only; Chrome or Edge on localhost/https.</p>
+                        <button type="button" class="btn-soft" onclick="showVoiceCommandHelp()">Show full command list</button>
                     </div>
                 </div>
             </div>
@@ -427,18 +443,19 @@
     <script src="/static/js/settings.js?v=20260724f"></script>
     <script src="/static/js/prompt-settings.js?v=20260724f"></script>
     <script src="/static/js/diagram.js?v=20260725c"></script>
-    <script src="/static/js/voice.js?v=20260724f"></script>
+    <script src="/static/js/voice-commands.js?v=20260725h"></script>
+    <script src="/static/js/voice.js?v=20260725i"></script>
     <script src="/static/js/chat.js?v=20260724f"></script>
     <script src="/static/js/toast.js?v=20260724f"></script>
     <script src="/static/js/exports.js?v=20260724f"></script>
     <script src="/static/js/attachments.js?v=20260725c"></script>
     <script src="/static/js/platform-ui.js?v=20260724f"></script>
-    <script src="/static/js/run-controls.js?v=20260724f"></script>
+    <script src="/static/js/run-controls.js?v=20260725g"></script>
     <script src="/static/js/verbose-logs.js?v=20260724f"></script>
     <script src="/static/js/insights-ui.js?v=20260724f"></script>
     <script src="/static/js/insights-panels.js?v=20260725f"></script>
     <script src="/static/js/captures.js?v=20260724f"></script>
-    <script src="/static/js/app.js?v=20260725c"></script>
+    <script src="/static/js/app.js?v=20260725g"></script>
 </body>
 
 </html>

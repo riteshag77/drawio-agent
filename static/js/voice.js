@@ -18,15 +18,64 @@ function setVoiceStatus(visible, text) {
     bar.hidden = !visible;
 }
 
+function _voiceSyncComposerDisplay(interim) {
+    const input = document.getElementById('chat-input');
+    if (!input) return;
+    const display = voiceBaseText
+        ? (interim ? `${voiceBaseText} ${interim}`.trim() : voiceBaseText)
+        : (interim || '').trim();
+    input.value = display;
+    if (typeof autoResizeChatInput === 'function') autoResizeChatInput();
+}
+
+function isEditableForVoiceHotkey(el) {
+    if (!el || el === document.body || el === document.documentElement) return false;
+    const tag = (el.tagName || '').toLowerCase();
+    if (tag === 'textarea' || tag === 'select') return true;
+    if (tag === 'input') {
+        const type = (el.type || 'text').toLowerCase();
+        return !['button', 'submit', 'checkbox', 'radio', 'file', 'reset', 'range', 'color', 'hidden', 'image'].includes(type);
+    }
+    return !!el.isContentEditable;
+}
+
+function initVoiceHotkeys() {
+    if (initVoiceHotkeys._bound) return;
+    initVoiceHotkeys._bound = true;
+    document.addEventListener('keydown', (e) => {
+        if (e.code !== 'Space' && e.key !== ' ') return;
+        if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+
+        // While mic is on, Space always stops it (even if composer is focused).
+        if (isListening) {
+            e.preventDefault();
+            toggleVoiceInput();
+            return;
+        }
+
+        // Idle: don't steal Space while typing in inputs/textareas.
+        if (isEditableForVoiceHotkey(e.target)) return;
+
+        e.preventDefault();
+        toggleVoiceInput();
+    });
+}
+
 function initVoiceInput() {
     const btn = document.getElementById('btn-voice');
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    initVoiceHotkeys();
     if (!SR) {
         if (btn) {
             btn.classList.add('voice-unsupported');
             btn.title = 'Voice input is not supported in this browser. Try Chrome or Edge.';
+            btn.setAttribute('aria-label', 'Voice input not supported');
         }
         return;
+    }
+    if (btn) {
+        btn.title = 'Voice: Space or click to toggle (dictate or say a command; say “help”)';
+        btn.setAttribute('aria-label', 'Voice: press Space or click to toggle microphone');
     }
     speechRecognition = new SR();
     speechRecognition.continuous = true;
@@ -40,9 +89,9 @@ function initVoiceInput() {
         voiceBaseText = document.getElementById('chat-input').value.trim();
         voiceStatusBeforeListen = document.getElementById('diagram-status').textContent;
         if (btn) btn.classList.add('listening');
-        setVoiceStatus(true, 'Listening… speak now');
-        setComposerRunStatus('Listening… speak your instruction, click mic again to finish', 'running');
-        setDiagramStatus('Listening… speak your instruction');
+        setVoiceStatus(true, 'Listening… Space to stop · dictate or say a command');
+        setComposerRunStatus('Listening… Space to stop, or say a command (try “help”)', 'running');
+        setDiagramStatus('Listening… Space to stop');
     };
     speechRecognition.onresult = (event) => {
         let interim = '';
@@ -56,15 +105,21 @@ function initVoiceInput() {
             }
         }
         if (finals.length) {
-            const joined = finals.join('').trim();
-            voiceBaseText = voiceBaseText ? `${voiceBaseText} ${joined}`.trim() : joined;
+            finals.forEach((chunk) => {
+                const joined = String(chunk || '').trim();
+                if (!joined) return;
+                if (typeof tryRunVoiceCommand === 'function') {
+                    const result = tryRunVoiceCommand(joined);
+                    if (result && result.handled) {
+                        // Command consumed — do not append to composer.
+                        _voiceSyncComposerDisplay('');
+                        return;
+                    }
+                }
+                voiceBaseText = voiceBaseText ? `${voiceBaseText} ${joined}`.trim() : joined;
+            });
         }
-        const input = document.getElementById('chat-input');
-        const display = voiceBaseText
-            ? (interim ? `${voiceBaseText} ${interim}`.trim() : voiceBaseText)
-            : interim.trim();
-        input.value = display;
-        autoResizeChatInput();
+        _voiceSyncComposerDisplay(interim);
     };
     speechRecognition.onerror = (e) => {
         if (e.error === 'aborted' && voiceManuallyStopping) {
@@ -115,7 +170,7 @@ function stopVoiceInput() {
     if (btn) btn.classList.remove('listening');
     setVoiceStatus(false);
     if (!isSending) {
-        setComposerRunStatus('Ready — type or dictate your next message', 'info');
+        setComposerRunStatus('Ready — type, dictate (Space), or say a voice command', 'info');
         if (voiceStatusBeforeListen && (currentXml || currentMermaid)) {
             setDiagramStatus(voiceStatusBeforeListen);
         } else if (currentXml || currentMermaid) {
@@ -127,10 +182,6 @@ function stopVoiceInput() {
 }
 
 async function toggleVoiceInput() {
-    if (isSending) {
-        showError('Wait for the current generation to finish, or press Stop.');
-        return;
-    }
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR || !speechRecognition) {
         showError('Voice input is not supported in this browser. Please use Chrome, Edge, or Safari.');
@@ -145,6 +196,7 @@ async function toggleVoiceInput() {
         try { speechRecognition.stop(); } catch (_) {}
         return;
     }
+    // Allow mic while generating so the user can say “stop”.
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });

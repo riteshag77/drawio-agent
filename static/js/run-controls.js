@@ -15,13 +15,12 @@ function showError(msg) {
 function updateSendStopButtons() {
     const sendBtn = document.getElementById('send-btn');
     const stopBtn = document.getElementById('stop-btn');
-    const voiceBtn = document.getElementById('btn-voice');
     if (sendBtn) {
         sendBtn.hidden = isSending;
         sendBtn.disabled = isSending;
     }
     if (stopBtn) stopBtn.hidden = !isSending;
-    if (voiceBtn) voiceBtn.disabled = isSending;
+    // Mic stays enabled during generation so the user can say “stop”.
 }
 
 function stopActiveRun() {
