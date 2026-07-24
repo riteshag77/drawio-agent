@@ -116,8 +116,10 @@ class CallLlmTransientRetryTests(unittest.TestCase):
             llm_timeout_seconds=30, llm_max_retries=2, llm_retry_backoff_base=1.0, llm_retry_backoff_max=10.0,
         )
         expected = {"ok": True}
+        raw_msg = MagicMock()
+        raw_msg.response_metadata = {"finish_reason": "STOP"}
         mock_build_client.return_value = _mock_provider_chain(
-            [_TransientError(429), _TransientError(429), expected]
+            [_TransientError(429), _TransientError(429), {"raw": raw_msg, "parsed": expected, "parsing_error": None}]
         )
 
         result = call_llm("system", "human", "gemini", dict, None, None)

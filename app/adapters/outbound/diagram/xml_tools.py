@@ -429,6 +429,26 @@ def _fix_xml_with_elementtree(graph_xml: str) -> tuple[str, list[str]]:
 
     page_w, page_h = _page_size(tree)
 
+    # Hoist illegally nested <mxCell> children to siblings under <root>.
+    nested_found = True
+    while nested_found:
+        nested_found = False
+        for cell in list(root.findall("mxCell")):
+            for child in list(cell):
+                if child.tag != "mxCell":
+                    continue
+                nested_found = True
+                cell.remove(child)
+                if not child.get("parent"):
+                    child.set("parent", cell.get("id") or "1")
+                root.append(child)
+                fixes.append(
+                    f"Hoisted nested mxCell '{child.get('id') or '?'}' out of "
+                    f"'{cell.get('id') or '?'}'"
+                )
+        if nested_found:
+            cells = root.findall("mxCell")
+
     cell_map: dict[str, ET.Element] = {}
     used_ids: set[str] = set()
     for cell in cells:
@@ -640,10 +660,9 @@ def auto_fix_xml(graph_xml: str) -> tuple[str, list[str]]:
 
     re.sub(r'\bid="([^"]+)"', _count_dup_id, fixed)
     if has_dup:
-        # Reject duplicate IDs rather than renaming without rewriting parent/source/target refs
-        return ensure_diagram_document(fixed), fixes + [
-            "Duplicate mxCell id(s) detected — reject rather than silent rename"
-        ]
+        # Leave duplicates for resolve_duplicate_ids (deterministic rename). Do not
+        # reject here — format/structure repair must not depend on an LLM pass.
+        fixes.append("Duplicate mxCell id(s) detected — deferred to deterministic rename")
 
     # Restore the masked value="..." spans, escaping any stray markup in the
     # original (unmodified-by-the-blunt-fixers-above) content. Must run last,
@@ -725,7 +744,7 @@ def choose_fixed_xml(original: str, result: XmlValidationResult) -> str:
     return ensure_diagram_document(original)
 
 
-def guarantee_loadable_xml(xml: str, page_name: str = "Architecture") -> tuple[str, bool]:
+def guarantee_loadable_xml(xml: str, page_name: str = "Architecture") -> tuple[str, bool, dict[str, str] | None]:
     """Last-resort circuit breaker — call this once, immediately before a diagram
     XML string leaves the service (API response / download / any other exit
     point), never in the middle of the pipeline.
@@ -740,26 +759,31 @@ def guarantee_loadable_xml(xml: str, page_name: str = "Architecture") -> tuple[s
     result still fails to parse, degrade to an empty-but-loadable canvas
     rather than ever shipping something the client will reject outright.
 
-    Returns ``(xml, ok)`` — ``ok`` is False only when the empty-canvas
-    fallback had to be used (log this loudly; it means every repair path
-    upstream failed and is worth investigating, not something to hide).
+    Returns ``(xml, ok, failure_detail)`` — ``ok`` is False only when the
+    empty-canvas fallback had to be used (log this loudly; it means every
+    repair path upstream failed and is worth investigating, not something to
+    hide). ``failure_detail`` is ``None`` on success, else
+    ``{"parse_error": str, "failing_xml": str}`` with the *actual* ET.ParseError
+    message and the exact XML that still wouldn't parse after every repair —
+    without this, "failed to parse" alone gives no way to diagnose the bug
+    after the fact.
     """
     candidate = ensure_diagram_document(xml, page_name)
     try:
         ET.fromstring(candidate)
-        return candidate, True
-    except ET.ParseError:
-        pass
+        return candidate, True, None
+    except ET.ParseError as exc:
+        last_error, last_candidate = str(exc), candidate
 
     check = validate_and_fix_xml(xml)
     candidate = choose_fixed_xml(xml, check)
     try:
         ET.fromstring(candidate)
-        return candidate, True
-    except ET.ParseError:
-        pass
+        return candidate, True, None
+    except ET.ParseError as exc:
+        last_error, last_candidate = str(exc), candidate
 
-    return wrap_with_mxfile("", page_name), False
+    return wrap_with_mxfile("", page_name), False, {"parse_error": last_error, "failing_xml": last_candidate}
 
 
 def normalize_platform_styles(xml: str, platform: str) -> str:

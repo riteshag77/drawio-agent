@@ -3,16 +3,16 @@
 Catches the class of defects the LLM's one-shot geometry can get wrong:
 overlapping leaf icons, dangling edge endpoints, duplicate ids, empty
 labels, edges into cross-cutting groups, coordinate-only nesting,
-service-grid row overflow, and right-hand overview-panel placement. Ported
-(stdlib-only, no new dependency) from the
+parent cycles, bad geometry, service-grid row overflow, and right-hand
+overview-panel placement. Ported (stdlib-only, no new dependency) from the
 drawio-skill's ``validate.py`` linter and adapted to work on an in-memory
 XML string, reusing this app's own cell-parsing helpers from ``xml_tools``
 so the notion of "container" and "geometry" stays consistent across the
 pipeline.
 
-Each new deterministic check here mirrors an "ABSOLUTE RULE"/"FORBIDDEN"
-clause in ``config/xml_gen_core.txt`` — the goal is to catch and auto-fix
-those violations without spending an LLM repair call on them.
+Each deterministic check here mirrors an "ABSOLUTE RULE"/"FORBIDDEN"
+clause in ``config/xml_gen_core.txt``. Format and structural repair is
+auto-only — the pipeline never spends an LLM call to fix XML shape.
 """
 
 from __future__ import annotations
@@ -314,6 +314,8 @@ def diagnose_xml(xml: str) -> XmlDiagnostics:
     diag = XmlDiagnostics()
     parsed = _parse_docroot(xml)
     if parsed is None:
+        if (xml or "").strip():
+            diag.errors.append("unparseable XML — document could not be parsed")
         return diag
     tree, root, _is_mxfile, _trimmed = parsed
     page_w, page_h = _page_size(tree)
@@ -337,9 +339,25 @@ def diagnose_xml(xml: str) -> XmlDiagnostics:
 
         if parent is not None and parent not in ids and parent not in _RESERVED_IDS:
             diag.errors.append(f"cell {cid!r} parent {parent!r} does not exist")
+        if parent == cid:
+            diag.errors.append(f"cell {cid!r} parents itself (cycle)")
+        elif parent and parent in ids:
+            seen: set[str] = {cid}
+            walk = parent
+            while walk and walk in ids and walk not in _RESERVED_IDS:
+                if walk in seen:
+                    diag.errors.append(f"cell {cid!r} has a parent cycle via {walk!r}")
+                    break
+                seen.add(walk)
+                walk = ids[walk].get("parent") or ""
+                if walk in _RESERVED_IDS:
+                    break
+
         for end in ("source", "target"):
             ref = cell.get(end)
-            if ref and ref not in ids:
+            if is_edge and not ref:
+                diag.errors.append(f"edge {cid!r} missing {end}")
+            elif ref and ref not in ids:
                 diag.errors.append(f"edge {cid!r} {end} {ref!r} does not exist")
         if (is_vertex or is_edge) and cid in _RESERVED_IDS:
             diag.errors.append(f"cell {cid!r} reuses reserved id 0/1")
@@ -364,6 +382,12 @@ def diagnose_xml(xml: str) -> XmlDiagnostics:
                     diag.warnings.append(f"vertex {cid!r} negative position ({x:g},{y:g})")
                 if not (cell.get("value") or "").strip():
                     diag.warnings.append(f"vertex {cid!r} has an empty label")
+
+        for child in list(cell):
+            if child.tag == "mxCell":
+                diag.errors.append(
+                    f"nested mxCell under {cid!r} — all mxCells must be siblings under <root>"
+                )
 
     # Coordinate-only nesting: a top-level container visually inside another
     # top-level container but not actually parented to it.
@@ -595,6 +619,18 @@ def ensure_valid_vertex_geometry(xml: str) -> str:
             w = float(geom.get("width") or 0)
             h = float(geom.get("height") or 0)
         except ValueError:
+            x = y = w = h = float("nan")
+
+        if x != x or y != y or w != w or h != h:  # NaN / non-finite from bad attrs
+            default_w, default_h = (
+                _DEFAULT_CONTAINER_SIZE if _is_container_cell(cell) else _DEFAULT_LEAF_SIZE
+            )
+            geom.set("x", "0")
+            geom.set("y", "0")
+            geom.set("width", str(default_w))
+            geom.set("height", str(default_h))
+            geom.set("as", "geometry")
+            changed = True
             continue
 
         if w <= 0:
@@ -615,8 +651,49 @@ def ensure_valid_vertex_geometry(xml: str) -> str:
     return _serialize_docroot(tree, root, is_mxfile, trimmed)
 
 
+def resolve_parent_cycles(xml: str) -> str:
+    """Break self-parent and ancestor cycles by reparenting cycle members to ``"1"``.
+
+    A cycle makes depth walks and containment math unreliable; reparenting every
+    cell that participates in a cycle to the root is the same safe fallback used
+    for orphaned parents.
+    """
+    parsed = _parse_docroot(xml)
+    if parsed is None:
+        return xml
+    tree, root, is_mxfile, trimmed = parsed
+
+    cells = [c for c in root.findall("mxCell") if c.get("id")]
+    by_id = {c.get("id") or "": c for c in cells}
+    cycle_members: set[str] = set()
+    for cell in cells:
+        cid = cell.get("id") or ""
+        parent = cell.get("parent")
+        if not parent or parent in _RESERVED_IDS:
+            continue
+        if parent == cid:
+            cycle_members.add(cid)
+            continue
+        seen: list[str] = [cid]
+        walk = parent
+        while walk and walk in by_id and walk not in _RESERVED_IDS:
+            if walk in seen:
+                # Entire path from the repeated node onward is in the cycle.
+                idx = seen.index(walk)
+                cycle_members.update(seen[idx:])
+                cycle_members.add(walk)
+                break
+            seen.append(walk)
+            walk = by_id[walk].get("parent") or ""
+    if not cycle_members:
+        return xml
+    for cid in cycle_members:
+        by_id[cid].set("parent", "1")
+    return _serialize_docroot(tree, root, is_mxfile, trimmed)
+
+
 def remove_dangling_edges(xml: str) -> str:
-    """Drop edges whose source/target id doesn't resolve to an existing cell.
+    """Drop edges with missing or unresolved source/target endpoints.
 
     Left alone, these render as broken floating arrows in the browser.
     """
@@ -627,11 +704,13 @@ def remove_dangling_edges(xml: str) -> str:
 
     cells = [c for c in root.findall("mxCell") if c.get("id")]
     ids = {c.get("id") for c in cells}
-    to_remove = [
-        c for c in cells
-        if c.get("edge") == "1"
-        and ((c.get("source") and c.get("source") not in ids) or (c.get("target") and c.get("target") not in ids))
-    ]
+    to_remove = []
+    for c in cells:
+        if c.get("edge") != "1":
+            continue
+        src, tgt = c.get("source"), c.get("target")
+        if not src or not tgt or src not in ids or tgt not in ids:
+            to_remove.append(c)
     if not to_remove:
         return xml
     for cell in to_remove:
@@ -1363,6 +1442,7 @@ def repair_xml(xml: str) -> tuple[str, XmlDiagnostics]:
     fixed = resolve_reserved_id_reuse(xml)
     fixed = resolve_duplicate_ids(fixed)
     fixed = resolve_orphaned_parents(fixed)
+    fixed = resolve_parent_cycles(fixed)
     fixed = ensure_valid_vertex_geometry(fixed)
     fixed = remove_dangling_edges(fixed)
     fixed = remove_cross_cutting_edges(fixed)

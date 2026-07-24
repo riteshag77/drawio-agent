@@ -45,7 +45,7 @@ app/
 2. `xml_pipeline.run_xml_pipeline` orchestrates the full path:
    - `agent.generate_xml_diagram` → LLM emits draw.io XML directly (structure, geometry, edges, leaf `shape_type` placeholders) via `llm_client.call_llm`.
    - `xml_tools.validate_and_fix_xml` / `ensure_diagram_document` → structural normalization.
-   - `xml_diagnostics.diagnose_xml` / `repair_xml` → deterministic checks (dangling edges, duplicate ids, overlaps, missing labels) with auto-fixers; if issues remain, one bounded LLM repair retry (`agent.repair_xml_diagram`).
+   - `xml_diagnostics.diagnose_xml` / `repair_xml` → deterministic checks (dangling edges, duplicate ids, overlaps, missing labels, parent cycles, geometry) with auto-fixers only — **no LLM repair** for format/structure.
    - In parallel (`asyncio.gather`): cost estimate, Well-Architected assessment, compliance assessment, and MCP icon resolution (`drawio_mcp_client.resolve_shape_styles` merges official icon styles into the LLM's placeholder leaves, preserving label attributes — see the LLM/MCP/prompt-pack ownership split below).
 3. Response includes `xml`, `renderer_used` (`mcp` or `local`), `llm_usage` (token/cost accounting distinct from the depicted architecture's estimated cloud spend), and `logs`.
 

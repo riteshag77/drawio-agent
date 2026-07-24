@@ -179,16 +179,19 @@ class EnvConfigAdapter:
         return self.get("DRAWIO_STYLE_CACHE_PATH", "data/mcp_style_cache.sqlite3")
 
     @property
+    def captures_dir(self) -> str:
+        """Directory where full, untruncated /chat responses are persisted for later playback."""
+        return self.get("CAPTURES_DIR", "data/captures")
+
+    @property
     def drawio_style_cache_reset(self) -> bool:
         """When true, clear MCP style cache once at process startup."""
         return self.get_bool("DRAWIO_STYLE_CACHE_RESET", False)
 
     @property
     def xml_repair_max_attempts(self) -> int:
-        """Max corrective LLM repair passes when deterministic repair leaves structural
-        errors unresolved. Bounded (default 1) so a persistently-broken diagram can't
-        loop through repeated LLM calls and exhaust API quota/budget."""
-        return max(1, self.get_int("XML_REPAIR_MAX_ATTEMPTS", 1))
+        """Deprecated: LLM XML repair was removed. Kept for env compatibility; unused."""
+        return max(0, self.get_int("XML_REPAIR_MAX_ATTEMPTS", 0))
 
     @property
     def log_format(self) -> str:

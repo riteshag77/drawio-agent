@@ -21,6 +21,7 @@ from app.adapters.outbound.diagram.xml_diagnostics import (
     resolve_misplaced_actors,
     resolve_moderate_pitch_deviations,
     resolve_orphaned_parents,
+    resolve_parent_cycles,
     resolve_pitch_outliers,
     resolve_reserved_id_reuse,
     resolve_row_overflow,
@@ -313,8 +314,7 @@ class RepairXmlTests(unittest.TestCase):
 
     def test_fixes_duplicate_id_orphaned_parent_missing_geometry_and_moderate_pitch(self) -> None:
         """Combined-defects regression: every category diagnose_xml can produce now
-        has a deterministic fixer — this is the concrete evidence the LLM repair
-        pass is no longer needed for any of them."""
+        has a deterministic fixer — no LLM repair pass is required."""
         xml = _wrap(
             '<mxCell id="vpc" value="VPC" style="container=1;" vertex="1" parent="1">'
             '<mxGeometry x="20" y="50" width="900" height="300" as="geometry"/></mxCell>'
@@ -340,6 +340,46 @@ class RepairXmlTests(unittest.TestCase):
         self.assertEqual(orphan.get("parent"), "1")
         no_geom = next(c for c in tree.iter("mxCell") if c.get("value") == "NoGeom")
         self.assertIsNotNone(no_geom.find("mxGeometry"))
+
+    def test_repairs_parent_cycle_bad_geometry_and_incomplete_edges(self) -> None:
+        xml = _wrap(
+            '<mxCell id="a" value="A" vertex="1" parent="b">'
+            '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="b" value="B" vertex="1" parent="a">'
+            '<mxGeometry x="100" y="0" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="bad_geo" value="Bad" vertex="1" parent="1">'
+            '<mxGeometry x="abc" y="0" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="e1" edge="1" parent="1" source="a">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+            '<mxCell id="e2" edge="1" parent="1" source="ghost" target="a">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        fixed, diag = repair_xml(xml)
+        self.assertEqual(diag.errors, [])
+        tree = ET.fromstring(fixed)
+        by_id = {c.get("id"): c for c in tree.iter("mxCell")}
+        self.assertEqual(by_id["a"].get("parent"), "1")
+        self.assertEqual(by_id["b"].get("parent"), "1")
+        geo = by_id["bad_geo"].find("mxGeometry")
+        self.assertIsNotNone(geo)
+        float(geo.get("x") or 0)  # must be numeric after repair
+        float(geo.get("y") or 0)
+        self.assertIsNone(by_id.get("e1"))
+        self.assertIsNone(by_id.get("e2"))
+
+    def test_unparseable_xml_is_an_error_not_silent_ok(self) -> None:
+        diag = diagnose_xml("<not><valid")
+        self.assertFalse(diag.ok)
+        self.assertTrue(any("unparseable" in e for e in diag.errors))
+
+    def test_resolve_parent_cycles_breaks_self_parent(self) -> None:
+        xml = _wrap(
+            '<mxCell id="loop" value="Loop" vertex="1" parent="loop">'
+            '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = resolve_parent_cycles(xml)
+        cell = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "loop")
+        self.assertEqual(cell.get("parent"), "1")
 
 
 class CrossCuttingGroupEdgeTests(unittest.TestCase):

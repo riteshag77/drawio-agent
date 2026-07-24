@@ -35,6 +35,44 @@ class ProviderTests(unittest.TestCase):
         kwargs = mock_cls.call_args.kwargs
         self.assertNotIn("temperature", kwargs)
         self.assertEqual(kwargs.get("model"), spec.default_model)
+        # kimi's client_key is "openai" — max_tokens, not max_output_tokens.
+        self.assertIn("max_tokens", kwargs)
+        self.assertGreater(kwargs["max_tokens"], 0)
+
+    def test_max_output_tokens_kwarg_name_per_client_library(self) -> None:
+        """google clients get max_output_tokens; anthropic/openai clients get max_tokens."""
+        from dataclasses import replace
+
+        from app.adapters.outbound.llm.providers import build_langchain_client
+
+        cases = [
+            ("gemini", "max_output_tokens"),
+            ("claude", "max_tokens"),
+            ("openai", "max_tokens"),
+        ]
+        for provider_key, expected_kwarg in cases:
+            with self.subTest(provider=provider_key):
+                spec = get_provider(provider_key)
+                mock_cls = MagicMock(return_value=MagicMock())
+                patched = replace(spec, client_class=mock_cls)
+                with patch.dict("os.environ", {spec.api_key_env: "test-key"}, clear=False):
+                    build_langchain_client(patched, timeout=30)
+                kwargs = mock_cls.call_args.kwargs
+                self.assertIn(expected_kwarg, kwargs)
+                self.assertGreater(kwargs[expected_kwarg], 0)
+
+    def test_max_output_tokens_override_from_providers_json(self) -> None:
+        from dataclasses import replace
+
+        from app.adapters.outbound.llm.providers import build_langchain_client
+
+        spec = get_provider("claude")
+        mock_cls = MagicMock(return_value=MagicMock())
+        patched = replace(spec, client_class=mock_cls, max_output_tokens=4096)
+        with patch.dict("os.environ", {spec.api_key_env: "test-key"}, clear=False):
+            build_langchain_client(patched, timeout=30)
+        kwargs = mock_cls.call_args.kwargs
+        self.assertEqual(kwargs["max_tokens"], 4096)
 
     def test_normalize_gateway_base_url_strips_trailing_slash(self) -> None:
         from app.adapters.outbound.llm.providers import normalize_gateway_base_url
@@ -111,7 +149,20 @@ class ProviderRegistryLoaderTests(unittest.TestCase):
 
 
 class CallLlmRetryTests(unittest.TestCase):
-    """call_llm() retries exactly once on OutputParserException, then propagates if still failing."""
+    """call_llm() retries exactly once on a parsing failure, then propagates if still failing.
+
+    With with_structured_output(..., include_raw=True) (needed to surface
+    finish_reason/response_metadata — see llm_client.call_llm), invoke() returns
+    a {"raw": AIMessage, "parsed": T | None, "parsing_error": Exception | None}
+    dict rather than raising directly on a parsing failure, so the mocked
+    side effects here return that shape instead of raising/returning bare values.
+    """
+
+    @staticmethod
+    def _raw_message():
+        msg = MagicMock()
+        msg.response_metadata = {"finish_reason": "STOP"}
+        return msg
 
     def _mock_llm(self, invoke_side_effects):
         structured = MagicMock()
@@ -126,8 +177,8 @@ class CallLlmRetryTests(unittest.TestCase):
 
         success = XmlDiagram(xml="<mxfile></mxfile>", assistant_message="ok", suggestions=[])
         llm, structured = self._mock_llm([
-            OutputParserException("Failed to parse XmlDiagram from completion {}. Got: 1 validation error"),
-            success,
+            {"raw": self._raw_message(), "parsed": None, "parsing_error": ValueError("1 validation error")},
+            {"raw": self._raw_message(), "parsed": success, "parsing_error": None},
         ])
         with patch("app.adapters.outbound.llm.llm_client.build_langchain_client", return_value=llm), \
              patch("app.adapters.outbound.llm.llm_client.require_api_key"), \
@@ -141,8 +192,8 @@ class CallLlmRetryTests(unittest.TestCase):
         from app.domain.entities import XmlDiagram
 
         llm, structured = self._mock_llm([
-            OutputParserException("first failure"),
-            OutputParserException("second failure"),
+            {"raw": self._raw_message(), "parsed": None, "parsing_error": ValueError("first failure")},
+            {"raw": self._raw_message(), "parsed": None, "parsing_error": ValueError("second failure")},
         ])
         with patch("app.adapters.outbound.llm.llm_client.build_langchain_client", return_value=llm), \
              patch("app.adapters.outbound.llm.llm_client.require_api_key"), \
@@ -150,6 +201,29 @@ class CallLlmRetryTests(unittest.TestCase):
             with self.assertRaises(OutputParserException):
                 call_llm("system", "human", "claude", XmlDiagram, None)
         self.assertEqual(structured.invoke.call_count, 2)
+
+    def test_finish_reason_max_tokens_is_logged_as_warning(self) -> None:
+        """A non-STOP finish_reason (e.g. MAX_TOKENS) must be surfaced in the log,
+        not silently swallowed — this is what makes a future truncation diagnosable
+        instead of guessed."""
+        from app.adapters.outbound.llm.llm_client import call_llm
+        from app.domain.entities import XmlDiagram
+        from app.core.logging import StepLogger
+
+        success = XmlDiagram(xml="<mxfile></mxfile>", assistant_message="ok", suggestions=[])
+        truncated_msg = MagicMock()
+        truncated_msg.response_metadata = {"finish_reason": "MAX_TOKENS"}
+        llm, structured = self._mock_llm([
+            {"raw": truncated_msg, "parsed": success, "parsing_error": None},
+        ])
+        logger = StepLogger()
+        with patch("app.adapters.outbound.llm.llm_client.build_langchain_client", return_value=llm), \
+             patch("app.adapters.outbound.llm.llm_client.require_api_key"), \
+             patch("app.adapters.outbound.llm.llm_client.get_provider", return_value=get_provider("claude")):
+            call_llm("system", "human", "claude", XmlDiagram, logger)
+        warnings = [e for e in logger.entries if e.level == "warning" and "finish_reason" in e.message]
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("MAX_TOKENS", warnings[0].message)
 
 
 class ChatRequestAttachmentSchemaTests(unittest.TestCase):

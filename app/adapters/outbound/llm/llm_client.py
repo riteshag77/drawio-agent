@@ -85,8 +85,8 @@ def call_llm(
             details={"provider": provider_key, "model": spec.default_model, "output_type": output_type.__name__},
         )
         logger.log("llm_input", "LLM request", details={
-            "system_prompt": _truncate(system_prompt.replace(CACHE_BREAKPOINT, "")),
-            "human_content": _truncate(human_content),
+            "system_prompt": system_prompt.replace(CACHE_BREAKPOINT, ""),
+            "human_content": human_content,
         })
 
     method = spec.structured_output
@@ -98,10 +98,23 @@ def call_llm(
     if logger:
         logger.log("llm", "Using structured output", details={"structured_output": method or "function_calling"})
     usage_handler = UsageMetadataCallbackHandler()
-    structured_llm = llm.with_structured_output(output_type, **kwargs)
+    # include_raw=True keeps the underlying AIMessage (and its response_metadata —
+    # finish_reason/stop_reason, safety_ratings) alongside the parsed object,
+    # instead of with_structured_output()'s default of discarding everything but
+    # the parsed result. Without this there was no way to tell a genuine schema
+    # failure apart from the provider silently stopping early (MAX_TOKENS/SAFETY/
+    # RECITATION) — both looked identical from here: a parsed-but-truncated object.
+    structured_llm = llm.with_structured_output(output_type, include_raw=True, **kwargs)
+    raw_result: dict[str, Any] = {}
+
+    def _invoke(msgs: list) -> dict[str, Any]:
+        return structured_llm.invoke(msgs, config={"callbacks": [usage_handler]})
+
     try:
         try:
-            result = structured_llm.invoke(messages, config={"callbacks": [usage_handler]})
+            raw_result = _invoke(messages)
+            if raw_result.get("parsing_error") is not None or raw_result.get("parsed") is None:
+                raise OutputParserException(str(raw_result.get("parsing_error") or "Structured output parsing failed"))
         except OutputParserException as exc:
             if logger:
                 logger.log("llm", f"Structured output failed validation, retrying once: {exc}", level="warning")
@@ -111,7 +124,9 @@ def call_llm(
                 "\n\nReturn ONLY valid JSON that conforms exactly to this JSON schema — every field must be a "
                 "top-level key of this schema's type, not restructured or decomposed into a different shape:\n" + schema
             ))
-            result = structured_llm.invoke(messages + [corrective], config={"callbacks": [usage_handler]})
+            raw_result = _invoke(messages + [corrective])
+            if raw_result.get("parsed") is None:
+                raise OutputParserException(str(raw_result.get("parsing_error") or "Structured output parsing failed after retry")) from exc
     except OutputParserException:
         raise
     except Exception as exc:
@@ -140,7 +155,7 @@ def call_llm(
                 )
             time.sleep(delay)
             try:
-                result = structured_llm.invoke(messages, config={"callbacks": [usage_handler]})
+                raw_result = _invoke(messages)
                 break
             except Exception as retry_exc:
                 last_exc = retry_exc
@@ -152,12 +167,32 @@ def call_llm(
                     "Try Claude or Gemini, or attach a text-based version."
                 ) from last_exc
             raise ValueError(f"The '{provider_key}' provider (model {spec.default_model}) failed: {last_exc}") from last_exc
+
+    parsed = raw_result.get("parsed")
+    ai_message = raw_result.get("raw")
+    response_metadata = getattr(ai_message, "response_metadata", None) or {}
+    # finish_reason (Google) / stop_reason (Anthropic) / finish_reason (OpenAI)
+    # tells us definitively *why* generation stopped — "STOP"/"end_turn" is a
+    # normal completion, but "MAX_TOKENS"/"length" means the output was cut off
+    # by a token ceiling and "SAFETY"/"content_filter"/"RECITATION" means the
+    # provider itself refused/truncated the content. Logging the raw dict here
+    # (small — a handful of keys) means a future truncation is diagnosed from
+    # this one field instead of inferred from token counts and XML inspection.
+    finish_reason = response_metadata.get("finish_reason") or response_metadata.get("stop_reason")
+    if logger and finish_reason and finish_reason not in ("stop", "STOP", "end_turn"):
+        logger.log(
+            "llm",
+            f"Provider stopped generation with finish_reason={finish_reason!r} — response may be incomplete",
+            level="warning",
+            details={"response_metadata": response_metadata},
+        )
+
     if logger:
         try:
-            raw_text = result.model_dump_json()
+            raw_text = parsed.model_dump_json() if parsed is not None else "null"
         except Exception:
-            raw_text = str(result)
-        logger.log("llm_output", "LLM response", details={"raw": _truncate(raw_text)})
+            raw_text = str(parsed)
+        logger.log("llm_output", "LLM response", details={"raw": raw_text, "response_metadata": response_metadata})
         for model_name, usage in usage_handler.usage_metadata.items():
             input_tokens = usage.get("input_tokens", 0)
             output_tokens = usage.get("output_tokens", 0)
@@ -175,4 +210,4 @@ def call_llm(
                 "total_tokens": usage.get("total_tokens", 0),
                 "estimated_cost_usd": cost,
             })
-    return result
+    return parsed

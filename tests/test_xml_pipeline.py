@@ -1,9 +1,8 @@
-"""Tests for run_xml_pipeline's corrective-repair-pass trigger condition."""
+"""Tests for run_xml_pipeline: deterministic XML repair only (no LLM repair)."""
 
 from __future__ import annotations
 
 import asyncio
-import os
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -22,24 +21,14 @@ MINIMAL_XML = (
 )
 
 
-class RepairPassTriggerTests(unittest.TestCase):
-    """Regression: a cosmetic warning alone (no structural errors) must not
-    trigger the expensive corrective LLM pass. A real incident traced through
-    logs/drawio-agent.log showed a warnings-only diagnostic ("icon pitch 120px
-    ... outside the 150-190px range", zero errors) firing a second ~60-90s LLM
-    call anyway, which pushed the request past request_timeout_seconds. Since
-    the timeout can't actually cancel the in-flight call (see
-    _with_request_timeout's docstring), that second call finished successfully
-    seconds later with its result silently discarded — then the user's retry
-    ran the whole two-call sequence again from scratch. See the comment above
-    the ``if diagnostics.errors:`` check in xml_pipeline.py."""
+class DeterministicRepairOnlyTests(unittest.TestCase):
+    """Format/structure repair must never call an LLM corrective pass."""
 
-    def _run(self, *, diagnose_result, repair_side_effect, repair_diagram_mock):
+    def _run(self, *, diagnose_result, repair_side_effect):
         xml_diagram = XmlDiagram(xml=MINIMAL_XML, assistant_message="ok", suggestions=[], step_markers=[])
         with patch.object(xml_pipeline, "generate_xml_diagram", return_value=xml_diagram), \
                 patch.object(xml_pipeline, "diagnose_xml", return_value=diagnose_result), \
-                patch.object(xml_pipeline, "repair_xml", side_effect=repair_side_effect), \
-                patch.object(xml_pipeline, "repair_xml_diagram", repair_diagram_mock):
+                patch.object(xml_pipeline, "repair_xml", side_effect=repair_side_effect):
             return asyncio.run(xml_pipeline.run_xml_pipeline(
                 user_prompt="draw something",
                 provider="gemini",
@@ -48,57 +37,78 @@ class RepairPassTriggerTests(unittest.TestCase):
                 diagram_renderer="local",
             ))
 
-    def test_warnings_only_does_not_trigger_corrective_pass(self) -> None:
+    def test_warnings_only_still_succeeds(self) -> None:
         warn_only = XmlDiagnostics(errors=[], warnings=["icon pitch 120px between 'a' and 'b' is outside range"])
-        repair_diagram_mock = MagicMock()
         result = self._run(
             diagnose_result=warn_only,
             repair_side_effect=[(MINIMAL_XML, warn_only)],
-            repair_diagram_mock=repair_diagram_mock,
         )
-        repair_diagram_mock.assert_not_called()
         self.assertEqual(result["status"], "success")
 
-    def test_errors_still_trigger_corrective_pass(self) -> None:
+    def test_errors_do_not_trigger_llm_repair(self) -> None:
+        """Residual structural errors are logged only — never sent to an LLM repair pass."""
         has_errors = XmlDiagnostics(errors=["dangling edge 'e1'"], warnings=[])
+        with patch.object(xml_pipeline, "generate_xml_diagram", return_value=XmlDiagram(
+            xml=MINIMAL_XML, assistant_message="ok", suggestions=[], step_markers=[],
+        )), patch.object(xml_pipeline, "diagnose_xml", return_value=has_errors), \
+                patch.object(xml_pipeline, "repair_xml", return_value=(MINIMAL_XML, has_errors)), \
+                patch("app.core.services.agent.repair_xml_diagram", create=True) as llm_repair:
+            result = asyncio.run(xml_pipeline.run_xml_pipeline(
+                user_prompt="draw something",
+                provider="gemini",
+                platform="aws",
+                logger=StepLogger(),
+                diagram_renderer="local",
+            ))
+        llm_repair.assert_not_called()
+        self.assertEqual(result["status"], "success")
+        self.assertNotIn("repair_xml_diagram", dir(xml_pipeline))
+
+
+class MalformedXmlRetryTests(unittest.TestCase):
+    """Generation retry on truncated XML is still allowed — that is regeneration,
+    not format/structure repair. Downstream diagnose/repair remain deterministic."""
+
+    TRUNCATED_XML = (
+        '<mxfile host="app.diagrams.net"><diagram name="A" id="d1">'
+        "<mxGraphModel><root>"
+        '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+        '<mxCell id="broken" value="x" style="html=1;" vertex="1" parent="1">'
+        '<mxGeometry x="0'
+    )
+
+    def _run(self, *, generate_side_effect):
         clean = XmlDiagnostics(errors=[], warnings=[])
-        repaired_diagram = XmlDiagram(xml=MINIMAL_XML, assistant_message="fixed", suggestions=[], step_markers=[])
-        repair_diagram_mock = MagicMock(return_value=repaired_diagram)
-        result = self._run(
-            diagnose_result=has_errors,
-            repair_side_effect=[(MINIMAL_XML, has_errors), (MINIMAL_XML, clean)],
-            repair_diagram_mock=repair_diagram_mock,
-        )
-        repair_diagram_mock.assert_called_once()
-        self.assertEqual(result["status"], "success")
+        gen_mock = MagicMock(side_effect=generate_side_effect)
+        with patch.object(xml_pipeline, "generate_xml_diagram", gen_mock), \
+                patch.object(xml_pipeline, "diagnose_xml", return_value=clean), \
+                patch.object(xml_pipeline, "repair_xml", return_value=(MINIMAL_XML, clean)):
+            result = asyncio.run(xml_pipeline.run_xml_pipeline(
+                user_prompt="draw something",
+                provider="gemini",
+                platform="aws",
+                logger=StepLogger(),
+                diagram_renderer="local",
+            ))
+        return gen_mock, result
 
-    def test_repair_stops_at_default_max_attempts_when_errors_persist(self) -> None:
-        """Default XML_REPAIR_MAX_ATTEMPTS=1 — a diagram whose errors the LLM never
-        actually clears must not loop indefinitely burning LLM calls."""
-        has_errors = XmlDiagnostics(errors=["dangling edge 'e1'"], warnings=[])
-        repaired_diagram = XmlDiagram(xml=MINIMAL_XML, assistant_message="fixed", suggestions=[], step_markers=[])
-        repair_diagram_mock = MagicMock(return_value=repaired_diagram)
-        # repair_xml never clears the error, no matter how many times it's called.
-        result = self._run(
-            diagnose_result=has_errors,
-            repair_side_effect=[(MINIMAL_XML, has_errors)] * 5,
-            repair_diagram_mock=repair_diagram_mock,
-        )
-        self.assertEqual(repair_diagram_mock.call_count, 1)
-        self.assertEqual(result["status"], "success")
+    def test_malformed_first_attempt_retries_and_succeeds(self) -> None:
+        truncated = XmlDiagram(xml=self.TRUNCATED_XML, assistant_message="ok", suggestions=[], step_markers=[])
+        good = XmlDiagram(xml=MINIMAL_XML, assistant_message="ok", suggestions=[], step_markers=[])
+        gen_mock, result = self._run(generate_side_effect=[truncated, good])
 
-    def test_repair_honors_configured_max_attempts(self) -> None:
-        has_errors = XmlDiagnostics(errors=["dangling edge 'e1'"], warnings=[])
-        repaired_diagram = XmlDiagram(xml=MINIMAL_XML, assistant_message="fixed", suggestions=[], step_markers=[])
-        repair_diagram_mock = MagicMock(return_value=repaired_diagram)
-        with patch.dict(os.environ, {"XML_REPAIR_MAX_ATTEMPTS": "3"}):
-            result = self._run(
-                diagnose_result=has_errors,
-                repair_side_effect=[(MINIMAL_XML, has_errors)] * 5,
-                repair_diagram_mock=repair_diagram_mock,
-            )
-        self.assertEqual(repair_diagram_mock.call_count, 3)
+        self.assertEqual(gen_mock.call_count, 2)
+        _, kwargs = gen_mock.call_args
+        self.assertIn("retry_hint", kwargs)
+        self.assertIsNotNone(kwargs["retry_hint"])
         self.assertEqual(result["status"], "success")
+        self.assertIn("iam_icon", result["xml"])
+
+    def test_malformed_on_retry_too_raises(self) -> None:
+        truncated = XmlDiagram(xml=self.TRUNCATED_XML, assistant_message="ok", suggestions=[], step_markers=[])
+        empty = XmlDiagram(xml="", assistant_message="ok", suggestions=[], step_markers=[])
+        with self.assertRaises(ValueError):
+            self._run(generate_side_effect=[truncated, empty])
 
 
 if __name__ == "__main__":

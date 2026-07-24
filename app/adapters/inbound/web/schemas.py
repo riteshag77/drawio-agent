@@ -23,7 +23,7 @@ class PromptRequest(BaseModel):
 
 class ChatMessage(BaseModel):
     role: str
-    content: str = Field(max_length=50_000)
+    content: str = Field(max_length=200_000)
 
 
 class AttachmentDocument(BaseModel):
@@ -47,7 +47,7 @@ class ChatRequest(BaseModel):
     compliance_frameworks: list[str] | None = None
     context_text: str | None = Field(default=None, max_length=20_000)
     attachment_documents: list[AttachmentDocument] | None = Field(default=None, max_length=3)
-    current_xml: str | None = Field(default=None, max_length=300_000)
+    current_xml: str | None = Field(default=None, max_length=1_500_000)
 
 
 class ParseUrlRequest(BaseModel):

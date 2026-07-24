@@ -107,15 +107,17 @@ def create_app() -> FastAPI:
         duration_ms = round((time.monotonic() - t0) * 1000)
         response.headers["X-Request-ID"] = request_id
         response.headers["X-Response-Time-Ms"] = str(duration_ms)
-        from app.core.logging import get_logger
-        get_logger().info(
-            "request method=%s path=%s status=%s duration_ms=%s req_id=%s",
-            request.method,
-            request.url.path,
-            response.status_code,
-            duration_ms,
-            request_id,
-        )
+        path = request.url.path
+        if not path.endswith((".css", ".js")):
+            from app.core.logging import get_logger
+            get_logger().info(
+                "request method=%s path=%s status=%s duration_ms=%s req_id=%s",
+                request.method,
+                path,
+                response.status_code,
+                duration_ms,
+                request_id,
+            )
         return response
 
     application.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

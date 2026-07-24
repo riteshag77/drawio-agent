@@ -315,8 +315,9 @@ class GuaranteeLoadableXmlTests(unittest.TestCase):
     reactively again."""
 
     def test_already_valid_xml_passes_through_unchanged(self) -> None:
-        xml, ok = guarantee_loadable_xml(SAMPLE_MXFILE)
+        xml, ok, failure = guarantee_loadable_xml(SAMPLE_MXFILE)
         self.assertTrue(ok)
+        self.assertIsNone(failure)
         tree = ET.fromstring(xml)
         self.assertEqual(len(tree.findall(".//mxCell")), 4)
 
@@ -331,16 +332,20 @@ class GuaranteeLoadableXmlTests(unittest.TestCase):
             "</mxCell>"
             "</root></mxGraphModel></diagram></mxfile>"
         )
-        xml, ok = guarantee_loadable_xml(broken)
+        xml, ok, failure = guarantee_loadable_xml(broken)
         self.assertTrue(ok)
+        self.assertIsNone(failure)
         ET.fromstring(xml)  # must not raise
 
     def test_unrepairable_input_degrades_to_empty_canvas_not_broken_xml(self) -> None:
         # Deliberately pathological: no amount of regex/ET repair can recover
         # a real diagram from this, so the guarantee is just "still parses".
         hopeless = "<mxfile><diagram><mxGraphModel><root><mxCell id=\"0"
-        xml, ok = guarantee_loadable_xml(hopeless)
+        xml, ok, failure = guarantee_loadable_xml(hopeless)
         self.assertFalse(ok)
+        self.assertIsNotNone(failure)
+        self.assertIn("parse_error", failure)
+        self.assertIn("failing_xml", failure)
         ET.fromstring(xml)  # must not raise — this is the actual guarantee
 
 

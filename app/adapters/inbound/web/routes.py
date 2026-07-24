@@ -9,6 +9,7 @@ from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, RedirectResponse, Response, StreamingResponse
 
 from app.adapters.inbound.web.schemas import ChatRequest, ParseUrlRequest, PromptRequest
+from app.adapters.outbound.capture_store import list_captures, load_capture, save_capture
 from app.adapters.outbound.config.env_config import get_config
 from app.adapters.outbound.llm.concurrency import run_llm_sync
 from app.adapters.outbound.utils.documents import MAX_ATTACHMENT_BYTES, extract_document
@@ -183,6 +184,12 @@ async def _run_chat(body: ChatRequest, logger: StepLogger, *, on_progress=None) 
         # The mermaid/"simple" path never forwards attachments to the LLM — only
         # run_xml_pipeline does, so an attached file must not be routed away from it.
         intent = "cloud"
+    if intent == "simple" and body.current_xml and len(body.current_xml) > 200:
+        # A stale "simple" diagram_mode setting must never derail an in-progress
+        # cloud-diagram edit (e.g. applying a WAF/Compliance suggestion) onto the
+        # Mermaid path — that path returns xml=None and would replace the existing
+        # cloud diagram with an unrelated flowchart.
+        intent = "cloud"
     if on_progress:
         await on_progress("intent", f"Classified as {intent}", {"intent": intent})
 
@@ -190,24 +197,27 @@ async def _run_chat(body: ChatRequest, logger: StepLogger, *, on_progress=None) 
         result = await _with_request_timeout(run_llm_sync(
             generate_mermaid_diagram, last_user, provider, logger, messages, applied_suggestions,
         ))
-        return _mermaid_response(result, logger)
+        response = _mermaid_response(result, logger)
+    else:
+        response = await _with_request_timeout(run_xml_pipeline(
+            user_prompt=None, messages=messages, provider=provider, platform=platform,
+            logger=logger,
+            custom_system_message=_sanitize_custom_msg(body.custom_system_message),
+            diagram_renderer=body.diagram_renderer,
+            applied_suggestions=applied_suggestions,
+            three_d=body.three_d,
+            cost_estimate=body.cost_estimate,
+            well_architected=body.well_architected,
+            compliance=body.compliance,
+            compliance_frameworks=body.compliance_frameworks,
+            context_text=body.context_text,
+            attachment_documents=[a.model_dump() for a in body.attachment_documents] if body.attachment_documents else None,
+            current_xml=body.current_xml,
+            on_progress=on_progress,
+        ))
 
-    return await _with_request_timeout(run_xml_pipeline(
-        user_prompt=None, messages=messages, provider=provider, platform=platform,
-        logger=logger,
-        custom_system_message=_sanitize_custom_msg(body.custom_system_message),
-        diagram_renderer=body.diagram_renderer,
-        applied_suggestions=applied_suggestions,
-        three_d=body.three_d,
-        cost_estimate=body.cost_estimate,
-        well_architected=body.well_architected,
-        compliance=body.compliance,
-        compliance_frameworks=body.compliance_frameworks,
-        context_text=body.context_text,
-        attachment_documents=[a.model_dump() for a in body.attachment_documents] if body.attachment_documents else None,
-        current_xml=body.current_xml,
-        on_progress=on_progress,
-    ))
+    await asyncio.to_thread(save_capture, body.model_dump(), response)
+    return response
 
 
 @router.post("/chat")
@@ -307,6 +317,21 @@ async def chat_diagram_stream(body: ChatRequest, request: Request):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.get("/captures")
+async def get_captures():
+    """Metadata (id/timestamp/prompt snippet) for every captured response, newest first."""
+    return {"captures": await asyncio.to_thread(list_captures)}
+
+
+@router.get("/captures/{capture_id}")
+async def get_capture(capture_id: str):
+    """Full saved request+response for one capture, for playback — no LLM/MCP call."""
+    record = await asyncio.to_thread(load_capture, capture_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Capture not found")
+    return record
 
 
 @router.post("/download")

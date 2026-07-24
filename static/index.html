@@ -9,10 +9,10 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/styles.css?v=20260724d">
-    <link rel="stylesheet" href="/static/themes/midnight-slate.css?v=20260724d">
-    <link rel="stylesheet" href="/static/themes/daylight.css?v=20260724d">
-    <link rel="stylesheet" href="/static/themes/aurora-contrast.css?v=20260724d">
+    <link rel="stylesheet" href="/static/styles.css?v=20260724f">
+    <link rel="stylesheet" href="/static/themes/midnight-slate.css?v=20260724f">
+    <link rel="stylesheet" href="/static/themes/daylight.css?v=20260724f">
+    <link rel="stylesheet" href="/static/themes/aurora-contrast.css?v=20260724f">
     <script>
         (function () {
             var known = ['midnight-slate', 'daylight', 'aurora-contrast'];
@@ -232,6 +232,16 @@
                     </div>
 
                     <div class="drawer-group">
+                        <div class="drawer-group-title">Captured runs</div>
+                        <label for="captures-select">Past responses (view only — no LLM/MCP call)</label>
+                        <select id="captures-select" aria-label="Captured runs"></select>
+                        <div class="btn-group">
+                            <button type="button" class="btn-soft" onclick="loadCapturesList()">Refresh</button>
+                            <button type="button" class="btn-soft" onclick="playbackSelectedCapture()">Load into preview</button>
+                        </div>
+                    </div>
+
+                    <div class="drawer-group">
                         <div class="drawer-group-title">AI customization</div>
                         <label for="custom-system-message">Custom instructions</label>
                         <textarea id="custom-system-message"
@@ -398,23 +408,24 @@
 
     <div id="app-toast" class="app-toast" role="status" aria-live="assertive" hidden></div>
     <div class="copy-feedback" id="copy-toast">Copied to clipboard!</div>
-    <script src="/static/js/state.js?v=20260724d"></script>
-    <script src="/static/js/theme.js?v=20260724d"></script>
-    <script src="/static/js/resizer.js?v=20260724d"></script>
-    <script src="/static/js/settings.js?v=20260724d"></script>
-    <script src="/static/js/prompt-settings.js?v=20260724d"></script>
-    <script src="/static/js/diagram.js?v=20260724d"></script>
-    <script src="/static/js/voice.js?v=20260724d"></script>
-    <script src="/static/js/chat.js?v=20260724d"></script>
-    <script src="/static/js/toast.js?v=20260724d"></script>
-    <script src="/static/js/exports.js?v=20260724d"></script>
-    <script src="/static/js/attachments.js?v=20260724d"></script>
-    <script src="/static/js/platform-ui.js?v=20260724d"></script>
-    <script src="/static/js/run-controls.js?v=20260724d"></script>
-    <script src="/static/js/verbose-logs.js?v=20260724d"></script>
-    <script src="/static/js/insights-ui.js?v=20260724d"></script>
-    <script src="/static/js/insights-panels.js?v=20260724d"></script>
-    <script src="/static/js/app.js?v=20260724d"></script>
+    <script src="/static/js/state.js?v=20260724f"></script>
+    <script src="/static/js/theme.js?v=20260724f"></script>
+    <script src="/static/js/resizer.js?v=20260724f"></script>
+    <script src="/static/js/settings.js?v=20260724f"></script>
+    <script src="/static/js/prompt-settings.js?v=20260724f"></script>
+    <script src="/static/js/diagram.js?v=20260724f"></script>
+    <script src="/static/js/voice.js?v=20260724f"></script>
+    <script src="/static/js/chat.js?v=20260724f"></script>
+    <script src="/static/js/toast.js?v=20260724f"></script>
+    <script src="/static/js/exports.js?v=20260724f"></script>
+    <script src="/static/js/attachments.js?v=20260724f"></script>
+    <script src="/static/js/platform-ui.js?v=20260724f"></script>
+    <script src="/static/js/run-controls.js?v=20260724f"></script>
+    <script src="/static/js/verbose-logs.js?v=20260724f"></script>
+    <script src="/static/js/insights-ui.js?v=20260724f"></script>
+    <script src="/static/js/insights-panels.js?v=20260724f"></script>
+    <script src="/static/js/captures.js?v=20260724f"></script>
+    <script src="/static/js/app.js?v=20260724f"></script>
 </body>
 
 </html>

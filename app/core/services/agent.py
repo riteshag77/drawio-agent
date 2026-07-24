@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from app.adapters.outbound.llm.prompt_builders import build_chat_prompt
+from app.adapters.outbound.utils.chat import build_applied_suggestions_block
 from app.adapters.outbound.llm.prompts.simple import MERMAID_SYSTEM_PROMPT
 from app.adapters.outbound.llm.prompts.system import get_xml_gen_system_prompt_marked
 from app.adapters.outbound.llm.providers import get_provider, normalize_provider_key
@@ -13,7 +14,6 @@ from app.core.ports.llm import LlmPort, get_llm
 from app.domain.entities import MermaidDiagram, XmlDiagram
 
 if TYPE_CHECKING:
-    from app.adapters.outbound.diagram.xml_diagnostics import XmlDiagnostics
     from app.core.logging import StepLogger
 
 
@@ -29,6 +29,7 @@ def generate_xml_diagram(
     context_text: str | None = None,
     attachment_documents: list[dict] | None = None,
     current_xml: str | None = None,
+    retry_hint: str | None = None,
     *,
     llm: LlmPort | None = None,
 ) -> XmlDiagram:
@@ -52,6 +53,11 @@ def generate_xml_diagram(
         user_hint=hint,
     )
     human_parts: list[str] = []
+    if retry_hint:
+        human_parts.append(retry_hint)
+    applied_block = build_applied_suggestions_block(applied_suggestions)
+    if applied_block:
+        human_parts.append(applied_block)
     if current_xml:
         human_parts.append(
             "## Current diagram (edit this exact XML — this is Edit mode)\n"
@@ -92,61 +98,7 @@ def generate_xml_diagram(
     if logger:
         logger.log("xml_diagram", "Draw.io XML generated", level="success", details={
             "xml_chars": len(result.xml),
-            "xml_preview": (result.xml[:500] + "...") if len(result.xml) > 500 else result.xml,
-        })
-    return result
-
-
-def repair_xml_diagram(
-    previous_xml: str,
-    diagnostics: XmlDiagnostics,
-    provider: str = "claude",
-    platform: str = "aws",
-    logger: StepLogger | None = None,
-    user_hint: str = "",
-) -> XmlDiagram:
-    """One bounded corrective LLM pass — fix only the listed structural problems.
-
-    Reuses the full layout system prompt (the model still needs every rule to
-    avoid introducing new violations) plus the previous XML and the concrete
-    diagnostic strings from ``xml_diagnostics.diagnose_xml``. Never raises —
-    on failure this falls back to the (already deterministically-repaired)
-    input XML, since the caller already has a usable diagram without it.
-
-    ``user_hint`` is the original user request; passing it keeps the assembled
-    system prompt identical to generation's (same ``_filter_catalog`` result),
-    so the large static prefix is reused rather than re-billed as a distinct,
-    unfiltered — and therefore larger — prompt.
-    """
-    provider_key = normalize_provider_key(provider)
-    spec = get_provider(provider_key)
-    system_prompt = get_xml_gen_system_prompt_marked(
-        model_id=spec.default_model, provider=provider_key, platform=platform, user_hint=user_hint,
-    )
-    problems = "\n".join(f"- {p}" for p in (diagnostics.errors + diagnostics.warnings))
-    human_content = (
-        "The following draw.io XML has specific structural problems. Fix ONLY these "
-        "problems and return the complete corrected XML, preserving every other cell, "
-        "id, position, and style exactly as-is.\n\n"
-        f"Problems:\n{problems}\n\n"
-        f"XML:\n{previous_xml}"
-    )
-    if logger:
-        logger.log("repair", "Requesting bounded repair pass", details={
-            "problem_count": len(diagnostics.errors) + len(diagnostics.warnings),
-        })
-    _llm = get_llm()
-    try:
-        result = _llm(system_prompt, human_content, provider_key, XmlDiagram, logger, None)
-    except Exception as exc:
-        if logger:
-            logger.log("repair", f"Repair pass failed, keeping prior result: {exc}", level="warning")
-        return XmlDiagram(xml=previous_xml, assistant_message="Generated diagram.")
-    if not result.xml:
-        return XmlDiagram(xml=previous_xml, assistant_message="Generated diagram.")
-    if logger:
-        logger.log("repair", "Repair pass produced corrected XML", level="success", details={
-            "xml_chars": len(result.xml),
+            "xml": result.xml,
         })
     return result
 

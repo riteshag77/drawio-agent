@@ -16,6 +16,36 @@
 
 // ── Chat-API helpers ──────────────────────────────────────
 
+/** FastAPI/Pydantic validation errors return `detail` as an array of
+ *  {loc, msg, type} objects, not a plain string — stringifying that
+ *  directly produces an unreadable "[object Object]" toast/log message.
+ *  Normalize both shapes into one readable string. */
+function formatErrorDetail(detail) {
+    if (!detail) return '';
+    if (typeof detail === 'string') return detail;
+    if (Array.isArray(detail)) {
+        return detail.map((d) => {
+            if (typeof d === 'string') return d;
+            const field = Array.isArray(d.loc) ? d.loc[d.loc.length - 1] : '';
+            return field ? `${field}: ${d.msg}` : (d.msg || JSON.stringify(d));
+        }).join('; ');
+    }
+    return typeof detail === 'object' ? (detail.msg || JSON.stringify(detail)) : String(detail);
+}
+
+/** The chat bubble is for a quick confirmation, not the full explanation —
+ *  that detail belongs in the diagram's own Overview Panel. Collapse the
+ *  LLM's assistant_message (which can run to several sentences/paragraphs)
+ *  down to its first sentence, capped to a short length. */
+function summarizeAssistantMessage(text) {
+    if (!text) return 'Diagram updated.';
+    const firstLine = text.split('\n').find((l) => l.trim()) || text;
+    const trimmed = firstLine.trim();
+    const sentenceMatch = trimmed.match(/^.{1,140}?[.!?](?=\s|$)/);
+    if (sentenceMatch) return sentenceMatch[0].trim();
+    return trimmed.length > 140 ? trimmed.slice(0, 137).trimEnd() + '…' : trimmed;
+}
+
 async function postChatStream(chatBody, signal) {
     const res = await fetch('/chat/stream', {
         method: 'POST',
@@ -27,7 +57,7 @@ async function postChatStream(chatBody, signal) {
         let detail = `HTTP ${res.status}`;
         try {
             const errBody = await res.json();
-            detail = errBody.detail || detail;
+            detail = formatErrorDetail(errBody.detail) || detail;
         } catch (_) {}
         throw new Error(detail);
     }
@@ -264,7 +294,7 @@ async function sendMessage(options = {}) {
             setDiagramStatus('Building diagram XML...');
             data = await res.json();
             mergeServerLogs(data.logs);
-            if (!res.ok) throw new Error(data.detail || 'Server error');
+            if (!res.ok) throw new Error(formatErrorDetail(data.detail) || 'Server error');
         }
 
         setProgress(45);
@@ -273,6 +303,10 @@ async function sendMessage(options = {}) {
         if (data.status !== 'success') throw new Error(data.detail || 'Unknown error');
 
         const assistantText = data.assistant_message || 'Diagram updated.';
+        // Keep the full assistant_message in chatMessages (sent back to the LLM
+        // as conversation history on the next turn) but show only a short
+        // one-liner in the chat bubble itself — the diagram/Overview Panel is
+        // where the detailed explanation belongs, not a wall of text in chat.
         chatMessages.push({ role: 'assistant', content: assistantText });
 
         appendVerboseLog('client', 'Server response received', 'success', {
@@ -327,7 +361,7 @@ async function sendMessage(options = {}) {
         } catch (e) { console.error('Token usage badge error', e); }
 
         setTyping(false);
-        appendChatBubble('assistant', assistantText, data.suggestions || []);
+        appendChatBubble('assistant', summarizeAssistantMessage(assistantText), data.suggestions || []);
 
         setProgress(75);
         setDiagramStatus('Loading into Draw.io...');

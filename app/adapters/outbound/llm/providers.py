@@ -49,6 +49,25 @@ _DEFAULT_PROMPT_CACHE: dict[str, str] = {
     "google": "none",
 }
 
+# No LangChain client library's own default output-token ceiling is generous
+# enough for a large/complex draw.io XML diagram — ChatAnthropic in particular
+# defaults to just 1024 tokens if max_tokens is never set. Leaving this unset
+# caused two live failures where generation was silently hard-stopped
+# mid-attribute (observed output_tokens ~6700-7800, close to a common ~8192
+# library/model default) — the resulting XML is missing content, not just
+# malformed, so no downstream repair pass can recover it. Set explicitly on
+# every client instead of trusting per-library defaults; override per-provider
+# via providers.json's "max_output_tokens" field if a specific model needs a
+# different ceiling.
+_DEFAULT_MAX_OUTPUT_TOKENS = 32000
+
+# LangChain kwarg name for the output-token ceiling differs per client library.
+_MAX_TOKENS_KWARG: dict[str, str] = {
+    "google": "max_output_tokens",
+    "anthropic": "max_tokens",
+    "openai": "max_tokens",
+}
+
 
 def normalize_gateway_base_url(base_url: str, default: str) -> str:
     """Normalize OpenAI-compatible gateway base URLs (strip trailing slash)."""
@@ -74,6 +93,10 @@ class ProviderSpec:
     # specs built from providers.json. When client_class is also set (test/override
     # path), client_class wins and the library is never imported via this key.
     client_key: str = ""
+    # 0 means "not set" (falls back to _DEFAULT_MAX_OUTPUT_TOKENS at client-construction
+    # time) — see _cached_langchain_client. Explicit per-provider override available via
+    # providers.json's "max_output_tokens" field.
+    max_output_tokens: int = 0
 
 
 def _resolve_default_model(record: dict, key: str) -> str:
@@ -124,6 +147,7 @@ def _spec_from_record(record: dict) -> ProviderSpec:
         default_model_env=str(record.get("default_model_env") or "").strip(),
         omit_temperature=bool(record.get("omit_temperature")),
         prompt_cache=prompt_cache,
+        max_output_tokens=int(record.get("max_output_tokens") or 0),
     )
 
 
@@ -227,6 +251,8 @@ def _cached_langchain_client(spec: ProviderSpec, timeout: int) -> BaseChatModel:
     if spec.base_url_env:
         kwargs["api_key"] = os.getenv(spec.api_key_env)
         kwargs["base_url"] = resolve_gateway_base_url(spec)
+    token_kwarg = _MAX_TOKENS_KWARG.get(spec.client_key, "max_tokens")
+    kwargs[token_kwarg] = spec.max_output_tokens or _DEFAULT_MAX_OUTPUT_TOKENS
     return client_cls(**kwargs)
 
 

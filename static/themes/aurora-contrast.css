@@ -1,83 +1,82 @@
-/* Aurora Contrast — "Neon AI": a bold, fully-immersive dark theme built from
-   modern Web3/AI product-landing-page references (neon accent on near-black,
-   radial glow blooms, glassmorphic elevated cards) rather than a simple
-   accent-hue swap. Base surfaces are violet-tinted near-black (not neutral
-   gray), the accent is an electric violet → electric blue "AI energy"
-   duotone, and status/success reuses a neon-lime pop for extra richness.
-   Deliberately a different hue family from Midnight Slate's magenta accent
-   so the two dark themes read as genuinely different moods. Extends the
-   treatment into the canvas chrome too (fully immersive), so pairs best with
-   the draw.io canvas's own "Dark"/"Minimal" theme. All colors below are
-   contrast-checked with the dataviz skill's contrast() helper against these
-   exact surfaces, not assumed. */
+/* Aurora Contrast — refined "Deep Indigo" direction: a single cohesive
+   indigo-violet accent hue used consistently everywhere (brand, buttons,
+   info), on a cool near-black base, with status colors deliberately muted/
+   desaturated rather than neon so they read as calm signals instead of
+   competing for attention. The earlier version stacked violet + neon-lime +
+   amber + rose + blue + cyan simultaneously — six saturated hues fighting
+   each other read as "loud"/clashing rather than premium. A cohesive dark
+   theme uses one dominant accent family and lets everything else stay quiet
+   by comparison (this is how Linear/Vercel/Raycast-style dark UIs read as
+   "expensive" rather than "neon sign"). Kept a subtle glow (toned down from
+   the previous version) and the glassmorphic surfaces, since those effects
+   themselves were fine — it was the color count that was the problem, not
+   the technique. All values contrast-checked with the dataviz skill's
+   contrast() helper against this theme's actual base surface. */
 :root[data-theme="aurora-contrast"] {
-    --text-primary: #f5f0ff;
-    --text-secondary: #b7a3e0;
-    --text-muted: #7d6ba3;
+    --text-primary: #f2f1f8;
+    --text-secondary: #a8a4c4;
+    --text-muted: #7a76a0;
 
-    --sidebar-bg: #0b0714;
-    --sidebar-border: rgba(180, 140, 255, 0.16);
-    --surface-well: #050309;
-    --surface-raised: rgba(139, 47, 232, 0.08);
-    --surface-hover: rgba(139, 47, 232, 0.14);
-    --surface-active: rgba(139, 47, 232, 0.20);
-    --border-subtle: rgba(180, 140, 255, 0.10);
-    --border-strong: rgba(180, 140, 255, 0.28);
-    --surface-panel-right: #0d0817;
+    --sidebar-bg: #0a0a14;
+    --sidebar-border: rgba(160, 150, 220, 0.14);
+    --surface-well: #050508;
+    --surface-raised: rgba(124, 92, 246, 0.06);
+    --surface-hover: rgba(124, 92, 246, 0.11);
+    --surface-active: rgba(124, 92, 246, 0.16);
+    --border-subtle: rgba(160, 150, 220, 0.08);
+    --border-strong: rgba(160, 150, 220, 0.24);
+    --surface-panel-right: #0c0c18;
 
-    /* Electric violet -> electric blue "AI energy" duotone — the two stops
-       every linear-gradient(135deg, var(--accent), var(--accent-hover)) rule
-       already uses (brand mark, active platform card, chat bubble, send
-       button, progress bar). --accent-glow's alpha is raised specifically so
-       the existing .sidebar-header radial-gradient bloom (styles.css) reads
-       as a real neon glow with no new CSS needed there. */
-    --accent: #8B2FE8;
-    --accent-hover: #5B8CFF;
-    --accent-glow: rgba(139, 47, 232, 0.38);
+    /* Single indigo-violet hue, lighter tint for the second gradient stop —
+       not a hue jump to a different color family. Glow alpha toned down from
+       the previous 0.38 for a subtler bloom. */
+    --accent: #7C5CF6;
+    --accent-hover: #9B82F9;
+    --accent-glow: rgba(124, 92, 246, 0.30);
 
-    /* Status colors deliberately sit in a different hue family from the
-       violet accent so nothing collides. Success borrows a neon-lime pop
-       (15:1 against the sidebar surface) echoing the crypto-dashboard
-       reference's stat-tile accents. */
-    --success: #39FF88;
-    --success-soft: #8CFFB8;
-    --success-bg-soft: rgba(57, 255, 136, 0.16);
-    --warning: #FFB020;
-    --warning-soft: #FFD37A;
-    --warning-bg-soft: rgba(255, 176, 32, 0.16);
-    --error: #FF4D6A;
-    --error-soft: #FF93A6;
-    --error-bg-soft: rgba(255, 77, 106, 0.16);
-    --info: #5B8CFF;
-    --info-soft: #A9C4FF;
-    --info-bg-soft: rgba(91, 140, 255, 0.16);
+    /* Status colors deliberately desaturated/muted — clearly distinct
+       semantically, but none compete with the accent for visual weight.
+       Success is a cool teal-green (near the accent's cool side of the
+       wheel) rather than the previous neon lime, which sat almost opposite
+       violet and clashed. Info reuses the accent-hover tint — same family. */
+    --success: #34D399;
+    --success-soft: #6EE7B7;
+    --success-bg-soft: rgba(52, 211, 153, 0.14);
+    --warning: #F5A623;
+    --warning-soft: #FBC873;
+    --warning-bg-soft: rgba(245, 166, 35, 0.14);
+    --error: #F0576C;
+    --error-soft: #F79CAA;
+    --error-bg-soft: rgba(240, 87, 108, 0.14);
+    --info: #9B82F9;
+    --info-soft: #C7B8FC;
+    --info-bg-soft: rgba(155, 130, 249, 0.14);
 
-    --cost-accent: #22d3ee;
-    --cost-accent-dim: rgba(34, 211, 238, 0.12);
-    --cost-bar-bg: rgba(139, 47, 232, 0.12);
+    --cost-accent: #22D3EE;
+    --cost-accent-dim: rgba(34, 211, 238, 0.10);
+    --cost-bar-bg: rgba(124, 92, 246, 0.10);
 
-    --panel-bg: #0f0a1a;
-    --canvas-surface: #0f0a1a;
-    --canvas-overlay: rgba(15, 10, 26, 0.85);
-    --canvas-toolbar-bg: linear-gradient(to bottom, #140d24, #0b0714);
-    --canvas-toolbar-meta-bg: #0b0714;
-    --canvas-border: rgba(180, 140, 255, 0.16);
-    --canvas-text: #f5f0ff;
-    --canvas-text-muted: #a48fcf;
+    --panel-bg: #0e0e1a;
+    --canvas-surface: #0e0e1a;
+    --canvas-overlay: rgba(14, 14, 26, 0.85);
+    --canvas-toolbar-bg: linear-gradient(to bottom, #121224, #0a0a14);
+    --canvas-toolbar-meta-bg: #0a0a14;
+    --canvas-border: rgba(160, 150, 220, 0.14);
+    --canvas-text: #f2f1f8;
+    --canvas-text-muted: #8783a8;
 
-    --btn-bg: rgba(139, 47, 232, 0.07);
-    --btn-border: rgba(180, 140, 255, 0.18);
-    --btn-text: #e9defc;
-    --btn-hover-bg: rgba(139, 47, 232, 0.13);
-    --btn-hover-border: rgba(180, 140, 255, 0.3);
-    --btn-primary-bg: #8B2FE8;
+    --btn-bg: rgba(124, 92, 246, 0.06);
+    --btn-border: rgba(160, 150, 220, 0.16);
+    --btn-text: #dcd9f0;
+    --btn-hover-bg: rgba(124, 92, 246, 0.12);
+    --btn-hover-border: rgba(160, 150, 220, 0.28);
+    --btn-primary-bg: #7C5CF6;
     --btn-primary-text: #ffffff;
-    --btn-primary-hover-bg: #5B8CFF;
+    --btn-primary-hover-bg: #9B82F9;
 
     /* Cost donut categorical palette — dataviz-skill validated 8-hue set, dark column.
        Kept identical across every theme: data-identity colors stay fixed regardless
-       of brand mood, only the app chrome carries the neon accent. Re-validated
-       against this theme's #0b0714 surface — all 8 slots still clear every check. */
+       of brand mood, only the app chrome carries the accent. */
     --chart-cat-1: #3987e5;
     --chart-cat-2: #d95926;
     --chart-cat-3: #199e70;
@@ -89,43 +88,43 @@
 }
 
 :root[data-theme="aurora-contrast"] select {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23b7a3e0' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23a8a4c4' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
 }
 
 :root[data-theme="aurora-contrast"] .composer-tools select {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='%23b7a3e0' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='%23a8a4c4' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
 }
 
 /* Neon bloom — box-shadow glow on the highest-impact accent-colored elements. */
 :root[data-theme="aurora-contrast"] .brand-mark {
-    box-shadow: 0 0 24px var(--accent-glow), 0 6px 18px var(--accent-glow);
+    box-shadow: 0 0 20px var(--accent-glow), 0 6px 16px var(--accent-glow);
 }
 
 :root[data-theme="aurora-contrast"] .btn-action.primary,
 :root[data-theme="aurora-contrast"] .suggestion-btn-primary,
 :root[data-theme="aurora-contrast"] .segmented .platform-card.active {
-    box-shadow: 0 0 22px var(--accent-glow);
+    box-shadow: 0 0 18px var(--accent-glow);
 }
 
 /* Glassmorphism — translucent, blurred elevated surfaces on the most
    visually prominent cards, echoing the reference sites' glass-panel look. */
 :root[data-theme="aurora-contrast"] .settings-drawer {
-    background: rgba(13, 8, 23, 0.72);
+    background: rgba(12, 12, 24, 0.72);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
-    border-left: 1px solid rgba(180, 140, 255, 0.22);
+    border-left: 1px solid rgba(160, 150, 220, 0.20);
 }
 
 :root[data-theme="aurora-contrast"] .gallery-card,
 :root[data-theme="aurora-contrast"] .example-chip {
-    background: rgba(139, 47, 232, 0.06);
+    background: rgba(124, 92, 246, 0.05);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
-    border-color: rgba(180, 140, 255, 0.16);
+    border-color: rgba(160, 150, 220, 0.14);
 }
 
 :root[data-theme="aurora-contrast"] .chat-message.assistant .chat-bubble {
-    background: rgba(139, 47, 232, 0.10);
+    background: rgba(124, 92, 246, 0.09);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
 }

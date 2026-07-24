@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from typing import Any
 
@@ -27,7 +28,7 @@ from app.adapters.outbound.compliance import assess_compliance
 from app.adapters.outbound.cost_estimator import estimate_monthly_cost
 from app.adapters.outbound.utils.chat import filter_applied_suggestions
 from app.adapters.outbound.well_architected import assess_well_architected
-from app.core.services.agent import generate_xml_diagram, repair_xml_diagram
+from app.core.services.agent import generate_xml_diagram
 
 ProgressCallback = Callable[[str, str, dict[str, Any] | None], Any]
 
@@ -179,6 +180,41 @@ async def run_xml_pipeline(
             logger.log("error", "LLM returned no diagram content", level="error")
         raise ValueError("LLM returned no diagram content — nothing to validate or enrich.")
 
+    # Verify the generated XML is actually well-formed *before* spending time/cost
+    # on downstream diagnostics/repair/MCP/compliance — every one of those steps
+    # assumes a parseable document, so a truncated or malformed response here
+    # can't be recovered by any of them. Retrying immediately (regardless of
+    # *why* it was incomplete — a token ceiling, a less capable/lite model
+    # stopping itself early, a JSON-escaping slip) is cheaper and more reliable
+    # than discovering the breakage only at the final guarantee_loadable_xml
+    # circuit breaker, after cost/WAF/compliance have already run against garbage.
+    try:
+        ET.fromstring(ensure_diagram_document(xml_diagram.xml, PLATFORM_LABELS.get(platform_key, "Architecture")))
+    except ET.ParseError as exc:
+        if logger:
+            logger.log(
+                "xml_diagram",
+                f"Generated XML was incomplete or malformed ({exc}) — retrying generation once",
+                level="warning",
+            )
+        await _emit(on_progress, "llm", "First attempt was incomplete, retrying diagram generation…")
+        xml_diagram = await run_llm_sync(
+            generate_xml_diagram, human_prompt, provider_key, platform_key, logger, messages,
+            custom_system_message, applied_suggestions, three_d, context_text, attachment_documents,
+            current_xml=current_xml,
+            retry_hint=(
+                "Your previous response was cut off or malformed before the diagram XML "
+                "was complete — every mxCell must be fully written with its geometry, "
+                "style, and closing tags; nothing may be left half-written. Regenerate "
+                "the COMPLETE diagram from scratch; if it is large, prefer fewer/simpler "
+                "shapes over leaving any shape unfinished."
+            ),
+        )
+        if 'vertex="1"' not in (xml_diagram.xml or ""):
+            if logger:
+                logger.log("error", "LLM returned no diagram content on retry", level="error")
+            raise ValueError("LLM returned no diagram content on retry — nothing to validate or enrich.")
+
     await _emit(on_progress, "validate", "Validating and normalizing XML…")
     xml_output = ensure_diagram_document(xml_diagram.xml, PLATFORM_LABELS.get(platform_key, "Architecture"))
     check = validate_and_fix_xml(xml_output)
@@ -203,44 +239,14 @@ async def run_xml_pipeline(
         )
     if diagnostics.errors or diagnostics.warnings:
         if logger:
-            logger.log("repair", "Deterministic repair left unresolved issues", level="warning", details={
-                "errors": diagnostics.errors, "warnings": diagnostics.warnings,
-            })
-        # Only spend a second, expensive LLM round-trip on real structural errors —
-        # a cosmetic warning (e.g. an icon pitch a few px outside the ideal range)
-        # isn't worth doubling the request's LLM cost/latency for, and with a slow
-        # model/provider this extra call is what pushes requests past
-        # request_timeout_seconds, wasting the *whole* generation (the timeout
-        # can't actually cancel the in-flight call — see _with_request_timeout —
-        # so a warnings-only repair pass that overruns the budget is 100% wasted
-        # tokens on top of the retry the user then has to make).
-        if diagnostics.errors:
-            # Bounded, configurable — default 1 attempt. Never loop unbounded: each
-            # attempt is a full LLM round-trip, and a diagram whose errors the model
-            # can't actually fix would otherwise burn API budget attempt after attempt
-            # for no gain. XML_REPAIR_MAX_ATTEMPTS lets an operator raise this if they
-            # want extra attempts on a flaky provider, without changing the default.
-            max_attempts = get_config().xml_repair_max_attempts
-            attempt = 0
-            while diagnostics.errors and attempt < max_attempts:
-                attempt += 1
-                await _emit(on_progress, "repair", f"Requesting a corrective pass ({attempt}/{max_attempts})…")
-                repaired = await run_llm_sync(
-                    repair_xml_diagram, xml_output, diagnostics, provider_key, platform_key, logger,
-                    human_prompt,
-                )
-                if not repaired.xml:
-                    break
-                xml_output = ensure_diagram_document(repaired.xml, PLATFORM_LABELS.get(platform_key, "Architecture"))
-                check = validate_and_fix_xml(xml_output)
-                xml_output = choose_fixed_xml(xml_output, check)
-                xml_output = normalize_platform_styles(xml_output, platform_key)
-                xml_output, diagnostics = repair_xml(xml_output)
-                if logger:
-                    logger.log("repair", f"Repair pass {attempt}/{max_attempts} complete", level="success", details={
-                        "remaining_errors": diagnostics.errors, "remaining_warnings": diagnostics.warnings,
-                    })
-            await _emit(on_progress, "repair", "Repair complete")
+            logger.log(
+                "repair",
+                "Deterministic repair left residual issues (no LLM repair — format/structure "
+                "fixes are auto-only; remaining items are logged for visibility)",
+                level="warning",
+                details={"errors": diagnostics.errors, "warnings": diagnostics.warnings},
+            )
+        await _emit(on_progress, "repair", "Deterministic repair complete")
 
     use_mcp = is_xml_pipeline_mode(diagram_renderer)
     shape_types: list[str] = []
@@ -256,7 +262,7 @@ async def run_xml_pipeline(
                 "cost",
                 f"Estimated monthly cost: ${data['total']}",
                 level="info",
-                details={"service_count": data["services_matched"] + data["services_unmatched"]},
+                details={"service_count": data["services_matched"] + data["services_unmatched"], "cost_estimate": data},
             )
         await _emit(on_progress, "cost", f"Estimated monthly cost: ${data['total']}")
         return data
@@ -270,7 +276,7 @@ async def run_xml_pipeline(
                 "waf",
                 f"Well-Architected: {data['overall_status']}",
                 level="info",
-                details={"pillars": len(data["pillars"]), "services": data["services_analyzed"]},
+                details={"pillars": len(data["pillars"]), "services": data["services_analyzed"], "well_architected": data},
             )
         await _emit(on_progress, "waf", f"Well-Architected: {data['overall_status']}")
         return data
@@ -287,6 +293,13 @@ async def run_xml_pipeline(
             provider=provider_key if compliance_frameworks else None,
             logger=logger,
         )
+        if logger:
+            logger.log(
+                "compliance",
+                "Compliance assessment complete",
+                level="info",
+                details={"compliance": data},
+            )
         await _emit(on_progress, "compliance", "Compliance assessment complete")
         return data
 
@@ -310,7 +323,7 @@ async def run_xml_pipeline(
                             "mcp",
                             f"Applied {len(overrides)} MCP icon styles to diagram",
                             level="success",
-                            details={"resolved": {k: v[:80] for k, v in overrides.items()}},
+                            details={"resolved": overrides},
                         )
                     await _emit(on_progress, "mcp", f"Applied {len(overrides)} icon styles")
 
@@ -318,6 +331,7 @@ async def run_xml_pipeline(
 
             if get_config().drawio_mcp_libavoid:
                 await _emit(on_progress, "mcp", "Applying libavoid edge routing…")
+                pre_routing_xml = local_xml
                 preview_url, routed_xml = await create_diagram(local_xml, routing="libavoid", logger=logger)
                 if routed_xml:
                     # routed_xml comes back from the external MCP service — never
@@ -330,14 +344,35 @@ async def run_xml_pipeline(
                     # above for LLM output, so auto_fix_xml's escaping repair
                     # applies here too.
                     routed_check = validate_and_fix_xml(routed_xml)
-                    local_xml = choose_fixed_xml(routed_xml, routed_check)
-                    if logger:
-                        logger.log(
-                            "mcp",
-                            "Libavoid routing applied",
-                            level="success",
-                            details={"routed_xml_chars": len(routed_xml)},
-                        )
+                    candidate = choose_fixed_xml(routed_xml, routed_check)
+                    # choose_fixed_xml's own fallback is ensure_diagram_document(routed_xml)
+                    # — which only repairs missing wrapper tags, not the underlying
+                    # malformation — so it can still hand back something unparseable when
+                    # the external round-trip itself was too broken to repair. Verify the
+                    # result actually parses before trusting it; if not, discard the whole
+                    # libavoid round-trip and keep the last-known-good pre-routing XML
+                    # rather than risk shipping (and then, at the final circuit breaker,
+                    # emptying) a diagram that was fine before this optional enrichment step.
+                    try:
+                        ET.fromstring(candidate)
+                        local_xml = candidate
+                        if logger:
+                            logger.log(
+                                "mcp",
+                                "Libavoid routing applied",
+                                level="success",
+                                details={"routed_xml_chars": len(routed_xml)},
+                            )
+                    except ET.ParseError as exc:
+                        if logger:
+                            logger.log(
+                                "mcp",
+                                f"Libavoid routing discarded — MCP round-trip was unparseable "
+                                f"even after repair, keeping pre-routing diagram: {exc}",
+                                level="warning",
+                                details={"routed_xml_chars": len(routed_xml), "routed_xml": routed_xml},
+                            )
+                        local_xml = pre_routing_xml
         except DrawioMcpError as exc:
             if logger:
                 logger.log("mcp", f"MCP enrichment skipped: {exc}", level="warning")
@@ -380,13 +415,14 @@ async def run_xml_pipeline(
     # Guarantee loadability once, right before the response leaves the service,
     # instead of trusting every step above to have been gap-free.
     page_label = PLATFORM_LABELS.get(platform_key, "Architecture")
-    xml_output, xml_ok = guarantee_loadable_xml(xml_output, page_label)
+    xml_output, xml_ok, xml_failure = guarantee_loadable_xml(xml_output, page_label)
     if not xml_ok and logger:
         logger.log(
             "error",
             "Diagram XML failed to parse after every repair pass — served an "
             "empty canvas instead of a broken diagram file",
             level="error",
+            details=xml_failure,
         )
 
     if not use_mcp:

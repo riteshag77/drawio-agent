@@ -1,6 +1,7 @@
 function openSettings() {
     document.getElementById('settings-backdrop').classList.add('open');
     document.getElementById('settings-drawer').classList.add('open');
+    if (typeof loadCapturesList === 'function') loadCapturesList();
 }
 
 function closeSettings() {
