@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/styles.css?v=20260725g">
+    <link rel="stylesheet" href="/static/styles.css?v=20260725j">
     <link rel="stylesheet" href="/static/themes/midnight-slate.css?v=20260724f">
     <link rel="stylesheet" href="/static/themes/daylight.css?v=20260724f">
     <link rel="stylesheet" href="/static/themes/aurora-contrast.css?v=20260724f">
@@ -274,9 +274,23 @@
         <!-- Right: full-height Draw.io editor -->
         <main class="diagram-panel">
             <div class="diagram-toolbar">
-                <div>
+                <div class="diagram-toolbar-leading">
                     <div class="title">Diagram Preview</div>
                     <div id="diagram-status" class="status" role="status" aria-live="polite">Waiting for generation</div>
+                </div>
+                <div id="token-badge" class="token-meter" hidden role="status" aria-live="polite">
+                    <div class="token-meter-top">
+                        <span class="token-meter-label">LLM usage</span>
+                        <span class="token-meter-summary" id="token-meter-summary"></span>
+                    </div>
+                    <div class="token-meter-track" aria-hidden="true">
+                        <span class="token-meter-seg token-meter-in" id="token-meter-in"></span>
+                        <span class="token-meter-seg token-meter-out" id="token-meter-out"></span>
+                    </div>
+                    <div class="token-meter-legend">
+                        <span class="token-meter-legend-item"><i class="token-swatch token-swatch-in"></i><span id="token-meter-in-label">in</span></span>
+                        <span class="token-meter-legend-item"><i class="token-swatch token-swatch-out"></i><span id="token-meter-out-label">out</span></span>
+                    </div>
                 </div>
                 <div class="toolbar-actions">
                     <button id="btn-download" class="btn-action primary" onclick="downloadXML()" disabled>
@@ -305,20 +319,6 @@
             <div class="diagram-toolbar-meta">
                 <div class="diagram-toolbar-meta-left">
                     <div id="context-chip" class="context-chip" aria-live="polite"></div>
-                    <div id="token-badge" class="token-meter" hidden role="status" aria-live="polite">
-                        <div class="token-meter-top">
-                            <span class="token-meter-label">LLM usage</span>
-                            <span class="token-meter-summary" id="token-meter-summary"></span>
-                        </div>
-                        <div class="token-meter-track" aria-hidden="true">
-                            <span class="token-meter-seg token-meter-in" id="token-meter-in"></span>
-                            <span class="token-meter-seg token-meter-out" id="token-meter-out"></span>
-                        </div>
-                        <div class="token-meter-legend">
-                            <span class="token-meter-legend-item"><i class="token-swatch token-swatch-in"></i><span id="token-meter-in-label">in</span></span>
-                            <span class="token-meter-legend-item"><i class="token-swatch token-swatch-out"></i><span id="token-meter-out-label">out</span></span>
-                        </div>
-                    </div>
                 </div>
                 <div id="version-strip" class="version-strip" hidden></div>
             </div>

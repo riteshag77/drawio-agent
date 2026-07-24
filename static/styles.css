@@ -1954,14 +1954,21 @@
         }
 
         .diagram-toolbar {
-            height: 52px;
-            padding: 0 1rem;
+            min-height: 52px;
+            height: auto;
+            padding: 6px 1rem;
             display: flex;
             align-items: center;
             justify-content: space-between;
+            gap: 12px;
             background: var(--canvas-toolbar-bg);
             border-bottom: 1px solid var(--canvas-border);
             flex-shrink: 0;
+        }
+
+        .diagram-toolbar-leading {
+            min-width: 0;
+            flex: 1 1 auto;
         }
 
         .diagram-toolbar .title {
@@ -1973,6 +1980,31 @@
         .diagram-toolbar .status {
             font-size: 0.78rem;
             color: var(--canvas-text-muted);
+        }
+
+        .diagram-toolbar .token-meter {
+            margin-left: auto;
+            min-width: 150px;
+            max-width: 210px;
+            padding: 4px 8px 5px;
+        }
+
+        .diagram-toolbar .token-meter-top {
+            margin-bottom: 3px;
+        }
+
+        .diagram-toolbar .token-meter-track {
+            height: 4px;
+        }
+
+        .diagram-toolbar .token-meter-legend {
+            margin-top: 3px;
+            font-size: 0.6rem;
+        }
+
+        .diagram-toolbar .toolbar-actions {
+            margin-left: 0;
+            flex-shrink: 0;
         }
 
         .diagram-toolbar-meta {
