@@ -366,9 +366,9 @@ async def download_diagram(body: PromptRequest, request: Request):
 
 @router.post("/attachments/extract")
 async def extract_attachment(request: Request, file: UploadFile = File(...)):
-    """Read an attached PDF/text/image file and return either extracted text or a
-    base64 payload for vision fallback. Never raises for a bad file — one unreadable
-    attachment must not break the rest of the batch or the chat flow around it."""
+    """Read an attached PDF/text/image/draw.io file and return text, vision
+    payload, or validated diagram XML. Never raises for a bad file — one
+    unreadable attachment must not break the rest of the batch or the chat flow."""
     logger = _logger_from_request(request)
     filename = file.filename or "attachment"
 
@@ -400,6 +400,14 @@ async def extract_attachment(request: Request, file: UploadFile = File(...)):
     })
     if result.kind == "text":
         return {"status": "success", "kind": "text", "filename": filename, "content": result.content, "truncated": result.truncated}
+    if result.kind == "diagram":
+        return {
+            "status": "success",
+            "kind": "diagram",
+            "filename": filename,
+            "content": result.content,
+            "mime": result.mime or "application/xml",
+        }
     return {"status": "success", "kind": "vision", "filename": filename, "mime": result.mime, "data": result.data_b64}
 
 

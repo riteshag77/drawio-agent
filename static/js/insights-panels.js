@@ -209,31 +209,72 @@ function displayCostEstimate(costData) {
     }
 }
 
+function _formatTokenCount(n) {
+    n = Number(n) || 0;
+    if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'K';
+    return String(n);
+}
+
 function displayTokenUsage(usage) {
     var badge = document.getElementById('token-badge');
     if (!badge) return;
     if (!usage || !usage.total_tokens) {
-        badge.hidden = true;
-        badge.textContent = '';
+        hideTokenUsage();
         return;
     }
-    var tokens = usage.total_tokens;
-    var tokenText = tokens >= 1000 ? (tokens / 1000).toFixed(1) + 'K tokens' : tokens + ' tokens';
-    var text = '~' + tokenText;
-    if (typeof usage.estimated_cost_usd === 'number') {
-        text += ' · ~$' + usage.estimated_cost_usd.toFixed(usage.estimated_cost_usd < 0.01 ? 4 : 2);
+
+    var total = usage.total_tokens || 0;
+    var input = usage.total_input_tokens || 0;
+    var output = usage.total_output_tokens || 0;
+    if (!input && !output && total) {
+        input = total;
     }
-    badge.textContent = text;
+    var denom = Math.max(input + output, 1);
+    var inPct = Math.round((input / denom) * 100);
+    var outPct = Math.max(0, 100 - inPct);
+
+    var summary = '~' + _formatTokenCount(total) + ' tok';
+    if (typeof usage.estimated_cost_usd === 'number') {
+        var cost = usage.estimated_cost_usd;
+        summary += ' · ~$' + cost.toFixed(cost < 0.01 ? 4 : 2);
+    }
+
+    var summaryEl = document.getElementById('token-meter-summary');
+    var inSeg = document.getElementById('token-meter-in');
+    var outSeg = document.getElementById('token-meter-out');
+    var inLabel = document.getElementById('token-meter-in-label');
+    var outLabel = document.getElementById('token-meter-out-label');
+
+    if (summaryEl) summaryEl.textContent = summary;
+    if (inSeg) inSeg.style.flexGrow = String(Math.max(inPct, input ? 2 : 0));
+    if (outSeg) outSeg.style.flexGrow = String(Math.max(outPct, output ? 2 : 0));
+    if (inLabel) inLabel.textContent = 'in ' + _formatTokenCount(input);
+    if (outLabel) outLabel.textContent = 'out ' + _formatTokenCount(output);
+
     badge.hidden = false;
-    badge.title = (usage.calls || []).map(function (c) {
-        return (c.model || 'unknown model') + ': ' + (c.total_tokens || 0) + ' tokens'
-            + (typeof c.estimated_cost_usd === 'number' ? ' (~$' + c.estimated_cost_usd.toFixed(4) + ')' : '');
-    }).join('\n') || 'Estimated LLM tokens/cost for the last generation';
+    badge.removeAttribute('title');
+    badge.setAttribute(
+        'aria-label',
+        'LLM usage: ' + summary + ', input ' + input + ', output ' + output
+    );
 }
 
 function hideTokenUsage() {
     var badge = document.getElementById('token-badge');
-    if (badge) { badge.hidden = true; badge.textContent = ''; }
+    if (!badge) return;
+    badge.hidden = true;
+    var summaryEl = document.getElementById('token-meter-summary');
+    var inSeg = document.getElementById('token-meter-in');
+    var outSeg = document.getElementById('token-meter-out');
+    var inLabel = document.getElementById('token-meter-in-label');
+    var outLabel = document.getElementById('token-meter-out-label');
+    if (summaryEl) summaryEl.textContent = '';
+    if (inSeg) inSeg.style.flexGrow = '0';
+    if (outSeg) outSeg.style.flexGrow = '0';
+    if (inLabel) inLabel.textContent = 'in';
+    if (outLabel) outLabel.textContent = 'out';
+    badge.removeAttribute('aria-label');
+    badge.removeAttribute('title');
 }
 
 function hideCostEstimate() {

@@ -1,16 +1,22 @@
-"""Document/image attachment extraction — turns an uploaded file into either
-extractable text or a base64 payload for the LLM's native vision/document input."""
+"""Document/image/diagram attachment extraction — turns an uploaded file into
+extractable text, a base64 vision payload, or validated draw.io XML."""
 
 from __future__ import annotations
 
 import base64
+import re
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from io import BytesIO
 
 MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024  # 15 MB
 MAX_TEXT_CHARS = 12_000
+# Align with ChatRequest.current_xml max_length — full diagrams must not be
+# truncated like plain-text context (12k), or Edit mode loses the architecture.
+MAX_DIAGRAM_CHARS = 1_500_000
 
 TEXT_EXTENSIONS = {".txt", ".md", ".json", ".yaml", ".yml"}
+DIAGRAM_EXTENSIONS = {".drawio", ".xml"}
 
 _SIGNATURES: dict[bytes, str] = {
     b"%PDF-": "application/pdf",
@@ -28,7 +34,10 @@ _BLOCKED_SIGNATURES: dict[bytes, str] = {
     b"\x7fELF": "a Linux executable",
     b"\xca\xfe\xba\xbe": "a Mach-O/Java class binary",
     b"\xfe\xed\xfa": "a Mach-O binary",
-    b"PK\x03\x04": "a zip/Office archive (docx/xlsx/pptx are not supported)",
+    b"PK\x03\x04": (
+        "a zip/Office archive (compressed .drawio and docx/xlsx/pptx are not supported — "
+        "export an uncompressed .drawio / .xml from draw.io instead)"
+    ),
     b"#!": "a script",
 }
 
@@ -37,10 +46,12 @@ _BLOCKED_SIGNATURES: dict[bytes, str] = {
 # which is the main malicious pattern relevant to a file we never open in a viewer.
 _PDF_ACTIVE_CONTENT_MARKERS = (b"/JavaScript", b"/JS", b"/OpenAction", b"/Launch", b"/EmbeddedFile", b"/AA")
 
+_COMPRESSED_ATTR = re.compile(r'compressed\s*=\s*["\']true["\']', re.IGNORECASE)
+
 
 @dataclass
 class DocumentResult:
-    kind: str  # "text" | "vision" | "error"
+    kind: str  # "text" | "vision" | "diagram" | "error"
     filename: str
     content: str | None = None
     truncated: bool = False
@@ -63,6 +74,16 @@ def _is_probably_text(filename: str) -> bool:
     return any(lower.endswith(ext) for ext in TEXT_EXTENSIONS)
 
 
+def _is_probably_diagram(filename: str) -> bool:
+    lower = filename.lower()
+    return any(lower.endswith(ext) for ext in DIAGRAM_EXTENSIONS)
+
+
+def _looks_like_drawio_bytes(data: bytes) -> bool:
+    head = data.lstrip()[:200].lower()
+    return head.startswith(b"<?xml") or head.startswith(b"<mxfile") or head.startswith(b"<mxgraphmodel")
+
+
 def extract_document(filename: str, data: bytes) -> DocumentResult:
     """Classify and extract an uploaded file. Never raises — every failure mode
     (corrupt, encrypted, oversized, unsupported, mismatched extension) becomes a
@@ -78,7 +99,7 @@ def extract_document(filename: str, data: bytes) -> DocumentResult:
 
     for signature, label in _BLOCKED_SIGNATURES.items():
         if data.startswith(signature):
-            return DocumentResult(kind="error", filename=filename, message=f"'{filename}' looks like {label}, which isn't a supported document type.")
+            return DocumentResult(kind="error", filename=filename, message=f"'{filename}' looks like {label}.")
 
     sniffed = _sniff_mime(data)
 
@@ -86,6 +107,14 @@ def extract_document(filename: str, data: bytes) -> DocumentResult:
         return _extract_pdf(filename, data)
     if sniffed and sniffed.startswith("image/"):
         return DocumentResult(kind="vision", filename=filename, mime=sniffed, data_b64=_b64(data))
+
+    if _is_probably_diagram(filename) or (_looks_like_drawio_bytes(data) and not _is_probably_text(filename)):
+        if sniffed is not None:
+            return DocumentResult(
+                kind="error", filename=filename,
+                message=f"'{filename}' looks like a {sniffed} file, not draw.io XML.",
+            )
+        return _extract_diagram(filename, data)
 
     if _is_probably_text(filename):
         if sniffed is not None:
@@ -103,8 +132,83 @@ def extract_document(filename: str, data: bytes) -> DocumentResult:
         kind="error", filename=filename,
         message=(
             f"Unsupported file type for '{filename}'. Attach a PDF, a plain text/markdown/JSON/YAML "
-            "file, or an image (PNG/JPEG/GIF/WEBP)."
+            "file, an image (PNG/JPEG/GIF/WEBP), or a draw.io / XML diagram (.drawio, .xml)."
         ),
+    )
+
+
+def _extract_diagram(filename: str, data: bytes) -> DocumentResult:
+    """Validate and normalize an uncompressed draw.io / mxGraph XML attachment."""
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return DocumentResult(
+            kind="error", filename=filename,
+            message=f"Could not read '{filename}' as XML (not valid UTF-8).",
+        )
+
+    if len(text) > MAX_DIAGRAM_CHARS:
+        return DocumentResult(
+            kind="error", filename=filename,
+            message=(
+                f"'{filename}' is too large as diagram XML "
+                f"({len(text):,} chars; limit {MAX_DIAGRAM_CHARS:,})."
+            ),
+        )
+
+    sample = text[:8000]
+    if _COMPRESSED_ATTR.search(sample) and "<mxCell" not in text:
+        return DocumentResult(
+            kind="error", filename=filename,
+            message=(
+                f"'{filename}' is a compressed draw.io diagram. Export uncompressed "
+                ".drawio / .xml from draw.io (File → Export as → XML) and try again."
+            ),
+        )
+
+    from app.adapters.outbound.diagram.xml_tools import (
+        choose_fixed_xml,
+        coerce_drawio_xml,
+        ensure_diagram_document,
+        validate_and_fix_xml,
+    )
+
+    try:
+        coerced = coerce_drawio_xml(text)
+        document = ensure_diagram_document(coerced, page_name=filename.rsplit(".", 1)[0] or "Architecture")
+        check = validate_and_fix_xml(document)
+        normalized = choose_fixed_xml(document, check)
+        ET.fromstring(normalized)
+    except ET.ParseError as exc:
+        return DocumentResult(
+            kind="error", filename=filename,
+            message=f"'{filename}' is not well-formed XML ({exc}).",
+        )
+    except Exception as exc:
+        return DocumentResult(
+            kind="error", filename=filename,
+            message=f"Could not parse '{filename}' as a draw.io diagram: {exc}",
+        )
+
+    if "<mxCell" not in normalized:
+        return DocumentResult(
+            kind="error", filename=filename,
+            message=f"'{filename}' has no diagram cells (mxCell) after parsing.",
+        )
+    if 'vertex="1"' not in normalized and 'edge="1"' not in normalized:
+        # Roots 0/1 alone are not a usable architecture diagram.
+        cell_count = normalized.count("<mxCell")
+        if cell_count <= 2:
+            return DocumentResult(
+                kind="error", filename=filename,
+                message=f"'{filename}' does not contain a usable diagram (no shapes or edges).",
+            )
+
+    return DocumentResult(
+        kind="diagram",
+        filename=filename,
+        content=normalized,
+        mime="application/xml",
     )
 
 

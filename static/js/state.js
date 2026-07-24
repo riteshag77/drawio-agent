@@ -28,6 +28,7 @@ let previousArchitecture = null;
 let pendingXmlExport = null;
 let attachmentContext = '';
 let attachmentDocuments = []; // [{filename, mime, data}] — vision-fallback PDFs/images, sent alongside context_text
+let attachmentDiagramXml = null; // validated .drawio/.xml from paperclip — sent as current_xml
 let attachments = []; // [{filename, status: 'loading'|'ready'|'error', message, truncated}] — chip tracking
 let lastValidationFeedback = null;
 let pendingPngExport = null;

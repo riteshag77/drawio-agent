@@ -87,6 +87,57 @@ class TextExtractionTests(unittest.TestCase):
         self.assertEqual(result.kind, "error")
 
 
+class DiagramExtractionTests(unittest.TestCase):
+    MINIMAL = (
+        b'<mxfile host="app.diagrams.net"><diagram name="A" id="d1">'
+        b"<mxGraphModel><root>"
+        b'<mxCell id="0"/><mxCell id="1" parent="0"/>'
+        b'<mxCell id="svc" value="Lambda" style="html=1;" vertex="1" parent="1">'
+        b'<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>'
+        b"</root></mxGraphModel></diagram></mxfile>"
+    )
+
+    def test_drawio_extension_is_accepted(self) -> None:
+        result = extract_document("arch.drawio", self.MINIMAL)
+        self.assertEqual(result.kind, "diagram")
+        self.assertIn("mxCell", result.content or "")
+        self.assertIn("Lambda", result.content or "")
+
+    def test_xml_extension_is_accepted(self) -> None:
+        result = extract_document("arch.xml", self.MINIMAL)
+        self.assertEqual(result.kind, "diagram")
+
+    def test_malformed_xml_is_rejected(self) -> None:
+        result = extract_document("bad.drawio", b"<mxfile><diagram><not-closed>")
+        self.assertEqual(result.kind, "error")
+        self.assertTrue(result.message)
+
+    def test_empty_roots_only_rejected(self) -> None:
+        bare = (
+            b'<mxfile host="app.diagrams.net"><diagram name="A" id="d1">'
+            b"<mxGraphModel><root>"
+            b'<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            b"</root></mxGraphModel></diagram></mxfile>"
+        )
+        result = extract_document("empty.drawio", bare)
+        self.assertEqual(result.kind, "error")
+        self.assertIn("usable diagram", result.message or "")
+
+    def test_compressed_without_cells_rejected(self) -> None:
+        compressed = (
+            b'<mxfile host="app.diagrams.net"><diagram id="d1" name="A">'
+            b'<mxGraphModel compressed="true"><root/></mxGraphModel>'
+            b"</diagram></mxfile>"
+        )
+        result = extract_document("zippy.drawio", compressed)
+        self.assertEqual(result.kind, "error")
+        self.assertIn("compressed", (result.message or "").lower())
+
+    def test_zip_signature_drawio_rejected(self) -> None:
+        result = extract_document("packed.drawio", b"PK\x03\x04" + b"\x00" * 32)
+        self.assertEqual(result.kind, "error")
+
+
 class SizeAndSecurityGuardrailTests(unittest.TestCase):
     def test_oversized_file_is_rejected(self) -> None:
         data = b"a" * (MAX_ATTACHMENT_BYTES + 1)

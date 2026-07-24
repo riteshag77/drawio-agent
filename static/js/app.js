@@ -228,7 +228,9 @@ async function sendMessage(options = {}) {
     try {
         const promptSettings = getPromptSettings();
         let xmlForRequest = null;
-        if (!currentArchitecture) {
+        if (attachmentDiagramXml && attachmentDiagramXml.length > 200) {
+            xmlForRequest = attachmentDiagramXml;
+        } else if (!currentArchitecture) {
             const liveXml = await exportDiagramXml();
             xmlForRequest = (liveXml && liveXml.length > 200) ? liveXml : (currentXml || null);
         }

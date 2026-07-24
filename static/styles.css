@@ -1969,6 +1969,105 @@
             white-space: nowrap;
         }
 
+        .token-meter {
+            --token-in: var(--accent, #2563eb);
+            --token-out: var(--success, #16a34a);
+            min-width: 168px;
+            max-width: 240px;
+            padding: 6px 10px 7px;
+            border-radius: 10px;
+            border: 1px solid var(--border-subtle, rgba(15, 23, 42, 0.08));
+            background: var(--surface-raised, rgba(15, 23, 42, 0.03));
+            color: var(--text-secondary, #475569);
+            flex-shrink: 0;
+        }
+
+        .token-meter[hidden] {
+            display: none !important;
+        }
+
+        .token-meter-top {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 5px;
+        }
+
+        .token-meter-label {
+            font-size: 0.65rem;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: var(--text-muted, #64748b);
+        }
+
+        .token-meter-summary {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-primary, #0f172a);
+            white-space: nowrap;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .token-meter-track {
+            display: flex;
+            height: 6px;
+            border-radius: 999px;
+            overflow: hidden;
+            background: var(--surface-well, #eef1f5);
+            gap: 1px;
+        }
+
+        .token-meter-seg {
+            display: block;
+            height: 100%;
+            min-width: 0;
+            transition: flex-grow 0.35s ease;
+        }
+
+        .token-meter-in {
+            background: var(--token-in);
+        }
+
+        .token-meter-out {
+            background: var(--token-out);
+            opacity: 0.85;
+        }
+
+        .token-meter-legend {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            margin-top: 5px;
+            font-size: 0.65rem;
+            color: var(--text-muted, #64748b);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .token-meter-legend-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            min-width: 0;
+        }
+
+        .token-swatch {
+            width: 7px;
+            height: 7px;
+            border-radius: 2px;
+            flex-shrink: 0;
+        }
+
+        .token-swatch-in {
+            background: var(--token-in);
+        }
+
+        .token-swatch-out {
+            background: var(--token-out);
+            opacity: 0.85;
+        }
+
         .toolbar-actions {
             display: flex;
             gap: 0.5rem;
