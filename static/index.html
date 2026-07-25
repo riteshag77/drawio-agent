@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/styles.css?v=20260725m">
+    <link rel="stylesheet" href="/static/styles.css?v=20260725t">
     <link rel="stylesheet" href="/static/themes/midnight-slate.css?v=20260724f">
     <link rel="stylesheet" href="/static/themes/daylight.css?v=20260724f">
     <link rel="stylesheet" href="/static/themes/aurora-contrast.css?v=20260724f">
@@ -146,64 +146,22 @@
                     </button>
                 </div>
                 <div class="drawer-body">
-                    <div class="drawer-group">
-                        <div class="drawer-group-title">Generation</div>
-
-                        <label for="diagram-mode-select">Diagram type</label>
-                        <select id="diagram-mode-select" aria-label="Diagram type" onchange="saveDiagramMode()">
-                            <option value="auto">Auto</option>
-                            <option value="cloud">Cloud architecture</option>
-                            <option value="simple">Simple (Mermaid)</option>
-                        </select>
-
-                        <label for="diagram-renderer-select">Render</label>
-                        <select id="diagram-renderer-select" aria-label="Diagram renderer" title="Local layout vs Draw.io MCP icon enrichment">
-                            <option value="auto">Auto (MCP)</option>
-                            <option value="mcp">MCP</option>
-                            <option value="local">Local</option>
-                        </select>
-
+                    <div class="drawer-group is-open" data-group="insights">
+                        <button type="button" class="drawer-group-toggle" aria-expanded="true" onclick="toggleDrawerGroup(this)">
+                            <span class="drawer-group-title">Insights</span>
+                            <span class="drawer-group-chevron" aria-hidden="true"></span>
+                        </button>
+                        <div class="drawer-group-body">
                         <div class="verbose-toggle-row">
                             <div>
-                                <span>Libavoid edge routing</span>
-                                <small>Obstacle-avoiding connectors via MCP (mcp/auto only)</small>
+                                <span>Follow-up suggestions</span>
+                                <small>Show improvement ideas in the Insights panel after each diagram</small>
                             </div>
-                            <label class="toggle-switch" title="Toggle libavoid routing">
-                                <input type="checkbox" id="libavoid-toggle" checked onchange="savePromptSettings()">
+                            <label class="toggle-switch" title="Toggle follow-up suggestions">
+                                <input type="checkbox" id="suggestions-toggle" onchange="savePromptSettings(); toggleSuggestionsPanel()">
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
-                        <div class="verbose-toggle-row">
-                            <div>
-                                <span>Image replicate mode</span>
-                                <small>Preserve topology from attached screenshots/PDFs</small>
-                            </div>
-                            <label class="toggle-switch" title="Toggle image replicate">
-                                <input type="checkbox" id="image-replicate-toggle" onchange="savePromptSettings()">
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-                        <div class="verbose-toggle-row">
-                            <div>
-                                <span>Animated connectors</span>
-                                <small>flowAnimation on primary edges (explainability)</small>
-                            </div>
-                            <label class="toggle-switch" title="Toggle animated connectors">
-                                <input type="checkbox" id="animated-connectors-toggle" onchange="savePromptSettings()">
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-                        <div class="verbose-toggle-row">
-                            <div>
-                                <span>Show AI reasoning</span>
-                                <small>Surface pipeline thinking steps in chat</small>
-                            </div>
-                            <label class="toggle-switch" title="Toggle AI reasoning display">
-                                <input type="checkbox" id="show-reasoning-toggle" onchange="savePromptSettings()">
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-
                         <div class="verbose-toggle-row">
                             <div>
                                 <span>Cost estimation</span>
@@ -244,6 +202,116 @@
                                 <label class="fw-checkbox"><input type="checkbox" class="compliance-fw-cb" value="naic" checked> NAIC</label>
                             </div>
                         </div>
+                        </div>
+                    </div>
+
+                    <div class="drawer-group" data-group="diagram">
+                        <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
+                            <span class="drawer-group-title">Diagram</span>
+                            <span class="drawer-group-chevron" aria-hidden="true"></span>
+                        </button>
+                        <div class="drawer-group-body" hidden>
+                        <label for="diagram-mode-select">Diagram type</label>
+                        <select id="diagram-mode-select" aria-label="Diagram type" onchange="saveDiagramMode()">
+                            <option value="auto">Auto</option>
+                            <option value="cloud">Cloud architecture</option>
+                            <option value="simple">Simple (Mermaid)</option>
+                        </select>
+
+                        <label for="diagram-renderer-select">Render</label>
+                        <select id="diagram-renderer-select" aria-label="Diagram renderer" title="Local layout vs Draw.io MCP icon enrichment">
+                            <option value="auto">Auto (MCP)</option>
+                            <option value="mcp">MCP</option>
+                            <option value="local">Local</option>
+                        </select>
+                        </div>
+                    </div>
+
+                    <div class="drawer-group" data-group="appearance">
+                        <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
+                            <span class="drawer-group-title">Appearance</span>
+                            <span class="drawer-group-chevron" aria-hidden="true"></span>
+                        </button>
+                        <div class="drawer-group-body" hidden>
+                        <label for="app-theme-select">App theme</label>
+                        <select id="app-theme-select" aria-label="Application theme" onchange="changeAppTheme()">
+                            <option value="midnight-slate">Midnight Slate (default)</option>
+                            <option value="daylight">Daylight</option>
+                            <option value="aurora-contrast">Aurora Contrast</option>
+                        </select>
+                        </div>
+                    </div>
+
+                    <div class="drawer-group" data-group="ai-customization">
+                        <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
+                            <span class="drawer-group-title">AI customization</span>
+                            <span class="drawer-group-chevron" aria-hidden="true"></span>
+                        </button>
+                        <div class="drawer-group-body" hidden>
+                        <label for="custom-system-message">Custom instructions</label>
+                        <textarea id="custom-system-message"
+                            placeholder="Optional: e.g. Always use multi-AZ, prefer serverless, keep labels in Spanish…"
+                            oninput="savePromptSettings()"></textarea>
+                        </div>
+                    </div>
+
+                    <div class="drawer-group" data-group="templates">
+                        <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
+                            <span class="drawer-group-title">Saved templates</span>
+                            <span class="drawer-group-chevron" aria-hidden="true"></span>
+                        </button>
+                        <div class="drawer-group-body" hidden>
+                        <div id="template-list" class="template-list"></div>
+                        <button type="button" class="btn-soft" onclick="saveCurrentAsTemplate()">＋ Save current prompt</button>
+                        </div>
+                    </div>
+
+                    <div class="drawer-group" data-group="advanced">
+                        <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
+                            <span class="drawer-group-title">Advanced</span>
+                            <span class="drawer-group-chevron" aria-hidden="true"></span>
+                        </button>
+                        <div class="drawer-group-body" hidden>
+                        <div class="verbose-toggle-row">
+                            <div>
+                                <span>Libavoid edge routing</span>
+                                <small>Obstacle-avoiding connectors via MCP (mcp/auto only)</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle libavoid routing">
+                                <input type="checkbox" id="libavoid-toggle" checked onchange="savePromptSettings()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="verbose-toggle-row">
+                            <div>
+                                <span>Image replicate mode</span>
+                                <small>Preserve topology from attached screenshots/PDFs</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle image replicate">
+                                <input type="checkbox" id="image-replicate-toggle" onchange="savePromptSettings()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="verbose-toggle-row">
+                            <div>
+                                <span>Animated connectors</span>
+                                <small>flowAnimation on primary edges (explainability)</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle animated connectors">
+                                <input type="checkbox" id="animated-connectors-toggle" onchange="savePromptSettings()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="verbose-toggle-row">
+                            <div>
+                                <span>Show AI reasoning</span>
+                                <small>Surface pipeline thinking steps in chat</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle AI reasoning display">
+                                <input type="checkbox" id="show-reasoning-toggle" onchange="savePromptSettings()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
                         <div class="verbose-toggle-row">
                             <div>
                                 <span>Pipeline logs</span>
@@ -254,44 +322,30 @@
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
+                        </div>
                     </div>
 
-                    <div class="drawer-group">
-                        <div class="drawer-group-title">Appearance</div>
-                        <label for="app-theme-select">App theme</label>
-                        <select id="app-theme-select" aria-label="Application theme" onchange="changeAppTheme()">
-                            <option value="midnight-slate">Midnight Slate (default)</option>
-                            <option value="daylight">Daylight</option>
-                            <option value="aurora-contrast">Aurora Contrast</option>
-                        </select>
-                    </div>
-
-                    <div class="drawer-group">
-                        <div class="drawer-group-title">Saved templates</div>
-                        <div id="template-list" class="template-list"></div>
-                        <button type="button" class="btn-soft" onclick="saveCurrentAsTemplate()">＋ Save current prompt</button>
-                    </div>
-
-                    <div class="drawer-group">
-                        <div class="drawer-group-title">Captured runs</div>
+                    <div class="drawer-group" data-group="captures">
+                        <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
+                            <span class="drawer-group-title">Captured runs</span>
+                            <span class="drawer-group-chevron" aria-hidden="true"></span>
+                        </button>
+                        <div class="drawer-group-body" hidden>
                         <label for="captures-select">Past responses (view only — no LLM/MCP call)</label>
                         <select id="captures-select" aria-label="Captured runs"></select>
                         <div class="btn-group">
                             <button type="button" class="btn-soft" onclick="loadCapturesList()">Refresh</button>
                             <button type="button" class="btn-soft" onclick="playbackSelectedCapture()">Load into preview</button>
                         </div>
+                        </div>
                     </div>
 
-                    <div class="drawer-group">
-                        <div class="drawer-group-title">AI customization</div>
-                        <label for="custom-system-message">Custom instructions</label>
-                        <textarea id="custom-system-message"
-                            placeholder="Optional: e.g. Always use multi-AZ, prefer serverless, keep labels in Spanish…"
-                            oninput="savePromptSettings()"></textarea>
-                    </div>
-
-                    <div class="drawer-group">
-                        <div class="drawer-group-title">Voice commands</div>
+                    <div class="drawer-group" data-group="voice">
+                        <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
+                            <span class="drawer-group-title">Voice commands</span>
+                            <span class="drawer-group-chevron" aria-hidden="true"></span>
+                        </button>
+                        <div class="drawer-group-body" hidden>
                         <p class="voice-help-lead">Press <strong>Space</strong> (or the mic button) to start/stop listening. Dictate a diagram prompt or say a command. Say <strong>help</strong> for the full list in chat. While typing in the composer, Space inserts a normal space — press Space outside the field, or again while listening, to toggle the mic.</p>
                         <ul class="voice-help-list">
                             <li><span>Send / stop</span> “send message”, “stop”, “stop listening”</li>
@@ -304,6 +358,7 @@
                         </ul>
                         <p class="voice-help-limits">Limits: attach only opens the file picker; editing inside the draw.io canvas is mouse/keyboard only; Chrome or Edge on localhost/https.</p>
                         <button type="button" class="btn-soft" onclick="showVoiceCommandHelp()">Show full command list</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -390,7 +445,7 @@
             <div class="log-panel-header">
                 <div class="title-block">
                     <h2>Diagram Insights</h2>
-                    <p>Cost, architecture review, and logs</p>
+                    <p>Cost, suggestions, architecture review, and logs</p>
                 </div>
                 <div class="log-panel-actions">
                     <span id="log-count-badge" class="log-count-badge">0 entries</span>
@@ -400,6 +455,7 @@
             </div>
             <div class="insights-tabs" role="tablist" aria-label="Insights">
                 <button type="button" class="insights-tab active" data-tab="cost" role="tab" aria-selected="true" onclick="switchInsightsTab('cost')">Cost</button>
+                <button type="button" class="insights-tab" data-tab="suggestions" role="tab" aria-selected="false" onclick="switchInsightsTab('suggestions')">Suggestions</button>
                 <button type="button" class="insights-tab" data-tab="waf-compliance" role="tab" aria-selected="false" onclick="switchInsightsTab('waf-compliance')">WAF &amp; Compliance</button>
                 <button type="button" class="insights-tab" data-tab="logs" role="tab" aria-selected="false" onclick="switchInsightsTab('logs')">Logs</button>
             </div>
@@ -418,6 +474,31 @@
                 </div>
                 <div id="cost-donut" class="cost-donut" hidden></div>
                 <div id="cost-panel-body" class="cost-panel-body"></div>
+            </div>
+            <div id="suggestions-panel" class="suggestions-panel insights-panel" data-panel="suggestions" hidden>
+                <div class="suggestions-panel-header">
+                    <div class="suggestions-panel-header-left">
+                        <svg class="suggestions-panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></svg>
+                        <h3>Suggestions</h3>
+                    </div>
+                    <button type="button" class="suggestions-panel-close" onclick="hideSuggestionsPanel()" aria-label="Hide suggestions panel">&times;</button>
+                </div>
+                <div class="chat-suggestions" id="suggestions-wrap">
+                    <div class="chat-suggestions-header" id="suggestions-select-all-row" hidden>
+                        <div class="chat-suggestions-title">Follow-up improvements</div>
+                        <label class="chat-suggestions-select-all">
+                            <input type="checkbox" id="suggestions-select-all" class="suggestion-checkbox suggestion-select-all">
+                            <span>Select all</span>
+                        </label>
+                    </div>
+                    <div id="suggestions-panel-body" class="chat-suggestions-list">
+                        <div class="suggestions-empty">Enable Follow-up suggestions in Settings, then generate a diagram</div>
+                    </div>
+                    <div class="suggestion-actions" id="suggestions-action-row" hidden>
+                        <button type="button" class="suggestion-btn" id="suggestions-apply-selected">Apply Selected</button>
+                        <button type="button" class="suggestion-btn suggestion-btn-primary" id="suggestions-apply-all">Apply All</button>
+                    </div>
+                </div>
             </div>
             <div id="waf-compliance-panel" class="insights-panel" data-panel="waf-compliance" hidden>
                 <div class="chat-suggestions-header" id="insight-select-all-row" hidden>
@@ -479,25 +560,25 @@
 
     <div id="app-toast" class="app-toast" role="status" aria-live="assertive" hidden></div>
     <div class="copy-feedback" id="copy-toast">Copied to clipboard!</div>
-    <script src="/static/js/state.js?v=20260725k"></script>
+    <script src="/static/js/state.js?v=20260725s"></script>
     <script src="/static/js/theme.js?v=20260724f"></script>
     <script src="/static/js/resizer.js?v=20260724f"></script>
-    <script src="/static/js/settings.js?v=20260724f"></script>
-    <script src="/static/js/prompt-settings.js?v=20260725k"></script>
+    <script src="/static/js/settings.js?v=20260725t"></script>
+    <script src="/static/js/prompt-settings.js?v=20260725s"></script>
     <script src="/static/js/diagram.js?v=20260725c"></script>
-    <script src="/static/js/voice-commands.js?v=20260725k"></script>
+    <script src="/static/js/voice-commands.js?v=20260725s"></script>
     <script src="/static/js/voice.js?v=20260725i"></script>
-    <script src="/static/js/chat.js?v=20260724f"></script>
+    <script src="/static/js/chat.js?v=20260725s"></script>
     <script src="/static/js/toast.js?v=20260724f"></script>
     <script src="/static/js/exports.js?v=20260724f"></script>
     <script src="/static/js/attachments.js?v=20260725c"></script>
     <script src="/static/js/platform-ui.js?v=20260724f"></script>
     <script src="/static/js/run-controls.js?v=20260725g"></script>
-    <script src="/static/js/verbose-logs.js?v=20260724f"></script>
+    <script src="/static/js/verbose-logs.js?v=20260725s"></script>
     <script src="/static/js/insights-ui.js?v=20260725k"></script>
-    <script src="/static/js/insights-panels.js?v=20260725o"></script>
+    <script src="/static/js/insights-panels.js?v=20260725s"></script>
     <script src="/static/js/captures.js?v=20260724f"></script>
-    <script src="/static/js/app.js?v=20260725k"></script>
+    <script src="/static/js/app.js?v=20260725s"></script>
 </body>
 
 </html>

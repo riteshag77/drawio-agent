@@ -9,6 +9,19 @@ function closeSettings() {
     document.getElementById('settings-drawer').classList.remove('open');
 }
 
+function toggleDrawerGroup(toggleBtn) {
+    const group = toggleBtn?.closest('.drawer-group');
+    if (!group) return;
+    const body = group.querySelector('.drawer-group-body');
+    const open = !group.classList.contains('is-open');
+    group.classList.toggle('is-open', open);
+    toggleBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (body) {
+        if (open) body.removeAttribute('hidden');
+        else body.setAttribute('hidden', '');
+    }
+}
+
 function loadTemplates() {
     const list = document.getElementById('template-list');
     if (!list) return;

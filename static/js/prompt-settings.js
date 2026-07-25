@@ -44,6 +44,9 @@ function getPromptSettings() {
         show_reasoning: document.getElementById('show-reasoning-toggle')
             ? document.getElementById('show-reasoning-toggle').checked
             : false,
+        suggestions: document.getElementById('suggestions-toggle')
+            ? document.getElementById('suggestions-toggle').checked
+            : false,
     };
 }
 
@@ -64,6 +67,8 @@ function savePromptSettings() {
     if (anim) localStorage.setItem(ANIMATED_CONNECTORS_STORAGE_KEY, anim.checked ? '1' : '0');
     const reason = document.getElementById('show-reasoning-toggle');
     if (reason) localStorage.setItem(SHOW_REASONING_STORAGE_KEY, reason.checked ? '1' : '0');
+    const sugg = document.getElementById('suggestions-toggle');
+    if (sugg) localStorage.setItem(SUGGESTIONS_STORAGE_KEY, sugg.checked ? '1' : '0');
     updateComplianceFrameworksVisibility();
 }
 
@@ -128,6 +133,8 @@ function initPromptSettings() {
     if (animEl) animEl.checked = localStorage.getItem(ANIMATED_CONNECTORS_STORAGE_KEY) === '1';
     const reasonEl = document.getElementById('show-reasoning-toggle');
     if (reasonEl) reasonEl.checked = localStorage.getItem(SHOW_REASONING_STORAGE_KEY) === '1';
+    const suggEl = document.getElementById('suggestions-toggle');
+    if (suggEl) suggEl.checked = localStorage.getItem(SUGGESTIONS_STORAGE_KEY) === '1';
     const fwStored = localStorage.getItem(COMPLIANCE_FRAMEWORKS_KEY);
     if (fwStored) {
         try {
@@ -145,4 +152,5 @@ function initPromptSettings() {
     toggleCostPanelPreview();
     toggleWellArchitectedPanel();
     toggleCompliancePanel();
+    toggleSuggestionsPanel();
 }

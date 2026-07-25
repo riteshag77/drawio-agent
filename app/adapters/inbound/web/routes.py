@@ -153,6 +153,7 @@ async def generate_diagram(body: PromptRequest, request: Request):
             libavoid=body.libavoid,
             image_replicate=body.image_replicate,
             animated_connectors=body.animated_connectors,
+            include_suggestions=body.suggestions,
         ))
     except PipelineTimeoutError as exc:
         logger.log("error", str(exc), level="error")
@@ -199,6 +200,7 @@ async def _run_chat(body: ChatRequest, logger: StepLogger, *, on_progress=None) 
     if intent == "simple":
         result = await _with_request_timeout(run_llm_sync(
             generate_mermaid_diagram, last_user, provider, logger, messages, applied_suggestions,
+            include_suggestions=body.suggestions,
         ))
         response = _mermaid_response(result, logger)
     else:
@@ -219,6 +221,7 @@ async def _run_chat(body: ChatRequest, logger: StepLogger, *, on_progress=None) 
             libavoid=body.libavoid,
             image_replicate=body.image_replicate,
             animated_connectors=body.animated_connectors,
+            include_suggestions=body.suggestions,
             on_progress=on_progress,
         ))
 

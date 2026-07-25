@@ -281,6 +281,7 @@ async function sendMessage(options = {}) {
             libavoid: promptSettings.libavoid,
             image_replicate: promptSettings.image_replicate,
             animated_connectors: promptSettings.animated_connectors,
+            suggestions: !!promptSettings.suggestions,
         };
 
         let data;
@@ -376,8 +377,14 @@ async function sendMessage(options = {}) {
             }
         } catch (e) { console.error('Token usage badge error', e); }
 
+        try {
+            if (promptSettings.suggestions) {
+                displaySuggestions(data.suggestions || []);
+            }
+        } catch (e) { console.error('Suggestions panel error', e); }
+
         setTyping(false);
-        appendChatBubble('assistant', summarizeAssistantMessage(assistantText), data.suggestions || []);
+        appendChatBubble('assistant', summarizeAssistantMessage(assistantText));
 
         setProgress(75);
         setDiagramStatus('Loading into Draw.io...');
@@ -447,6 +454,7 @@ async function initProviderSelect() {
 // ── Boot sequence ─────────────────────────────────────────
 initAppTheme();
 initInsightSelection();
+initSuggestionsPanel();
 initVerboseLogging();
 initPromptSettings();
 initDiagramMode();

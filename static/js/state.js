@@ -23,6 +23,7 @@ const LIBAVOID_STORAGE_KEY = 'drawio-agent-libavoid';
 const IMAGE_REPLICATE_STORAGE_KEY = 'drawio-agent-image-replicate';
 const ANIMATED_CONNECTORS_STORAGE_KEY = 'drawio-agent-animated-connectors';
 const SHOW_REASONING_STORAGE_KEY = 'drawio-agent-show-reasoning';
+const SUGGESTIONS_STORAGE_KEY = 'drawio-agent-suggestions';
 const MAX_VLM_CLIENT_RETRIES = 0; // Show banner only — auto /chat regen feels like endless loading
 
 let currentXml = '';

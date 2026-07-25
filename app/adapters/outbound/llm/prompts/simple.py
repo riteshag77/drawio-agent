@@ -24,5 +24,5 @@ no XML, no commentary outside the structured response.
 Return structured JSON with:
 - `mermaid`: the complete Mermaid source (first line must be the diagram type keyword)
 - `assistant_message`: one short sentence summarizing the diagram
-- `suggestions`: 2–3 optional follow-up ideas
+- `suggestions`: 2–3 follow-up ideas when requested; otherwise empty list
 """

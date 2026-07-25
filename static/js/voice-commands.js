@@ -525,6 +525,24 @@ function initVoiceCommands() {
     });
 
     registerVoiceCommand({
+        id: 'suggestions-on',
+        label: 'Enable suggestions',
+        phrases: ['enable suggestions', 'turn on suggestions', 'show suggestions'],
+        run: () => {
+            voiceSetToggle('suggestions-toggle', true);
+            return 'Suggestions on';
+        },
+    });
+    registerVoiceCommand({
+        id: 'suggestions-off',
+        label: 'Disable suggestions',
+        phrases: ['disable suggestions', 'turn off suggestions', 'hide suggestions'],
+        run: () => {
+            voiceSetToggle('suggestions-toggle', false);
+            return 'Suggestions off';
+        },
+    });
+    registerVoiceCommand({
         id: 'cost-on',
         label: 'Enable cost estimate',
         phrases: ['enable cost', 'enable cost estimate', 'turn on cost', 'show cost'],
@@ -793,6 +811,15 @@ function initVoiceCommands() {
         run: () => {
             switchInsightsTab('cost');
             return 'Cost tab';
+        },
+    });
+    registerVoiceCommand({
+        id: 'insights-suggestions',
+        label: 'Insights: Suggestions',
+        phrases: ['show suggestions tab', 'suggestions tab', 'insights suggestions', 'switch to suggestions'],
+        run: () => {
+            switchInsightsTab('suggestions');
+            return 'Suggestions tab';
         },
     });
     registerVoiceCommand({

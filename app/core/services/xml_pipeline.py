@@ -166,6 +166,7 @@ async def run_xml_pipeline(
     libavoid: bool | None = None,
     image_replicate: bool = False,
     animated_connectors: bool = False,
+    include_suggestions: bool = False,
     on_progress: ProgressCallback | None = None,
 ) -> dict[str, Any]:
     provider_key = (provider or "claude").strip().lower()
@@ -178,6 +179,7 @@ async def run_xml_pipeline(
         "libavoid": use_libavoid,
         "image_replicate": image_replicate,
         "animated_connectors": animated_connectors,
+        "suggestions": include_suggestions,
     })
     await _emit(on_progress, "llm", "Generating diagram XML…", {
         "platform": platform_key, "provider": provider_key,
@@ -195,6 +197,7 @@ async def run_xml_pipeline(
         current_xml=current_xml,
         image_replicate=image_replicate,
         animated_connectors=animated_connectors,
+        include_suggestions=include_suggestions,
     )
     if 'vertex="1"' not in (xml_diagram.xml or ""):
         # A successful call with no diagram content (empty/near-empty xml) is not
@@ -228,6 +231,7 @@ async def run_xml_pipeline(
             current_xml=current_xml,
             image_replicate=image_replicate,
             animated_connectors=animated_connectors,
+            include_suggestions=include_suggestions,
             retry_hint=(
                 "Your previous response was cut off or malformed before the diagram XML "
                 "was complete — every mxCell must be fully written with its geometry, "

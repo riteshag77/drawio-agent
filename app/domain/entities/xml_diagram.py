@@ -25,7 +25,13 @@ class StepMarker(BaseModel):
 class XmlDiagram(BaseModel):
     xml: str = Field(description="Complete draw.io XML (mxGraphModel or mxfile document) describing the architecture")
     assistant_message: str = Field(default="Generated diagram.", description="Brief summary for the chat UI")
-    suggestions: List[str] = Field(default_factory=list, description="Optional improvement suggestions")
+    suggestions: List[str] = Field(
+        default_factory=list,
+        description=(
+            "2–3 concrete follow-up architecture improvements when suggestions are requested; "
+            "otherwise an empty list"
+        ),
+    )
     step_markers: List[StepMarker] = Field(
         default_factory=list,
         description=(

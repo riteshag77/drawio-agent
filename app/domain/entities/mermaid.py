@@ -6,4 +6,10 @@ from pydantic import BaseModel, Field
 class MermaidDiagram(BaseModel):
     mermaid: str = Field(description="Valid Mermaid.js diagram source code")
     assistant_message: str = ""
-    suggestions: list[str] = Field(default_factory=list)
+    suggestions: list[str] = Field(
+        default_factory=list,
+        description=(
+            "2–3 concrete follow-up ideas when suggestions are requested; "
+            "otherwise an empty list"
+        ),
+    )

@@ -6,7 +6,10 @@ from typing import TYPE_CHECKING
 
 from app.adapters.outbound.diagram.diagram_edits import apply_diagram_edits, looks_like_surgical_edit
 from app.adapters.outbound.llm.prompt_builders import build_chat_prompt
-from app.adapters.outbound.utils.chat import build_applied_suggestions_block
+from app.adapters.outbound.utils.chat import (
+    build_applied_suggestions_block,
+    build_suggestions_instruction_block,
+)
 from app.adapters.outbound.llm.prompts.simple import MERMAID_SYSTEM_PROMPT
 from app.adapters.outbound.llm.prompts.system import get_xml_gen_system_prompt_marked
 from app.adapters.outbound.llm.providers import get_provider, normalize_provider_key
@@ -23,6 +26,7 @@ Set applicable=true ONLY if a small set of ops fully satisfies the request (add/
 Set applicable=false for redesigns, layout overhauls, or when you are unsure — the system will regenerate.
 Never invent ids that must already exist unless op is add_node (then provide a new id).
 For add_node, include shape_type for leaf services and a reasonable parent id from the diagram.
+When suggestions are requested, always fill `suggestions` with 2–3 concrete follow-up improvements.
 """
 
 _IMAGE_REPLICATE_HINT = (
@@ -57,10 +61,14 @@ def _build_human_parts(
     retry_hint: str | None,
     image_replicate: bool,
     animated_connectors: bool,
+    include_suggestions: bool = False,
 ) -> str:
     human_parts: list[str] = []
     if retry_hint:
         human_parts.append(retry_hint)
+    sugg_block = build_suggestions_instruction_block(include_suggestions)
+    if sugg_block:
+        human_parts.append(sugg_block)
     applied_block = build_applied_suggestions_block(applied_suggestions)
     if applied_block:
         human_parts.append(applied_block)
@@ -106,6 +114,7 @@ def generate_edit_plan(
     logger: "StepLogger | None" = None,
     messages: list[dict[str, str]] | None = None,
     *,
+    include_suggestions: bool = False,
     llm: LlmPort | None = None,
 ) -> DiagramEditPlan:
     """Ask the LLM for surgical ops against current_xml (ids summarized)."""
@@ -128,6 +137,7 @@ def generate_edit_plan(
     except ET.ParseError:
         summary_lines.append("(could not parse current XML for summary)")
     human = (
+        build_suggestions_instruction_block(include_suggestions) + "\n\n"
         f"Platform: {platform.upper()}\n"
         f"Current cells ({len(summary_lines)}):\n" + "\n".join(summary_lines[:200]) + "\n\n"
         f"Request:\n{chat_messages[-1]['content']}"
@@ -153,6 +163,7 @@ def generate_xml_diagram(
     retry_hint: str | None = None,
     image_replicate: bool = False,
     animated_connectors: bool = False,
+    include_suggestions: bool = False,
     *,
     llm: LlmPort | None = None,
 ) -> XmlDiagram:
@@ -172,7 +183,8 @@ def generate_xml_diagram(
         try:
             plan = generate_edit_plan(
                 hint, current_xml, provider=provider_key, platform=platform,
-                logger=logger, messages=chat_messages, llm=_llm,
+                logger=logger, messages=chat_messages,
+                include_suggestions=include_suggestions, llm=_llm,
             )
             if plan.applicable and plan.ops:
                 patched = apply_diagram_edits(current_xml, plan)
@@ -183,10 +195,11 @@ def generate_xml_diagram(
                         level="success",
                         details={"ops": [o.op for o in plan.ops]},
                     )
+                sugg = (plan.suggestions or []) if include_suggestions else []
                 return XmlDiagram(
                     xml=patched,
                     assistant_message=plan.assistant_message or "Updated diagram.",
-                    suggestions=plan.suggestions or [],
+                    suggestions=sugg,
                 )
             if logger:
                 logger.log("surgical_edit", "Edit plan not applicable — falling back", level="info")
@@ -214,6 +227,7 @@ def generate_xml_diagram(
         retry_hint=retry_hint,
         image_replicate=image_replicate,
         animated_connectors=animated_connectors,
+        include_suggestions=include_suggestions,
     )
 
     if logger:
@@ -231,7 +245,9 @@ def generate_xml_diagram(
 
     if not result.assistant_message:
         result.assistant_message = "Generated diagram."
-    if result.suggestions is None:
+    if not include_suggestions:
+        result.suggestions = []
+    elif result.suggestions is None:
         result.suggestions = []
 
     if logger:
@@ -248,6 +264,7 @@ def generate_mermaid_diagram(
     logger: StepLogger | None = None,
     messages: list[dict[str, str]] | None = None,
     applied_suggestions: list[str] | None = None,
+    include_suggestions: bool = False,
 ) -> MermaidDiagram:
     provider_key = normalize_provider_key(provider)
     chat_messages = messages or [{"role": "user", "content": user_request}]
@@ -260,12 +277,18 @@ def generate_mermaid_diagram(
         )
 
     human_content = build_chat_prompt(
-        chat_messages, "Generic (Mermaid)", None, None, None, applied_suggestions=applied_suggestions,
+        chat_messages, "Generic (Mermaid)", None, None, None,
+        applied_suggestions=applied_suggestions,
+        include_suggestions=include_suggestions,
     )
     parsed = get_llm()(MERMAID_SYSTEM_PROMPT, human_content, provider_key, MermaidDiagram, logger, None)
     parsed.mermaid = extract_mermaid(parsed.mermaid)
     if not parsed.assistant_message:
         parsed.assistant_message = "Generated Mermaid diagram."
+    if not include_suggestions:
+        parsed.suggestions = []
+    elif parsed.suggestions is None:
+        parsed.suggestions = []
 
     if logger:
         logger.log(

@@ -63,6 +63,21 @@ def build_applied_suggestions_block(applied: list[str] | None) -> str:
     return "\n".join(lines)
 
 
+def build_suggestions_instruction_block(include_suggestions: bool) -> str:
+    """Tell the LLM whether `suggestions` must be populated this turn."""
+    if include_suggestions:
+        return (
+            "## Suggestions (REQUIRED)\n"
+            "Populate `suggestions` with exactly 2–3 specific, actionable architecture improvements "
+            "(e.g. services to add, security hardening, resilience, cost). "
+            "Never leave `suggestions` empty on this turn."
+        )
+    return (
+        "## Suggestions\n"
+        "Leave `suggestions` as an empty list — the user has suggestions disabled."
+    )
+
+
 def trim_chat_messages_for_prompt(
     messages: list[dict[str, str]],
     *,

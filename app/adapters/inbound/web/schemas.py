@@ -22,6 +22,7 @@ class PromptRequest(BaseModel):
     libavoid: bool | None = None
     image_replicate: bool = False
     animated_connectors: bool = False
+    suggestions: bool = False
 
 
 class ChatMessage(BaseModel):
@@ -54,6 +55,7 @@ class ChatRequest(BaseModel):
     libavoid: bool | None = None
     image_replicate: bool = False
     animated_connectors: bool = False
+    suggestions: bool = False
 
 
 class ParseUrlRequest(BaseModel):

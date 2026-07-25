@@ -347,6 +347,171 @@ function hideCostEstimate() {
     }
 }
 
+// ── Suggestions Panel ─────────────────────────────────────
+
+function toggleSuggestionsPanel() {
+    var panel = document.getElementById('suggestions-panel');
+    var body = document.getElementById('suggestions-panel-body');
+    if (!panel) return;
+    if (document.getElementById('suggestions-toggle')?.checked) {
+        panel.classList.add('active');
+        if (body && !body.querySelector('.chat-suggestion-item')) {
+            body.innerHTML = '<div class="suggestions-empty">Generate a diagram to see follow-up suggestions</div>';
+        }
+        if (typeof switchInsightsTab === 'function') switchInsightsTab('suggestions');
+    } else {
+        panel.classList.remove('active');
+        clearSuggestionsPanel({ keepPlaceholder: true });
+    }
+    updateRightPanelVisibility();
+}
+
+function hideSuggestionsPanel() {
+    var panel = document.getElementById('suggestions-panel');
+    if (panel) {
+        panel.classList.remove('active');
+        var toggle = document.getElementById('suggestions-toggle');
+        if (toggle) toggle.checked = false;
+        localStorage.setItem(SUGGESTIONS_STORAGE_KEY, '0');
+        clearSuggestionsPanel({ keepPlaceholder: true });
+        updateRightPanelVisibility();
+    }
+}
+
+function clearSuggestionsPanel(opts) {
+    var wrap = document.getElementById('suggestions-wrap');
+    var body = document.getElementById('suggestions-panel-body');
+    var selectAllRow = document.getElementById('suggestions-select-all-row');
+    var actionRow = document.getElementById('suggestions-action-row');
+    var selectAll = document.getElementById('suggestions-select-all');
+    if (wrap) wrap._suggestions = [];
+    if (body) {
+        body.innerHTML = (opts && opts.keepPlaceholder)
+            ? '<div class="suggestions-empty">Enable Follow-up suggestions in Settings, then generate a diagram</div>'
+            : '';
+    }
+    if (selectAllRow) selectAllRow.hidden = true;
+    if (actionRow) actionRow.hidden = true;
+    if (selectAll) {
+        selectAll.checked = false;
+        selectAll.indeterminate = false;
+        selectAll.disabled = true;
+    }
+}
+
+function displaySuggestions(suggestions) {
+    var panel = document.getElementById('suggestions-panel');
+    var wrap = document.getElementById('suggestions-wrap');
+    var body = document.getElementById('suggestions-panel-body');
+    var selectAllRow = document.getElementById('suggestions-select-all-row');
+    var actionRow = document.getElementById('suggestions-action-row');
+    var selectAllCb = document.getElementById('suggestions-select-all');
+    if (!panel || !wrap || !body) return;
+
+    panel.classList.add('active');
+    var list = Array.isArray(suggestions) ? suggestions.filter(Boolean) : [];
+    wrap._suggestions = list.slice();
+
+    if (!list.length) {
+        body.innerHTML = '<div class="suggestions-empty">No suggestions returned for this diagram</div>';
+        if (selectAllRow) selectAllRow.hidden = true;
+        if (actionRow) actionRow.hidden = true;
+        if (selectAllCb) {
+            selectAllCb.checked = false;
+            selectAllCb.disabled = true;
+        }
+        updateRightPanelVisibility();
+        if (typeof switchInsightsTab === 'function') switchInsightsTab('suggestions');
+        return;
+    }
+
+    body.innerHTML = '';
+    list.forEach(function (s, idx) {
+        var alreadyApplied = typeof isSuggestionApplied === 'function' && isSuggestionApplied(s);
+        var label = document.createElement('label');
+        label.className = 'chat-suggestion-item' + (alreadyApplied ? ' is-applied' : '');
+        label.dataset.suggestionText = s;
+
+        var cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'suggestion-checkbox item-checkbox';
+        cb.dataset.index = String(idx);
+        cb.disabled = alreadyApplied;
+
+        var span = document.createElement('span');
+        span.textContent = s;
+
+        var badge = document.createElement('span');
+        badge.className = 'suggestion-applied-badge';
+        badge.textContent = 'Applied';
+        badge.hidden = !alreadyApplied;
+
+        cb.addEventListener('change', function () {
+            var pending = body.querySelectorAll('.item-checkbox:not(:disabled)');
+            var checked = body.querySelectorAll('.item-checkbox:not(:disabled):checked');
+            if (selectAllCb) {
+                selectAllCb.checked = pending.length > 0 && checked.length === pending.length;
+                selectAllCb.indeterminate = checked.length > 0 && checked.length < pending.length;
+            }
+        });
+
+        label.appendChild(cb);
+        label.appendChild(span);
+        label.appendChild(badge);
+        body.appendChild(label);
+    });
+
+    if (selectAllRow) selectAllRow.hidden = false;
+    if (selectAllCb) {
+        selectAllCb.checked = false;
+        selectAllCb.indeterminate = false;
+        selectAllCb.disabled = false;
+        selectAllCb.onchange = function () {
+            body.querySelectorAll('.item-checkbox:not(:disabled)').forEach(function (cb) {
+                cb.checked = selectAllCb.checked;
+            });
+            selectAllCb.indeterminate = false;
+        };
+    }
+    if (typeof updateSuggestionWrapActions === 'function') updateSuggestionWrapActions(wrap);
+    updateRightPanelVisibility();
+    if (typeof switchInsightsTab === 'function') switchInsightsTab('suggestions');
+}
+
+function initSuggestionsPanel() {
+    var selBtn = document.getElementById('suggestions-apply-selected');
+    var allBtn = document.getElementById('suggestions-apply-all');
+    if (selBtn) {
+        selBtn.onclick = function () {
+            var wrap = document.getElementById('suggestions-wrap');
+            if (!wrap || !wrap._suggestions) return;
+            var checked = wrap.querySelectorAll('.item-checkbox:checked:not(:disabled)');
+            if (!checked.length) {
+                if (typeof showError === 'function') showError('Select at least one suggestion to apply.');
+                return;
+            }
+            var texts = Array.from(checked).map(function (cb) {
+                return wrap._suggestions[Number(cb.dataset.index)];
+            }).filter(Boolean);
+            if (typeof implementSuggestions === 'function') implementSuggestions(texts, wrap);
+        };
+    }
+    if (allBtn) {
+        allBtn.onclick = function () {
+            var wrap = document.getElementById('suggestions-wrap');
+            if (!wrap || !wrap._suggestions) return;
+            var pending = wrap._suggestions.filter(function (item) {
+                return typeof isSuggestionApplied !== 'function' || !isSuggestionApplied(item);
+            });
+            if (!pending.length) {
+                if (typeof showError === 'function') showError('All suggestions are already applied.');
+                return;
+            }
+            if (typeof implementSuggestions === 'function') implementSuggestions(pending, wrap);
+        };
+    }
+}
+
 // ── Well-Architected Panel ────────────────────────────────
 
 function toggleWellArchitectedPanel() {

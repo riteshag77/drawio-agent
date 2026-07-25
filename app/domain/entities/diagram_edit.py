@@ -31,4 +31,10 @@ class DiagramEditPlan(BaseModel):
     )
     ops: List[DiagramEditOp] = Field(default_factory=list)
     assistant_message: str = Field(default="Updated diagram.", description="Brief chat summary")
-    suggestions: List[str] = Field(default_factory=list)
+    suggestions: List[str] = Field(
+        default_factory=list,
+        description=(
+            "2–3 concrete follow-up improvements when suggestions are requested; "
+            "otherwise an empty list"
+        ),
+    )

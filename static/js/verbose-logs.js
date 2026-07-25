@@ -63,9 +63,10 @@ function clearVerboseLogs() {
 
 function updateRightPanelVisibility() {
     const costOn = document.getElementById('cost-estimate-toggle')?.checked;
+    const suggOn = document.getElementById('suggestions-toggle')?.checked;
     const wafOn = document.getElementById('well-architected-toggle')?.checked;
     const compOn = document.getElementById('compliance-toggle')?.checked;
-    const open = verboseLogging || costOn || wafOn || compOn;
+    const open = verboseLogging || costOn || suggOn || wafOn || compOn;
     document.getElementById('log-panel')?.classList.toggle('active', open);
 }
 
@@ -88,6 +89,7 @@ function toggleVerbosePanel() {
 function closeLogPanel() {
     hideValidationBanner();
     hideCostEstimate();
+    if (typeof hideSuggestionsPanel === 'function') hideSuggestionsPanel();
     hideWellArchitectedPanel();
     hideCompliancePanel();
     setLogPanelOpen(false);

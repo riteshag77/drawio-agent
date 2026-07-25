@@ -6,6 +6,7 @@ from typing import Any
 
 from app.adapters.outbound.utils.chat import (
     build_applied_suggestions_block,
+    build_suggestions_instruction_block,
     replace_historical_tool_inputs,
     trim_chat_messages_for_prompt,
 )
@@ -47,11 +48,16 @@ def build_chat_prompt(
     *args: Any,
     validation_feedback: str | None = None,
     applied_suggestions: list[str] | None = None,
+    include_suggestions: bool = False,
     **kwargs: Any,
 ) -> str:
     """Build Mermaid chat human prompt. Extra *args/**kwargs ignored (legacy callers)."""
     trimmed = trim_chat_messages(messages)
     parts: list[str] = []
+
+    sugg_block = build_suggestions_instruction_block(include_suggestions)
+    if sugg_block:
+        parts.append(sugg_block)
 
     applied_block = build_applied_suggestions_block(applied_suggestions)
     if applied_block:
