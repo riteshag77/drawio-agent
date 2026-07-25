@@ -19,6 +19,10 @@ const WELL_ARCHITECTED_KEY = 'drawio-agent-well-architected';
 const COMPLIANCE_KEY = 'drawio-agent-compliance';
 const COMPLIANCE_FRAMEWORKS_KEY = 'drawio-agent-compliance-frameworks';
 const DIAGRAM_MODE_STORAGE_KEY = 'drawio-agent-diagram-mode';
+const LIBAVOID_STORAGE_KEY = 'drawio-agent-libavoid';
+const IMAGE_REPLICATE_STORAGE_KEY = 'drawio-agent-image-replicate';
+const ANIMATED_CONNECTORS_STORAGE_KEY = 'drawio-agent-animated-connectors';
+const SHOW_REASONING_STORAGE_KEY = 'drawio-agent-show-reasoning';
 const MAX_VLM_CLIENT_RETRIES = 0; // Show banner only — auto /chat regen feels like endless loading
 
 let currentXml = '';
@@ -117,6 +121,20 @@ const GALLERY_PATTERNS = [
         platforms: ['aws', 'gcp', 'azure', 'multi'],
         prompt: 'Static site hosted on object storage with global CDN, DNS management, WAF, serverless API backend, CI/CD pipeline, and monitoring',
     },
+    {
+        id: 'aws_auth',
+        title: 'AWS Auth (Serverless)',
+        desc: 'React SPA auth with Cognito, API Gateway, Lambda, and DynamoDB',
+        platforms: ['aws'],
+        prompt: 'Generate an authentication architecture using a React SPA with AWS Serverless: CloudFront + S3 for the frontend, Cognito User Pool for auth, API Gateway + Lambda for protected APIs, DynamoDB for user data, Secrets Manager, and CloudWatch. Show login, MFA, and session flow edges.',
+    },
+    {
+        id: 'rag_chat',
+        title: 'RAG Chat App',
+        desc: 'Retrieval-augmented generation with ingestion pipeline and chat API',
+        platforms: ['aws', 'gcp', 'azure'],
+        prompt: 'Generate a RAG architecture for a chat application: user chat UI, API gateway, orchestration function, vector store, embedding model, LLM endpoint, object storage for documents, ingestion pipeline (upload → parse → embed → index), and monitoring. Use connected flows for data ingestion vs query path.',
+    },
 ];
 
 const GALLERY_ICONS = {
@@ -126,6 +144,8 @@ const GALLERY_ICONS = {
     data_analytics: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12v6"/><path d="M12 15v3"/><path d="M7 14v4"/></svg>',
     k8s_microservices: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><circle cx="5" cy="6" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="5" cy="18" r="2"/><circle cx="19" cy="18" r="2"/><path d="M7 7l3 3M14 7l3 3M7 17l3-3M14 17l3-3"/></svg>',
     static_site: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/><rect x="9" y="7" width="6" height="4" rx="1"/><path d="M9 15h6M10 13v2M14 13v2"/></svg>',
+    aws_auth: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="12" cy="16" r="1"/></svg>',
+    rag_chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8 9h8M8 13h5"/></svg>',
 };
 
 const PATTERN_LABELS = {

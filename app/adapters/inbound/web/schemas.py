@@ -19,6 +19,9 @@ class PromptRequest(BaseModel):
     well_architected: bool = False
     compliance: bool = False
     compliance_frameworks: list[str] | None = None
+    libavoid: bool | None = None
+    image_replicate: bool = False
+    animated_connectors: bool = False
 
 
 class ChatMessage(BaseModel):
@@ -48,6 +51,9 @@ class ChatRequest(BaseModel):
     context_text: str | None = Field(default=None, max_length=20_000)
     attachment_documents: list[AttachmentDocument] | None = Field(default=None, max_length=3)
     current_xml: str | None = Field(default=None, max_length=1_500_000)
+    libavoid: bool | None = None
+    image_replicate: bool = False
+    animated_connectors: bool = False
 
 
 class ParseUrlRequest(BaseModel):

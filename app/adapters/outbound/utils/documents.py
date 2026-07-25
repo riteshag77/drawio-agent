@@ -15,8 +15,12 @@ MAX_TEXT_CHARS = 12_000
 # truncated like plain-text context (12k), or Edit mode loses the architecture.
 MAX_DIAGRAM_CHARS = 1_500_000
 
-TEXT_EXTENSIONS = {".txt", ".md", ".json", ".yaml", ".yml"}
+TEXT_EXTENSIONS = {
+    ".txt", ".md", ".json", ".yaml", ".yml",
+    ".tf", ".tfvars", ".hcl", ".toml",
+}
 DIAGRAM_EXTENSIONS = {".drawio", ".xml"}
+IAC_EXTENSIONS = {".tf", ".tfvars", ".hcl"}
 
 _SIGNATURES: dict[bytes, str] = {
     b"%PDF-": "application/pdf",
@@ -131,8 +135,8 @@ def extract_document(filename: str, data: bytes) -> DocumentResult:
     return DocumentResult(
         kind="error", filename=filename,
         message=(
-            f"Unsupported file type for '{filename}'. Attach a PDF, a plain text/markdown/JSON/YAML "
-            "file, an image (PNG/JPEG/GIF/WEBP), or a draw.io / XML diagram (.drawio, .xml)."
+            f"Unsupported file type for '{filename}'. Attach a PDF, plain text/markdown/JSON/YAML, "
+            "Terraform (.tf/.tfvars/.hcl), an image (PNG/JPEG/GIF/WEBP), or a draw.io / XML diagram."
         ),
     )
 
@@ -213,6 +217,20 @@ def _extract_diagram(filename: str, data: bytes) -> DocumentResult:
 
 
 def _text_result(filename: str, text: str) -> DocumentResult:
+    lower = (filename or "").lower()
+    banner = ""
+    if any(lower.endswith(ext) for ext in IAC_EXTENSIONS):
+        banner = "[IaC attachment — Terraform/HCL]\n"
+    elif lower.endswith(".json") and (
+        '"resource_changes"' in text or '"planned_values"' in text or '"terraform_version"' in text
+    ):
+        banner = "[IaC attachment — Terraform plan JSON]\n"
+    elif lower.endswith((".yaml", ".yml")) and (
+        "apiVersion:" in text or "kind: Deployment" in text or "kind: Service" in text
+    ):
+        banner = "[IaC attachment — Kubernetes manifest]\n"
+    if banner:
+        text = banner + text
     truncated = len(text) > MAX_TEXT_CHARS
     if truncated:
         text = text[:MAX_TEXT_CHARS]

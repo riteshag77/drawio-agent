@@ -145,7 +145,9 @@ function displayCostEstimate(costData) {
     if (!panel || !body || !totalEl) return;
     panel.classList.add('active');
     var grandTotal = costData.total || 0;
-    totalEl.textContent = 'A$' + grandTotal.toFixed(0);
+    var currency = costData.currency || 'AUD';
+    var symbol = (typeof _moneySymbol === 'function') ? _moneySymbol(currency) : 'A$';
+    totalEl.textContent = symbol + grandTotal.toFixed(0);
     body.innerHTML = '';
     var categories = costData.breakdown || {};
     var catKeys = Object.keys(categories);
@@ -175,7 +177,7 @@ function displayCostEstimate(costData) {
         name.textContent = cat;
         var subEl = document.createElement('span');
         subEl.className = 'cost-category-subtotal';
-        subEl.textContent = 'A$' + subTotal.toFixed(0);
+        subEl.textContent = symbol + subTotal.toFixed(0);
         head.appendChild(name);
         head.appendChild(subEl);
         card.appendChild(head);
@@ -194,7 +196,7 @@ function displayCostEstimate(costData) {
             nameSpan.textContent = svc.name || svc.key;
             var priceSpan = document.createElement('span');
             priceSpan.className = 'cost-service-price';
-            priceSpan.textContent = 'A$' + (svc.monthly || 0).toFixed(0);
+            priceSpan.textContent = symbol + (svc.monthly || 0).toFixed(0);
             row.appendChild(nameSpan);
             row.appendChild(priceSpan);
             card.appendChild(row);
@@ -215,8 +217,43 @@ function _formatTokenCount(n) {
     return String(n);
 }
 
+function _moneySymbol(currency) {
+    var c = (currency || 'AUD').toUpperCase();
+    if (c === 'AUD') return 'A$';
+    if (c === 'USD') return 'US$';
+    return c + ' ';
+}
+
+function _formatMoney(amount, currency, digits) {
+    var n = Number(amount);
+    if (!Number.isFinite(n)) return '';
+    var d = (typeof digits === 'number') ? digits : (Math.abs(n) < 0.01 ? 4 : 2);
+    return '~' + _moneySymbol(currency) + n.toFixed(d);
+}
+
+function _usageCostAmount(usage) {
+    if (!usage) return NaN;
+    var costRaw = usage.estimated_cost != null ? usage.estimated_cost : usage.estimated_cost_usd;
+    var costNum = (typeof costRaw === 'number') ? costRaw : parseFloat(costRaw);
+    if (Number.isFinite(costNum)) return costNum;
+    if (!Array.isArray(usage.calls)) return NaN;
+    var summed = 0;
+    var any = false;
+    usage.calls.forEach(function (call) {
+        if (!call) return;
+        var c = call.estimated_cost != null ? call.estimated_cost : call.estimated_cost_usd;
+        var n = (typeof c === 'number') ? c : parseFloat(c);
+        if (Number.isFinite(n)) {
+            summed += n;
+            any = true;
+        }
+    });
+    return any ? summed : NaN;
+}
+
 function displayTokenUsage(usage) {
     var badge = document.getElementById('token-badge');
+    var costEl = document.getElementById('token-cost');
     if (!badge) return;
     if (!usage || !usage.total_tokens) {
         hideTokenUsage();
@@ -233,10 +270,14 @@ function displayTokenUsage(usage) {
     var inPct = Math.round((input / denom) * 100);
     var outPct = Math.max(0, 100 - inPct);
 
+    var costNum = _usageCostAmount(usage);
+    var hasCost = Number.isFinite(costNum);
+    var currency = usage.currency || 'AUD';
+    var costLabel = hasCost ? _formatMoney(costNum, currency) : '';
+
     var summary = '~' + _formatTokenCount(total) + ' tok';
-    if (typeof usage.estimated_cost_usd === 'number') {
-        var cost = usage.estimated_cost_usd;
-        summary += ' · ~$' + cost.toFixed(cost < 0.01 ? 4 : 2);
+    if (hasCost) {
+        summary += ' · ' + costLabel;
     }
 
     var summaryEl = document.getElementById('token-meter-summary');
@@ -251,6 +292,18 @@ function displayTokenUsage(usage) {
     if (inLabel) inLabel.textContent = 'in ' + _formatTokenCount(input);
     if (outLabel) outLabel.textContent = 'out ' + _formatTokenCount(output);
 
+    if (costEl) {
+        if (hasCost) {
+            costEl.textContent = costLabel;
+            costEl.hidden = false;
+            costEl.setAttribute('aria-label', 'Estimated LLM cost ' + costLabel);
+        } else {
+            costEl.textContent = '';
+            costEl.hidden = true;
+            costEl.removeAttribute('aria-label');
+        }
+    }
+
     badge.hidden = false;
     badge.removeAttribute('title');
     badge.setAttribute(
@@ -261,6 +314,12 @@ function displayTokenUsage(usage) {
 
 function hideTokenUsage() {
     var badge = document.getElementById('token-badge');
+    var costEl = document.getElementById('token-cost');
+    if (costEl) {
+        costEl.textContent = '';
+        costEl.hidden = true;
+        costEl.removeAttribute('aria-label');
+    }
     if (!badge) return;
     badge.hidden = true;
     var summaryEl = document.getElementById('token-meter-summary');

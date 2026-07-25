@@ -170,8 +170,12 @@ class EnvConfigAdapter:
 
     @property
     def drawio_mcp_libavoid(self) -> bool:
-        """When true, call create_diagram(libavoid) after style resolve (extra MCP hop)."""
-        return self.get_bool("DRAWIO_MCP_LIBAVOID", False)
+        """When true, call create_diagram(libavoid) after style resolve (extra MCP hop).
+
+        Defaults to True so mcp/auto diagrams get obstacle-avoiding edges unless
+        explicitly disabled via env or per-request ``libavoid=false``.
+        """
+        return self.get_bool("DRAWIO_MCP_LIBAVOID", True)
 
     @property
     def drawio_style_cache_path(self) -> str:

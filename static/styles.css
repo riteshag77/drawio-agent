@@ -1982,19 +1982,42 @@
             color: var(--canvas-text-muted);
         }
 
+        .diagram-toolbar .token-cost,
         .diagram-toolbar .token-meter {
-            margin-left: auto;
-            min-width: 150px;
-            max-width: 210px;
-            padding: 4px 8px 5px;
+            margin-left: 0;
         }
 
-        .diagram-toolbar .token-meter-top {
-            margin-bottom: 3px;
+        .diagram-toolbar .token-cost {
+            margin-left: auto;
+        }
+
+        .diagram-toolbar .token-meter {
+            min-width: 150px;
+            max-width: 220px;
+            padding: 4px 8px 5px;
+            /* Canvas toolbar is often light even when the app chrome is dark —
+               use canvas tokens so summary/label text stays readable. */
+            color: var(--canvas-text);
+            border-color: var(--canvas-border);
+            background: var(--canvas-surface, rgba(0, 0, 0, 0.04));
+        }
+
+        .diagram-toolbar .token-meter-label,
+        .diagram-toolbar .token-meter-legend {
+            color: var(--canvas-text-muted);
+        }
+
+        .diagram-toolbar .token-meter-summary {
+            color: var(--canvas-text);
         }
 
         .diagram-toolbar .token-meter-track {
             height: 4px;
+            background: var(--canvas-border);
+        }
+
+        .diagram-toolbar .token-meter-top {
+            margin-bottom: 3px;
         }
 
         .diagram-toolbar .token-meter-legend {
@@ -2005,6 +2028,23 @@
         .diagram-toolbar .toolbar-actions {
             margin-left: 0;
             flex-shrink: 0;
+        }
+
+        .token-cost {
+            font-size: 0.78rem;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            color: var(--canvas-text);
+            background: var(--canvas-surface, rgba(0, 0, 0, 0.04));
+            border: 1px solid var(--canvas-border);
+            border-radius: 8px;
+            padding: 6px 10px;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .token-cost[hidden] {
+            display: none !important;
         }
 
         .diagram-toolbar-meta {
@@ -2062,13 +2102,13 @@
             font-weight: 600;
             letter-spacing: 0.04em;
             text-transform: uppercase;
-            color: var(--text-muted, #64748b);
+            color: var(--canvas-text-muted, var(--text-muted, #64748b));
         }
 
         .token-meter-summary {
             font-size: 0.75rem;
             font-weight: 600;
-            color: var(--text-primary, #0f172a);
+            color: var(--canvas-text, var(--text-primary, #0f172a));
             white-space: nowrap;
             font-variant-numeric: tabular-nums;
         }
@@ -2104,7 +2144,7 @@
             gap: 8px;
             margin-top: 5px;
             font-size: 0.65rem;
-            color: var(--text-muted, #64748b);
+            color: var(--canvas-text-muted, var(--text-muted, #64748b));
             font-variant-numeric: tabular-nums;
         }
 
@@ -2634,11 +2674,21 @@
     cursor: pointer;
     white-space: nowrap;
     flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
 }
 .version-chip.active {
     background: var(--btn-primary-bg);
     color: var(--btn-primary-text);
     border-color: var(--btn-primary-bg);
+}
+.version-thumb {
+    width: 28px;
+    height: 20px;
+    object-fit: cover;
+    border-radius: 3px;
+    background: var(--surface-well, #eef1f5);
 }
 
 /* ── Insights tabs ─────────────────────────────────────── */

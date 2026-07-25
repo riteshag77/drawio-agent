@@ -29,7 +29,7 @@ LLM XML (placeholder + shape_type on leaves)
   → validate/fix
   → (parallel) cost/WAF/compliance ∥ MCP search_shapes
   → merge MCP styles into leaves (preserve labels)
-  → (optional) libavoid → UI iframe
+  → (default) libavoid → UI iframe
 ```
 
 ## `.env` keys
@@ -66,17 +66,19 @@ DIAGRAM_RENDERER=auto
 DRAWIO_MCP_URL=https://mcp.draw.io/mcp
 DRAWIO_MCP_TIMEOUT=30
 DRAWIO_MCP_CONCURRENCY=4
-DRAWIO_MCP_LIBAVOID=false
+DRAWIO_MCP_LIBAVOID=true
 DRAWIO_STYLE_CACHE_PATH=data/mcp_style_cache.sqlite3
 # Set to true once after icon-logic changes, then set back to false
 DRAWIO_STYLE_CACHE_RESET=false
 ```
 
-- **`DIAGRAM_RENDERER=auto`** — MCP icon styles (cached + concurrent). Set `DRAWIO_MCP_LIBAVOID=true` for an extra create_diagram hop.
+- **`DIAGRAM_RENDERER=auto`** — MCP icon styles (cached + concurrent). Libavoid edge routing runs by default when MCP is used (`DRAWIO_MCP_LIBAVOID=true`); set `false` to skip the extra hop. Per-request override: `libavoid` on `/chat`.
 - **`local`** — skip MCP (offline); leaves stay as placeholders unless the LLM invented stencils.
+- Agent MCP wrapper (optional): with the API running, `python -m app.mcp_server` exposes `create_architecture_diagram` / `edit_architecture_diagram` / `get_providers` for Cursor (`DRAWIO_AGENT_URL` defaults to `http://127.0.0.1:8000`).
 - **`DRAWIO_STYLE_CACHE_RESET=true`** — clears memory + SQLite style cache at process startup (use after changing MCP pick logic or prompts). Turn off afterward so cache stays warm.
 - Manual clear: delete `data/mcp_style_cache.sqlite3` and restart.
 - Prompt assembly uses `config/xml_gen_core.txt` + platform classify/icon packs.
+- **Pricing** — LLM token rates and cloud service monthly estimates live in [`config/pricing.json`](../config/pricing.json). Vendor list prices are stored in **USD**; estimates shown in the UI are converted to **AUD** via `usd_to_aud` (edit that rate or the model/service rows there — no code change). Both the toolbar LLM cost chip and the Cost insights panel use `A$`.
 - **`LOG_FORMAT=json`** — emit one JSON object per log line for structured log ingestion.
 - **`DRAWIO_AGENT_LOG_DIR`** — directory for log files (default `logs`). Rotates daily at midnight into `drawio-agent.log.YYYY-MM-DD`; the active file stays at `drawio-agent.log`.
 - **`LOG_RETENTION_DAYS`** — how many rotated daily log files to keep before the oldest is deleted (default `14`).

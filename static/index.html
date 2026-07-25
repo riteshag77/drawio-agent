@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/styles.css?v=20260725j">
+    <link rel="stylesheet" href="/static/styles.css?v=20260725m">
     <link rel="stylesheet" href="/static/themes/midnight-slate.css?v=20260724f">
     <link rel="stylesheet" href="/static/themes/daylight.css?v=20260724f">
     <link rel="stylesheet" href="/static/themes/aurora-contrast.css?v=20260724f">
@@ -91,7 +91,7 @@
             </div>
 
             <div class="sidebar-footer">
-                <input type="file" id="file-input" multiple accept=".pdf,.txt,.md,.json,.yaml,.yml,.png,.jpg,.jpeg,.gif,.webp,.drawio,.xml,application/xml,text/xml" hidden onchange="handleFileSelect(event)">
+                <input type="file" id="file-input" multiple accept=".pdf,.txt,.md,.json,.yaml,.yml,.tf,.tfvars,.hcl,.toml,.png,.jpg,.jpeg,.gif,.webp,.drawio,.xml,application/xml,text/xml" hidden onchange="handleFileSelect(event)">
                 <div id="attachment-preview" class="attachment-preview" hidden></div>
                 <div id="voice-status" class="voice-status" hidden>
                     <span class="voice-dot"></span><span id="voice-status-text">Listening…</span>
@@ -101,7 +101,7 @@
                         placeholder="Describe or refine your architecture…"></textarea>
                     <div class="composer-actions">
                         <div class="composer-tools">
-                            <button type="button" class="composer-btn" onclick="document.getElementById('file-input').click()" title="Attach a PDF, text, image, or .drawio/.xml diagram (up to 3, 15 MB each)" aria-label="Attach file">
+                            <button type="button" class="composer-btn" onclick="document.getElementById('file-input').click()" title="Attach a PDF, text, image, Terraform/K8s, or .drawio/.xml diagram (up to 3, 15 MB each)" aria-label="Attach file">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                     <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
                                 </svg>
@@ -162,6 +162,47 @@
                             <option value="mcp">MCP</option>
                             <option value="local">Local</option>
                         </select>
+
+                        <div class="verbose-toggle-row">
+                            <div>
+                                <span>Libavoid edge routing</span>
+                                <small>Obstacle-avoiding connectors via MCP (mcp/auto only)</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle libavoid routing">
+                                <input type="checkbox" id="libavoid-toggle" checked onchange="savePromptSettings()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="verbose-toggle-row">
+                            <div>
+                                <span>Image replicate mode</span>
+                                <small>Preserve topology from attached screenshots/PDFs</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle image replicate">
+                                <input type="checkbox" id="image-replicate-toggle" onchange="savePromptSettings()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="verbose-toggle-row">
+                            <div>
+                                <span>Animated connectors</span>
+                                <small>flowAnimation on primary edges (explainability)</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle animated connectors">
+                                <input type="checkbox" id="animated-connectors-toggle" onchange="savePromptSettings()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="verbose-toggle-row">
+                            <div>
+                                <span>Show AI reasoning</span>
+                                <small>Surface pipeline thinking steps in chat</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle AI reasoning display">
+                                <input type="checkbox" id="show-reasoning-toggle" onchange="savePromptSettings()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
 
                         <div class="verbose-toggle-row">
                             <div>
@@ -278,6 +319,7 @@
                     <div class="title">Diagram Preview</div>
                     <div id="diagram-status" class="status" role="status" aria-live="polite">Waiting for generation</div>
                 </div>
+                <div id="token-cost" class="token-cost" hidden role="status" aria-live="polite"></div>
                 <div id="token-badge" class="token-meter" hidden role="status" aria-live="polite">
                     <div class="token-meter-top">
                         <span class="token-meter-label">LLM usage</span>
@@ -437,13 +479,13 @@
 
     <div id="app-toast" class="app-toast" role="status" aria-live="assertive" hidden></div>
     <div class="copy-feedback" id="copy-toast">Copied to clipboard!</div>
-    <script src="/static/js/state.js?v=20260725c"></script>
+    <script src="/static/js/state.js?v=20260725k"></script>
     <script src="/static/js/theme.js?v=20260724f"></script>
     <script src="/static/js/resizer.js?v=20260724f"></script>
     <script src="/static/js/settings.js?v=20260724f"></script>
-    <script src="/static/js/prompt-settings.js?v=20260724f"></script>
+    <script src="/static/js/prompt-settings.js?v=20260725k"></script>
     <script src="/static/js/diagram.js?v=20260725c"></script>
-    <script src="/static/js/voice-commands.js?v=20260725h"></script>
+    <script src="/static/js/voice-commands.js?v=20260725k"></script>
     <script src="/static/js/voice.js?v=20260725i"></script>
     <script src="/static/js/chat.js?v=20260724f"></script>
     <script src="/static/js/toast.js?v=20260724f"></script>
@@ -452,10 +494,10 @@
     <script src="/static/js/platform-ui.js?v=20260724f"></script>
     <script src="/static/js/run-controls.js?v=20260725g"></script>
     <script src="/static/js/verbose-logs.js?v=20260724f"></script>
-    <script src="/static/js/insights-ui.js?v=20260724f"></script>
-    <script src="/static/js/insights-panels.js?v=20260725f"></script>
+    <script src="/static/js/insights-ui.js?v=20260725k"></script>
+    <script src="/static/js/insights-panels.js?v=20260725o"></script>
     <script src="/static/js/captures.js?v=20260724f"></script>
-    <script src="/static/js/app.js?v=20260725g"></script>
+    <script src="/static/js/app.js?v=20260725k"></script>
 </body>
 
 </html>

@@ -36,16 +36,27 @@ function switchMobilePane(pane) {
 
 function pushDiagramVersion(xml, label) {
     if (!xml || xml.length < 50) return;
-    diagramVersions.push({
+    const entry = {
         xml,
         label: label || `v${diagramVersions.length + 1}`,
         at: Date.now(),
-    });
+        thumb: null,
+    };
+    diagramVersions.push(entry);
     if (diagramVersions.length > DIAGRAM_VERSIONS_MAX) {
         diagramVersions = diagramVersions.slice(-DIAGRAM_VERSIONS_MAX);
     }
     activeDiagramVersion = diagramVersions.length - 1;
     renderVersionStrip();
+    // Best-effort PNG thumbnail for safer restore (next-ai-draw-io style history).
+    if (typeof exportDiagramPng === 'function') {
+        const idx = activeDiagramVersion;
+        exportDiagramPng().then((dataUrl) => {
+            if (!dataUrl || !diagramVersions[idx]) return;
+            diagramVersions[idx].thumb = dataUrl;
+            renderVersionStrip();
+        }).catch(() => {});
+    }
 }
 
 function restoreDiagramVersion(index) {
@@ -57,7 +68,6 @@ function restoreDiagramVersion(index) {
     if (typeof loadDiagramIntoEditor === 'function') {
         loadDiagramIntoEditor(entry.xml);
     } else if (typeof ensureDrawioFrame === 'function') {
-        // fallback: postMessage load via existing helpers if present
         const frame = document.getElementById('drawio-frame');
         if (frame?.contentWindow) {
             frame.contentWindow.postMessage(JSON.stringify({
@@ -82,7 +92,10 @@ function renderVersionStrip() {
     strip.hidden = false;
     strip.innerHTML = diagramVersions.map((v, i) => {
         const active = i === activeDiagramVersion ? ' active' : '';
-        return `<button type="button" class="version-chip${active}" onclick="restoreDiagramVersion(${i})">${v.label}</button>`;
+        const thumb = v.thumb
+            ? `<img class="version-thumb" src="${v.thumb}" alt="" />`
+            : '';
+        return `<button type="button" class="version-chip${active}" onclick="restoreDiagramVersion(${i})" title="${v.label}">${thumb}<span>${v.label}</span></button>`;
     }).join('');
 }
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from app.adapters.outbound.diagram.diagram_edits import apply_diagram_edits, looks_like_surgical_edit
 from app.adapters.outbound.llm.prompt_builders import build_chat_prompt
 from app.adapters.outbound.utils.chat import build_applied_suggestions_block
 from app.adapters.outbound.llm.prompts.simple import MERMAID_SYSTEM_PROMPT
@@ -11,10 +12,130 @@ from app.adapters.outbound.llm.prompts.system import get_xml_gen_system_prompt_m
 from app.adapters.outbound.llm.providers import get_provider, normalize_provider_key
 from app.adapters.outbound.llm.response_parse import extract_mermaid
 from app.core.ports.llm import LlmPort, get_llm
-from app.domain.entities import MermaidDiagram, XmlDiagram
+from app.domain.entities import DiagramEditPlan, MermaidDiagram, XmlDiagram
 
 if TYPE_CHECKING:
     from app.core.logging import StepLogger
+
+_EDIT_PLAN_SYSTEM = """You plan surgical edits to an existing draw.io architecture diagram.
+Given the user request and a summary of current cell ids/labels, output a DiagramEditPlan.
+Set applicable=true ONLY if a small set of ops fully satisfies the request (add/remove/connect/move/relabel).
+Set applicable=false for redesigns, layout overhauls, or when you are unsure — the system will regenerate.
+Never invent ids that must already exist unless op is add_node (then provide a new id).
+For add_node, include shape_type for leaf services and a reasonable parent id from the diagram.
+"""
+
+_IMAGE_REPLICATE_HINT = (
+    "## Image / PDF replicate mode\n"
+    "The user attached diagram screenshot(s) or architecture PDF pages. "
+    "Preserve the visible topology, grouping, and flows as faithfully as possible. "
+    "Map each recognizable cloud service to the correct shape_type; use grey placeholders "
+    "for unknowns. Prefer fidelity to the attachment over inventing new services."
+)
+
+_ANIMATED_HINT = (
+    "## Animated connectors\n"
+    "For edges that represent primary request/data flows, append `flowAnimation=1;` to the edge style."
+)
+
+_IAC_HINT = (
+    "## IaC-derived architecture\n"
+    "Document context includes Infrastructure-as-Code. Derive services and edges from declared "
+    "resources only — do not invent undeclared cloud services. Add network parents (VPC/subnet) "
+    "only when implied by the IaC or required for a valid hierarchy."
+)
+
+
+def _build_human_parts(
+    *,
+    user_request: str,
+    chat_messages: list[dict[str, str]],
+    platform: str,
+    applied_suggestions: list[str] | None,
+    context_text: str | None,
+    current_xml: str | None,
+    retry_hint: str | None,
+    image_replicate: bool,
+    animated_connectors: bool,
+) -> str:
+    human_parts: list[str] = []
+    if retry_hint:
+        human_parts.append(retry_hint)
+    applied_block = build_applied_suggestions_block(applied_suggestions)
+    if applied_block:
+        human_parts.append(applied_block)
+    if image_replicate:
+        human_parts.append(_IMAGE_REPLICATE_HINT)
+    if animated_connectors:
+        human_parts.append(_ANIMATED_HINT)
+    if context_text and _looks_like_iac(context_text):
+        human_parts.append(_IAC_HINT)
+    if current_xml:
+        human_parts.append(
+            "## Current diagram (edit this exact XML — this is Edit mode)\n"
+            "```xml\n" + current_xml + "\n```\n"
+            "Preserve every id/parent/coordinate not relevant to the requested change, "
+            "per Create vs Edit Modes."
+        )
+    if len(chat_messages) > 1:
+        human_parts.append("Conversation so far:")
+        for msg in chat_messages[:-1]:
+            human_parts.append(f"{msg['role'].upper()}: {msg['content']}")
+    human_parts.append(f"Platform: {platform.upper()}")
+    if context_text:
+        human_parts.append(f"Document context:\n{context_text}")
+    human_parts.append(f"Request:\n{chat_messages[-1]['content']}")
+    return "\n".join(human_parts)
+
+
+def _looks_like_iac(text: str) -> bool:
+    t = (text or "").lower()
+    markers = (
+        "resource \"", "provider \"", "terraform {", "apiVersion:", "kind: deployment",
+        "kind: service", "kubernetes", "helm", '"resources":', "planned_values",
+        "resource_changes",
+    )
+    return any(m.lower() in t for m in markers)
+
+
+def generate_edit_plan(
+    user_request: str,
+    current_xml: str,
+    provider: str = "claude",
+    platform: str = "aws",
+    logger: "StepLogger | None" = None,
+    messages: list[dict[str, str]] | None = None,
+    *,
+    llm: LlmPort | None = None,
+) -> DiagramEditPlan:
+    """Ask the LLM for surgical ops against current_xml (ids summarized)."""
+    import xml.etree.ElementTree as ET
+
+    provider_key = normalize_provider_key(provider)
+    chat_messages = messages or [{"role": "user", "content": user_request}]
+    summary_lines = []
+    try:
+        tree = ET.fromstring(current_xml)
+        for cell in tree.findall(".//mxCell"):
+            cid = cell.get("id")
+            if not cid or cid in ("0", "1"):
+                continue
+            kind = "edge" if cell.get("edge") == "1" else "vertex"
+            label = (cell.get("value") or "")[:80]
+            st = cell.get("shape_type") or ""
+            parent = cell.get("parent") or ""
+            summary_lines.append(f"- {cid} [{kind}] parent={parent} shape_type={st} label={label!r}")
+    except ET.ParseError:
+        summary_lines.append("(could not parse current XML for summary)")
+    human = (
+        f"Platform: {platform.upper()}\n"
+        f"Current cells ({len(summary_lines)}):\n" + "\n".join(summary_lines[:200]) + "\n\n"
+        f"Request:\n{chat_messages[-1]['content']}"
+    )
+    if logger:
+        logger.log("prompt", "Prepared surgical edit plan", details={"cells": len(summary_lines)})
+    _llm = llm or get_llm()
+    return _llm(_EDIT_PLAN_SYSTEM, human, provider_key, DiagramEditPlan, logger, None)
 
 
 def generate_xml_diagram(
@@ -30,56 +151,74 @@ def generate_xml_diagram(
     attachment_documents: list[dict] | None = None,
     current_xml: str | None = None,
     retry_hint: str | None = None,
+    image_replicate: bool = False,
+    animated_connectors: bool = False,
     *,
     llm: LlmPort | None = None,
 ) -> XmlDiagram:
-    """Generate draw.io XML directly (MCP-accelerated path — no intermediate JSON).
-
-    ``current_xml``, when provided, is the live diagram exported straight from
-    the draw.io iframe — the real ground truth for an edit turn (ids, parents,
-    coordinates, the existing Overview Panel text), as opposed to inferring
-    prior state from prose conversation history alone.
-    """
+    """Generate draw.io XML directly (optional surgical edit when current_xml + small change)."""
     provider_key = normalize_provider_key(provider)
-    spec = get_provider(provider_key)
     chat_messages = messages or [{"role": "user", "content": user_request}]
     hint = user_request or (chat_messages[-1]["content"] if chat_messages else "")
+    _llm = llm or get_llm()
+
+    # --- Surgical path (small edits only; still returns XML, never JSON architecture) ---
+    if (
+        current_xml
+        and len(current_xml) > 200
+        and not retry_hint
+        and looks_like_surgical_edit(hint, has_current_xml=True)
+    ):
+        try:
+            plan = generate_edit_plan(
+                hint, current_xml, provider=provider_key, platform=platform,
+                logger=logger, messages=chat_messages, llm=_llm,
+            )
+            if plan.applicable and plan.ops:
+                patched = apply_diagram_edits(current_xml, plan)
+                if logger:
+                    logger.log(
+                        "surgical_edit",
+                        f"Applied {len(plan.ops)} surgical ops",
+                        level="success",
+                        details={"ops": [o.op for o in plan.ops]},
+                    )
+                return XmlDiagram(
+                    xml=patched,
+                    assistant_message=plan.assistant_message or "Updated diagram.",
+                    suggestions=plan.suggestions or [],
+                )
+            if logger:
+                logger.log("surgical_edit", "Edit plan not applicable — falling back", level="info")
+        except Exception as exc:
+            if logger:
+                logger.log("surgical_edit", f"Surgical edit failed ({exc}) — falling back", level="warn")
+
+    # --- Direct XML path ---
+    provider_spec = get_provider(provider_key)
     system_prompt = get_xml_gen_system_prompt_marked(
-        model_id=spec.default_model,
+        model_id=provider_spec.default_model,
         provider=provider_key,
         platform=platform,
         custom_system_message=custom_system_message,
         three_d=three_d,
         user_hint=hint,
     )
-    human_parts: list[str] = []
-    if retry_hint:
-        human_parts.append(retry_hint)
-    applied_block = build_applied_suggestions_block(applied_suggestions)
-    if applied_block:
-        human_parts.append(applied_block)
-    if current_xml:
-        human_parts.append(
-            "## Current diagram (edit this exact XML — this is Edit mode)\n"
-            "```xml\n" + current_xml + "\n```\n"
-            "Preserve every id/parent/coordinate not relevant to the requested change, "
-            "per Create vs Edit Modes. Rewrite the Overview Panel's full description to "
-            "match the diagram after your edit, per the Overview Panel section."
-        )
-    if len(chat_messages) > 1:
-        human_parts.append("Conversation so far:")
-        for msg in chat_messages[:-1]:
-            human_parts.append(f"{msg['role'].upper()}: {msg['content']}")
-    human_parts.append(f"Platform: {platform.upper()}")
-    if context_text:
-        human_parts.append(f"Document context:\n{context_text}")
-    human_parts.append(f"Request:\n{chat_messages[-1]['content']}")
-    human_content = "\n".join(human_parts)
+    human_content = _build_human_parts(
+        user_request=user_request,
+        chat_messages=chat_messages,
+        platform=platform,
+        applied_suggestions=applied_suggestions,
+        context_text=context_text,
+        current_xml=current_xml,
+        retry_hint=retry_hint,
+        image_replicate=image_replicate,
+        animated_connectors=animated_connectors,
+    )
 
     if logger:
         logger.log("prompt", "Prepared XML generation request", details={"provider": provider_key, "platform": platform})
 
-    _llm = llm or get_llm()
     try:
         result = _llm(
             system_prompt, human_content, provider_key, XmlDiagram, logger,

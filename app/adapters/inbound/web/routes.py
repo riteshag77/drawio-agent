@@ -150,6 +150,9 @@ async def generate_diagram(body: PromptRequest, request: Request):
             well_architected=body.well_architected,
             compliance=body.compliance,
             compliance_frameworks=body.compliance_frameworks,
+            libavoid=body.libavoid,
+            image_replicate=body.image_replicate,
+            animated_connectors=body.animated_connectors,
         ))
     except PipelineTimeoutError as exc:
         logger.log("error", str(exc), level="error")
@@ -213,6 +216,9 @@ async def _run_chat(body: ChatRequest, logger: StepLogger, *, on_progress=None) 
             context_text=body.context_text,
             attachment_documents=[a.model_dump() for a in body.attachment_documents] if body.attachment_documents else None,
             current_xml=body.current_xml,
+            libavoid=body.libavoid,
+            image_replicate=body.image_replicate,
+            animated_connectors=body.animated_connectors,
             on_progress=on_progress,
         ))
 
@@ -349,6 +355,9 @@ async def download_diagram(body: PromptRequest, request: Request):
             well_architected=body.well_architected,
             compliance=body.compliance,
             compliance_frameworks=body.compliance_frameworks,
+            libavoid=body.libavoid,
+            image_replicate=body.image_replicate,
+            animated_connectors=body.animated_connectors,
         ))
         xml_output = result.get("xml", "")
         return Response(

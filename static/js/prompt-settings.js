@@ -32,6 +32,18 @@ function getPromptSettings() {
         well_architected: document.getElementById('well-architected-toggle').checked,
         compliance: document.getElementById('compliance-toggle').checked,
         compliance_frameworks: getSelectedComplianceFrameworks(),
+        libavoid: document.getElementById('libavoid-toggle')
+            ? document.getElementById('libavoid-toggle').checked
+            : true,
+        image_replicate: document.getElementById('image-replicate-toggle')
+            ? document.getElementById('image-replicate-toggle').checked
+            : false,
+        animated_connectors: document.getElementById('animated-connectors-toggle')
+            ? document.getElementById('animated-connectors-toggle').checked
+            : false,
+        show_reasoning: document.getElementById('show-reasoning-toggle')
+            ? document.getElementById('show-reasoning-toggle').checked
+            : false,
     };
 }
 
@@ -44,6 +56,14 @@ function savePromptSettings() {
     localStorage.setItem(COST_ESTIMATE_STORAGE_KEY, cost ? '1' : '0');
     localStorage.setItem(WELL_ARCHITECTED_KEY, waf ? '1' : '0');
     localStorage.setItem(COMPLIANCE_KEY, comp ? '1' : '0');
+    const lib = document.getElementById('libavoid-toggle');
+    if (lib) localStorage.setItem(LIBAVOID_STORAGE_KEY, lib.checked ? '1' : '0');
+    const img = document.getElementById('image-replicate-toggle');
+    if (img) localStorage.setItem(IMAGE_REPLICATE_STORAGE_KEY, img.checked ? '1' : '0');
+    const anim = document.getElementById('animated-connectors-toggle');
+    if (anim) localStorage.setItem(ANIMATED_CONNECTORS_STORAGE_KEY, anim.checked ? '1' : '0');
+    const reason = document.getElementById('show-reasoning-toggle');
+    if (reason) localStorage.setItem(SHOW_REASONING_STORAGE_KEY, reason.checked ? '1' : '0');
     updateComplianceFrameworksVisibility();
 }
 
@@ -97,6 +117,17 @@ function initPromptSettings() {
     document.getElementById('well-architected-toggle').checked = wafStored === '1';
     const compStored = localStorage.getItem(COMPLIANCE_KEY);
     document.getElementById('compliance-toggle').checked = compStored === '1';
+    const libEl = document.getElementById('libavoid-toggle');
+    if (libEl) {
+        const libStored = localStorage.getItem(LIBAVOID_STORAGE_KEY);
+        libEl.checked = libStored === null ? true : libStored === '1';
+    }
+    const imgEl = document.getElementById('image-replicate-toggle');
+    if (imgEl) imgEl.checked = localStorage.getItem(IMAGE_REPLICATE_STORAGE_KEY) === '1';
+    const animEl = document.getElementById('animated-connectors-toggle');
+    if (animEl) animEl.checked = localStorage.getItem(ANIMATED_CONNECTORS_STORAGE_KEY) === '1';
+    const reasonEl = document.getElementById('show-reasoning-toggle');
+    if (reasonEl) reasonEl.checked = localStorage.getItem(SHOW_REASONING_STORAGE_KEY) === '1';
     const fwStored = localStorage.getItem(COMPLIANCE_FRAMEWORKS_KEY);
     if (fwStored) {
         try {

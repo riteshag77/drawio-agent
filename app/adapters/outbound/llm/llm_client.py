@@ -12,7 +12,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.adapters.outbound.config.env_config import get_config
 from app.adapters.outbound.llm.caching import build_system_message
-from app.adapters.outbound.llm.pricing import estimate_cost_usd
+from app.adapters.outbound.llm.pricing import display_currency, estimate_cost_aud
 from app.adapters.outbound.llm.prompts.system import CACHE_BREAKPOINT
 from app.adapters.outbound.llm.providers import (
     build_langchain_client,
@@ -199,7 +199,7 @@ def call_llm(
             token_details = usage.get("input_token_details") or {}
             cache_read = token_details.get("cache_read", 0)
             cache_creation = token_details.get("cache_creation", 0)
-            cost = estimate_cost_usd(model_name, input_tokens, output_tokens)
+            cost = estimate_cost_aud(model_name, input_tokens, output_tokens)
             logger.log("usage", f"{model_name}: {usage.get('total_tokens', 0)} tokens", details={
                 "provider": provider_key,
                 "model": model_name,
@@ -208,6 +208,9 @@ def call_llm(
                 "cache_read_tokens": cache_read,
                 "cache_creation_tokens": cache_creation,
                 "total_tokens": usage.get("total_tokens", 0),
+                "estimated_cost": cost,
+                "currency": display_currency(),
+                # Back-compat for older UI / captures that read the USD-named field.
                 "estimated_cost_usd": cost,
             })
     return parsed

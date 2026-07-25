@@ -23,6 +23,7 @@ from app.adapters.outbound.diagram.xml_tools import (
     validate_and_fix_xml,
 )
 from app.adapters.outbound.llm.concurrency import run_llm_sync
+from app.adapters.outbound.llm.pricing import display_currency
 from app.adapters.outbound.llm.prompt_builders import PLATFORM_LABELS
 from app.adapters.outbound.compliance import assess_compliance
 from app.adapters.outbound.cost_estimator import estimate_monthly_cost
@@ -50,29 +51,39 @@ def _summarize_llm_usage(logger: Any) -> dict[str, Any] | None:
     total_input = total_output = total_tokens = 0
     total_cost = 0.0
     has_cost = False
+    currency = display_currency()
     breakdown: list[dict[str, Any]] = []
     for entry in calls:
         d = entry.details or {}
         total_input += d.get("input_tokens", 0)
         total_output += d.get("output_tokens", 0)
         total_tokens += d.get("total_tokens", 0)
-        cost = d.get("estimated_cost_usd")
+        cost = d.get("estimated_cost")
+        if cost is None:
+            cost = d.get("estimated_cost_usd")
         if cost is not None:
             total_cost += cost
             has_cost = True
+        if d.get("currency"):
+            currency = d["currency"]
         breakdown.append({
             "provider": d.get("provider"),
             "model": d.get("model"),
             "input_tokens": d.get("input_tokens", 0),
             "output_tokens": d.get("output_tokens", 0),
             "total_tokens": d.get("total_tokens", 0),
-            "estimated_cost_usd": cost,
+            "estimated_cost": cost,
+            "currency": d.get("currency") or currency,
+            "estimated_cost_usd": cost,  # back-compat; value is display currency
         })
+    rounded = round(total_cost, 4) if has_cost else None
     return {
         "total_input_tokens": total_input,
         "total_output_tokens": total_output,
         "total_tokens": total_tokens,
-        "estimated_cost_usd": round(total_cost, 4) if has_cost else None,
+        "estimated_cost": rounded,
+        "currency": currency,
+        "estimated_cost_usd": rounded,  # back-compat; value is display currency
         "calls": breakdown,
     }
 
@@ -152,14 +163,21 @@ async def run_xml_pipeline(
     context_text: str | None = None,
     attachment_documents: list[dict[str, Any]] | None = None,
     current_xml: str | None = None,
+    libavoid: bool | None = None,
+    image_replicate: bool = False,
+    animated_connectors: bool = False,
     on_progress: ProgressCallback | None = None,
 ) -> dict[str, Any]:
     provider_key = (provider or "claude").strip().lower()
     platform_key = (platform or "aws").strip().lower()
+    use_libavoid = get_config().drawio_mcp_libavoid if libavoid is None else bool(libavoid)
 
     logger.log("request", "MCP XML generation request", details={
         "platform": platform_key, "provider": provider_key,
         "renderer": diagram_renderer or get_config().diagram_renderer,
+        "libavoid": use_libavoid,
+        "image_replicate": image_replicate,
+        "animated_connectors": animated_connectors,
     })
     await _emit(on_progress, "llm", "Generating diagram XML…", {
         "platform": platform_key, "provider": provider_key,
@@ -167,10 +185,16 @@ async def run_xml_pipeline(
 
     human_prompt = user_prompt or (messages[-1]["content"] if messages else "")
 
+    # Auto image-replicate when vision attachments are present unless explicitly off
+    if attachment_documents and not image_replicate:
+        image_replicate = True
+
     xml_diagram = await run_llm_sync(
         generate_xml_diagram, human_prompt, provider_key, platform_key, logger, messages,
         custom_system_message, applied_suggestions, three_d, context_text, attachment_documents,
         current_xml=current_xml,
+        image_replicate=image_replicate,
+        animated_connectors=animated_connectors,
     )
     if 'vertex="1"' not in (xml_diagram.xml or ""):
         # A successful call with no diagram content (empty/near-empty xml) is not
@@ -202,6 +226,8 @@ async def run_xml_pipeline(
             generate_xml_diagram, human_prompt, provider_key, platform_key, logger, messages,
             custom_system_message, applied_suggestions, three_d, context_text, attachment_documents,
             current_xml=current_xml,
+            image_replicate=image_replicate,
+            animated_connectors=animated_connectors,
             retry_hint=(
                 "Your previous response was cut off or malformed before the diagram XML "
                 "was complete — every mxCell must be fully written with its geometry, "
@@ -260,11 +286,11 @@ async def run_xml_pipeline(
         if logger:
             logger.log(
                 "cost",
-                f"Estimated monthly cost: ${data['total']}",
+                f"Estimated monthly cost: A${data['total']}",
                 level="info",
                 details={"service_count": data["services_matched"] + data["services_unmatched"], "cost_estimate": data},
             )
-        await _emit(on_progress, "cost", f"Estimated monthly cost: ${data['total']}")
+        await _emit(on_progress, "cost", f"Estimated monthly cost: A${data['total']}")
         return data
 
     async def _run_waf() -> dict | None:
@@ -329,7 +355,7 @@ async def run_xml_pipeline(
 
             local_xml = fit_containers_to_children(local_xml)
 
-            if get_config().drawio_mcp_libavoid:
+            if use_libavoid:
                 await _emit(on_progress, "mcp", "Applying libavoid edge routing…")
                 pre_routing_xml = local_xml
                 preview_url, routed_xml = await create_diagram(local_xml, routing="libavoid", logger=logger)

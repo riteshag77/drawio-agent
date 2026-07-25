@@ -265,7 +265,7 @@ class LlmPortInjectionTests(unittest.TestCase):
 
     def test_fake_llm_is_used_when_injected(self) -> None:
         from app.core.services.agent import generate_xml_diagram
-        from app.domain.entities import XmlDiagram
+        from app.domain.entities import DiagramEditPlan, XmlDiagram
 
         fake_xml = "<mxfile><diagram><mxGraphModel><root><mxCell id='0'/></root></mxGraphModel></diagram></mxfile>"
         fake_result = XmlDiagram(xml=fake_xml, assistant_message="ok", suggestions=[])
@@ -273,6 +273,8 @@ class LlmPortInjectionTests(unittest.TestCase):
 
         def fake_llm(system_prompt, human_content, provider, output_type, logger, attachments):
             calls.append((provider, output_type))
+            if output_type is DiagramEditPlan:
+                return DiagramEditPlan(applicable=False)
             return fake_result
 
         result = generate_xml_diagram(
@@ -304,6 +306,9 @@ class CurrentXmlPromptAssemblyTests(unittest.TestCase):
 
         def fake_llm(system_prompt, human_content, provider, output_type, logger, attachments):
             captured["human_content"] = human_content
+            from app.domain.entities import DiagramEditPlan
+            if output_type is DiagramEditPlan:
+                return DiagramEditPlan(applicable=False)
             return self._fake_result()
 
         prior_xml = '<mxfile><diagram><mxGraphModel><root><mxCell id="overview_panel" value="Old"/></root></mxGraphModel></diagram></mxfile>'
@@ -322,6 +327,9 @@ class CurrentXmlPromptAssemblyTests(unittest.TestCase):
 
         def fake_llm(system_prompt, human_content, provider, output_type, logger, attachments):
             captured["human_content"] = human_content
+            from app.domain.entities import DiagramEditPlan
+            if output_type is DiagramEditPlan:
+                return DiagramEditPlan(applicable=False)
             return self._fake_result()
 
         generate_xml_diagram(

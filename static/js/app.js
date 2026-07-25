@@ -278,6 +278,9 @@ async function sendMessage(options = {}) {
             context_text: contextText || null,
             attachment_documents: attachmentDocuments.length ? attachmentDocuments : null,
             applied_suggestions: getAppliedSuggestionsPayload(),
+            libavoid: promptSettings.libavoid,
+            image_replicate: promptSettings.image_replicate,
+            animated_connectors: promptSettings.animated_connectors,
         };
 
         let data;
@@ -310,6 +313,17 @@ async function sendMessage(options = {}) {
         // one-liner in the chat bubble itself — the diagram/Overview Panel is
         // where the detailed explanation belongs, not a wall of text in chat.
         chatMessages.push({ role: 'assistant', content: assistantText });
+
+        if (promptSettings.show_reasoning && Array.isArray(data.logs) && data.logs.length) {
+            const steps = data.logs
+                .filter((l) => l && (l.step === 'architecture_spec' || l.step === 'surgical_edit'
+                    || l.step === 'llm' || l.step === 'prompt' || l.step === 'mcp'))
+                .map((l) => `• [${l.step}] ${l.message || ''}`)
+                .slice(0, 24);
+            if (steps.length) {
+                appendChatBubble('assistant', 'AI reasoning / pipeline steps:\n' + steps.join('\n'));
+            }
+        }
 
         appendVerboseLog('client', 'Server response received', 'success', {
             suggestions: (data.suggestions || []).length,

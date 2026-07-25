@@ -230,6 +230,11 @@ function voiceFindPattern(query) {
         kubernetes: 'k8s_microservices',
         'static site': 'static_site',
         cdn: 'static_site',
+        rag: 'rag_chat',
+        'rag chat': 'rag_chat',
+        auth: 'aws_auth',
+        'aws auth': 'aws_auth',
+        cognito: 'aws_auth',
     };
     const aliasId = aliases[q];
     let idx = -1;
