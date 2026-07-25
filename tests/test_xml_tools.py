@@ -94,6 +94,48 @@ class AutoFixXmlTests(unittest.TestCase):
         self.assertIn('pageWidth="2400"', fixed)
         self.assertIn('host="app.diagrams.net"', fixed)
 
+    def test_closes_dangling_overview_and_jammed_attrs(self) -> None:
+        """Flash models often jam attrs and leave overview_panel unclosed → empty canvas.
+
+        Recovery is lxml (libxml2) after a thin jammed-attr preflight — not a
+        hand-rolled dangling-tag regex.
+        """
+        from app.adapters.outbound.diagram.xml_tools import guarantee_loadable_xml
+
+        snippet = (
+            '<mxfile host="embed.diagrams.net"><diagram name="Architecture" id="x">'
+            "<mxGraphModel><root>"
+            '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            '<mxCell id="alb" value="ALB" style="shape=rectangle;" vertex="1"parent="1">'
+            '<mxGeometry x="40" y="40" width="80" height="80" as="geometry"/>'
+            '<mxCell id="alb_label" value="Load Balancer" style="text;" '
+            'vertex="1"parent="1">'
+            '<mxGeometry x="40" y="120" width="80" height="20" as="geometry"/>'
+            "</mxCell></mxCell>"
+            '<mxCell id="overview_panel" value="Logical overview">'
+            "</root></mxGraphModel></diagram></mxfile>"
+        )
+        fixed, fixes = auto_fix_xml(snippet)
+        self.assertTrue(
+            any(
+                "lxml" in f.lower()
+                or "space between attributes" in f.lower()
+                or "hoisted" in f.lower()
+                for f in fixes
+            ),
+            fixes,
+        )
+        tree = ET.fromstring(fixed)
+        ids = {c.get("id") for c in tree.iter("mxCell")}
+        self.assertIn("alb", ids)
+        self.assertIn("alb_label", ids)
+        self.assertIn("overview_panel", ids)
+        alb_label = next(c for c in tree.iter("mxCell") if c.get("id") == "alb_label")
+        self.assertIsNone(next((ch for ch in alb_label if ch.tag == "mxCell"), None))
+        out, ok, _ = guarantee_loadable_xml(snippet)
+        self.assertTrue(ok)
+        self.assertGreater(out.count('vertex="1"'), 0)
+
     def test_style_space_regex_does_not_corrupt_empty_value(self) -> None:
         snippet = (
             '<mxfile host="app.diagrams.net"><diagram name="A" id="d1">'
@@ -338,15 +380,31 @@ class GuaranteeLoadableXmlTests(unittest.TestCase):
         ET.fromstring(xml)  # must not raise
 
     def test_unrepairable_input_degrades_to_empty_canvas_not_broken_xml(self) -> None:
-        # Deliberately pathological: no amount of regex/ET repair can recover
-        # a real diagram from this, so the guarantee is just "still parses".
-        hopeless = "<mxfile><diagram><mxGraphModel><root><mxCell id=\"0"
+        # Not XML at all — even lxml recover cannot invent a diagram document.
+        hopeless = "this is not xml at all {{{{\x00\x01"
         xml, ok, failure = guarantee_loadable_xml(hopeless)
         self.assertFalse(ok)
         self.assertIsNotNone(failure)
         self.assertIn("parse_error", failure)
         self.assertIn("failing_xml", failure)
         ET.fromstring(xml)  # must not raise — this is the actual guarantee
+
+    def test_truncated_mxfile_is_recovered_not_emptied(self) -> None:
+        """Partial LLM cutoffs should recover into a loadable doc when possible."""
+        truncated = (
+            '<mxfile host="embed.diagrams.net"><diagram name="A" id="x">'
+            "<mxGraphModel><root>"
+            '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            '<mxCell id="svc" value="API" style="rounded=1;" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="80" height="80" as="geometry"/>'
+            # missing closers — classic flash-model cutoff
+        )
+        xml, ok, failure = guarantee_loadable_xml(truncated)
+        self.assertTrue(ok, failure)
+        self.assertIsNone(failure)
+        tree = ET.fromstring(xml)
+        ids = {c.get("id") for c in tree.iter("mxCell")}
+        self.assertIn("svc", ids)
 
 
 class ShapeTypeAndStyleTests(unittest.TestCase):
@@ -402,6 +460,37 @@ class ShapeTypeAndStyleTests(unittest.TestCase):
         self.assertIn("fontSize=12", style)
         self.assertIn("aspect=fixed", style)
         self.assertIn("A &amp; B", out)
+
+    def test_apply_mcp_styles_all_multipage_roots(self) -> None:
+        """Icons must apply on every page — first-root-only left Network grey."""
+        leaf = (
+            '<mxCell id="svc" value="Fn" shape_type="aws_lambda" '
+            'style="fillColor=#F5F5F5;" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        page = (
+            "<mxGraphModel><root>"
+            '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            f"{leaf}"
+            "</root></mxGraphModel>"
+        )
+        xml = (
+            '<mxfile host="app.diagrams.net">'
+            f'<diagram name="Logical" id="d1">{page}</diagram>'
+            f'<diagram name="Network" id="d2">{page}</diagram>'
+            "</mxfile>"
+        )
+        mcp = "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;fillColor=#ED7100;"
+        out = apply_mcp_styles(xml, {"aws_lambda": mcp})
+        tree = ET.fromstring(out)
+        styled = 0
+        for cell in tree.iter("mxCell"):
+            if cell.get("id") != "svc":
+                continue
+            self.assertIsNone(cell.get("shape_type"))
+            self.assertIn("resIcon=mxgraph.aws4.lambda", cell.get("style") or "")
+            styled += 1
+        self.assertEqual(styled, 2)
 
     def test_merge_drawio_styles_preserves_labels(self) -> None:
         base = "rounded=0;fillColor=#F5F5F5;verticalLabelPosition=bottom;fontSize=12;aspect=fixed;"

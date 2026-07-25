@@ -50,7 +50,13 @@ MOONSHOT_API_KEY=
 # KIMI_MODEL=kimi-k3
 PROVIDER_DEFAULT=gemini
 LLM_TIMEOUT=120
-MAX_CONCURRENT_LLM=4
+MAX_CONCURRENT_LLM=5
+# Multi-view + ADR/RAID fills 5 LLM slots. Raise to 6–7 if view repairs are common.
+# Cost/WAF/MCP enrichment does not consume LLM slots.
+VIEW_QUALITY_MIN_SCORE=75
+VIEW_REPAIR_MAX_PASSES=1
+# Optional provider override for Logical/Security/Data flow calls (empty = same as primary)
+VIEW_LLM_PROVIDER=
 LOG_FORMAT=text   # text | json
 DRAWIO_AGENT_LOG_DIR=logs
 LOG_RETENTION_DAYS=14
@@ -77,7 +83,9 @@ DRAWIO_STYLE_CACHE_RESET=false
 - Agent MCP wrapper (optional): with the API running, `python -m app.mcp_server` exposes `create_architecture_diagram` / `edit_architecture_diagram` / `get_providers` for Cursor (`DRAWIO_AGENT_URL` defaults to `http://127.0.0.1:8000`).
 - **`DRAWIO_STYLE_CACHE_RESET=true`** — clears memory + SQLite style cache at process startup (use after changing MCP pick logic or prompts). Turn off afterward so cache stays warm.
 - Manual clear: delete `data/mcp_style_cache.sqlite3` and restart.
-- Prompt assembly uses `config/xml_gen_core.txt` + platform classify/icon packs.
+- Prompt assembly uses `config/xml_gen/` packs (`core.txt` shared craft + `network.txt` for Network nesting + `classify/{platform}.txt` + `icons/{platform}.txt` + `views/` + `docs/`).
+- **`MAX_CONCURRENT_LLM`** — caps simultaneous blocking LLM calls (default 5). Multi-view runs launch Logical/Security/Data flow (+ optional ADR/RAID) in parallel via `asyncio.gather` + `run_llm_sync`; each view's optional quality-repair hop reuses the same semaphore inside that view's task (does not serialize the three authors). Cost/WAF/MCP do not take LLM slots.
+- **`VIEW_QUALITY_MIN_SCORE`** / **`VIEW_REPAIR_MAX_PASSES`** — focused views score against viewpoint rules; below the min score triggers at most N LLM repair passes (0 disables). **`VIEW_LLM_PROVIDER`** optionally routes view calls to a different provider key.
 - **Pricing** — LLM token rates and cloud service monthly estimates live in [`config/pricing.json`](../config/pricing.json). Vendor list prices are stored in **USD**; estimates shown in the UI are converted to **AUD** via `usd_to_aud` (edit that rate or the model/service rows there — no code change). Both the toolbar LLM cost chip and the Cost insights panel use `A$`.
 - **`LOG_FORMAT=json`** — emit one JSON object per log line for structured log ingestion.
 - **`DRAWIO_AGENT_LOG_DIR`** — directory for log files (default `logs`). Rotates daily at midnight into `drawio-agent.log.YYYY-MM-DD`; the active file stays at `drawio-agent.log`.

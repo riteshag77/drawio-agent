@@ -126,8 +126,28 @@ class EnvConfigAdapter:
 
     @property
     def max_concurrent_llm(self) -> int:
-        """Max simultaneous blocking LLM calls across requests."""
-        return self.get_int("MAX_CONCURRENT_LLM", 4)
+        """Max simultaneous blocking LLM calls across requests.
+
+        Default 5 so multi-view fan-out (3 views + ADR + RAID) is not secretly
+        serialized behind a too-small semaphore. Raise to 6–7 when view quality
+        repair passes are common so repairs do not wait on ADR/RAID.
+        """
+        return self.get_int("MAX_CONCURRENT_LLM", 5)
+
+    @property
+    def view_quality_min_score(self) -> int:
+        """Minimum conformance score (0–100) before a focused view is accepted."""
+        return max(0, min(100, self.get_int("VIEW_QUALITY_MIN_SCORE", 75)))
+
+    @property
+    def view_repair_max_passes(self) -> int:
+        """Max LLM repair passes per focused view (0 disables repair)."""
+        return max(0, self.get_int("VIEW_REPAIR_MAX_PASSES", 1))
+
+    @property
+    def view_llm_provider(self) -> str:
+        """Optional provider key override for Logical/Security/Data flow calls."""
+        return (self.get("VIEW_LLM_PROVIDER", "") or "").strip()
 
     @property
     def ssl_verify(self) -> bool:

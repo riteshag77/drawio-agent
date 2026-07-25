@@ -5,6 +5,7 @@ Classify using this decision order — stop at the first match:
 | # | Category | Azure examples | Place in |
 |---|----------|----------------|----------|
 | 1 | Global/edge — DNS, CDN, WAF, static | Azure DNS, Front Door, WAF, Blob Storage (static) | Edge/Global Layer |
+| 1b | Cross-VNet connectivity hub | Virtual WAN, VPN Gateway, ExpressRoute | Cloud level beside Edge (edges to VNets — never inside one VNet row) |
 | 2 | Identity, encryption, secrets | Entra ID, Key Vault, Managed Identities | Security Group (NO edges) |
 | 3 | Observability, audit | Azure Monitor, Log Analytics, Defender for Cloud | Monitoring Group (NO edges) |
 | 4 | Messaging / integration bus | Service Bus, Event Grid, Event Hubs, Logic Apps | Integration Group (NO edges) |

@@ -154,6 +154,10 @@ async def generate_diagram(body: PromptRequest, request: Request):
             image_replicate=body.image_replicate,
             animated_connectors=body.animated_connectors,
             include_suggestions=body.suggestions,
+            diagram_views=body.diagram_views,
+            adr_notes=body.adr_notes,
+            raid_register=body.raid_register,
+            interview_answers=body.interview_answers,
         ))
     except PipelineTimeoutError as exc:
         logger.log("error", str(exc), level="error")
@@ -197,6 +201,37 @@ async def _run_chat(body: ChatRequest, logger: StepLogger, *, on_progress=None) 
     if on_progress:
         await on_progress("intent", f"Classified as {intent}", {"intent": intent})
 
+    # Architecture interview — only when setting is on and answers not yet provided.
+    # Skip when surgically editing an existing diagram (current_xml present).
+    if (
+        intent != "simple"
+        and body.architecture_interview
+        and not body.interview_answers
+        and not (body.current_xml and len(body.current_xml) > 200)
+    ):
+        from app.adapters.outbound.diagram.architecture_docs import INTERVIEW_QUESTIONS
+        questions = INTERVIEW_QUESTIONS
+        lines = [
+            "Before I draw the architecture, please answer these questions "
+            "(reply in one message):",
+            "",
+        ]
+        for i, q in enumerate(questions, start=1):
+            lines.append(f"{i}. {q['prompt']}")
+        msg = "\n".join(lines)
+        logger.log("interview", "Architecture interview required", details={"questions": len(questions)})
+        return {
+            "status": "success",
+            "interview_required": True,
+            "interview_questions": questions,
+            "assistant_message": msg,
+            "xml": None,
+            "mermaid": None,
+            "diagram_type": None,
+            "suggestions": [],
+            "logs": logger.to_list(),
+        }
+
     if intent == "simple":
         result = await _with_request_timeout(run_llm_sync(
             generate_mermaid_diagram, last_user, provider, logger, messages, applied_suggestions,
@@ -222,10 +257,15 @@ async def _run_chat(body: ChatRequest, logger: StepLogger, *, on_progress=None) 
             image_replicate=body.image_replicate,
             animated_connectors=body.animated_connectors,
             include_suggestions=body.suggestions,
+            diagram_views=body.diagram_views,
+            adr_notes=body.adr_notes,
+            raid_register=body.raid_register,
+            interview_answers=body.interview_answers,
             on_progress=on_progress,
         ))
 
-    await asyncio.to_thread(save_capture, body.model_dump(), response)
+    if body.save_captures:
+        await asyncio.to_thread(save_capture, body.model_dump(), response)
     return response
 
 

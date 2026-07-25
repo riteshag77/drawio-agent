@@ -1,4 +1,16 @@
-"""Draw.io XML helpers \u2014 wrap, validate, auto-fix, choose."""
+"""Draw.io XML helpers — wrap, validate, auto-fix, choose.
+
+Parse recovery uses **lxml** (``XMLParser(recover=True)``) instead of a growing
+pile of hand-rolled regexes. A thin preflight remains for draw.io-specific
+cases libxml2 cannot safely infer:
+
+- jammed attributes (``vertex="1"parent="1"``)
+- raw HTML inside ``value="..."`` (Overview / Legend) — must be escaped
+  *before* recover or the attribute is destroyed
+
+Draw.io semantic repair (nested cells, geometry, parents) stays in
+``_fix_xml_with_elementtree``.
+"""
 
 from __future__ import annotations
 
@@ -10,50 +22,24 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 
 MAX_XML_SIZE = 1_000_000
-STRUCTURAL_ATTRS = ("edge", "parent", "source", "target", "vertex", "connectable")
-_DIAGRAM_CLOSE_TAGS = frozenset({"root", "mxgraphmodel", "diagram", "mxfile"})
 _SHAPE_TYPE_ATTR = re.compile(r'\bshape_type="([^"]+)"')
-_UNQUOTED_ATTR = re.compile(
-    r'(?<=[\s>])([a-zA-Z_][\w.-]*)=([^\s"\'<>`]+?)(?=\s|/?>|>)',
-)
 _FENCE_BLOCK = re.compile(
     r"```(?:xml)?\s*(<(?:mxfile|mxGraphModel)[\s\S]*?</(?:mxfile|mxGraphModel)>)\s*```",
     re.IGNORECASE,
 )
+# Insert space between adjacent quoted attributes the LLM jammed together.
 _ATTR_SPACE = re.compile(
     r'([a-zA-Z_][\w:.-]*="[^"]*")([a-zA-Z_][\w:.-]*=)',
 )
-# Matches a value="..." span up to the next XML attribute (any name, matched
-# generically — not an enumerated list) OR the end of the tag — rather than
-# the first '"' — needed because inline HTML inside value (e.g. the Overview
-# Panel's or Legend's <div style="..."> content) can legitimately contain
-# literal '"' characters that would otherwise truncate a naive match early.
-# An earlier version used a fixed attribute-name list (style/vertex/edge/
-# parent/...) — that missed shape_type (and any future attribute name),
-# causing the boundary detection to overrun into the next real attribute and
-# corrupt it. Matching any `identifier="` generically closes that gap for
-# good. Deliberately does NOT also accept "end of tag" (`/>` or `>`) as a
-# terminator: a raw unescaped HTML value can itself contain a literal '>'
-# (e.g. `<div style="...">`), which would let that alternative prematurely
-# close the span mid-content. Real cells always have another quoted
-# attribute (shape_type=/style=) after value=, so this is not a practical gap.
+# value="..." up to the next real attribute (any name). Needed because Overview
+# HTML may contain literal '"' that would truncate a naive match.
 _VALUE_ATTR_SPAN = re.compile(
     r'value="(.*?)"(?=\s+[a-zA-Z_][\w:.-]*=")',
     re.DOTALL,
 )
-# Placeholder used to shield value="..." content from the blunt structural
-# regex fixers below (_UNQUOTED_ATTR, tag-typo fixes, _ATTR_SPACE) while they
-# run. Those fixers scan raw text with no concept of "inside an attribute
-# value" — already-escaped inline HTML like value="&lt;div style=&quot;
-# font-size:12px;&quot;&gt;...Solid Line..." contains no literal quote
-# characters, so _UNQUOTED_ATTR's "bare attribute" pattern matches `style=`
-# inside it and wraps it in real quotes, corrupting legitimate escaped
-# content (observed as "AttValue: \" or ' expected" parse errors). Masking
-# the span before those fixers run, then restoring + escaping afterward,
-# makes them structurally blind to value content instead of relying on
-# fixer ordering (which broke twice already this way).
-_VALUE_SPAN_PLACEHOLDER = "\x00VSPAN{}\x00"
-_VALUE_SPAN_RESTORE = re.compile(r'value="\x00VSPAN(\d+)\x00"')
+_BARE_AMP = re.compile(
+    r"&(?!lt;|gt;|amp;|quot;|apos;|#[0-9]+;|#x[0-9a-fA-F]+;)",
+)
 
 
 @dataclass
@@ -138,53 +124,6 @@ def _find_diagram_root(tree: ET.Element) -> ET.Element | None:
     for root in tree.iter("root"):
         return root
     return None
-
-
-def _strip_llm_wrapper_tags(xml: str) -> tuple[str, bool]:
-    """Remove spurious LLM wrapper tags only when the document does not already parse.
-
-    Never strip a well-formed ``mxfile`` / ``mxGraphModel`` — that leaves bare
-    ``mxCell`` siblings, which draw.io rejects as "Extra content at the end of
-    the document" (line 2, column 5).
-    """
-    trimmed = (xml or "").strip()
-    if not trimmed:
-        return trimmed, False
-
-    # Prefer an embedded well-formed diagram if LLM prefixed junk
-    for tag, end in (("<mxfile", "</mxfile>"), ("<mxGraphModel", "</mxGraphModel>")):
-        start = trimmed.find(tag)
-        if start < 0:
-            continue
-        stop = trimmed.find(end, start)
-        if stop < 0:
-            continue
-        candidate = trimmed[start:stop + len(end)].strip()
-        try:
-            ET.fromstring(candidate)
-            return candidate, candidate != trimmed
-        except ET.ParseError:
-            continue
-
-    try:
-        if "<mxfile" in trimmed:
-            ET.fromstring(trimmed)
-            return trimmed, False
-        if re.match(r"\s*<mxGraphModel[\s>]", trimmed, flags=re.IGNORECASE):
-            ET.fromstring(trimmed)
-            return trimmed, False
-    except ET.ParseError:
-        pass
-
-    fixed = trimmed
-    changed = False
-    for tag in ("mxfile", "diagram", "mxGraphModel", "root"):
-        pattern = re.compile(rf"</?{tag}[^>]*>", re.IGNORECASE)
-        new = pattern.sub("", fixed)
-        if new != fixed:
-            changed = True
-            fixed = new
-    return fixed.strip(), changed
 
 
 def _is_diagram_document(xml: str) -> bool:
@@ -554,10 +493,52 @@ def _fix_xml_with_elementtree(graph_xml: str) -> tuple[str, list[str]]:
     return output, fixes
 
 
-def auto_fix_xml(graph_xml: str) -> tuple[str, list[str]]:
-    """Apply safe structural fixes \u2014 expanded port of autoFixXml."""
+def _escape_drawio_value_markup(xml: str) -> tuple[str, list[str]]:
+    """Escape raw ``<``/``>``/``"`` inside ``value="..."`` before XML parse/recover.
+
+    draw.io Overview/Legend cells put HTML in attributes. libxml2 recover
+    *destroys* those attributes unless they are well-formed first. Idempotent
+    on already-escaped content (no raw ``<``/``"`` left to rewrite).
+    """
     fixes: list[str] = []
-    fixed = graph_xml
+
+    def _repl(match: re.Match[str]) -> str:
+        inner = match.group(1)
+        cleaned = inner.replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+        if cleaned != inner:
+            fixes.append("Escaped stray markup inside a value attribute")
+        return f'value="{cleaned}"'
+
+    return _VALUE_ATTR_SPAN.sub(_repl, xml), fixes
+
+
+def _recover_xml_with_lxml(xml: str) -> tuple[str | None, list[str]]:
+    """Use libxml2 recovery parser to produce well-formed XML.
+
+    Returns ``(recovered_xml, fixes)`` or ``(None, ...)`` if recovery fails.
+    """
+    try:
+        from lxml import etree
+    except ImportError:
+        return None, ["lxml unavailable — cannot recover malformed XML"]
+
+    try:
+        parser = etree.XMLParser(recover=True, huge_tree=True)
+        root = etree.fromstring((xml or "").encode("utf-8"), parser=parser)
+        if root is None:
+            return None, []
+        recovered = etree.tostring(root, encoding="unicode")
+        # Downstream (and draw.io) use ElementTree — require stdlib parse too.
+        ET.fromstring(recovered)
+        return recovered, ["Recovered well-formed XML via lxml"]
+    except Exception:
+        return None, []
+
+
+def _preflight_drawio_xml(xml: str) -> tuple[str, list[str]]:
+    """Tiny draw.io-specific text fixes that libraries cannot infer safely."""
+    fixes: list[str] = []
+    fixed = xml or ""
 
     if re.search(r'=\\"', fixed):
         fixed = fixed.replace('\\"', '"').replace("\\n", "\n")
@@ -568,130 +549,65 @@ def auto_fix_xml(graph_xml: str) -> tuple[str, list[str]]:
         fixed = re.sub(r"\]\]>\s*$", "", fixed)
         fixes.append("Removed CDATA wrapper")
 
-    last_self = fixed.rfind("/>")
-    last_close = fixed.rfind("</mxCell>")
-    last_valid = max(last_self, last_close)
-    if last_valid != -1:
-        end_offset = 9 if last_close > last_self else 2
-        suffix = fixed[last_valid + end_offset :]
-        # Only strip non-diagram closers (LLM junk). Keep </root></mxGraphModel></diagram></mxfile>.
-        closers = re.findall(r"</([^>\s/]+)>", suffix)
-        if (
-            closers
-            and re.match(r"^(\s*</[^>]+>)+\s*$", suffix)
-            and not any(t.lower() in _DIAGRAM_CLOSE_TAGS for t in closers)
-        ):
-            fixed = fixed[: last_valid + end_offset]
-            fixes.append("Stripped trailing LLM wrapper tags")
-
-    stripped, changed = _strip_llm_wrapper_tags(fixed)
-    if changed:
-        fixes.append("stripped LLM wrapper tags")
-        fixed = stripped
-
-    before_amp = fixed
-    fixed = re.sub(
-        r"&(?!lt;|gt;|amp;|quot;|apos;|#[0-9]+;|#x[0-9a-fA-F]+;)",
-        "&amp;",
-        fixed,
-    )
-    if fixed != before_amp:
-        fixes.append("Escaped unescaped & characters")
-
-    # Shield value="..." spans from the blunt fixers below — see
-    # _VALUE_SPAN_PLACEHOLDER docstring. Captured content already has stray
-    # '&' normalized (previous step), so it is safe to restore verbatim later.
-    value_spans: list[str] = []
-
-    def _mask_value_span(match: re.Match[str]) -> str:
-        idx = len(value_spans)
-        value_spans.append(match.group(1))
-        return f'value="{_VALUE_SPAN_PLACEHOLDER.format(idx)}"'
-
-    fixed = _VALUE_ATTR_SPAN.sub(_mask_value_span, fixed)
-
-    new_fixed = _UNQUOTED_ATTR.sub(r'\1="\2"', fixed)
-    if new_fixed != fixed:
-        fixes.append("Quoted bare attribute values")
-        fixed = new_fixed
-
-    for wrong, right in (
-        (r"<Cell(\s)", r"<mxCell\1"),
-        (r"<Cell>", "<mxCell>"),
-        (r"</Cell>", "</mxCell>"),
-        (r"</mxcell>", "</mxCell>"),
-        (r"</mxgeometry>", "</mxGeometry>"),
-        (r"</mxpoint>", "</mxPoint>"),
-    ):
-        new = re.sub(wrong, right, fixed, flags=re.IGNORECASE)
-        if new != fixed:
-            fixes.append(f"Fixed tag typo {wrong}")
-            fixed = new
-
-    def _dedupe_attrs(match: re.Match[str]) -> str:
-        tag = match.group(0)
-        for attr in STRUCTURAL_ATTRS:
-            parts = re.findall(rf'\s{attr}="[^"]*"', tag)
-            if len(parts) > 1:
-                tag = re.sub(rf'\s{attr}="[^"]*"', "", tag, count=len(parts) - 1)
-        return tag
-
-    deduped = re.sub(r"<mxCell[^>]*/?>", _dedupe_attrs, fixed)
-    if deduped != fixed:
-        fixes.append("Removed duplicate structural attributes")
-        fixed = deduped
-
     spaced = _ATTR_SPACE.sub(r"\1 \2", fixed)
     if spaced != fixed:
         fixes.append("Added missing space between attributes")
         fixed = spaced
 
-    seen: dict[str, int] = {}
-    has_dup = False
+    escaped, esc_fixes = _escape_drawio_value_markup(fixed)
+    if esc_fixes:
+        fixes.extend(dict.fromkeys(esc_fixes))  # dedupe message
+        fixed = escaped
 
-    def _count_dup_id(match: re.Match[str]) -> str:
-        nonlocal has_dup
-        cid = match.group(1)
-        count = seen.get(cid, 0)
-        seen[cid] = count + 1
-        if count > 0:
-            has_dup = True
-        return match.group(0)
+    amped = _BARE_AMP.sub("&amp;", fixed)
+    if amped != fixed:
+        fixes.append("Escaped unescaped & characters")
+        fixed = amped
 
-    re.sub(r'\bid="([^"]+)"', _count_dup_id, fixed)
-    if has_dup:
-        # Leave duplicates for resolve_duplicate_ids (deterministic rename). Do not
-        # reject here — format/structure repair must not depend on an LLM pass.
-        fixes.append("Duplicate mxCell id(s) detected — deferred to deterministic rename")
+    return fixed, fixes
 
-    # Restore the masked value="..." spans, escaping any stray markup in the
-    # original (unmodified-by-the-blunt-fixers-above) content. Must run last,
-    # right before ET parsing, for the same reason spans were masked in the
-    # first place: the fixers above expect raw, still-broken XML and would
-    # misinterpret already-escaped HTML as bare attributes.
-    value_markup_changed = False
 
-    def _restore_value_span(match: re.Match[str]) -> str:
-        nonlocal value_markup_changed
-        inner = value_spans[int(match.group(1))]
-        # Escape stray '"' too (e.g. inline style="...") — the span was
-        # already correctly bounded by the *real* closing quote (found via
-        # the next-attribute-name/tag-close lookahead) when it was masked, so
-        # any '"' still inside it is not a legitimate attribute boundary and
-        # must be escaped, not left bare.
-        cleaned = inner.replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
-        if cleaned != inner:
-            value_markup_changed = True
-        return f'value="{cleaned}"'
+def auto_fix_xml(graph_xml: str) -> tuple[str, list[str]]:
+    """Make LLM/MCP draw.io XML loadable — library recover + thin preflight.
 
-    fixed = _VALUE_SPAN_RESTORE.sub(_restore_value_span, fixed)
-    if value_markup_changed:
-        fixes.append("Escaped stray markup inside a value attribute")
+    Prefer **lxml recover** for structural damage (dangling tags, truncated
+    cells, mismatched closers). Keep only the draw.io-specific preflight that
+    libxml2 gets wrong (jammed attrs, HTML-in-``value``). Then apply
+    ElementTree semantic fixes (hoist nested cells, geometry, parents).
+    """
+    fixes: list[str] = []
+    fixed, pre_fixes = _preflight_drawio_xml(graph_xml or "")
+    fixes.extend(pre_fixes)
 
-    struct_fixed, struct_fixes = _fix_xml_with_elementtree(fixed)
-    if struct_fixes:
-        fixes.extend(struct_fixes)
-        fixed = struct_fixed
+    parseable = False
+    try:
+        ET.fromstring(fixed if fixed.lstrip().startswith("<") else f"<root>{fixed}</root>")
+        parseable = True
+    except ET.ParseError:
+        parseable = False
+
+    if not parseable:
+        recovered, recover_fixes = _recover_xml_with_lxml(fixed)
+        if recovered is not None:
+            fixes.extend(recover_fixes)
+            fixed = recovered
+            parseable = True
+        else:
+            # Last text attempt: slice first mxfile/mxGraphModel and recover that.
+            sliced = _slice_first_diagram(fixed)
+            if sliced and sliced != fixed:
+                recovered, recover_fixes = _recover_xml_with_lxml(sliced)
+                if recovered is not None:
+                    fixes.append("Extracted embedded diagram before recover")
+                    fixes.extend(recover_fixes)
+                    fixed = recovered
+                    parseable = True
+
+    if parseable:
+        struct_fixed, struct_fixes = _fix_xml_with_elementtree(fixed)
+        if struct_fixes:
+            fixes.extend(struct_fixes)
+            fixed = struct_fixed
 
     return ensure_diagram_document(fixed), fixes
 
@@ -745,28 +661,13 @@ def choose_fixed_xml(original: str, result: XmlValidationResult) -> str:
 
 
 def guarantee_loadable_xml(xml: str, page_name: str = "Architecture") -> tuple[str, bool, dict[str, str] | None]:
-    """Last-resort circuit breaker — call this once, immediately before a diagram
-    XML string leaves the service (API response / download / any other exit
-    point), never in the middle of the pipeline.
+    """Last-resort circuit breaker before XML leaves the service.
 
-    Every escaping/corruption bug this app has hit (three separate recurrences,
-    from three different code paths: the LLM's own raw output, this module's
-    own text-level fixers, and an external MCP round-trip) surfaced the same
-    way — "Not a diagram file" in the draw.io viewer — because no single place
-    ever *guaranteed* the outgoing XML was loadable; each fix only closed the
-    one leak found that time. This closes the class of bug instead of the
-    instance: re-run the existing repair machinery once more here, and if the
-    result still fails to parse, degrade to an empty-but-loadable canvas
-    rather than ever shipping something the client will reject outright.
+    Re-runs validate/auto_fix (lxml recover + draw.io preflight). If still
+    unparseable, degrade to an empty-but-loadable canvas rather than shipping
+    something draw.io rejects as "Not a diagram file".
 
-    Returns ``(xml, ok, failure_detail)`` — ``ok`` is False only when the
-    empty-canvas fallback had to be used (log this loudly; it means every
-    repair path upstream failed and is worth investigating, not something to
-    hide). ``failure_detail`` is ``None`` on success, else
-    ``{"parse_error": str, "failing_xml": str}`` with the *actual* ET.ParseError
-    message and the exact XML that still wouldn't parse after every repair —
-    without this, "failed to parse" alone gives no way to diagnose the bug
-    after the fact.
+    Returns ``(xml, ok, failure_detail)``.
     """
     candidate = ensure_diagram_document(xml, page_name)
     try:
@@ -931,31 +832,42 @@ def apply_mcp_styles(xml: str, style_overrides: dict[str, str]) -> str:
     except ET.ParseError:
         return xml
 
-    root = _find_diagram_root(tree) if is_mxfile else tree
-    if root is None:
-        root = tree.find("root")
-    if root is None:
+    # Multipage mxfiles reuse shape_type on every <diagram>/<root>. Apply to
+    # all roots — first-root-only left Network grey when Logical was page 1.
+    roots: list[ET.Element] = []
+    if is_mxfile:
+        roots = [r for r in tree.iter("root")]
+        if not roots:
+            found = tree.find("root")
+            if found is not None:
+                roots = [found]
+    else:
+        roots = [tree]
+
+    if not roots:
         return xml
 
     changed = False
-    for cell in root.findall("mxCell"):
-        st = cell.get("shape_type")
-        if not st:
-            continue
-        resolved = style_overrides.get(st)
-        if not resolved:
-            # MCP miss — keep placeholder style and shape_type for visibility/debug
-            continue
-        base_style = cell.get("style") or ""
-        cell.set("style", merge_drawio_styles(base_style, resolved))
-        del cell.attrib["shape_type"]
-        changed = True
+    for root in roots:
+        for cell in root.iter("mxCell"):
+            st = cell.get("shape_type")
+            if not st:
+                continue
+            resolved = style_overrides.get(st)
+            if not resolved:
+                # MCP miss — keep placeholder style and shape_type for visibility/debug
+                continue
+            base_style = cell.get("style") or ""
+            cell.set("style", merge_drawio_styles(base_style, resolved))
+            del cell.attrib["shape_type"]
+            changed = True
 
     if not changed:
         return xml
 
     if is_mxfile:
         return ET.tostring(tree, encoding="unicode")
+    root = roots[0]
     if "<root>" in trimmed:
         return ET.tostring(root, encoding="unicode")
     return "".join(ET.tostring(c, encoding="unicode") for c in root.findall("mxCell"))
@@ -969,6 +881,7 @@ _FIT_MIN_W = 120.0
 _FIT_MIN_H = 80.0
 _FIT_CHILD_MIN = 24.0  # clamp negative/near-zero child coords
 _SIBLING_GAP = 24.0  # clear space between sibling containers (zones vs supporting groups)
+_ZONE_TO_SUPPORTING_GAP = 70.0  # craft rule: supporting groups ≥70px below Zones
 _SAME_ROW_TOL = 24.0  # treat tops within this as the same horizontal row
 _AZ_ARC_SIZE = "6"
 _OVERVIEW_PANEL_ID = "overview_panel"
@@ -1147,6 +1060,15 @@ def _separate_sibling_containers(
         if len(containers) < 2:
             continue
 
+        def _is_supporting(c: ET.Element) -> bool:
+            value = (c.get("value") or "").strip().lower()
+            first = value.split()[0] if value.split() else ""
+            return first in {"security", "monitoring", "integration", "management"}
+
+        def _is_zone_like(c: ET.Element) -> bool:
+            value = (c.get("value") or "").strip().lower()
+            return "zone" in value or value.startswith("az")
+
         # Vertical: lower box must clear upper box when they share an x-range
         ordered = sorted(
             containers,
@@ -1170,7 +1092,10 @@ def _separate_sibling_containers(
                     continue
                 if not _ranges_overlap(ix, ix + iw, jx, jx + jw):
                     continue
-                need_y = jy + jh + gap
+                use_gap = gap
+                if _is_zone_like(ordered[j]) and _is_supporting(ordered[i]):
+                    use_gap = max(gap, _ZONE_TO_SUPPORTING_GAP)
+                need_y = jy + jh + use_gap
                 if iy + 0.5 < need_y:
                     _set_geom_xy(ordered[i], y=need_y)
                     iy = need_y

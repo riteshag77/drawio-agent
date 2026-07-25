@@ -11,7 +11,7 @@ so the notion of "container" and "geometry" stays consistent across the
 pipeline.
 
 Each deterministic check here mirrors an "ABSOLUTE RULE"/"FORBIDDEN"
-clause in ``config/xml_gen_core.txt``. Format and structural repair is
+clause in ``config/xml_gen/core.txt``. Format and structural repair is
 auto-only — the pipeline never spends an LLM call to fix XML shape.
 """
 
@@ -43,7 +43,7 @@ _LEAF_GRID_MAX_ROWS = 50
 # Rows are clustered by top-y proximity within this tolerance (px).
 _ROW_TOL = 20.0
 
-# Canonical pitch ranges from xml_gen_core.txt's "Density tiers" table —
+# Canonical pitch ranges from core.txt's "Density tiers" table —
 # data-path subnets prefer 200, allowed 180-220 (widened slightly here to
 # avoid flagging legitimate edge-of-range layouts); supporting (cross-cutting)
 # groups allow a tighter 160-180.
@@ -60,7 +60,7 @@ _GROUP_CANONICAL_PITCH = 170.0
 
 # Default geometry handed to a vertex missing <mxGeometry> entirely (see
 # ensure_valid_vertex_geometry) — 78x78 matches the canonical leaf icon size
-# documented in config/xml_gen_core.txt; the container default is safely
+# documented in config/xml_gen/core.txt; the container default is safely
 # above xml_tools._FIT_MIN_W/_FIT_MIN_H (120.0/80.0) so fit_containers_to_
 # children never has to grow it from a degenerate starting size.
 _DEFAULT_LEAF_SIZE = (78.0, 78.0)
@@ -71,14 +71,14 @@ _DEFAULT_CONTAINER_SIZE = (160.0, 120.0)
 # so overlap detection accounts for the label, not just the icon box.
 _LABEL_BAND_HEIGHT = 28.0
 
-# Cross-cutting group containers (config/xml_gen_core.txt "Cross-Cutting
+# Cross-cutting group containers (config/xml_gen/network.txt "Cross-Cutting
 # Groups — NO EDGES"): matched by the container's first label word, mirroring
 # the short-form naming already used in this app's fixtures/tests ("Security",
 # "Monitoring", ...) and the longer "Security Group" form from the container-
 # style table — both start with the same keyword.
 _CROSS_CUTTING_KEYWORDS = {"security", "monitoring", "integration", "management"}
 
-# Stable id the prompt (config/xml_gen_core.txt, "Overview Panel — RIGHT-HAND
+# Stable id the prompt (config/xml_gen/core.txt, "Overview Panel — RIGHT-HAND
 # SIDE") requires for the right-hand explanatory text box. It is deliberately
 # excluded from the leaf-grid helpers below (pitch/row/overlap checks) since
 # it's a prose annotation, not a service icon in the architecture grid.
@@ -92,15 +92,18 @@ _OVERVIEW_PANEL_MARGIN = 24.0
 _LEGEND_ID = "legend_box"
 _LEGEND_GAP = 20.0
 # Rough characters-per-line at the panel's chosen font/width, matching the
-# estimate config/xml_gen_core.txt already documents to the LLM — used to
+# estimate config/xml_gen/core.txt already documents to the LLM — used to
 # compute the panel's actual needed height from its real text content instead
 # of trusting whatever height the LLM emitted.
 _PANEL_CHARS_PER_LINE = 50
-_PANEL_LINE_HEIGHT = 28.0
-_PANEL_TITLE_BAND = 60.0
-_PANEL_BLOCK_GAP = 14.0
-_PANEL_BOTTOM_PAD = 16.0
-_PANEL_MIN_HEIGHT = 160.0
+_PANEL_LINE_HEIGHT = 22.0
+_PANEL_TITLE_BAND = 48.0
+_PANEL_BLOCK_GAP = 10.0
+_PANEL_BOTTOM_PAD = 14.0
+_PANEL_MIN_HEIGHT = 140.0
+_PANEL_MAX_HEIGHT = 420.0
+_PANEL_MAX_STEPS = 6
+_PANEL_MAX_STEP_CHARS = 120
 
 
 @dataclass
@@ -278,7 +281,7 @@ def _coordinate_nesting_violations(
 ) -> list[tuple[ET.Element, ET.Element]]:
     """Pairs of (inner, outer) top-level containers where ``inner`` is fully contained in ``outer``.
 
-    Per xml_gen_core.txt: only the Cloud boundary (plus background/actors) may
+    Per network.txt: only the Cloud boundary (plus background/actors) may
     sit at ``parent="1"`` — any other container visually nested inside another
     parent="1" container but not reparented to it is a coordinate-only-nesting
     violation ("Overlap != containment").
@@ -721,7 +724,7 @@ def remove_dangling_edges(xml: str) -> str:
 def remove_cross_cutting_edges(xml: str) -> str:
     """Drop any edge touching a Security/Monitoring/Integration/Management group.
 
-    Deterministic enforcement of xml_gen_core.txt's "ABSOLUTE RULE — NO LINES":
+    Deterministic enforcement of network.txt's "ABSOLUTE RULE — NO LINES":
     these groups are shown for architecture completeness only and must never
     be on the request/data path.
     """
@@ -856,7 +859,7 @@ def resolve_leaf_overlaps(xml: str) -> str:
 def resolve_row_overflow(xml: str) -> str:
     """Wrap the 5th+ icon of any over-full visual row onto the next row.
 
-    Deterministic safety net for xml_gen_core.txt's "Service Grid — MAX 4 PER
+    Deterministic safety net for core.txt's "Service Grid — MAX 4 PER
     ROW" rule ("When adding into a full row of 4, place on the next row —
     never squeeze a 5th into the first row"). Only moves the overflow icons of
     a row that already has more than 4 — properly-sized rows are untouched.
@@ -898,7 +901,7 @@ def resolve_row_overflow(xml: str) -> str:
 def resolve_coordinate_only_nesting(xml: str) -> str:
     """Reparent a top-level container that's visually nested inside another top-level container.
 
-    Deterministic enforcement of xml_gen_core.txt's "Overlap != containment"
+    Deterministic enforcement of network.txt's "Overlap != containment"
     rule — only the Cloud boundary (plus background/actors) may legitimately
     sit at ``parent="1"``. Converts the reparented cell's geometry to be
     relative to its new parent.
@@ -936,10 +939,14 @@ _ACTOR_SHAPE_TYPES = {
     "aws_users", "aws_user", "users", "user", "aws_client", "client", "aws_mobile_client",
     "azure_users", "azure_user", "azure_client",
     "gcp_users", "gcp_user", "gcp_client",
+    "aws_internet", "internet", "aws_iot", "iot", "aws_corporate_data_center",
+    "corporate_data_center", "on_premises", "onprem", "on_prem",
 }
 _ACTOR_EXACT_LABELS = {
     "users", "user", "client", "mobile client", "internet", "end users",
     "external users", "end user", "customer", "customers",
+    "on-prem", "on-premises", "on premises", "iot", "iot device", "corporate dc",
+    "corporate data center", "data center",
 }
 
 
@@ -956,7 +963,13 @@ def _is_external_actor_cell(cell: ET.Element) -> bool:
     if shape_type in _ACTOR_SHAPE_TYPES:
         return True
     value = (cell.get("value") or "").strip().lower()
-    return value in _ACTOR_EXACT_LABELS
+    # Strip trivial HTML wrappers before exact match
+    if "<" in value:
+        value = re.sub(r"<[^>]+>", " ", value).strip()
+    if value in _ACTOR_EXACT_LABELS:
+        return True
+    # Avoid Cognito User Pool / API Client false positives via exact set only
+    return False
 
 
 def absolute_position(cell: ET.Element, by_id: dict[str, ET.Element]) -> tuple[float, float]:
@@ -1065,8 +1078,13 @@ def resolve_pitch_outliers(xml: str) -> str:
     page_w, page_h = _page_size(tree)
     by_parent_leaves = _leaf_siblings_by_parent(cells, parent_ids, page_w, page_h)
 
+    from app.adapters.outbound.diagram.placement_fixers import is_connectivity_hub_cell
+
     changed = False
     for pid, kids in by_parent_leaves.items():
+        kids = [k for k in kids if not is_connectivity_hub_cell(k)]
+        if len(kids) < 2:
+            continue
         parent_cell = ids.get(pid)
         is_group = parent_cell is not None and _is_cross_cutting_group_cell(parent_cell)
         _, hi = _GROUP_PITCH_RANGE if is_group else _DATA_PITCH_RANGE
@@ -1122,8 +1140,13 @@ def resolve_moderate_pitch_deviations(xml: str) -> str:
     page_w, page_h = _page_size(tree)
     by_parent_leaves = _leaf_siblings_by_parent(cells, parent_ids, page_w, page_h)
 
+    from app.adapters.outbound.diagram.placement_fixers import is_connectivity_hub_cell
+
     changed = False
     for pid, kids in by_parent_leaves.items():
+        kids = [k for k in kids if not is_connectivity_hub_cell(k)]
+        if len(kids) < 2:
+            continue
         parent_cell = ids.get(pid)
         is_group = parent_cell is not None and _is_cross_cutting_group_cell(parent_cell)
         lo, hi = _GROUP_PITCH_RANGE if is_group else _DATA_PITCH_RANGE
@@ -1150,31 +1173,99 @@ def resolve_moderate_pitch_deviations(xml: str) -> str:
 
 
 _DIV_BLOCK = re.compile(r"<div[^>]*>(.*?)</div>", re.IGNORECASE | re.DOTALL)
+_DIV_FULL = re.compile(r"<div[^>]*>.*?</div>", re.IGNORECASE | re.DOTALL)
 _TAG_STRIP = re.compile(r"<[^>]+>")
+_GAP_DIV_MARK = re.compile(
+    r'data-section\s*=\s*["\']gaps["\']|color:\s*#B85450',
+    re.IGNORECASE,
+)
+
+
+def _trim_overview_panel_value(value: str) -> str:
+    """Keep title + up to ``_PANEL_MAX_STEPS`` short step divs; truncate long steps.
+
+    Preserves a trailing Recommended-gaps section (red ``#B85450`` / data-section=gaps)
+    without rewriting its colour. Existing step styling stays the amber overview recipe.
+
+    Returns **decoded** HTML suitable for ``Element.set("value", …)``. ElementTree
+    escapes on serialize — pre-escaped ``&lt;div&gt;`` here double-escapes to
+    ``&amp;lt;div`` and the UI shows raw tags.
+    """
+    decoded = html.unescape(value or "")
+    full_divs = _DIV_FULL.findall(decoded)
+    if not full_divs:
+        plain = _TAG_STRIP.sub("", decoded).strip()
+        if len(plain) > 400:
+            plain = plain[:397] + "..."
+        return plain if plain else (value or "")
+
+    main_divs: list[str] = []
+    gap_divs: list[str] = []
+    for div in full_divs:
+        if _GAP_DIV_MARK.search(div):
+            gap_divs.append(div)
+        else:
+            main_divs.append(div)
+
+    if not main_divs:
+        return "".join(gap_divs) if gap_divs else (value or "")
+
+    # Rebuild main steps with standard overview styling (unchanged recipe).
+    kept = main_divs[: 1 + _PANEL_MAX_STEPS]
+    out_parts: list[str] = []
+    for i, div in enumerate(kept):
+        inner = _DIV_BLOCK.search(div)
+        text = _TAG_STRIP.sub("", inner.group(1) if inner else div).strip()
+        if i > 0 and len(text) > _PANEL_MAX_STEP_CHARS:
+            text = text[: _PANEL_MAX_STEP_CHARS - 1].rstrip() + "…"
+        safe = html.escape(text)
+        if i == 0:
+            out_parts.append(
+                f'<div style="font-size:22px;font-weight:bold;">{safe}</div>'
+            )
+        else:
+            out_parts.append(f'<div style="font-size:15px;">{safe}</div>')
+    # Re-append gaps section verbatim (keeps red colour / markers).
+    out_parts.extend(gap_divs)
+    return "".join(out_parts)
 
 
 def _estimate_panel_content_height(value: str) -> float:
     """Estimate the overview panel's actual needed height from its real text.
 
-    Decodes the XML-escaped ``value`` attribute, splits it into its <div>
-    blocks (title + each step), strips any nested tags (e.g. <b>), and
-    estimates wrapped-line count per block from character length using the
-    same chars-per-line budget the prompt documents to the LLM — rather than
-    trusting whatever height the LLM emitted for the box itself.
+    Cap at ``_PANEL_MAX_HEIGHT`` so oversized essays cannot balloon the page.
+    Gap-section lines are included and may raise the cap slightly.
     """
     decoded = html.unescape(value or "")
-    blocks = _DIV_BLOCK.findall(decoded) or [decoded]
+    full_divs = _DIV_FULL.findall(decoded) or [decoded]
 
     total = _PANEL_TITLE_BAND + _PANEL_BOTTOM_PAD
-    for i, block in enumerate(blocks):
-        if i == 0:
-            continue  # title — already accounted for by the title band above
-        text = _TAG_STRIP.sub("", block).strip()
+    step_count = 0
+    gap_lines = 0
+    seen_title = False
+    for div in full_divs:
+        is_gap = bool(
+            isinstance(div, str) and div.startswith("<") and _GAP_DIV_MARK.search(div)
+        )
+        text = _TAG_STRIP.sub("", div).strip()
         if not text:
             continue
-        lines = max(1, -(-len(text) // _PANEL_CHARS_PER_LINE))  # ceil division
+        if is_gap:
+            gap_lines += 1
+            total += _PANEL_LINE_HEIGHT + _PANEL_BLOCK_GAP
+            continue
+        if not seen_title:
+            seen_title = True
+            continue
+        step_count += 1
+        if step_count > _PANEL_MAX_STEPS:
+            continue
+        text = text[:_PANEL_MAX_STEP_CHARS]
+        lines = max(1, -(-len(text) // _PANEL_CHARS_PER_LINE))
         total += lines * _PANEL_LINE_HEIGHT + _PANEL_BLOCK_GAP
-    return max(_PANEL_MIN_HEIGHT, total)
+    max_h = _PANEL_MAX_HEIGHT + (gap_lines * _PANEL_LINE_HEIGHT if gap_lines else 0)
+    max_h = min(560.0, max_h)
+    return max(_PANEL_MIN_HEIGHT, min(max_h, total))
 
 
 def _grow_page(tree: ET.Element, cells: list[ET.Element], page_w: float, page_h: float,
@@ -1206,7 +1297,7 @@ def _grow_page(tree: ET.Element, cells: list[ET.Element], page_w: float, page_h:
 def ensure_overview_panel_position(xml: str) -> str:
     """Keep the right-hand overview panel clear of the architecture, sized to its real text, and the page big enough for it.
 
-    config/xml_gen_core.txt requires exactly one explanatory text box with
+    config/xml_gen/core.txt requires exactly one explanatory text box with
     ``id="overview_panel"``, placed to the right of every other top-level
     element. The LLM places and sizes it itself; this repositions it (never
     invents or edits its text) when its one-shot geometry overlaps the rest
@@ -1226,9 +1317,18 @@ def ensure_overview_panel_position(xml: str) -> str:
     panel = next((c for c in cells if _is_overview_panel_cell(c)), None)
     if panel is None:
         return xml
+
+    # Cap verbose overview text before sizing/positioning.
+    raw_value = panel.get("value") or ""
+    trimmed_value = _trim_overview_panel_value(raw_value)
+    changed = False
+    if trimmed_value != raw_value:
+        panel.set("value", trimmed_value)
+        changed = True
+
     panel_geo = _cell_geometry(panel)
     if panel_geo is None:
-        return xml
+        return xml if not changed else _serialize_docroot(tree, root, is_mxfile, trimmed)
 
     page_w, page_h = _page_size(tree)
     others = [
@@ -1239,7 +1339,6 @@ def ensure_overview_panel_position(xml: str) -> str:
     other_geoms = [g for g in (_cell_geometry(c) for c in others) if g is not None]
 
     px, py, pw, ph = panel_geo
-    changed = False
 
     # Shrink/grow height to the panel's actual text content — independent of
     # whether the panel needs to move, so a stale LLM-emitted height never
@@ -1277,7 +1376,7 @@ def ensure_overview_panel_position(xml: str) -> str:
 def ensure_legend_position(xml: str) -> str:
     """Force the edge-style legend (if present) to sit directly below the Overview Panel.
 
-    config/xml_gen_core.txt asks the LLM for "outside the flow" placement,
+    config/xml_gen/core.txt asks the LLM for "outside the flow" placement,
     which is too vague for a wide multi-account diagram — the model has been
     observed placing the legend at an arbitrary interior point that overlaps
     real architecture content. This always pins it to the same x as the
@@ -1448,12 +1547,22 @@ def repair_xml(xml: str) -> tuple[str, XmlDiagnostics]:
     fixed = remove_cross_cutting_edges(fixed)
     fixed = ensure_leaf_labels(fixed)
     fixed = resolve_misplaced_actors(fixed)
+    from app.adapters.outbound.diagram.placement_fixers import (
+        fix_edge_anchors_from_geometry,
+        resolve_misplaced_connectivity_hubs,
+        resolve_misplaced_edge_services,
+        resolve_misplaced_load_balancers,
+    )
+    fixed = resolve_misplaced_connectivity_hubs(fixed)
+    fixed = resolve_misplaced_edge_services(fixed)
+    fixed = resolve_misplaced_load_balancers(fixed)
     fixed = resolve_coordinate_only_nesting(fixed)
     fixed = resolve_row_overflow(fixed)
     fixed = resolve_pitch_outliers(fixed)
     fixed = resolve_moderate_pitch_deviations(fixed)
     fixed = resolve_leaf_overlaps(fixed)
     fixed = fit_containers_to_children(fixed)
+    fixed = fix_edge_anchors_from_geometry(fixed)
     fixed = ensure_overview_panel_position(fixed)
     fixed = ensure_legend_position(fixed)
     return fixed, diagnose_xml(fixed)

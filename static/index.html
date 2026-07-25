@@ -205,6 +205,55 @@
                         </div>
                     </div>
 
+                    <div class="drawer-group" data-group="architecture-docs">
+                        <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
+                            <span class="drawer-group-title">Architecture docs</span>
+                            <span class="drawer-group-chevron" aria-hidden="true"></span>
+                        </button>
+                        <div class="drawer-group-body" hidden>
+                        <div class="verbose-toggle-row">
+                            <div>
+                                <span>Architecture interview</span>
+                                <small>Ask clarifying questions before generating when on</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle architecture interview">
+                                <input type="checkbox" id="architecture-interview-toggle" onchange="savePromptSettings()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="settings-field-row">
+                            <label>Diagram views</label>
+                            <small style="display:block;margin-bottom:6px;opacity:0.75">Multi-select — each becomes a separate draw.io page</small>
+                            <div class="compliance-fw-checkboxes" id="diagram-views-checkboxes">
+                                <label class="fw-checkbox"><input type="checkbox" class="diagram-view-cb" value="logical"> Logical</label>
+                                <label class="fw-checkbox"><input type="checkbox" class="diagram-view-cb" value="network" checked> Network / VPC</label>
+                                <label class="fw-checkbox"><input type="checkbox" class="diagram-view-cb" value="security"> Security / trust</label>
+                                <label class="fw-checkbox"><input type="checkbox" class="diagram-view-cb" value="data_flow"> Data flow</label>
+                            </div>
+                        </div>
+                        <div class="verbose-toggle-row">
+                            <div>
+                                <span>ADR Notes page</span>
+                                <small>Extra draw.io page with Architecture Decision Records</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle ADR Notes page">
+                                <input type="checkbox" id="adr-notes-toggle" onchange="savePromptSettings()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="verbose-toggle-row">
+                            <div>
+                                <span>RAID register page</span>
+                                <small>Risks, Assumptions, Issues, Dependencies table for docs</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle RAID register page">
+                                <input type="checkbox" id="raid-register-toggle" onchange="savePromptSettings()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        </div>
+                    </div>
+
                     <div class="drawer-group" data-group="diagram">
                         <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
                             <span class="drawer-group-title">Diagram</span>
@@ -331,6 +380,16 @@
                             <span class="drawer-group-chevron" aria-hidden="true"></span>
                         </button>
                         <div class="drawer-group-body" hidden>
+                        <div class="verbose-toggle-row">
+                            <div>
+                                <span>Save new runs</span>
+                                <small>Persist each /chat response under data/captures (large files)</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle saving captured runs">
+                                <input type="checkbox" id="save-captures-toggle" onchange="savePromptSettings()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
                         <label for="captures-select">Past responses (view only — no LLM/MCP call)</label>
                         <select id="captures-select" aria-label="Captured runs"></select>
                         <div class="btn-group">
@@ -356,7 +415,7 @@
                             <li><span>Insights</span> “apply waf”, “apply compliance”, “apply all insights”</li>
                             <li><span>Patterns</span> “list patterns”, “use pattern 1”, “pattern serverless”</li>
                         </ul>
-                        <p class="voice-help-limits">Limits: attach only opens the file picker; editing inside the draw.io canvas is mouse/keyboard only; Chrome or Edge on localhost/https.</p>
+                        <p class="voice-help-limits">Limits: attach only opens the file picker; editing inside the draw.io canvas is mouse/keyboard only; Chrome or Edge on localhost/https. Captures save only when <strong>Save new runs</strong> is on.</p>
                         <button type="button" class="btn-soft" onclick="showVoiceCommandHelp()">Show full command list</button>
                         </div>
                     </div>
@@ -560,25 +619,25 @@
 
     <div id="app-toast" class="app-toast" role="status" aria-live="assertive" hidden></div>
     <div class="copy-feedback" id="copy-toast">Copied to clipboard!</div>
-    <script src="/static/js/state.js?v=20260725s"></script>
+    <script src="/static/js/state.js?v=20260725t"></script>
     <script src="/static/js/theme.js?v=20260724f"></script>
     <script src="/static/js/resizer.js?v=20260724f"></script>
     <script src="/static/js/settings.js?v=20260725t"></script>
-    <script src="/static/js/prompt-settings.js?v=20260725s"></script>
+    <script src="/static/js/prompt-settings.js?v=20260725t"></script>
     <script src="/static/js/diagram.js?v=20260725c"></script>
-    <script src="/static/js/voice-commands.js?v=20260725s"></script>
+    <script src="/static/js/voice-commands.js?v=20260725t"></script>
     <script src="/static/js/voice.js?v=20260725i"></script>
-    <script src="/static/js/chat.js?v=20260725s"></script>
+    <script src="/static/js/chat.js?v=20260725t"></script>
     <script src="/static/js/toast.js?v=20260724f"></script>
     <script src="/static/js/exports.js?v=20260724f"></script>
     <script src="/static/js/attachments.js?v=20260725c"></script>
     <script src="/static/js/platform-ui.js?v=20260724f"></script>
     <script src="/static/js/run-controls.js?v=20260725g"></script>
-    <script src="/static/js/verbose-logs.js?v=20260725s"></script>
+    <script src="/static/js/verbose-logs.js?v=20260725t"></script>
     <script src="/static/js/insights-ui.js?v=20260725k"></script>
-    <script src="/static/js/insights-panels.js?v=20260725s"></script>
-    <script src="/static/js/captures.js?v=20260724f"></script>
-    <script src="/static/js/app.js?v=20260725s"></script>
+    <script src="/static/js/insights-panels.js?v=20260725t"></script>
+    <script src="/static/js/captures.js?v=20260725t"></script>
+    <script src="/static/js/app.js?v=20260725t"></script>
 </body>
 
 </html>

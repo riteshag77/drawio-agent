@@ -37,7 +37,7 @@ Open `http://localhost:8000/`. Use **Render** for `Auto (MCP)` / `MCP` / `Local`
 ```
 
 Pipeline: [`app/core/services/xml_pipeline.py`](app/core/services/xml_pipeline.py)  
-Prompts: [`config/xml_gen_core.txt`](config/xml_gen_core.txt) + `xml_gen_classify_*.txt` + `xml_gen_icons_*.txt`
+Prompts: [`config/xml_gen/`](config/xml_gen/) (`core.txt` + `network.txt` + `classify/` + `icons/` + `views/` + `docs/`)
 
 ### API
 

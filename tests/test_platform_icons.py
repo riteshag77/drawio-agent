@@ -54,16 +54,17 @@ class PlatformPromptTests(unittest.TestCase):
         # Must not dump full AWS category fillColor table
         self.assertNotIn("| Compute | #ED7100 |", prompt)
         self.assertNotIn("aws-icons-compute", prompt)
-        # Token budget: icon overhead beyond the shared CORE pack should stay lean.
-        # Measured as a delta from CORE (not the raw total) — CORE itself is a
-        # fixed, cached cost shared by every platform, so it's not part of
-        # "multi's icon overhead"; folding it into the threshold made this
-        # assertion fail for every platform, not just multi. A regression here
-        # (e.g. multi's reference-catalog filter silently loading all four
-        # platforms' catalogs unfiltered) would push the delta well past this cap.
-        core_tokens = ESTIMATE_PROMPT_TOKENS(_load_prompt("xml_gen_core.txt"))
-        overhead = ESTIMATE_PROMPT_TOKENS(prompt) - core_tokens
+        # Token budget: icon overhead beyond the shared CORE+Network packs should stay lean.
+        # Measured as a delta from CORE+Network (not the raw total) — those packs are a
+        # fixed, cached cost shared by every platform, so they're not part of
+        # "multi's icon overhead".
+        shared = (
+            ESTIMATE_PROMPT_TOKENS(_load_prompt("core.txt"))
+            + ESTIMATE_PROMPT_TOKENS(_load_prompt("network.txt"))
+        )
+        overhead = ESTIMATE_PROMPT_TOKENS(prompt) - shared
         self.assertLess(overhead, 2000, f"multi platform overhead ~{overhead} tokens exceeds budget")
+
 
 
 class PickStyleTests(unittest.TestCase):
@@ -122,23 +123,31 @@ class PickStyleTests(unittest.TestCase):
         pick = _pick_style(styles, "aws", shape_type="aws_users") or ""
         self.assertIn("resIcon=mxgraph.aws4.users", pick)
 
-    def test_pick_style_mixed_under_inferred_clouds(self) -> None:
-        aws_styles = [
-            "shape=mxgraph.gcp2.cloud_run;",
-            "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;",
+    def test_platform_from_logical_prefix(self) -> None:
+        self.assertEqual(_platform_from_shape_type("logical_actor", "aws"), "logical")
+        self.assertEqual(_platform_from_shape_type("logical_datastore", "multi"), "logical")
+
+    def test_shape_query_logical_vocabulary(self) -> None:
+        self.assertEqual(_shape_query("logical_actor", "aws"), "uml actor")
+        self.assertEqual(_shape_query("logical_datastore", "aws"), "cylinder database")
+        self.assertEqual(_shape_query("logical_capability", "aws"), "rounded rectangle application")
+
+    def test_builtin_skips_logical_early(self) -> None:
+        # logical_* must reach MCP search; builtins are miss-fallbacks only
+        self.assertIsNone(_builtin_style("logical_actor"))
+        self.assertIsNone(_builtin_style("logical_capability"))
+
+    def test_pick_style_logical_rejects_cloud_icons(self) -> None:
+        styles = [
+            "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;fillColor=#ED7100;",
+            "shape=umlActor;fillColor=#E6E6E6;strokeColor=#666666;",
+            "rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;",
         ]
-        gcp_styles = [
-            "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;",
-            "shape=mxgraph.gcp2.cloud_run;html=1;",
-        ]
-        self.assertIn(
-            "aws4",
-            _pick_style(aws_styles, _platform_from_shape_type("aws_lambda", "multi")) or "",
-        )
-        self.assertIn(
-            "gcp2",
-            _pick_style(gcp_styles, _platform_from_shape_type("gcp_cloud_run", "multi")) or "",
-        )
+        pick = _pick_style(styles, "logical", shape_type="logical_actor") or ""
+        self.assertNotIn("aws4", pick.lower())
+        self.assertNotIn("resourceicon", pick.lower())
+        self.assertTrue("umlactor" in pick.lower() or "rounded=1" in pick.lower())
+
 
 
 class NormalizePlatformStylesTests(unittest.TestCase):

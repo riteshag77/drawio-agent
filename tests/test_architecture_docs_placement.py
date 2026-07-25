@@ -1,0 +1,431 @@
+"""Tests for architecture docs pages and placement/line-direction fixers."""
+
+from __future__ import annotations
+
+import unittest
+import xml.etree.ElementTree as ET
+
+from app.adapters.outbound.diagram.architecture_docs import (
+    AdrRecord,
+    RaidItem,
+    build_adr_page_xml,
+    build_architecture_inventory,
+    build_raid_page_xml,
+    build_single_view_human,
+    build_single_view_system,
+    build_views_prompt_block,
+    ensure_minimal_overview_panel,
+    merge_mxfile_pages,
+    normalize_diagram_views,
+    page_has_overview_panel,
+)
+from app.adapters.outbound.diagram.placement_fixers import (
+    fix_edge_anchors_from_geometry,
+    resolve_misplaced_connectivity_hubs,
+)
+from app.adapters.outbound.diagram.xml_diagnostics import repair_xml
+
+
+def _wrap(inner: str) -> str:
+    return (
+        '<mxfile host="embed.diagrams.net"><diagram name="Network" id="page-1">'
+        '<mxGraphModel><root>'
+        '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+        f"{inner}"
+        "</root></mxGraphModel></diagram></mxfile>"
+    )
+
+
+class NormalizeViewsTests(unittest.TestCase):
+    def test_default_network(self) -> None:
+        self.assertEqual(normalize_diagram_views(None), ["network"])
+        self.assertEqual(normalize_diagram_views([]), ["network"])
+
+    def test_multi_select_order(self) -> None:
+        self.assertEqual(
+            normalize_diagram_views(["security", "logical", "network"]),
+            ["logical", "network", "security"],
+        )
+
+    def test_primary_prefers_network(self) -> None:
+        from app.adapters.outbound.diagram.architecture_docs import (
+            build_views_prompt_block,
+            pick_primary_view,
+        )
+        self.assertEqual(pick_primary_view(["logical", "network", "security"]), "network")
+        self.assertEqual(pick_primary_view(["logical", "security"]), "logical")
+        # Network-only: no extra tokens in main prompt
+        self.assertEqual(build_views_prompt_block(["network"]), "")
+        # Multi-select: prompt focuses primary only, no multipage dump
+        block = build_views_prompt_block(["logical", "network", "security"])
+        self.assertIn("Network", block)
+        self.assertIn("SINGLE", block)
+        self.assertNotIn("follow-up", block.lower())
+        self.assertNotIn("multipage", block.lower())
+        self.assertIn("SINGLE", block)
+
+
+class DocPagesTests(unittest.TestCase):
+    def test_adr_and_raid_merge(self) -> None:
+        base = _wrap(
+            '<mxCell id="svc" value="API" shape_type="aws_alb" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        adr = build_adr_page_xml([AdrRecord(title="Multi-AZ", decision="Use 2 AZs")])
+        raid = build_raid_page_xml([
+            RaidItem(type="Risk", description="Quota", impact="Med", mitigation="Raise limit"),
+        ])
+        merged = merge_mxfile_pages([("Network", base), ("ADR Notes", adr), ("RAID", raid)])
+        tree = ET.fromstring(merged)
+        names = [d.get("name") for d in tree.findall("diagram")]
+        self.assertEqual(names, ["Network", "ADR Notes", "RAID"])
+
+    def test_merge_unwraps_nested_mxfile_pages(self) -> None:
+        """LLM/MCP sometimes nest a full mxfile inside a page — must unwrap on merge."""
+        from app.adapters.outbound.diagram.architecture_docs import normalize_single_page_xml
+
+        outer = (
+            '<mxfile host="embed.diagrams.net"><diagram name="Logical" id="page-1">'
+            '<mxfile host="embed.diagrams.net"><diagram name="Page" id="inner">'
+            '<mxGraphModel><root>'
+            '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            '<mxCell id="svc" value="API" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            "</root></mxGraphModel></diagram></mxfile>"
+            "</diagram></mxfile>"
+        )
+        net = _wrap(
+            '<mxCell id="alb" value="ALB" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        normalized = normalize_single_page_xml(outer, "Logical")
+        self.assertEqual(normalized.lower().count("<mxfile"), 1)
+        merged = merge_mxfile_pages([("Logical", normalized), ("Network", net)])
+        self.assertEqual(merged.lower().count("<mxfile"), 1)
+        tree = ET.fromstring(merged)
+        self.assertEqual([d.get("name") for d in tree.findall("diagram")], ["Logical", "Network"])
+        logical = tree.find("diagram")
+        self.assertIsNotNone(logical)
+        self.assertIsNone(logical.find("mxfile"))
+        self.assertIsNotNone(logical.find("mxGraphModel"))
+
+    def test_adr_raid_are_html_tables(self) -> None:
+        adr = build_adr_page_xml([
+            AdrRecord(
+                title="Multi-AZ data",
+                status="Accepted",
+                context="Zone failure must not stop the business.",
+                decision="Run databases in two zones.",
+                consequences="Slightly higher cost; better uptime.",
+                alternatives="Single zone with backups.",
+            ),
+            AdrRecord(title="Private data plane", decision="No public DB endpoints."),
+        ])
+        raid = build_raid_page_xml([
+            RaidItem(
+                type="Risk",
+                description="One-region concentration",
+                impact="High — full outage",
+                mitigation="Add DR region later",
+            ),
+        ])
+        adr_cell = next(c for c in ET.fromstring(adr).iter("mxCell") if c.get("id") == "adr_table")
+        raid_cell = next(c for c in ET.fromstring(raid).iter("mxCell") if c.get("id") == "raid_table")
+        adr_val = adr_cell.get("value") or ""
+        raid_val = raid_cell.get("value") or ""
+        self.assertIn("<table", adr_val)
+        self.assertIn("<tr", adr_val)
+        self.assertIn("<th", adr_val)
+        self.assertIn("Situation", adr_val)
+        self.assertIn("What we chose", adr_val)
+        self.assertNotIn(" | ", adr_val)
+        self.assertIn("<table", raid_val)
+        self.assertIn("What this means", raid_val)
+        self.assertIn("Why it matters", raid_val)
+        self.assertNotIn(" | ", raid_val)
+
+    def test_adr_not_hard_capped_at_seven(self) -> None:
+        many = [AdrRecord(title=f"Decision {i}", decision=f"Choose {i}") for i in range(1, 12)]
+        adr = build_adr_page_xml(many)
+        val = next(c for c in ET.fromstring(adr).iter("mxCell") if c.get("id") == "adr_table").get("value") or ""
+        self.assertIn("ADR-011", val)
+        self.assertIn("Decision 11", val)
+
+    def test_overview_stub_on_view_page(self) -> None:
+        bare = _wrap(
+            '<mxCell id="svc" value="API" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        self.assertFalse(page_has_overview_panel(bare))
+        with_panel = ensure_minimal_overview_panel(bare, "Security")
+        self.assertTrue(page_has_overview_panel(with_panel))
+        panel = next(c for c in ET.fromstring(with_panel).iter("mxCell") if c.get("id") == "overview_panel")
+        self.assertIn("Security", panel.get("value") or "")
+
+    def test_network_only_extra_view_context_empty(self) -> None:
+        self.assertEqual(build_views_prompt_block(["network"]), "")
+        human = build_single_view_human(
+            human_prompt="x" * 500,
+            platform="aws",
+            primary_xml_summary=["ALB", "ECS"],
+            view="logical",
+        )
+        self.assertIn("Logical", human)
+        self.assertIn("Architecture inventory", human)
+        self.assertIn("VIEWPOINT = LOGICAL", human)
+        self.assertIn("distinct", human.lower())
+        self.assertLess(len(human), 3500)
+
+    def test_surgical_edit_gate_detects_success(self) -> None:
+        from types import SimpleNamespace
+
+        from app.core.services.xml_pipeline import _was_successful_surgical_edit
+
+        logger = SimpleNamespace(entries=[
+            SimpleNamespace(step="surgical_edit", level="success", message="Applied 2 surgical ops"),
+        ])
+        self.assertTrue(_was_successful_surgical_edit(logger))
+        self.assertFalse(_was_successful_surgical_edit(SimpleNamespace(entries=[])))
+        self.assertFalse(_was_successful_surgical_edit(None))
+
+
+class ViewPackQualityTests(unittest.TestCase):
+    def test_system_includes_common_and_lens(self) -> None:
+        logical = build_single_view_system("logical")
+        self.assertIn("overview_panel", logical)
+        self.assertIn("shape_type", logical)
+        self.assertIn("step_markers", logical)
+        self.assertIn("Logical", logical)
+        self.assertIn("Bounded Contexts", logical)
+        self.assertIn("Invokes", logical)
+        self.assertIn("FORBIDDEN", logical)
+        self.assertIn("3–5", logical)
+        self.assertIn("Application / Solution Architect", logical)
+        self.assertIn("25+", logical)
+        self.assertIn("capability", logical.lower())
+        self.assertIn("Differentiation", logical)
+        self.assertIn("anti-overlap", logical.lower())
+        self.assertIn("180–220", logical)
+        self.assertIn("#DAE8FC", logical)
+        self.assertIn("note_experience", logical)
+        self.assertIn("overview_panel", logical)
+        self.assertNotIn("Canonical Container Hierarchy", logical)
+        self.assertNotIn("Cross-Cutting Groups", logical)
+        # AZ styling lives in the Network pack, not view prompts
+        self.assertNotIn("arcSize=6", logical)
+
+        security = build_single_view_system("security")
+        self.assertIn("Trust Zones", security)
+        self.assertIn("ctrl_dmz", security)
+        self.assertIn("Security / Trust Architect", security)
+        self.assertIn("25+", security)
+        self.assertIn("trust", security.lower())
+        self.assertIn("overview_panel", security)
+        self.assertIn("AuthN", security)
+        self.assertIn("CISO", security)
+        self.assertIn("FORBIDDEN", security)
+        self.assertIn("0.25", security)
+
+        data_flow = build_single_view_system("data_flow")
+        self.assertIn("lifecycle", data_flow.lower())
+        self.assertIn("note_ingest", data_flow)
+        self.assertIn("Integration / Data-Flow Architect", data_flow)
+        self.assertIn("25+", data_flow)
+        self.assertIn("Data flow", data_flow)
+        self.assertIn("JSON:", data_flow)
+        self.assertIn("pipeline", data_flow.lower())
+        self.assertIn("payload", data_flow.lower())
+        self.assertIn("FORBIDDEN", data_flow)
+        self.assertIn("Hot path", data_flow)
+        self.assertIn("product quality bar", build_single_view_system("logical").lower())
+
+    def test_architecture_inventory_services_and_flows(self) -> None:
+        xml = _wrap(
+            '<mxCell id="alb" value="ALB" shape_type="aws_alb" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="ecs" value="ECS" shape_type="aws_ecs" vertex="1" parent="1">'
+            '<mxGeometry x="200" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="rds" value="Aurora" shape_type="aws_rds" vertex="1" parent="1">'
+            '<mxGeometry x="360" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="step_badge_1" value="1" vertex="1" parent="1">'
+            '<mxGeometry x="10" y="10" width="24" height="24" as="geometry"/></mxCell>'
+            '<mxCell id="e1" edge="1" parent="1" source="alb" target="ecs" value="HTTPS">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+            '<mxCell id="e2" edge="1" parent="1" source="ecs" target="rds">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        inv = build_architecture_inventory(
+            xml,
+            request_text="HA web app with WAF, private subnets, CDN, cache, CloudWatch",
+        )
+        self.assertIn("ALB [edge]", inv)
+        self.assertIn("shape_type=aws_alb", inv)
+        self.assertIn("ECS [app]", inv)
+        self.assertIn("Aurora [data]", inv)
+        self.assertNotIn("- 1 [", inv)  # badge noise filtered
+        self.assertIn("ALB → ECS (HTTPS)", inv)
+        self.assertIn("ECS → Aurora", inv)
+        self.assertIn("Control hints", inv)
+        self.assertIn("Capability hints", inv)
+        self.assertIn("Payload hints", inv)
+        human = build_single_view_human(
+            human_prompt="Three-tier web app with WAF and private subnets",
+            platform="aws",
+            primary_xml=xml,
+            view="security",
+        )
+        self.assertIn("VIEWPOINT = SECURITY", human)
+        self.assertIn("Key flows", human)
+        self.assertIn("→", human)
+        self.assertIn("Control hints", human)
+
+
+class ViewEnrichmentFixerTests(unittest.TestCase):
+    def test_inject_shape_types_from_capability_labels(self) -> None:
+        from app.adapters.outbound.diagram.architecture_docs import (
+            ensure_view_detail_cards,
+            inject_shape_types_from_primary,
+        )
+
+        primary = _wrap(
+            '<mxCell id="waf" value="WAF" shape_type="aws_waf" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="alb" value="ALB" shape_type="aws_application_load_balancer" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="200" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="ec2" value="EC2" shape_type="aws_ec2" vertex="1" parent="1">'
+            '<mxGeometry x="360" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        page = _wrap(
+            '<mxCell id="shield" value="Edge shield" style="shape=ellipse;fillColor=#F5F5F5;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="dist" value="Traffic distributor" style="shape=rectangle;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="200" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="app" value="Web application" style="shape=rectangle;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="360" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="overview_panel" value="Overview" style="rounded=1;" vertex="1" parent="1">'
+            '<mxGeometry x="900" y="40" width="300" height="120" as="geometry"/></mxCell>'
+        )
+        out = inject_shape_types_from_primary(page, primary)
+        tree = ET.fromstring(out)
+        by_id = {c.get("id"): c for c in tree.iter("mxCell") if c.get("id")}
+        self.assertEqual(by_id["shield"].get("shape_type"), "aws_waf")
+        self.assertEqual(by_id["dist"].get("shape_type"), "aws_application_load_balancer")
+        self.assertEqual(by_id["app"].get("shape_type"), "aws_ec2")
+        self.assertNotIn("shape=ellipse", by_id["shield"].get("style") or "")
+
+        with_cards = ensure_view_detail_cards(
+            out, view="logical", primary_xml=primary, request_text="HA web app",
+        )
+        ids = {c.get("id") for c in ET.fromstring(with_cards).iter("mxCell")}
+        self.assertIn("note_experience", ids)
+        self.assertIn("note_core", ids)
+        self.assertIn("note_data_cap", ids)
+        core_card = next(c for c in ET.fromstring(with_cards).iter("mxCell") if c.get("id") == "note_core")
+        self.assertIn("EC2", core_card.get("value") or "")
+
+    def test_logical_assigns_mcp_shape_types(self) -> None:
+        from app.adapters.outbound.diagram.architecture_docs import assign_logical_shape_types
+
+        page = _wrap(
+            '<mxCell id="ord" value="Orders capability" shape_type="aws_ecs" '
+            'style="shape=rectangle;fillColor=#F5F5F5;" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="120" height="60" as="geometry"/></mxCell>'
+            '<mxCell id="ds" value="Customer data store" shape_type="aws_rds" '
+            'style="shape=rectangle;" vertex="1" parent="1">'
+            '<mxGeometry x="200" y="40" width="120" height="60" as="geometry"/></mxCell>'
+            '<mxCell id="user" value="Customer" style="shape=ellipse;" vertex="1" parent="1">'
+            '<mxGeometry x="360" y="40" width="60" height="80" as="geometry"/></mxCell>'
+        )
+        out = assign_logical_shape_types(page)
+        by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
+        self.assertEqual(by_id["ord"].get("shape_type"), "logical_capability")
+        self.assertEqual(by_id["ds"].get("shape_type"), "logical_datastore")
+        self.assertEqual(by_id["user"].get("shape_type"), "logical_actor")
+        self.assertIn("DAE8FC", by_id["ord"].get("style") or "")
+        self.assertIn("cylinder", (by_id["ds"].get("style") or "").lower())
+        self.assertIn("umlActor", by_id["user"].get("style") or "")
+        self.assertNotIn("aws_ecs", out)
+        self.assertNotIn("mxgraph.aws4", out)
+
+    def test_inject_logical_capability_and_data_store_labels(self) -> None:
+        from app.adapters.outbound.diagram.architecture_docs import inject_shape_types_from_primary
+
+        primary = _wrap(
+            '<mxCell id="alb" value="ALB" shape_type="aws_application_load_balancer" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="ecs" value="ECS" shape_type="aws_ecs" vertex="1" parent="1">'
+            '<mxGeometry x="200" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="rds" value="Aurora" shape_type="aws_rds" vertex="1" parent="1">'
+            '<mxGeometry x="360" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        page = _wrap(
+            '<mxCell id="ch" value="Customer channel" style="shape=ellipse;" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="ord" value="Orders capability" style="shape=rectangle;" vertex="1" parent="1">'
+            '<mxGeometry x="200" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="ds" value="Customer data store" style="shape=rectangle;" vertex="1" parent="1">'
+            '<mxGeometry x="360" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = inject_shape_types_from_primary(page, primary)
+        by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
+        self.assertEqual(by_id["ch"].get("shape_type"), "aws_application_load_balancer")
+        self.assertEqual(by_id["ord"].get("shape_type"), "aws_ecs")
+        self.assertEqual(by_id["ds"].get("shape_type"), "aws_rds")
+        self.assertNotIn("shape=ellipse", by_id["ch"].get("style") or "")
+
+
+class HubPlacementTests(unittest.TestCase):
+    def test_tgw_hoisted_to_cloud(self) -> None:
+        xml = _wrap(
+            '<mxCell id="cloud" value="AWS Cloud" style="container=1;rounded=0;" vertex="1" parent="1">'
+            '<mxGeometry x="100" y="40" width="900" height="500" as="geometry"/></mxCell>'
+            '<mxCell id="vpc" value="VPC" style="container=1;" vertex="1" parent="cloud">'
+            '<mxGeometry x="40" y="60" width="700" height="350" as="geometry"/></mxCell>'
+            '<mxCell id="tgw" value="Transit Gateway" shape_type="aws_transit_gateway" '
+            'vertex="1" parent="vpc">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = resolve_misplaced_connectivity_hubs(xml)
+        tgw = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "tgw")
+        self.assertEqual(tgw.get("parent"), "cloud")
+
+    def test_repair_chain_hoists_tgw(self) -> None:
+        xml = _wrap(
+            '<mxCell id="cloud" value="AWS Cloud" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="100" y="40" width="900" height="500" as="geometry"/></mxCell>'
+            '<mxCell id="vpc" value="VPC" style="container=1;" vertex="1" parent="cloud">'
+            '<mxGeometry x="40" y="60" width="700" height="350" as="geometry"/></mxCell>'
+            '<mxCell id="tgw" value="Transit Gateway" shape_type="aws_transit_gateway" '
+            'vertex="1" parent="vpc">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out, _ = repair_xml(xml)
+        tgw = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "tgw")
+        self.assertEqual(tgw.get("parent"), "cloud")
+
+
+class EdgeAnchorTests(unittest.TestCase):
+    def test_leftward_edge_gets_left_exit(self) -> None:
+        xml = _wrap(
+            '<mxCell id="a" value="A" vertex="1" parent="1">'
+            '<mxGeometry x="300" y="100" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="b" value="B" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="100" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="e1" edge="1" parent="1" source="a" target="b" '
+            'style="edgeStyle=orthogonalEdgeStyle;exitX=1;exitY=0.5;entryX=0;entryY=0.5;">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        out = fix_edge_anchors_from_geometry(xml)
+        edge = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "e1")
+        style = edge.get("style") or ""
+        self.assertIn("exitX=0", style)
+        self.assertIn("entryX=1", style)
+
+
+if __name__ == "__main__":
+    unittest.main()

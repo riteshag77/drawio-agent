@@ -5,6 +5,7 @@ Classify using this decision order — stop at the first match:
 | # | Category | GCP examples | Place in |
 |---|----------|--------------|----------|
 | 1 | Global/edge — DNS, CDN, WAF, static | Cloud DNS, Cloud CDN, Cloud Armor, Cloud Storage (static) | Edge/Global Layer |
+| 1b | Cross-VPC connectivity hub | Cloud Interconnect, HA VPN / Cloud VPN, NCC hub | Cloud level beside Edge (edges to VPCs — never inside one VPC row) |
 | 2 | Identity, encryption, secrets | Cloud IAM, Cloud KMS, Secret Manager | Security Group (NO edges) |
 | 3 | Observability, audit | Cloud Monitoring, Cloud Logging, Cloud Trace, SCC | Monitoring Group (NO edges) |
 | 4 | Messaging / integration bus | Pub/Sub, Cloud Tasks, Eventarc, Workflows | Integration Group (NO edges) |

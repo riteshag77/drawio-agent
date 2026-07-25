@@ -76,8 +76,10 @@ def _extract_styles(payload: str) -> list[str]:
 
 
 def _platform_from_shape_type(shape_type: str, fallback: str = "aws") -> str:
-    """Infer cloud vendor from shape_type prefix (aws_ / gcp_ / azure_)."""
+    """Infer vendor/library family from shape_type prefix."""
     st = (shape_type or "").lower()
+    if st.startswith("logical_"):
+        return "logical"
     if st.startswith("aws_"):
         return "aws"
     if st.startswith("gcp_"):
@@ -85,11 +87,60 @@ def _platform_from_shape_type(shape_type: str, fallback: str = "aws") -> str:
     if st.startswith("azure_"):
         return "azure"
     fb = (fallback or "aws").lower()
-    return fb if fb in ("aws", "gcp", "azure") else "aws"
+    return fb if fb in ("aws", "gcp", "azure", "logical") else "aws"
+
+
+_LOGICAL_SHAPE_QUERIES: dict[str, str] = {
+    "logical_actor": "uml actor",
+    "logical_channel": "rounded rectangle",
+    "logical_capability": "rounded rectangle application",
+    "logical_api": "application",
+    "logical_datastore": "cylinder database",
+    "logical_saas": "cloud",
+    "logical_platform": "rounded rectangle",
+}
+
+# Miss fallbacks when MCP search returns nothing useful for logical_*.
+_LOGICAL_BUILTIN_STYLES: dict[str, str] = {
+    "logical_actor": (
+        "shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;"
+        "outlineConnect=0;fillColor=#E6E6E6;strokeColor=#666666;fontColor=#333333;"
+        "fontSize=12;align=center;"
+    ),
+    "logical_channel": (
+        "rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#666666;"
+        "fontColor=#333333;align=center;verticalAlign=middle;fontSize=12;arcSize=12;"
+    ),
+    "logical_capability": (
+        "rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;"
+        "fontColor=#1A1A2E;align=center;verticalAlign=middle;fontSize=12;arcSize=8;"
+    ),
+    "logical_api": (
+        "rounded=1;whiteSpace=wrap;html=1;fillColor=#E1D5E7;strokeColor=#9673A6;"
+        "fontColor=#1A1A2E;align=center;verticalAlign=middle;fontSize=12;arcSize=8;"
+    ),
+    "logical_datastore": (
+        "shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;"
+        "fillColor=#D5E8D4;strokeColor=#82B366;fontColor=#1A1A2E;"
+        "align=center;verticalAlign=middle;fontSize=12;"
+    ),
+    "logical_saas": (
+        "ellipse;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;"
+        "fontColor=#1A1A2E;align=center;verticalAlign=middle;fontSize=12;"
+    ),
+    "logical_platform": (
+        "rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#147EBA;"
+        "fontColor=#1A1A2E;align=center;verticalAlign=middle;fontSize=12;arcSize=8;dashed=1;"
+    ),
+}
 
 
 def _shape_query(shape_type: str, platform: str) -> str:
     st = (shape_type or "").lower()
+    if st in _LOGICAL_SHAPE_QUERIES:
+        return _LOGICAL_SHAPE_QUERIES[st]
+    if st.startswith("logical_"):
+        return st.replace("logical_", "").replace("_", " ")
     # External actors: force queries that hit AWS4 resource icons, not VPN/IAM noise.
     if st in ("aws_users", "aws_user", "users", "user"):
         return "aws4 users"
@@ -142,17 +193,52 @@ _BUILTIN_SHAPE_STYLES: dict[str, str] = {
 
 
 def _builtin_style(shape_type: str) -> str | None:
+    """Early-resolve builtins for noisy cloud actor icons only (not logical_*)."""
     st = (shape_type or "").strip().lower()
+    if st.startswith("logical_"):
+        return None  # logical builtins are miss-fallbacks so MCP search still runs
     style = _BUILTIN_SHAPE_STYLES.get(st)
     if style and not style.endswith(";"):
         return style + ";"
     return style
 
 
+def _logical_fallback_style(shape_type: str) -> str | None:
+    st = (shape_type or "").strip().lower()
+    style = _LOGICAL_BUILTIN_STYLES.get(st)
+    if style and not style.endswith(";"):
+        return style + ";"
+    return style
+
+
+def _is_cloud_vendor_style(style: str) -> bool:
+    low = (style or "").lower()
+    return (
+        "mxgraph.aws4" in low
+        or "resourceicon" in low
+        or "mxgraph.gcp2" in low
+        or "img/lib/azure2" in low
+        or "img/lib/azure" in low
+        or "mxgraph.azure" in low
+    )
+
+
 def _platform_style_predicate(platform: str):
     """Return a matcher that prefers styles from the configured draw.io lib."""
     cfg = get_config()
     platform = (platform or "aws").lower()
+    if platform == "logical":
+        def _logical_ok(low: str) -> bool:
+            if _is_cloud_vendor_style(low):
+                return False
+            return any(
+                token in low
+                for token in (
+                    "umlactor", "cylinder", "rounded=1", "ellipse",
+                    "mxgraph.basic", "flowchart", "shape=mxgraph",
+                )
+            ) or ("shape=" in low and "resicon=" not in low)
+        return _logical_ok
     if platform == "gcp":
         needle = (cfg.drawio_lib_gcp or "mxgraph.gcp2").lower()
         return lambda low: needle in low or "mxgraph.gcp2" in low or "img/lib/google" in low
@@ -179,6 +265,22 @@ def _pick_style(styles: list[str], platform: str = "aws", shape_type: str = "") 
                 pick = style if style.endswith(";") else style + ";"
                 return pick
     prefer = _platform_style_predicate(platform)
+    # Logical: never accept cloud vendor icons even as first hit
+    if platform == "logical" or st.startswith("logical_"):
+        non_cloud = [s for s in styles if not _is_cloud_vendor_style(s)]
+        candidates = non_cloud or []
+        pick = None
+        for style in candidates:
+            if prefer(style.lower()):
+                pick = style
+                break
+        if pick is None and candidates:
+            pick = candidates[0]
+        if pick is None:
+            return None
+        if not pick.endswith(";"):
+            pick += ";"
+        return pick
     pick = styles[0]
     for style in styles:
         low = style.lower()
@@ -315,8 +417,17 @@ async def resolve_shape_styles(
                     resolved[st] = pick
                     _log.info("MCP resolved %s", st)
                 else:
-                    unresolved.append(st)
-                    _log.info("MCP miss for %s", st)
+                    # Logical vocabulary: apply non-cloud builtins on MCP miss so
+                    # placeholders never stay grey when we have a known stencil.
+                    fallback = _logical_fallback_style(st)
+                    if fallback:
+                        cloud = _platform_from_shape_type(st, platform)
+                        cache_put((cloud, st), fallback)
+                        resolved[st] = fallback
+                        _log.info("MCP miss for %s — logical builtin fallback", st)
+                    else:
+                        unresolved.append(st)
+                        _log.info("MCP miss for %s", st)
 
     if logger:
         logger.log(

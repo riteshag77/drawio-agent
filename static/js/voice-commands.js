@@ -687,6 +687,25 @@ function initVoiceCommands() {
     });
 
     registerVoiceCommand({
+        id: 'captures-on',
+        label: 'Enable save captures',
+        phrases: ['enable captures', 'enable capture runs', 'turn on captures', 'save captures'],
+        run: () => {
+            voiceSetToggle('save-captures-toggle', true);
+            return 'Saving captured runs on';
+        },
+    });
+    registerVoiceCommand({
+        id: 'captures-off',
+        label: 'Disable save captures',
+        phrases: ['disable captures', 'disable capture runs', 'turn off captures', 'stop saving captures'],
+        run: () => {
+            voiceSetToggle('save-captures-toggle', false);
+            return 'Saving captured runs off';
+        },
+    });
+
+    registerVoiceCommand({
         id: 'refresh-captures',
         label: 'Refresh captures',
         phrases: ['refresh captures', 'reload captures', 'list captures'],

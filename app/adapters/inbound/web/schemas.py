@@ -23,6 +23,11 @@ class PromptRequest(BaseModel):
     image_replicate: bool = False
     animated_connectors: bool = False
     suggestions: bool = False
+    architecture_interview: bool = False
+    diagram_views: list[str] | None = None
+    adr_notes: bool = False
+    raid_register: bool = False
+    interview_answers: dict[str, str] | None = None
 
 
 class ChatMessage(BaseModel):
@@ -56,6 +61,12 @@ class ChatRequest(BaseModel):
     image_replicate: bool = False
     animated_connectors: bool = False
     suggestions: bool = False
+    architecture_interview: bool = False
+    diagram_views: list[str] | None = None
+    adr_notes: bool = False
+    raid_register: bool = False
+    save_captures: bool = False
+    interview_answers: dict[str, str] | None = None
 
 
 class ParseUrlRequest(BaseModel):

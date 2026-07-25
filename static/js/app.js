@@ -282,7 +282,24 @@ async function sendMessage(options = {}) {
             image_replicate: promptSettings.image_replicate,
             animated_connectors: promptSettings.animated_connectors,
             suggestions: !!promptSettings.suggestions,
+            architecture_interview: !!promptSettings.architecture_interview,
+            diagram_views: promptSettings.diagram_views || ['network'],
+            adr_notes: !!promptSettings.adr_notes,
+            raid_register: !!promptSettings.raid_register,
+            save_captures: !!promptSettings.save_captures,
+            interview_answers: (typeof pendingInterviewAnswers === 'object' && pendingInterviewAnswers)
+                ? pendingInterviewAnswers
+                : null,
         };
+
+        if (typeof window !== 'undefined' && window._awaitingInterview) {
+            chatBody.interview_answers = { answers: text };
+            chatBody.architecture_interview = true;
+            window._awaitingInterview = false;
+            pendingInterviewAnswers = { answers: text };
+        } else if (pendingInterviewAnswers) {
+            chatBody.interview_answers = pendingInterviewAnswers;
+        }
 
         let data;
         try {
@@ -308,6 +325,21 @@ async function sendMessage(options = {}) {
 
         if (data.status !== 'success') throw new Error(data.detail || 'Unknown error');
 
+        if (data.interview_required) {
+            window._awaitingInterview = true;
+            pendingInterviewAnswers = null;
+            const assistantText = data.assistant_message || 'Please answer the architecture interview questions.';
+            chatMessages.push({ role: 'assistant', content: assistantText });
+            appendChatBubble('assistant', assistantText);
+            setTyping(false);
+            finishChatRun({
+                outcome: 'success',
+                message: 'Answer the interview questions in chat, then send again.',
+            });
+            return;
+        }
+
+        pendingInterviewAnswers = null;
         const assistantText = data.assistant_message || 'Diagram updated.';
         // Keep the full assistant_message in chatMessages (sent back to the LLM
         // as conversation history on the next turn) but show only a short

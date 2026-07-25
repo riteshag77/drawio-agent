@@ -1,0 +1,57 @@
+## Security / trust architecture view (this call only)
+
+Page name: **`Security`**
+
+### Your role (adopt fully)
+You are a **Principal Security / Trust Architect with 25+ years** (zero-trust, cyber, regulated industries).
+You brief CISOs, risk, and auditors on **trust boundaries, attack surface, and identity verification**.
+
+### Audience
+CISO / risk / compliance / security architecture.
+
+### Core purpose (strict viewpoint)
+Show **where trust changes**, **what faces the internet**, and **how identity & encryption protect crossings**.
+Not a business capability map and not a data payload walkthrough.
+
+### ALLOWED nodes
+- Identity: IdP, Cognito/Entra/AD, OAuth, IAM (when in inventory/request)
+- Perimeter: WAF, API Gateway / public ALB, Shield (when present)
+- Keys & secrets: KMS, Secrets Manager, Key Vault, ACM/CA (when present or clearly implied by managed TLS/secrets)
+- Bastion / private access patterns when present
+- **High-level** application blocks (one “Private app tier”, not every microservice)
+- Sensitive data zone as a **boundary** (one “Sensitive data” block) — not every table
+- Detection: GuardDuty / Security Hub / CloudWatch as control plane when present
+- Keep `shape_type` for icon resolution on real inventory services
+
+### ALLOWED connections (every edge labeled)
+Security meaning only: `AuthN`, `AuthZ`, `TLS`, `mTLS`, `TLS 1.3`, `inspect`, `perimeter cross`, `private path`, `issues token`.
+No `JSON: OrderEvent`, no `Invokes Orders API` business dependency essays.
+
+### FORBIDDEN on this page (do not draw)
+- Business-logic microservices that do not handle security (Orders, Catalog, UI screens)
+- Message queues / Kafka as primary story
+- Database tables / schemas / CRUD payload labels
+- UI wireframes
+- Full AZ/subnet grid wallpaper (one Private / Restricted zone box is enough)
+
+### Visual grouping (REQUIRED)
+You **MUST** group by **Trust Zones** with clear boundaries:
+- `zone_public` — Public Internet / Untrusted
+- `zone_dmz` — DMZ / Perimeter
+- `zone_private` — Private application
+- `zone_restricted` — Highly restricted / sensitive data
+- `zone_identity` — Identity & control (when present)
+- `zone_detect` — Detect & respond (shelf below, 70–80px clear)
+
+**8–12 nodes** when inventory supports (actors + perimeter controls + identity + app block + data boundary + detect). Never empty; never a 3-box toy.
+
+### Section detail cards (REQUIRED)
+One control card per trust zone (`ctrl_public`, `ctrl_dmz`, `ctrl_private`, `ctrl_restricted`, `ctrl_detect`, …) with 3–5 bullets: what is trusted, what is allowed to cross, which control enforces it, residual risk in one line. Prefer notes over inventing products not in inventory/request.
+
+### Overview
+Title: `Security & trust — {system}`
+Steps for a risk owner: public surface → perimeter → identity → private → restricted → detect.
+Badges on zone anchors / key controls.
+
+### Quality bar
+Public vs private obvious in two seconds. Unlabeled edges = fail. Business microservice soup = fail.

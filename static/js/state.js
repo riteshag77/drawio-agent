@@ -24,7 +24,15 @@ const IMAGE_REPLICATE_STORAGE_KEY = 'drawio-agent-image-replicate';
 const ANIMATED_CONNECTORS_STORAGE_KEY = 'drawio-agent-animated-connectors';
 const SHOW_REASONING_STORAGE_KEY = 'drawio-agent-show-reasoning';
 const SUGGESTIONS_STORAGE_KEY = 'drawio-agent-suggestions';
+const ARCH_INTERVIEW_STORAGE_KEY = 'drawio-agent-architecture-interview';
+const DIAGRAM_VIEWS_STORAGE_KEY = 'drawio-agent-diagram-views';
+const ADR_NOTES_STORAGE_KEY = 'drawio-agent-adr-notes';
+const RAID_REGISTER_STORAGE_KEY = 'drawio-agent-raid-register';
+const SAVE_CAPTURES_STORAGE_KEY = 'drawio-agent-save-captures';
 const MAX_VLM_CLIENT_RETRIES = 0; // Show banner only — auto /chat regen feels like endless loading
+
+/** Pending interview answers for the next generate (cleared after successful diagram). */
+let pendingInterviewAnswers = null;
 
 let currentXml = '';
 let previousXml = null;

@@ -23,6 +23,31 @@ function updateValidationProviderVisibility() {
     /* VLM validation UI removed */
 }
 
+function getSelectedDiagramViews() {
+    const cbs = document.querySelectorAll('.diagram-view-cb');
+    const selected = [];
+    cbs.forEach(function (cb) {
+        if (cb.checked) selected.push(cb.value);
+    });
+    if (!selected.length) return ['network'];
+    const order = ['logical', 'network', 'security', 'data_flow'];
+    return order.filter(function (v) { return selected.indexOf(v) !== -1; });
+}
+
+function onDiagramViewChange() {
+    const cbs = document.querySelectorAll('.diagram-view-cb');
+    let any = false;
+    cbs.forEach(function (cb) { if (cb.checked) any = true; });
+    if (!any) {
+        const net = document.querySelector('.diagram-view-cb[value="network"]');
+        if (net) net.checked = true;
+        if (typeof showToast === 'function') {
+            showToast('At least one diagram view is required — Network kept on', 'info');
+        }
+    }
+    savePromptSettings();
+}
+
 function getPromptSettings() {
     return {
         custom_system_message: document.getElementById('custom-system-message').value.slice(0, 5000),
@@ -47,6 +72,19 @@ function getPromptSettings() {
         suggestions: document.getElementById('suggestions-toggle')
             ? document.getElementById('suggestions-toggle').checked
             : false,
+        architecture_interview: document.getElementById('architecture-interview-toggle')
+            ? document.getElementById('architecture-interview-toggle').checked
+            : false,
+        diagram_views: getSelectedDiagramViews(),
+        adr_notes: document.getElementById('adr-notes-toggle')
+            ? document.getElementById('adr-notes-toggle').checked
+            : false,
+        raid_register: document.getElementById('raid-register-toggle')
+            ? document.getElementById('raid-register-toggle').checked
+            : false,
+        save_captures: document.getElementById('save-captures-toggle')
+            ? document.getElementById('save-captures-toggle').checked
+            : false,
     };
 }
 
@@ -69,6 +107,15 @@ function savePromptSettings() {
     if (reason) localStorage.setItem(SHOW_REASONING_STORAGE_KEY, reason.checked ? '1' : '0');
     const sugg = document.getElementById('suggestions-toggle');
     if (sugg) localStorage.setItem(SUGGESTIONS_STORAGE_KEY, sugg.checked ? '1' : '0');
+    const interview = document.getElementById('architecture-interview-toggle');
+    if (interview) localStorage.setItem(ARCH_INTERVIEW_STORAGE_KEY, interview.checked ? '1' : '0');
+    const adr = document.getElementById('adr-notes-toggle');
+    if (adr) localStorage.setItem(ADR_NOTES_STORAGE_KEY, adr.checked ? '1' : '0');
+    const raid = document.getElementById('raid-register-toggle');
+    if (raid) localStorage.setItem(RAID_REGISTER_STORAGE_KEY, raid.checked ? '1' : '0');
+    const saveCap = document.getElementById('save-captures-toggle');
+    if (saveCap) localStorage.setItem(SAVE_CAPTURES_STORAGE_KEY, saveCap.checked ? '1' : '0');
+    localStorage.setItem(DIAGRAM_VIEWS_STORAGE_KEY, JSON.stringify(getSelectedDiagramViews()));
     updateComplianceFrameworksVisibility();
 }
 
@@ -135,6 +182,30 @@ function initPromptSettings() {
     if (reasonEl) reasonEl.checked = localStorage.getItem(SHOW_REASONING_STORAGE_KEY) === '1';
     const suggEl = document.getElementById('suggestions-toggle');
     if (suggEl) suggEl.checked = localStorage.getItem(SUGGESTIONS_STORAGE_KEY) === '1';
+    const interviewEl = document.getElementById('architecture-interview-toggle');
+    if (interviewEl) interviewEl.checked = localStorage.getItem(ARCH_INTERVIEW_STORAGE_KEY) === '1';
+    const adrEl = document.getElementById('adr-notes-toggle');
+    if (adrEl) adrEl.checked = localStorage.getItem(ADR_NOTES_STORAGE_KEY) === '1';
+    const raidEl = document.getElementById('raid-register-toggle');
+    if (raidEl) raidEl.checked = localStorage.getItem(RAID_REGISTER_STORAGE_KEY) === '1';
+    const saveCapEl = document.getElementById('save-captures-toggle');
+    if (saveCapEl) saveCapEl.checked = localStorage.getItem(SAVE_CAPTURES_STORAGE_KEY) === '1';
+    const viewsStored = localStorage.getItem(DIAGRAM_VIEWS_STORAGE_KEY);
+    if (viewsStored) {
+        try {
+            const selected = JSON.parse(viewsStored);
+            document.querySelectorAll('.diagram-view-cb').forEach(function (cb) {
+                cb.checked = selected.indexOf(cb.value) !== -1;
+            });
+            if (!getSelectedDiagramViews().length) {
+                const net = document.querySelector('.diagram-view-cb[value="network"]');
+                if (net) net.checked = true;
+            }
+        } catch (_) {}
+    }
+    document.querySelectorAll('.diagram-view-cb').forEach(function (cb) {
+        cb.addEventListener('change', onDiagramViewChange);
+    });
     const fwStored = localStorage.getItem(COMPLIANCE_FRAMEWORKS_KEY);
     if (fwStored) {
         try {

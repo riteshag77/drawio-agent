@@ -383,7 +383,7 @@ class RepairXmlTests(unittest.TestCase):
 
 
 class CrossCuttingGroupEdgeTests(unittest.TestCase):
-    """xml_gen_core.txt 'ABSOLUTE RULE — NO LINES': zero edges into Security/
+    """network.txt 'ABSOLUTE RULE — NO LINES': zero edges into Security/
     Monitoring/Integration/Management groups."""
 
     def _xml_with_edge_into_security_group(self) -> str:
@@ -442,7 +442,7 @@ class CrossCuttingGroupEdgeTests(unittest.TestCase):
 
 
 class CoordinateOnlyNestingTests(unittest.TestCase):
-    """xml_gen_core.txt: 'Overlap != containment' — only Cloud may sit at parent="1"."""
+    """network.txt: 'Overlap != containment' — only Cloud may sit at parent="1"."""
 
     def _xml_with_flat_vpc_inside_cloud(self) -> str:
         return _wrap(
@@ -495,7 +495,7 @@ class CoordinateOnlyNestingTests(unittest.TestCase):
 
 
 class RowOverflowTests(unittest.TestCase):
-    """xml_gen_core.txt 'Service Grid — MAX 4 PER ROW': never squeeze a 5th into row one."""
+    """core.txt 'Service Grid — MAX 4 PER ROW': never squeeze a 5th into row one."""
 
     def _xml_with_five_in_a_row(self) -> str:
         cells = "".join(
@@ -657,6 +657,26 @@ class EnsureOverviewPanelPositionTests(unittest.TestCase):
         h = float(panel.find("mxGeometry").get("height"))
         self.assertLess(h, 900.0)  # shrunk, not left at the LLM's inflated value
 
+    def test_overview_trim_does_not_double_escape_html(self) -> None:
+        """Element.set must receive decoded HTML — pre-escaped values show raw tags in UI."""
+        xml = _wrap(
+            '<mxCell id="cloud" value="AWS Cloud" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="200" y="100" width="600" height="400" as="geometry"/></mxCell>'
+            '<mxCell id="overview_panel" '
+            'value="&lt;div style=&quot;font-size:22px;font-weight:bold;&quot;&gt;Title&lt;/div&gt;'
+            '&lt;div style=&quot;font-size:15px;&quot;&gt;1. Short step.&lt;/div&gt;" '
+            'style="rounded=1;html=1;fillColor=#FFF8E1;strokeColor=#F5A623;" vertex="1" parent="1">'
+            '<mxGeometry x="840" y="100" width="400" height="200" as="geometry"/></mxCell>'
+        )
+        out = ensure_overview_panel_position(xml)
+        self.assertNotIn("&amp;lt;", out)
+        panel = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "overview_panel")
+        decoded = panel.get("value") or ""
+        self.assertIn("<div", decoded)
+        self.assertIn("Title", decoded)
+        # Serialized attribute still entity-escapes once for well-formed XML.
+        self.assertIn("&lt;div", out)
+
     def test_grows_undersized_panel_to_fit_many_steps(self) -> None:
         steps = "".join(
             f'&lt;div style=&quot;font-size:15px;&quot;&gt;{i}. A reasonably long step description here.&lt;/div&gt;'
@@ -726,7 +746,22 @@ class EnsureLegendPositionTests(unittest.TestCase):
 class ResolvePitchOutliersTests(unittest.TestCase):
     """Generic, shape_type-agnostic fix for a leaf sitting far from its row-mates."""
 
-    def test_extreme_gap_snapped_back_to_normal_pitch(self) -> None:
+    def test_extreme_gap_on_ordinary_leaf_snapped_back(self) -> None:
+        """Far-flung ordinary leaf snaps to pitch; hubs are excluded (see hub hoist tests)."""
+        xml = _wrap(
+            '<mxCell id="vpc" value="VPC" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="20" y="50" width="2000" height="300" as="geometry"/></mxCell>'
+            '<mxCell id="alb" value="ALB" shape_type="aws_alb" vertex="1" parent="vpc">'
+            '<mxGeometry x="20" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="ec2" value="EC2" shape_type="aws_ec2" '
+            'vertex="1" parent="vpc">'
+            '<mxGeometry x="1600" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = resolve_pitch_outliers(xml)
+        ec2 = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "ec2")
+        self.assertEqual(float(ec2.find("mxGeometry").get("x")), 220.0)  # 20 + canonical 200px pitch
+
+    def test_transit_gateway_not_pitch_snapped_inside_vpc(self) -> None:
         xml = _wrap(
             '<mxCell id="vpc" value="VPC" style="container=1;" vertex="1" parent="1">'
             '<mxGeometry x="20" y="50" width="2000" height="300" as="geometry"/></mxCell>'
@@ -738,7 +773,7 @@ class ResolvePitchOutliersTests(unittest.TestCase):
         )
         out = resolve_pitch_outliers(xml)
         tgw = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "tgw")
-        self.assertEqual(float(tgw.find("mxGeometry").get("x")), 220.0)  # 20 + canonical 200px pitch
+        self.assertEqual(float(tgw.find("mxGeometry").get("x")), 1600.0)
 
     def test_generic_not_tied_to_any_specific_shape_type(self) -> None:
         """The fixer must trigger for any far-flung leaf, not a hardcoded service list."""

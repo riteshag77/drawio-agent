@@ -36,6 +36,24 @@ def test_3d_skips_aws4_icon_pack():
     assert "Canonical Container Hierarchy" not in prompt
 
 
+def test_network_pack_loaded_for_primary():
+    prompt = get_xml_gen_system_prompt(platform="aws")
+    assert "Canonical Container Hierarchy" in prompt
+    assert "Cross-Cutting Groups" in prompt
+    assert "xml_gen_network" not in prompt  # content loaded, not path/filename
+
+
+def test_core_excludes_network_hierarchy():
+    from app.adapters.outbound.llm.prompts.system import _load_prompt
+
+    core = _load_prompt("core.txt")
+    assert "Canonical Container Hierarchy" not in core
+    assert "Availability Zone" not in core
+    assert "Cross-Cutting Groups" not in core
+    assert "180–220" in core
+    assert "overview_panel" in core
+
+
 def test_no_style_instructions_file_loaded():
     """CORE already includes edge colors; style_instructions must not be appended."""
     prompt = get_xml_gen_system_prompt(platform="aws")

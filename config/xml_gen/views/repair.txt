@@ -1,0 +1,18 @@
+## View repair pass (focused page only)
+
+You are repairing ONE existing Logical / Security / Data flow draw.io page.
+A senior reviewer scored this page and listed concrete violations below.
+
+### Rules
+1. Fix ONLY the listed violations. Do not redesign the whole page.
+2. Preserve existing cell ids when possible (especially overview_panel and service leaves).
+3. Keep `shape_type` on real inventory services. Recommended gaps go in the Overview Panel (red bullets) — do not draw gap canvas boxes.
+4. Every edge must carry a label in THIS view's vocabulary.
+5. Do not invent cloud products absent from the inventory / request.
+6. Do not add VPC/subnet/AZ nesting — that is Network only.
+7. Return complete page XML in `xml` plus `step_markers` for overview steps.
+
+### Viewpoint reminders
+- Logical: domains + Invokes/Calls API/Relies on; generic data stores; logical_* stencils; no WAF/VPC.
+- Security: trust zones + AuthN/TLS/inspect/private path; control refs OK; collapse app soup.
+- Data flow: lifecycle phases + JSON:/SQL:/Event: payload labels; classification tags OK.

@@ -1,4 +1,4 @@
-"""System prompt builder — CORE + platform packs (token-efficient)."""
+"""System prompt builder — core + network + platform packs (token-efficient)."""
 
 from __future__ import annotations
 
@@ -27,6 +27,7 @@ MAX_SYSTEM_PROMPT_TOKENS = 10_000
 CACHE_BREAKPOINT = "CACHE_BREAKPOINT"
 
 CONFIG_DIR = EnvConfigAdapter.base_dir() / "config"
+PROMPTS_DIR = CONFIG_DIR / "xml_gen"
 REFERENCES_DIR = CONFIG_DIR / "references"
 
 _ICON_PLATFORMS = frozenset({"aws", "gcp", "azure", "multi"})
@@ -34,7 +35,7 @@ _ICON_PLATFORMS = frozenset({"aws", "gcp", "azure", "multi"})
 
 @lru_cache(maxsize=24)
 def _load_prompt(filename: str) -> str:
-    path = CONFIG_DIR / filename
+    path = PROMPTS_DIR / filename
     if not path.is_file():
         raise FileNotFoundError(f"Prompt file not found: {path}")
     return path.read_text(encoding="utf-8")
@@ -135,15 +136,16 @@ def _assemble_prompt_parts(
 
     if three_d:
         # 3D path: isometric prompt + 3d refs only — never aws4 icon pack / orthogonal style.
-        stable.append(_load_prompt("xml_gen_prompt_3d.txt"))
+        stable.append(_load_prompt("prompt_3d.txt"))
         for ref in _get_reference_files("aws", three_d=True):
             content = _load_reference(ref)
             if content:
                 volatile.append(_filter_catalog(content, user_hint))
     else:
-        stable.append(_load_prompt("xml_gen_core.txt"))
-        stable.append(_load_prompt(f"xml_gen_classify_{platform_key}.txt"))
-        stable.append(_load_prompt(f"xml_gen_icons_{platform_key}.txt"))
+        stable.append(_load_prompt("core.txt"))
+        stable.append(_load_prompt("network.txt"))
+        stable.append(_load_prompt(f"classify/{platform_key}.txt"))
+        stable.append(_load_prompt(f"icons/{platform_key}.txt"))
         for ref in _get_reference_files(platform_key, three_d=False):
             content = _load_reference(ref)
             if content:

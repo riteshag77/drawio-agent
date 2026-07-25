@@ -1,5 +1,6 @@
-/** Captured Runs playback — read-only viewer for full, untruncated past
- *  /chat responses persisted server-side (app/adapters/outbound/capture_store.py).
+/** Captured Runs playback — read-only viewer for past /chat responses persisted
+ *  server-side when Settings → Captured runs → "Save new runs" is enabled
+ *  (app/adapters/outbound/capture_store.py).
  *
  *  This is deliberately NOT a "run without calling the LLM/MCP" simulation
  *  mode: selecting a capture just re-renders its already-saved data through
