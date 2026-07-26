@@ -6,6 +6,7 @@ Classify by provider first, then category. Stop at the first match:
 |---|----------|-----|-------|-----|----------|
 | 1 | Global/edge | Route 53, CloudFront, WAF | Azure DNS, Front Door, WAF | Cloud DNS, Cloud CDN, Cloud Armor | Edge/Global Layer |
 | 1b | Connectivity hub | Transit Gateway, VPN GW, DX | Virtual WAN, VPN GW, ExpressRoute | Interconnect, HA VPN, NCC | Cloud beside Edge |
+| 1c | Enterprise SaaS | Salesforce, Workday, Okta | Salesforce, Workday, Okta | Salesforce, Workday, Okta | Outside Cloud by call path: ingress left / egress right (never Integration) |
 | 2 | Identity/secrets | IAM, KMS, Secrets Manager | Entra ID, Key Vault | Cloud IAM, Cloud KMS | Security Group (NO edges) |
 | 3 | Observability | CloudWatch, CloudTrail | Azure Monitor, Log Analytics | Cloud Monitoring, Cloud Logging | Monitoring Group (NO edges) |
 | 4 | Integration bus | SQS, SNS, EventBridge | Service Bus, Event Grid | Pub/Sub, Cloud Tasks | Integration Group (NO edges) |

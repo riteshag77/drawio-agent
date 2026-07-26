@@ -232,15 +232,8 @@ function clearChat() {
     }
     if (typeof hideValidationBanner === 'function') hideValidationBanner();
     setActionButtonsEnabled(false);
-    document.getElementById('xml-output').textContent = '';
-    const xmlPanel = document.getElementById('xml-panel');
-    const xmlBtn = document.getElementById('btn-xml');
-    if (xmlPanel) xmlPanel.classList.remove('open');
-    if (xmlBtn) {
-        xmlBtn.setAttribute('aria-pressed', 'false');
-        xmlBtn.title = 'View Draw.io XML source';
-        xmlBtn.setAttribute('aria-label', xmlBtn.title);
-    }
+    const xmlOut = document.getElementById('xml-output');
+    if (xmlOut) xmlOut.textContent = '';
     setDiagramStatus('Waiting for generation');
     document.getElementById('diagram-placeholder').classList.remove('hidden');
 

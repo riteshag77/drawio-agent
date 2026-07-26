@@ -12,16 +12,25 @@ Page name: **`Data flow`**
 WAF/login tours or domain org charts → fail.
 
 ### Canvas (clean)
-- **Data plane** corridor: `phase_ingest` → `phase_process` → `phase_store` → consume/analytics (or Hot vs Cold bands).
+- **Data plane** corridor **left → right**: `phase_ingest` → `phase_process` → `phase_store` → consume/analytics (or Hot vs Cold bands).
 - **Control plane** optional dashed shelf (schema registry, schedules, Glue catalog) when in inventory — never IdP/WAF.
+- SaaS producers/consumers sit in-phase; order L→R by journey role within a phase. Never parent leaves under `overview_panel`.
 - **No** `note_*` / `ctrl_*` prose cards. Journey → Overview + `step_markers` badges on major hops.
 - Legend when needed: sync/async and `[PII]` / `[Non-PII]` / `[PCI]`.
 
 ### ALLOWED nodes
 Producers/consumers, named stores/brokers/ETL/cache/replicas from inventory, control-plane orchestration when present. Keep cloud `shape_type`.
+Enterprise SaaS producers/consumers (Salesforce, Workday, Guidewire, Stripe, …): use `shape_type=saas_<vendor>` when present — place on the data plane as producer/consumer hops, not on the control-plane shelf.
 
 ### ALLOWED edges (every edge labeled)
-`JSON:…`, `SQL:…`, `Event:…`, `Cache:…`, `Object:…`, `CDC:…`, `Batch:…` — add `[PII]` / `[Non-PII]` / `[PCI]` when request implies sensitivity (never invent PII).
+`JSON:…`, `SQL:…`, `Event:…`, `Cache:…`, `Object:…`, `CDC:…`, `Batch:…` — add `[PII]` / `[Non-PII]` / `[PCI]` when request implies sensitivity (never invent PII). Keep each label **≤ 28 characters** when possible (short type + optional tag).
+
+### Arrow / line craft (CRITICAL — readability)
+- One primary data corridor L→R (ingest → process → store → consume). Secondary/async dashed and sparse.
+- Orthogonal edges; exit/entry from relative placement — never all at mid-face.
+- Every labeled edge **must** include `labelBackgroundColor=#F5F5F5;fontSize=11;fontColor=#333333` so payload text is readable.
+- Park labels in the clear band between phases — **never** on top of store/broker icons.
+- Parallel hops: offset or face-spread; wrap density rather than crossing labels through icons.
 
 ### FORBIDDEN
 UI wireframes, WAF/Shield/auth login sequences, VPC/AZ wallpaper, security-control essays, capability org charts, note/ctrl cards.
@@ -40,4 +49,4 @@ Red gaps = data-path only (dead-letter, backup/retention, CDC/replica, schema re
 Emit `step_markers` on major hops.
 
 ### Quality bar
-Someone can retell the data journey from Overview alone. Blank edges = fail. note/ctrl cards = fail.
+Someone can retell the data journey from Overview alone. Blank edges or labels over icons = fail. note/ctrl cards = fail.

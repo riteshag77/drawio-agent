@@ -109,6 +109,26 @@ def _filter_catalog(catalog: str, user_hint: str, *, max_lines: int = 48) -> str
     return "\n".join(selected)
 
 
+def _saas_hint_matches(user_hint: str) -> bool:
+    """True when the request likely involves BFSI / enterprise SaaS products."""
+    from app.adapters.outbound.diagram.architecture_docs import _SAAS_HINT_TOKENS
+
+    hint = (user_hint or "").lower()
+    if not hint:
+        return False
+    tokens = set(re.findall(r"[a-z0-9_]{3,}", hint))
+    if tokens & _SAAS_HINT_TOKENS:
+        return True
+    # Short vendor tokens (okta) and multi-word phrases.
+    return any(tok in hint for tok in (
+        "salesforce", "workday", "guidewire", "temenos", "duck creek",
+        "servicenow", "okta", "finastra", "fiserv", "murex", "bloomberg",
+        "refinitiv", "experian", "equifax", "stripe", "adyen", "plaid",
+        "office 365", "microsoft 365", "banking", "insurance", "bfsi",
+        "successfactors", "success factors", "sfsf",
+    ))
+
+
 def _assemble_prompt_parts(
     model_id: str | None,
     *,
@@ -161,21 +181,42 @@ def _assemble_prompt_parts(
                     stable.append(_load_prompt("network.txt"))
                 except FileNotFoundError:
                     pass
-        # Logical primary: capability UX — skip cloud classify/icon packs and
-        # stencil catalogs so the model is not nudged toward Network vocabulary.
+        # Logical primary: skip cloud classify/icon packs and AWS stencil catalogs,
+        # but still load enterprise SaaS icon rules + catalog when relevant.
         if view_key != "logical":
             stable.append(_load_prompt(f"classify/{platform_key}.txt"))
             stable.append(_load_prompt(f"icons/{platform_key}.txt"))
+            try:
+                saas_icons = _load_prompt("icons/saas.txt")
+                if saas_icons:
+                    stable.append(saas_icons)
+            except FileNotFoundError:
+                pass
             for ref in _get_reference_files(platform_key, three_d=False):
                 content = _load_reference(ref)
                 if content:
                     volatile.append(_filter_catalog(content, user_hint))
+            if _saas_hint_matches(user_hint):
+                saas_cat = _load_reference("saas.txt")
+                if saas_cat:
+                    volatile.append(_filter_catalog(saas_cat, user_hint, max_lines=40))
         else:
             stable.append(
                 "## Logical primary — leaf language\n"
-                "Do not emit cloud shape_type (aws_*/gcp_*/azure_*) or vendor icon stencils. "
-                "Use capability/generic labels; the server assigns logical_* for MCP."
+                "Do not emit cloud shape_type (aws_*/gcp_*/azure_*). "
+                "External apps: label as Name (SAAS) and use shape_type=saas_<vendor> when known; "
+                "the server merges curated stencil icons (unknown vendor → logical_saas)."
             )
+            try:
+                saas_icons = _load_prompt("icons/saas.txt")
+                if saas_icons:
+                    stable.append(saas_icons)
+            except FileNotFoundError:
+                pass
+            if _saas_hint_matches(user_hint):
+                saas_cat = _load_reference("saas.txt")
+                if saas_cat:
+                    volatile.append(_filter_catalog(saas_cat, user_hint, max_lines=40))
 
     custom = (custom_system_message or "").strip()
     if custom:

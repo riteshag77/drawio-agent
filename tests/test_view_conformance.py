@@ -207,6 +207,21 @@ class ViewFixerTests(unittest.TestCase):
 
     def test_apply_view_fixers_chain(self) -> None:
         xml = _wrap(
+            '<mxCell id="a" value="Orders" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="b" value="Customer store" vertex="1" parent="1">'
+            '<mxGeometry x="240" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="e" edge="1" source="a" target="b" value="" '
+            'style="strokeWidth=2;" parent="1">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        out = apply_view_fixers(xml, view="logical")
+        self.assertTrue(out.count('edge="1"') >= 1)
+        self.assertIn("labelBackgroundColor=#F5F5F5", out)
+        self.assertIn("orthogonalEdgeStyle", out)
+        self.assertRegex(out, r'id="e"[^>]*value="[^"]+"')
+
+        xml = _wrap(
             _leaf("waf", "WAF", 40, "aws_waf")
             + _leaf("app", "App", 240, "aws_ecs")
             + _leaf("db", "Aurora", 440, "aws_rds")

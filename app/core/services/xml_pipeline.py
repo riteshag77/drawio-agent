@@ -364,8 +364,16 @@ def _finalize_view_page_xml(
     elif view:
         xml = apply_view_fixers(xml, view=view)
     if view == "logical":
-        from app.adapters.outbound.diagram.architecture_docs import assign_logical_shape_types
+        from app.adapters.outbound.diagram.architecture_docs import (
+            assign_logical_shape_types,
+            assign_saas_shape_types,
+        )
         xml = assign_logical_shape_types(xml)
+        # Brand saas_* SVGs overwrite logical_saas when vendor matches.
+        xml = assign_saas_shape_types(xml)
+    elif view in ("network", "security", "data_flow"):
+        from app.adapters.outbound.diagram.architecture_docs import assign_saas_shape_types
+        xml = assign_saas_shape_types(xml)
     if step_markers:
         xml = apply_step_markers(xml, step_markers, logger)
     if _count_service_leaves(xml) < 2 and "degraded_note" not in (xml or ""):
@@ -817,6 +825,18 @@ async def run_xml_pipeline(
     if xml_diagram.step_markers:
         xml_output = apply_step_markers(xml_output, xml_diagram.step_markers, logger)
 
+    # Stamp curated saas_* on primary leaves before MCP resolve (all architecture views).
+    if primary_view in ("network", "security", "data_flow", "logical"):
+        from app.adapters.outbound.diagram.architecture_docs import assign_saas_shape_types
+        if primary_view == "logical":
+            from app.adapters.outbound.diagram.architecture_docs import (
+                assign_logical_shape_types,
+                ensure_saas_labels_on_logical,
+            )
+            xml_output = ensure_saas_labels_on_logical(xml_output)
+            xml_output = assign_logical_shape_types(xml_output)
+        xml_output = assign_saas_shape_types(xml_output)
+
     primary_xml_snapshot = xml_output
     primary_shape_types = extract_shape_types(primary_xml_snapshot) if (
         is_xml_pipeline_mode(diagram_renderer) and primary_xml_snapshot
@@ -1148,53 +1168,108 @@ async def run_xml_pipeline(
 
             local_xml = fit_containers_to_children(local_xml)
 
-            page_count = local_xml.count("<diagram")
-            if use_libavoid and page_count > 1:
-                if logger:
-                    logger.log(
-                        "mcp",
-                        "Skipping libavoid on multipage diagram "
-                        f"({page_count} pages) — duplicate cell ids across pages",
-                        level="info",
-                    )
-            elif use_libavoid:
+            if use_libavoid:
                 await _emit(on_progress, "mcp", "Applying libavoid edge routing…")
                 pre_routing_xml = local_xml
                 try:
-                    preview_url, routed_xml = await create_diagram(
-                        local_xml, routing="libavoid", logger=logger,
-                    )
-                except DrawioMcpError as exc:
-                    if logger:
-                        logger.log("mcp", f"Libavoid skipped: {exc}", level="warning")
-                    routed_xml = None
-                if routed_xml:
-                    if routed_xml.lower().count("<mxfile") > 1:
+                    tree_la = ET.fromstring(ensure_diagram_document(local_xml, primary_page_name))
+                except ET.ParseError:
+                    tree_la = None
+                routed_pages: list[tuple[str, str]] = []
+                routing_ok = True
+                if tree_la is not None and tree_la.tag == "mxfile":
+                    diagrams = list(tree_la.findall("diagram"))
+                else:
+                    diagrams = []
+                if len(diagrams) <= 1:
+                    try:
+                        preview_url, routed_xml = await create_diagram(
+                            local_xml, routing="libavoid", logger=logger,
+                        )
+                    except DrawioMcpError as exc:
                         if logger:
-                            logger.log(
-                                "mcp",
-                                "Libavoid routing discarded — nested mxfile in response",
-                                level="warning",
-                            )
-                        local_xml = pre_routing_xml
-                    else:
-                        routed_check = validate_and_fix_xml(routed_xml)
-                        candidate = choose_fixed_xml(routed_xml, routed_check)
-                        try:
-                            ET.fromstring(candidate)
-                            if candidate.lower().count("<mxfile") > 1:
-                                raise ET.ParseError("nested mxfile after repair")
-                            local_xml = candidate
-                            if logger:
-                                logger.log("mcp", "Libavoid routing applied", level="success")
-                        except ET.ParseError as exc:
+                            logger.log("mcp", f"Libavoid skipped: {exc}", level="warning")
+                        routed_xml = None
+                    if routed_xml:
+                        if routed_xml.lower().count("<mxfile") > 1:
                             if logger:
                                 logger.log(
                                     "mcp",
-                                    f"Libavoid routing discarded — unparseable: {exc}",
+                                    "Libavoid routing discarded — nested mxfile in response",
                                     level="warning",
                                 )
                             local_xml = pre_routing_xml
+                        else:
+                            routed_check = validate_and_fix_xml(routed_xml)
+                            candidate = choose_fixed_xml(routed_xml, routed_check)
+                            try:
+                                ET.fromstring(candidate)
+                                if candidate.lower().count("<mxfile") > 1:
+                                    raise ET.ParseError("nested mxfile after repair")
+                                local_xml = candidate
+                                if logger:
+                                    logger.log("mcp", "Libavoid routing applied", level="success")
+                            except ET.ParseError as exc:
+                                if logger:
+                                    logger.log(
+                                        "mcp",
+                                        f"Libavoid routing discarded — unparseable: {exc}",
+                                        level="warning",
+                                    )
+                                local_xml = pre_routing_xml
+                else:
+                    # Route each page alone to avoid duplicate cell-id collisions across tabs.
+                    for diag in diagrams:
+                        name = diag.get("name") or "Page"
+                        if name in {"ADR Notes", "RAID"}:
+                            inner = "".join(ET.tostring(c, encoding="unicode") for c in list(diag))
+                            routed_pages.append((name, ensure_diagram_document(inner, name)))
+                            continue
+                        inner = "".join(ET.tostring(c, encoding="unicode") for c in list(diag))
+                        page_xml = ensure_diagram_document(inner, name)
+                        try:
+                            _preview, routed_one = await create_diagram(
+                                page_xml, routing="libavoid", logger=logger,
+                            )
+                            if _preview and not preview_url:
+                                preview_url = _preview
+                        except DrawioMcpError as exc:
+                            if logger:
+                                logger.log(
+                                    "mcp",
+                                    f"Libavoid skipped for page {name!r}: {exc}",
+                                    level="warning",
+                                )
+                            routed_one = None
+                        if not routed_one:
+                            routed_pages.append((name, page_xml))
+                            routing_ok = False
+                            continue
+                        if routed_one.lower().count("<mxfile") > 1:
+                            routed_pages.append((name, page_xml))
+                            routing_ok = False
+                            continue
+                        routed_check = validate_and_fix_xml(routed_one)
+                        candidate = choose_fixed_xml(routed_one, routed_check)
+                        try:
+                            ET.fromstring(candidate)
+                            if candidate.lower().count("<mxfile") > 1:
+                                raise ET.ParseError("nested mxfile")
+                            routed_pages.append((name, ensure_diagram_document(candidate, name)))
+                        except ET.ParseError:
+                            routed_pages.append((name, page_xml))
+                            routing_ok = False
+                    if routed_pages:
+                        local_xml = merge_mxfile_pages(routed_pages)
+                        if logger:
+                            logger.log(
+                                "mcp",
+                                "Libavoid routing applied per page"
+                                + ("" if routing_ok else " (some pages kept pre-route)"),
+                                level="success" if routing_ok else "warning",
+                            )
+                    else:
+                        local_xml = pre_routing_xml
         except DrawioMcpError as exc:
             if logger:
                 logger.log("mcp", f"MCP enrichment skipped: {exc}", level="warning")

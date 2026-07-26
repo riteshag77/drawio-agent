@@ -850,6 +850,10 @@ def apply_mcp_styles(xml: str, style_overrides: dict[str, str]) -> str:
     changed = False
     for root in roots:
         for cell in root.iter("mxCell"):
+            cid = cell.get("id") or ""
+            # Never paint service icons onto briefing chrome.
+            if cid in {"overview_panel", "legend_box"} or cid.startswith("step_badge_"):
+                continue
             st = cell.get("shape_type")
             if not st:
                 continue
@@ -991,7 +995,23 @@ def _fit_one_pass(
     for container in containers:
         cid = container.get("id") or ""
         kids = children.get(cid) or []
+        geom = container.find("mxGeometry")
+        if geom is None:
+            continue
         if not kids:
+            # Empty shell (e.g. unused AZ) — clamp to title-band minimum; never keep LLM mega-boxes.
+            try:
+                cur_w = float(geom.get("width") or 0)
+                cur_h = float(geom.get("height") or 0)
+            except ValueError:
+                cur_w, cur_h = 0.0, 0.0
+            need_w, need_h = _FIT_MIN_W, _FIT_MIN_H
+            if cur_w > need_w + 0.5:
+                geom.set("width", str(need_w))
+                changed = True
+            if cur_h > need_h + 0.5:
+                geom.set("height", str(need_h))
+                changed = True
             continue
 
         for kid in kids:

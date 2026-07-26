@@ -1,0 +1,18 @@
+## Enterprise SaaS icons (all architecture views)
+
+When the request or inventory includes external enterprise apps (Salesforce, SuccessFactors, Workday, Guidewire, Okta, …):
+
+1. Emit a service **leaf** with grey placeholder style + **`shape_type=saas_<vendor>`** from the enterprise SaaS catalog (e.g. `saas_salesforce`, `saas_successfactors`, `saas_okta`).
+2. On **Logical**, label as `{Product} (SAAS)`; optional `domain_saas` when 2+ apps (capability briefing). On Network / Security / Data flow, a short product name is enough.
+3. The **server** merges curated stencil icons from `static/saas-icons/` — do **not** invent `resIcon=`, AWS/GCP/Azure stencils, or hotlink scraped logo URLs on leaves.
+4. Placement by view (server also enforces from **call path**):
+   - **Network:** ungrouped `parent="1"`. Place by how traffic actually flows — **not** every SaaS left of Cloud:
+     - **Ingress (left):** user hits SaaS first (e.g. Okta login → redirect to Cloud/Edge). Edges: `Users → IdP → Edge/App`.
+     - **Egress (right):** Cloud-hosted apps call SaaS (e.g. app → Workday for profile). Edges: `App → SaaS`.
+     - Users may go **straight to Cloud/Edge** with no ingress SaaS. Multiple permutations are valid.
+     - Within a side, L→R by journey role; Y aligned to Edge. **No mega SaaS container.** Never VPC/Integration.
+   - **Security:** trust peers in `zone_public` / `zone_identity`; zones L→R; journey-sort in-zone.
+   - **Data flow:** producer/consumer on the data plane; phases L→R; journey-sort in-phase.
+   - **Logical:** `domain_saas` shelf when useful; domains L→R; brand `saas_*` stacked **vertically** by journey role in the shelf.
+
+Unknown vendor not in the catalog → labeled generic external box (`logical_saas` on Logical); do not invent a new `saas_*` key.

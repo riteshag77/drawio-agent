@@ -202,25 +202,35 @@ No ADR/RAID. No commentary outside xml + step_markers.
 """
 
 _SINGLE_VIEW_LOGICAL_SHAPE_RULE = """
-LEAF SHAPES (Logical only): Prefer grey/simple placeholders. The server assigns shape_type=logical_*
-(actor/channel/capability/api/datastore/saas/platform) and MCP resolves non-cloud stencils.
-Do NOT emit cloud shape_type (aws_*/gcp_*/azure_*) or invent resIcon / vendor stencils.
+LEAF SHAPES (Logical only): Prefer grey/simple placeholders for capabilities.
+The server assigns shape_type=logical_* for actor/channel/capability/api/datastore/platform.
+External apps: label each as ``Name (SAAS)`` and emit shape_type=saas_<vendor> when known —
+server applies curated stencil icons. Unknown vendor → logical_saas. NEVER emit cloud
+shape_type (aws_*/gcp_*/azure_*) or invent resIcon / vendor cloud stencils.
 """
 
 _SINGLE_VIEW_CLOUD_SHAPE_RULE = """
 LEAF SHAPES: Reuse inventory shape_type keys on every cloud service leaf so MCP can resolve official icons.
+When inventory/request includes enterprise SaaS (Salesforce, Workday, Guidewire, Okta, …), emit
+shape_type=saas_<vendor> from the enterprise SaaS catalog — server applies curated stencil icons (not MCP brand search).
 """
 
 
 def build_single_view_system(view: str) -> str:
     core = load_core_pack()
     pack = load_view_prompt_pack(view)
+    view_key = (view or "").strip().lower()
     shape_rule = (
         _SINGLE_VIEW_LOGICAL_SHAPE_RULE
-        if (view or "").strip().lower() == "logical"
+        if view_key == "logical"
         else _SINGLE_VIEW_CLOUD_SHAPE_RULE
     )
-    return f"{_SINGLE_VIEW_SYSTEM_PREFIX}\n{shape_rule}\n\n{core}\n\n{pack}".strip()
+    parts = [f"{_SINGLE_VIEW_SYSTEM_PREFIX}\n{shape_rule}\n\n{core}\n\n{pack}".strip()]
+    if view_key in ("logical", "network", "security", "data_flow"):
+        saas_path = _CONFIG_DIR / "icons" / "saas.txt"
+        if saas_path.is_file():
+            parts.append(saas_path.read_text(encoding="utf-8"))
+    return "\n\n".join(parts)
 
 
 def _plain_cell_label(value: str) -> str:
@@ -657,7 +667,9 @@ _VIEW_BRIEFING: dict[str, str] = {
         "PERSONA: Principal Application / Solution Architect — 25+ years.\n"
         "VIEWPOINT = LOGICAL — capabilities & domains; no trust zones; no note/ctrl cards.\n"
         "OVERVIEW + step_markers badges (plain language). GROUP BY bounded contexts only.\n"
-        "EDGES: Invokes / Calls API / Relies on. FORBIDDEN: WAF/VPC/zones/cards. logical_* leaves."
+        "JOURNEY: persona/channel LEFT → Authenticates via Okta when present → capability → data store.\n"
+        "FORBIDDEN: data store→IdP; overview_panel must stay text (never saas image).\n"
+        "EDGES: Uses / Authenticates via / Invokes / Calls API / Relies on / Reads/Writes. logical_* + saas_*."
     ),
     "security": (
         "PERSONA: Principal Security / Trust Architect — 25+ years.\n"
@@ -967,6 +979,298 @@ _LOGICAL_ROLE_TO_SHAPE_TYPE: dict[str, str] = {
     "platform": "logical_platform",
 }
 
+# Banking / Insurance / enterprise SaaS — shape_type → label needles (longest match wins).
+# Used on all views for brand saas_* stencils; Logical also keeps "(SAAS)" labels.
+_SAAS_VENDOR_NEEDLES: list[tuple[str, tuple[str, ...]]] = [
+    ("saas_salesforce", ("salesforce", "sales force", "sfdc", "sales cloud", "service cloud")),
+    ("saas_workday", ("workday",)),
+    ("saas_successfactors", (
+        "successfactors", "success factors", "sap successfactors", "sap success factors", "sfsf",
+    )),
+    ("saas_servicenow", ("servicenow", "service now", "snow platform", "now platform")),
+    ("saas_okta", ("okta",)),
+    ("saas_guidewire", ("guidewire", "guide wire", "policycenter", "claimcenter", "billingcenter")),
+    ("saas_duck_creek", ("duck creek", "duckcreek")),
+    ("saas_temenos", ("temenos", "t24")),
+    ("saas_finastra", ("finastra",)),
+    ("saas_fiserv", ("fiserv",)),
+    ("saas_fis", ("fis",)),
+    ("saas_murex", ("murex", "mx.3", "mx 3")),
+    ("saas_bloomberg", ("bloomberg", "bbg")),
+    ("saas_refinitiv", ("refinitiv", "eikon", "lseg")),
+    ("saas_experian", ("experian",)),
+    ("saas_equifax", ("equifax",)),
+    ("saas_stripe", ("stripe",)),
+    ("saas_adyen", ("adyen",)),
+    ("saas_plaid", ("plaid",)),
+    ("saas_slack", ("slack",)),
+    ("saas_office365", ("office 365", "microsoft 365", "m365", "o365", "office365")),
+    ("saas_microsoft_365", ("microsoft 365", "m365")),
+]
+
+# Journey band for Network L→R placement (lower = further left). Generic, not industry-specific.
+_SAAS_JOURNEY_ROLE: dict[str, str] = {
+    "saas_okta": "identity",
+    "saas_salesforce": "experience",
+    "saas_servicenow": "experience",
+    "saas_workday": "workforce",
+    "saas_successfactors": "workforce",
+    "saas_guidewire": "industry",
+    "saas_duck_creek": "industry",
+    "saas_temenos": "industry",
+    "saas_finastra": "industry",
+    "saas_fiserv": "industry",
+    "saas_fis": "industry",
+    "saas_murex": "industry",
+    "saas_bloomberg": "industry",
+    "saas_refinitiv": "industry",
+    "saas_experian": "payments",
+    "saas_equifax": "payments",
+    "saas_stripe": "payments",
+    "saas_adyen": "payments",
+    "saas_plaid": "payments",
+    "saas_slack": "collab",
+    "saas_office365": "collab",
+    "saas_microsoft_365": "collab",
+}
+
+_SAAS_JOURNEY_ORDER: dict[str, int] = {
+    "identity": 0,
+    "experience": 1,
+    "workforce": 2,
+    "industry": 3,
+    "payments": 4,
+    "collab": 5,
+    "other": 6,
+}
+
+# Default Network side when edges don't decide the call path.
+# identity = user hits IdP first (Okta → redirect into Cloud).
+# Most enterprise systems-of-record are Cloud→SaaS API dependencies (right of Cloud).
+_SAAS_DEFAULT_SIDE: dict[str, str] = {
+    "identity": "ingress",
+    "experience": "egress",
+    "workforce": "egress",
+    "industry": "egress",
+    "payments": "egress",
+    "collab": "egress",
+    "other": "egress",
+}
+
+_SAAS_GENERIC_NEEDLES = (
+    "saas", "third party", "third-party", "external idp", "auth0", "auth 0",
+    "entra id", "cognito", "twilio", "sendgrid", "shopify",
+)
+
+_SAAS_HINT_TOKENS = frozenset({
+    "bank", "banking", "insurance", "insurer", "claims", "policy", "underwriting",
+    "fintech", "payments", "salesforce", "workday", "successfactors", "guidewire", "temenos",
+    "servicenow", "okta", "duck", "creek", "finastra", "fiserv", "murex",
+    "bloomberg", "refinitiv", "experian", "equifax", "stripe", "adyen", "plaid",
+    "saas", "bfsi", "sfsf",
+})
+
+
+def saas_journey_role(shape_type: str | None, label: str = "") -> str:
+    """Return journey role key for Network L→R ordering."""
+    st = (shape_type or "").strip().lower()
+    if st in _SAAS_JOURNEY_ROLE:
+        return _SAAS_JOURNEY_ROLE[st]
+    if not st.startswith("saas_"):
+        matched = match_saas_shape_type(label)
+        if matched and matched in _SAAS_JOURNEY_ROLE:
+            return _SAAS_JOURNEY_ROLE[matched]
+    return "other"
+
+
+def saas_journey_sort_key(shape_type: str | None, label: str = "") -> tuple[int, str]:
+    role = saas_journey_role(shape_type, label)
+    return (_SAAS_JOURNEY_ORDER.get(role, 6), (label or "").lower())
+
+
+def saas_default_network_side(shape_type: str | None, label: str = "") -> str:
+    """ingress = left of Cloud (user path); egress = right (Cloud calls SaaS)."""
+    role = saas_journey_role(shape_type, label)
+    return _SAAS_DEFAULT_SIDE.get(role, "egress")
+
+
+def resolve_saas_network_side(
+    shape_type: str | None,
+    label: str = "",
+    *,
+    cell_id: str,
+    edges: list[tuple[str, str]],
+    actor_ids: set[str],
+    cloud_descendant_ids: set[str],
+) -> str:
+    """Decide Network placement from call-path edges, falling back to role default.
+
+    - Actor/Users → SaaS (or SaaS → Edge/Cloud) ⇒ **ingress** (user hits SaaS, then Cloud)
+    - Cloud/app → SaaS ⇒ **egress** (hosted services call SaaS for data)
+    Mixed signals: prefer ingress if any actor link exists (user-visible path wins),
+    else egress if any cloud→SaaS link, else role default.
+    """
+    cid = (cell_id or "").strip()
+    if not cid:
+        return saas_default_network_side(shape_type, label)
+
+    from_actor = False
+    to_cloud = False
+    from_cloud = False
+    for src, tgt in edges:
+        if src == cid and tgt in actor_ids:
+            # rare reverse; treat as user-adjacent
+            from_actor = True
+        if tgt == cid and src in actor_ids:
+            from_actor = True
+        if src == cid and tgt in cloud_descendant_ids:
+            to_cloud = True
+        if tgt == cid and src in cloud_descendant_ids:
+            from_cloud = True
+
+    if from_actor or to_cloud:
+        return "ingress"
+    if from_cloud:
+        return "egress"
+    # Label hints for portals / login that users hit first.
+    low = (label or "").lower()
+    if any(h in low for h in ("login", "sso", "idp", "sign-in", "signin", "auth portal")):
+        return "ingress"
+    if any(h in low for h in ("portal", "community", "self-service")) and saas_journey_role(
+        shape_type, label
+    ) == "experience":
+        return "ingress"
+    return saas_default_network_side(shape_type, label)
+
+
+def match_saas_shape_type(label: str) -> str | None:
+    """Return saas_* shape_type when label matches a curated vendor needle."""
+    plain = _norm_label(label)
+    if not plain:
+        return None
+    tokens = set(plain.split())
+    best: tuple[int, str] | None = None
+    for shape_type, needles in _SAAS_VENDOR_NEEDLES:
+        for needle in needles:
+            n = re.sub(r"[^a-z0-9]+", " ", needle.lower()).strip()
+            if not n:
+                continue
+            matched = False
+            if " " in n:
+                matched = n in plain
+            elif len(n) <= 3:
+                matched = n in tokens
+            else:
+                matched = n in plain
+            if not matched:
+                continue
+            score = len(n)
+            if best is None or score > best[0]:
+                best = (score, shape_type)
+    return best[1] if best else None
+
+
+def _label_looks_like_saas(label: str) -> bool:
+    if match_saas_shape_type(label):
+        return True
+    low = _norm_label(label)
+    if "(saas)" in low or low.endswith(" saas"):
+        return True
+    return any(x in low for x in _SAAS_GENERIC_NEEDLES)
+
+
+def ensure_saas_labels_on_logical(page_xml: str) -> str:
+    """Append `` (SAAS)`` to external-app leaves on Logical; keep brand saas_* keys."""
+    parsed = _iter_diagram_root(page_xml)
+    if parsed is None:
+        return page_xml
+    tree, root = parsed
+    changed = False
+    for cell in root.iter("mxCell"):
+        if cell.get("vertex") != "1" or cell.get("edge") == "1":
+            continue
+        cid = cell.get("id") or ""
+        style = cell.get("style") or ""
+        if "container=1" in style or "swimlane" in style:
+            continue
+        if cid in {"overview_panel", "legend_box", "0", "1", "2"} or cid.startswith(
+            ("step_badge_", "note_", "ctrl_", "sec_", "gap_", "degraded_", "domain_")
+        ):
+            continue
+        if cell.get("gap") == "1":
+            continue
+        raw = cell.get("value") or ""
+        label = _plain_cell_label(raw)
+        if _is_inventory_noise_label(label, cid):
+            continue
+        if not _label_looks_like_saas(label):
+            continue
+        if re.search(r"\(saas\)\s*$", label, flags=re.IGNORECASE):
+            continue
+        # Preserve HTML value wrappers when present; append to plain text otherwise.
+        if raw != label and "<" in raw:
+            new_label = f"{label} (SAAS)"
+            cell.set("value", new_label)
+        else:
+            cell.set("value", f"{label} (SAAS)")
+        changed = True
+    if not changed:
+        return page_xml
+    return ET.tostring(tree, encoding="unicode")
+
+
+def assign_saas_shape_types(page_xml: str) -> str:
+    """Stamp curated saas_* + builtin SVG styles when a vendor label matches.
+
+    Overwrites empty types and ``logical_saas`` (brand icons on all views).
+    Does not overwrite cloud shape_types or other ``logical_*`` roles.
+    """
+    from app.adapters.outbound.diagram.drawio_mcp_client import _builtin_style
+
+    parsed = _iter_diagram_root(page_xml)
+    if parsed is None:
+        return page_xml
+    tree, root = parsed
+    changed = False
+    for cell in root.iter("mxCell"):
+        if cell.get("vertex") != "1" or cell.get("edge") == "1":
+            continue
+        cid = cell.get("id") or ""
+        style = cell.get("style") or ""
+        if "container=1" in style or "swimlane" in style:
+            continue
+        if cid in {"overview_panel", "legend_box", "0", "1", "2"} or cid.startswith(
+            ("step_badge_", "note_", "ctrl_", "sec_", "gap_", "degraded_")
+        ):
+            continue
+        if cell.get("gap") == "1":
+            continue
+        label = _plain_cell_label(cell.get("value") or "")
+        if _is_inventory_noise_label(label, cid):
+            continue
+        current = (cell.get("shape_type") or "").strip().lower()
+        # Keep cloud icons and non-SaaS logical roles (actor/channel/…).
+        if current.startswith(("aws_", "gcp_", "azure_")):
+            continue
+        if current.startswith("logical_") and current != "logical_saas":
+            continue
+        matched = match_saas_shape_type(label)
+        if not matched:
+            if current.startswith("saas_"):
+                matched = current
+            else:
+                continue
+        if current != matched:
+            cell.set("shape_type", matched)
+            changed = True
+        builtin = _builtin_style(matched)
+        if builtin and cell.get("style") != builtin:
+            cell.set("style", builtin)
+            changed = True
+    if not changed:
+        return page_xml
+    return ET.tostring(tree, encoding="unicode")
+
 
 def _logical_leaf_role(label: str) -> str:
     """Classify a Logical leaf for generic stencil selection.
@@ -986,14 +1290,11 @@ def _logical_leaf_role(label: str) -> str:
     if any(x in low for x in (
         "channel", "frontend", "portal", "mobile", "web ui", "spa",
         "experience app", "web app", "mobile app", "admin console",
+        "employee portal", "hr portal", "corporate portal",
     )):
         return "channel"
     # External IdP / SaaS products (not in-house Identity capability).
-    if any(x in low for x in (
-        "saas", "third party", "third-party", "external idp", "stripe", "salesforce",
-        "okta", "auth0", "auth 0", "entra id", "cognito", "twilio", "sendgrid",
-        "shopify", "workday",
-    )):
+    if _label_looks_like_saas(label):
         return "saas"
     if any(x in low for x in ("bff", " api", "api ", "gateway", "endpoint", "interface")) or low.endswith(" api"):
         return "api"
@@ -1002,6 +1303,7 @@ def _logical_leaf_role(label: str) -> str:
     # Personas / actors — exclude store/portal already handled above.
     if any(x in low for x in (
         "persona", "actor", "customer", "partner", "operator", "end user", "end-user",
+        "employee", "employees", "worker", "staff",
     )) or low in {"user", "users", "admin", "ops"} or low.startswith("ops "):
         return "actor"
     if "platform" in low and "capability" not in low:
@@ -1039,6 +1341,10 @@ def assign_logical_shape_types(page_xml: str) -> str:
         label = _plain_cell_label(cell.get("value") or "")
         if _is_inventory_noise_label(label, cid):
             continue
+        # Preserve brand SaaS keys/styles already assigned by the LLM or prior pass.
+        existing = (cell.get("shape_type") or "").strip().lower()
+        if existing.startswith("saas_"):
+            continue
         role = _logical_leaf_role(label)
         st = _LOGICAL_ROLE_TO_SHAPE_TYPE.get(role, "logical_capability")
         new_style = _LOGICAL_BUILTIN_STYLES.get(st) or _LOGICAL_BUILTIN_STYLES["logical_capability"]
@@ -1050,6 +1356,19 @@ def assign_logical_shape_types(page_xml: str) -> str:
         if cell.get("style") != new_style:
             cell.set("style", new_style)
             changed = True
+        # Icon roles need square-ish geometry or they look like empty tiles.
+        if st in {"logical_actor", "logical_channel"}:
+            geom = cell.find("mxGeometry")
+            if geom is not None:
+                try:
+                    w = float(geom.get("width") or 0)
+                    h = float(geom.get("height") or 0)
+                except ValueError:
+                    w, h = 0.0, 0.0
+                if w < 56 or h < 56 or abs(w - h) > 40:
+                    geom.set("width", "64")
+                    geom.set("height", "64")
+                    changed = True
     if not changed:
         return page_xml
     return ET.tostring(tree, encoding="unicode")

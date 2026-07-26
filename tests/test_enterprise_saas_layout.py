@@ -1,0 +1,132 @@
+"""Enterprise SaaS placement, empty AZ shrink, Logical brand icons."""
+
+from __future__ import annotations
+
+import unittest
+import xml.etree.ElementTree as ET
+
+from app.adapters.outbound.diagram.architecture_docs import (
+    assign_logical_shape_types,
+    assign_saas_shape_types,
+    ensure_saas_labels_on_logical,
+)
+from app.adapters.outbound.diagram.placement_fixers import resolve_misplaced_saas_leaves
+from app.adapters.outbound.diagram.xml_diagnostics import remove_cross_cutting_edges, repair_xml
+from app.adapters.outbound.diagram.xml_tools import fit_containers_to_children
+from app.adapters.outbound.llm.prompts.system import get_xml_gen_system_prompt
+
+
+def _wrap(cells: str) -> str:
+    return (
+        '<mxfile><diagram name="Network" id="n1">'
+        '<mxGraphModel pageWidth="2400" pageHeight="1400"><root>'
+        '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+        f"{cells}"
+        "</root></mxGraphModel></diagram></mxfile>"
+    )
+
+
+class SaasNetworkPlacementTests(unittest.TestCase):
+    def test_reparent_saas_out_of_integration_keeps_edge(self) -> None:
+        page = _wrap(
+            '<mxCell id="cloud" value="AWS Cloud" style="container=1;rounded=1;" vertex="1" parent="1">'
+            '<mxGeometry x="200" y="40" width="900" height="500" as="geometry"/></mxCell>'
+            '<mxCell id="vpc" value="VPC" style="container=1;" vertex="1" parent="cloud">'
+            '<mxGeometry x="40" y="60" width="700" height="350" as="geometry"/></mxCell>'
+            '<mxCell id="integ" value="Integration Group" style="container=1;dashed=1;" '
+            'vertex="1" parent="vpc">'
+            '<mxGeometry x="40" y="240" width="400" height="100" as="geometry"/></mxCell>'
+            '<mxCell id="sf" value="Salesforce" shape_type="saas_salesforce" '
+            'style="shape=image;" vertex="1" parent="integ">'
+            '<mxGeometry x="20" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="app" value="Orders" shape_type="aws_ecs" style="shape=mxgraph.aws4.resourceIcon;" '
+            'vertex="1" parent="vpc">'
+            '<mxGeometry x="40" y="80" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="e1" edge="1" source="app" target="sf" parent="1" style="edgeStyle=orthogonalEdgeStyle;">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        out = resolve_misplaced_saas_leaves(page)
+        out = remove_cross_cutting_edges(out)
+        by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
+        self.assertEqual(by_id["sf"].get("parent"), "1")
+        self.assertIn("e1", by_id)
+        self.assertEqual(by_id["e1"].get("source"), "app")
+        self.assertEqual(by_id["e1"].get("target"), "sf")
+
+    def test_repair_xml_reparents_saas(self) -> None:
+        page = _wrap(
+            '<mxCell id="cloud" value="AWS Cloud" style="container=1;rounded=1;" vertex="1" parent="1">'
+            '<mxGeometry x="200" y="40" width="900" height="500" as="geometry"/></mxCell>'
+            '<mxCell id="vpc" value="VPC" style="container=1;" vertex="1" parent="cloud">'
+            '<mxGeometry x="40" y="60" width="700" height="350" as="geometry"/></mxCell>'
+            '<mxCell id="integ" value="Integration" style="container=1;" vertex="1" parent="vpc">'
+            '<mxGeometry x="40" y="240" width="400" height="100" as="geometry"/></mxCell>'
+            '<mxCell id="ok" value="Okta" shape_type="saas_okta" style="shape=image;" vertex="1" parent="integ">'
+            '<mxGeometry x="20" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        fixed, _ = repair_xml(page)
+        by_id = {c.get("id"): c for c in ET.fromstring(fixed).iter("mxCell") if c.get("id")}
+        self.assertEqual(by_id["ok"].get("parent"), "1")
+
+
+class EmptyAzShrinkTests(unittest.TestCase):
+    def test_childless_zone_shrinks(self) -> None:
+        page = _wrap(
+            '<mxCell id="vpc" value="VPC" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="800" height="400" as="geometry"/></mxCell>'
+            '<mxCell id="azb" value="Availability Zone B" style="container=1;rounded=1;" '
+            'vertex="1" parent="vpc">'
+            '<mxGeometry x="400" y="60" width="360" height="300" as="geometry"/></mxCell>'
+        )
+        out = fit_containers_to_children(page)
+        az = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "azb")
+        geo = az.find("mxGeometry")
+        self.assertLessEqual(float(geo.get("width") or 0), 130.0)
+        self.assertLessEqual(float(geo.get("height") or 0), 90.0)
+
+
+class LogicalBrandIconTests(unittest.TestCase):
+    def test_preserves_existing_saas_shape_type(self) -> None:
+        page = _wrap(
+            '<mxCell id="sf" value="Salesforce (SAAS)" shape_type="saas_salesforce" '
+            'style="shape=image;image=data:image/svg+xml,abc;" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = assign_logical_shape_types(page)
+        by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
+        self.assertEqual(by_id["sf"].get("shape_type"), "saas_salesforce")
+
+    def test_salesforce_saas_label_gets_svg(self) -> None:
+        page = _wrap(
+            '<mxCell id="sf" value="Salesforce" style="shape=ellipse;" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="80" height="60" as="geometry"/></mxCell>'
+            '<mxCell id="ord" value="Orders" style="shape=rectangle;" vertex="1" parent="1">'
+            '<mxGeometry x="200" y="40" width="100" height="60" as="geometry"/></mxCell>'
+        )
+        labeled = ensure_saas_labels_on_logical(page)
+        tagged = assign_logical_shape_types(labeled)
+        out = assign_saas_shape_types(tagged)
+        by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
+        self.assertTrue((by_id["sf"].get("value") or "").endswith("(SAAS)"))
+        self.assertEqual(by_id["sf"].get("shape_type"), "saas_salesforce")
+        self.assertIn("data:image/svg+xml,", by_id["sf"].get("style") or "")
+
+
+class PromptSaasPlacementTests(unittest.TestCase):
+    def test_network_prompt_forbids_saas_in_integration(self) -> None:
+        prompt = get_xml_gen_system_prompt(
+            platform="aws",
+            primary_view="network",
+            user_hint="salesforce workday guidewire",
+        )
+        self.assertIn('parent="1"', prompt)
+        low = prompt.lower()
+        self.assertTrue(
+            "integration" in low and ("forbidden" in low or "never" in low),
+            "Network pack should forbid SaaS inside Integration",
+        )
+        self.assertIn("Enterprise SaaS", prompt)
+
+
+if __name__ == "__main__":
+    unittest.main()

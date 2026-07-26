@@ -12,17 +12,38 @@ Page name: **`Logical`**
 Not for: CISO, data engineers, FinOps. If this looks like a VPC map or trust-zone diagram after blurring the title → fail.
 
 ### Canvas (clean)
-- Group by **Bounded Contexts / Business Domains only** (`domain_experience`, `domain_commerce`, …).
+- Group by **Bounded Contexts / Business Domains** (`domain_experience`, `domain_commerce`, …) laid out **left → right** (channels/personas → app capabilities → data → External SaaS).
+- **REQUIRED journey spine when auth or external SaaS appears:** draw a **persona/actor (or channel) on the LEFT** — never start the story at a data store or IdP alone.
+- When **2+ external apps** appear (Salesforce, SuccessFactors, Workday, Guidewire, …), also use **`domain_saas` — External SaaS** (Logical capability grouping only — Network stays ungrouped by journey).
+- Inside `domain_saas`, stack apps **vertically** (top→bottom by journey role: identity → experience → workforce → industry → payments → collab) — not a horizontal row.
 - **FORBIDDEN grouping:** trust zones (`zone_public`, `zone_dmz`, DMZ, Highly restricted as Security wallpaper).
 - **No** `note_*` / `ctrl_*` prose cards. Story → Overview + `step_markers` badges on domain/capability anchors.
-- Optional small `legend_box` for role colors only.
+- **Legend (recommended):** `(SAAS)` = external application; brand glyphs when vendor is known.
+- Never parent any service leaf under `overview_panel`. Never put `shape=image` / `saas_*` on `overview_panel`.
+
+### External SaaS (REQUIRED when present)
+- Each external product is its **own leaf**, labeled **`{Product} (SAAS)`** e.g. `Salesforce (SAAS)`, `Workday (SAAS)`.
+- Prefer `shape_type=saas_<vendor>` from the enterprise SaaS catalog (e.g. `saas_salesforce`) — server merges curated stencil icons. Unknown vendor → generic yellow `logical_saas`.
+- Prefer placing those leaves inside `domain_saas` when there are two or more.
+- Do **not** invent `resIcon=` / AWS/GCP/Azure stencils for SaaS leaves.
 
 ### ALLOWED nodes
-Personas/actors, channels/portals, capabilities (business verbs), BFF/API as interface, SaaS deps, generic data stores (“Customer data store” — not Postgres/Aurora names), shared platform capabilities when present.
-Server assigns `logical_*`; do **not** emit cloud `shape_type` / vendor stencils.
+Personas/actors, channels/portals, capabilities (business verbs), BFF/API as interface, SaaS deps as above, generic data stores (“Customer data store” — not Postgres/Aurora names), shared platform capabilities when present.
+Server assigns `logical_*` for non-SaaS roles; use `saas_*` for known external products. Do **not** emit cloud `shape_type` (aws_*/gcp_*/azure_*).
 
 ### ALLOWED edges (every edge labeled)
-`Invokes`, `Calls API`, `Relies on`, `Reads/Writes via API`, `Uses` — never TLS/WAF/JSON payload tours.
+`Uses`, `Authenticates via`, `Invokes`, `Calls API`, `Relies on`, `Reads/Writes via API` — never TLS/WAF/JSON payload tours.
+**Canonical auth journey:** `Persona/channel → Okta (SAAS)` with `Authenticates via`, then `→ capability/BFF`.  
+**Canonical data journey:** `capability → Customer data store` with `Reads/Writes via API`.  
+**FORBIDDEN edges:** data store → Okta/IdP; Okta → data store; every-to-every mesh.
+
+### Arrow / line craft (CRITICAL — readability)
+- Sparse path only: primary dependency story; no every-to-every mesh.
+- Orthogonal edges; exit/entry from relative placement (right→left / below→above) — never stack all anchors at 0.5.
+- Every labeled edge **must** include `labelBackgroundColor=#F5F5F5;fontSize=11;fontColor=#333333` so text is readable over lines and icons.
+- Short labels (1–4 words). Park label mid-corridor — **never** on top of a leaf icon or domain title.
+- Parallel edges in the same corridor: offset / spread faces (0.25 / 0.5 / 0.75); leave clear white space between nodes (pitch rules from CORE).
+- Prefer L→R / top→bottom reading; **route elbows around** intervening boxes — never draw a straight connector through another capability or SaaS icon.
 
 ### FORBIDDEN nodes
 WAF/Shield/VPC/subnet/AZ/NAT/bastion, CDN/ALB/NLB/Route53 as products, DB/queue product heroes, encryption/IAM spaghetti, trust-zone containers.
@@ -31,13 +52,13 @@ WAF/Shield/VPC/subnet/AZ/NAT/bastion, CDN/ALB/NLB/Route53 as products, DB/queue 
 8–12 nodes when inventory supports; 5–7 when thin — never invent domains to pad.
 
 ### Section colors (containers)
-Client/channel `#F5F5F5/#666666`; application `#DAE8FC/#6C8EBF`; data `#D5E8D4/#82B366`; identity `#E1D5E7/#9673A6`; platform/obs `#DAE8FC/#147EBA`. Always `arcSize=2`.
+Client/channel `#F5F5F5/#666666`; application `#DAE8FC/#6C8EBF`; data `#D5E8D4/#82B366`; identity `#E1D5E7/#9673A6`; platform/obs `#DAE8FC/#147EBA`; External SaaS shelf `#FFF2CC/#D6B656`. Always `arcSize=2`.
 
 ### Overview (plain language) + badges
 Title: `Logical architecture — {system}`
-Steps = who starts → owning domain → capability handoffs → where state lives → SaaS if material.
+Steps = **who starts (persona)** → how they authenticate (if Okta/SSO) → owning domain → capability handoffs → where state lives → external SaaS if material.
 Footer OK: `Out of scope: network topology, trust controls, payloads (other tabs).`
 Emit `step_markers` for steps with a clear cell id.
 
 ### Quality bar
-Domains + dependencies only. Unlabeled edges = fail. Zones or note/ctrl cards = fail.
+Domains + dependencies only. Missing persona when Okta/SaaS present = fail. Data store → IdP edge = fail. Unlabeled edges = fail. Labels over icons / unreadable line text = fail. Zones or note/ctrl cards = fail.

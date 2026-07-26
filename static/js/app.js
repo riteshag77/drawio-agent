@@ -124,17 +124,7 @@ function downloadXML() {
 }
 
 function copyXML() {
-    if (!currentXml) return;
-    navigator.clipboard.writeText(currentXml).then(() => {
-        const toast = document.getElementById('copy-toast');
-        if (toast) {
-            toast.classList.add('show');
-            setTimeout(() => toast.classList.remove('show'), 2000);
-        }
-        if (typeof showToast === 'function') showToast('XML copied', 'success');
-    }).catch((err) => {
-        if (typeof showToast === 'function') showToast(err.message || 'Clipboard copy failed', 'error');
-    });
+    // Copy XML UI removed — keep stub for any leftover callers.
 }
 
 function openInDrawio() {
@@ -144,13 +134,7 @@ function openInDrawio() {
 }
 
 function toggleXML() {
-    const panel = document.getElementById('xml-panel');
-    const btn = document.getElementById('btn-xml');
-    if (!panel || !btn || btn.disabled) return;
-    const isOpen = panel.classList.toggle('open');
-    btn.setAttribute('aria-pressed', isOpen ? 'true' : 'false');
-    btn.title = isOpen ? 'Hide Draw.io XML source' : 'View Draw.io XML source';
-    btn.setAttribute('aria-label', btn.title);
+    // XML panel UI removed — keep stub for any leftover callers.
 }
 
 // ── Main chat dispatch ────────────────────────────────────

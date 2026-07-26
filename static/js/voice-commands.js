@@ -758,28 +758,6 @@ function initVoiceCommands() {
     });
 
     registerVoiceCommand({
-        id: 'copy-xml',
-        label: 'Copy XML',
-        phrases: ['copy xml', 'copy diagram', 'copy source'],
-        when: voiceRequireDiagram,
-        run: () => {
-            copyXML();
-            return 'Copied XML';
-        },
-    });
-
-    registerVoiceCommand({
-        id: 'toggle-xml',
-        label: 'Toggle XML panel',
-        phrases: ['toggle xml', 'show xml', 'hide xml', 'view xml', 'xml source'],
-        when: voiceRequireDiagram,
-        run: () => {
-            toggleXML();
-            return 'Toggled XML panel';
-        },
-    });
-
-    registerVoiceCommand({
         id: 'open-drawio',
         label: 'Open in diagrams.net',
         phrases: ['open in draw io', 'open in drawio', 'open in diagrams net', 'open externally'],

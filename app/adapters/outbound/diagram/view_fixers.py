@@ -9,6 +9,7 @@ from app.adapters.outbound.diagram.architecture_docs import (
     VIEW_PAGE_NAMES,
     _infer_service_tier,
     _plain_cell_label,
+    ensure_saas_labels_on_logical,
 )
 from app.adapters.outbound.diagram.view_conformance import _FORBIDDEN_BY_VIEW, _service_leaves
 from app.adapters.outbound.diagram.xml_diagnostics import remove_dangling_edges
@@ -19,6 +20,10 @@ _EDGE_DEFAULTS: dict[str, dict[str, str]] = {
         "edge->app": "Calls API",
         "app->data": "Reads/Writes via API",
         "app->app": "Invokes",
+        "actor->app": "Uses",
+        "actor->identity": "Authenticates via",
+        "app->identity": "Authenticates via",
+        "identity->*": "Issues token",
         "default": "Relies on",
     },
     "security": {
@@ -156,7 +161,10 @@ def relabel_messaging_as_capabilities(page_xml: str, *, view: str) -> str:
 
 
 def strip_cloud_shape_types(page_xml: str, *, view: str) -> str:
-    """Remove leaked cloud shape_type attrs on Logical before logical_* assignment."""
+    """Remove leaked cloud shape_type attrs on Logical before logical_* assignment.
+
+    Brand ``saas_*`` keys are kept — Logical uses curated SaaS stencil icons.
+    """
     if view != "logical":
         return page_xml
     title = VIEW_PAGE_NAMES.get(view, view)
@@ -168,9 +176,7 @@ def strip_cloud_shape_types(page_xml: str, *, view: str) -> str:
         st = (cell.get("shape_type") or "").strip().lower()
         if not st:
             continue
-        if st.startswith(("aws_", "gcp_", "azure_", "logical_")):
-            if st.startswith("logical_"):
-                continue
+        if st.startswith(("aws_", "gcp_", "azure_")):
             if "shape_type" in cell.attrib:
                 del cell.attrib["shape_type"]
                 changed = True
@@ -188,9 +194,49 @@ def strip_cloud_shape_types(page_xml: str, *, view: str) -> str:
     return _serialize(tree) if changed else page_xml
 
 
+def _is_data_store_label(label: str) -> bool:
+    low = (label or "").lower()
+    return "data store" in low or low.endswith(" store") or any(
+        x in low for x in ("datastore", "database", "persistence", "warehouse")
+    )
+
+
+def _is_identity_saas_label(label: str, shape_type: str = "") -> bool:
+    st = (shape_type or "").strip().lower()
+    if st in {"saas_okta"} or st.endswith("_okta"):
+        return True
+    low = (label or "").lower()
+    return any(
+        x in low
+        for x in ("okta", "auth0", "idp", "identity provider", "sso", "entra id", "login")
+    ) and "store" not in low
+
+
+def _is_actor_label(label: str, shape_type: str = "") -> bool:
+    st = (shape_type or "").strip().lower()
+    if st.startswith("logical_actor") or st in {"aws_users", "aws_client", "gcp_users"}:
+        return True
+    low = (label or "").lower().strip()
+    return low in {
+        "user", "users", "customer", "customers", "employee", "employees",
+        "persona", "actor", "end user", "end users", "partner",
+    } or low.startswith("persona")
+
+
 def _tier_pair(src_label: str, tgt_label: str, src_st: str, tgt_st: str) -> str:
     src_t = _infer_service_tier(src_label, src_st, "")
     tgt_t = _infer_service_tier(tgt_label, tgt_st, "")
+    if _is_data_store_label(src_label) or _is_data_store_label(tgt_label):
+        if _is_data_store_label(tgt_label):
+            return "app->data"
+        # data → anything else is not a normal Logical hop
+        return "default"
+    if _is_identity_saas_label(tgt_label, tgt_st) or tgt_t == "security":
+        if _is_actor_label(src_label, src_st):
+            return "actor->identity"
+        return "app->identity"
+    if _is_actor_label(src_label, src_st):
+        return "actor->app"
     if "cache" in tgt_label.lower() or "redis" in tgt_label.lower():
         return "app->cache"
     if src_t == "edge" and tgt_t == "app":
@@ -203,7 +249,67 @@ def _tier_pair(src_label: str, tgt_label: str, src_st: str, tgt_st: str) -> str:
         return "edge->edge"
     if src_t == "security" or "cognito" in src_label.lower() or "iam" in src_label.lower():
         return "identity->*"
+    if _is_identity_saas_label(src_label, src_st):
+        return "identity->*"
     return "default"
+
+
+def drop_nonsensical_logical_edges(page_xml: str, *, view: str = "") -> str:
+    """Remove Logical edges that invent impossible journeys (e.g. data store → Okta).
+
+    Also rewrite leftover ``Invokes`` on identity hops to ``Authenticates via``.
+    """
+    if view and view != "logical":
+        return page_xml
+    title = VIEW_PAGE_NAMES.get(view or "logical", "Logical")
+    tree = _parse(page_xml, title)
+    if tree is None:
+        return page_xml
+    root = tree.find(".//root")
+    if root is None:
+        root = tree
+    by_id = {c.get("id"): c for c in tree.iter("mxCell") if c.get("id")}
+    drop: list[ET.Element] = []
+    changed = False
+    for cell in list(root.findall("mxCell")):
+        if cell.get("edge") != "1":
+            continue
+        src = by_id.get(cell.get("source") or "")
+        tgt = by_id.get(cell.get("target") or "")
+        if src is None or tgt is None:
+            continue
+        src_l = _plain_cell_label(src.get("value") or "")
+        tgt_l = _plain_cell_label(tgt.get("value") or "")
+        src_st = src.get("shape_type") or ""
+        tgt_st = tgt.get("shape_type") or ""
+        # Data store must not call IdP / SaaS identity — drop the edge.
+        if _is_data_store_label(src_l) and (
+            _is_identity_saas_label(tgt_l, tgt_st) or "okta" in tgt_l.lower()
+        ):
+            drop.append(cell)
+            continue
+        if _is_identity_saas_label(src_l, src_st) and _is_data_store_label(tgt_l):
+            drop.append(cell)
+            continue
+        # Fix bad verb on identity edges the LLM still emitted.
+        plain = (_plain_cell_label(cell.get("value") or "") or "").strip().lower()
+        if _is_identity_saas_label(tgt_l, tgt_st) and plain in {
+            "invokes", "calls api", "reads/writes via api",
+        }:
+            cell.set("value", "Authenticates via")
+            changed = True
+        if _is_data_store_label(tgt_l) and plain == "invokes":
+            cell.set("value", "Reads/Writes via API")
+            changed = True
+    for cell in drop:
+        try:
+            root.remove(cell)
+            changed = True
+        except ValueError:
+            pass
+    if not changed:
+        return page_xml
+    return remove_dangling_edges(_serialize(tree))
 
 
 def apply_edge_label_defaults(page_xml: str, *, view: str) -> str:
@@ -241,6 +347,61 @@ def apply_edge_label_defaults(page_xml: str, *, view: str) -> str:
             style += "labelBackgroundColor=#F5F5F5;fontSize=11;fontColor=#333333;"
             cell.set("style", style)
         changed = True
+    return _serialize(tree) if changed else page_xml
+
+
+_EDGE_LABEL_READABILITY = (
+    "labelBackgroundColor=#F5F5F5;fontSize=11;fontColor=#333333;"
+)
+
+
+def ensure_edge_label_readability(page_xml: str, *, view: str = "") -> str:
+    """Opaque label backgrounds + orthogonal style so line text stays readable.
+
+    Applies to Logical / Security / Data flow (and any page passed through view fixers).
+    Does not invent labels — only styles edges that already have (or will have) text.
+    """
+    title = VIEW_PAGE_NAMES.get(view, view) if view else "Page"
+    tree = _parse(page_xml, title)
+    if tree is None:
+        return page_xml
+    changed = False
+    for cell in tree.iter("mxCell"):
+        if cell.get("edge") != "1":
+            continue
+        style = cell.get("style") or ""
+        parts = [p for p in style.split(";") if p]
+        keys = {p.split("=", 1)[0] for p in parts if "=" in p}
+        new_parts = list(parts)
+        dirty = False
+        if "edgeStyle" not in keys:
+            new_parts.insert(0, "edgeStyle=orthogonalEdgeStyle")
+            dirty = True
+        if "rounded" not in keys:
+            new_parts.append("rounded=1")
+            dirty = True
+        if "html" not in keys:
+            new_parts.append("html=1")
+            dirty = True
+        has_label = bool((_plain_cell_label(cell.get("value") or "") or "").strip())
+        if has_label:
+            if "labelBackgroundColor" not in keys:
+                new_parts.append("labelBackgroundColor=#F5F5F5")
+                dirty = True
+            if "fontSize" not in keys:
+                new_parts.append("fontSize=11")
+                dirty = True
+            if "fontColor" not in keys:
+                new_parts.append("fontColor=#333333")
+                dirty = True
+            # Soft-cap very long labels that paint over icons.
+            plain = _plain_cell_label(cell.get("value") or "")
+            if len(plain) > 36:
+                cell.set("value", plain[:33].rstrip() + "…")
+                dirty = True
+        if dirty:
+            cell.set("style", ";".join(new_parts) + ";")
+            changed = True
     return _serialize(tree) if changed else page_xml
 
 
@@ -526,8 +687,14 @@ def apply_view_fixers(page_xml: str, *, view: str) -> str:
     xml = relabel_messaging_as_capabilities(xml, view=view)
     xml = drop_forbidden_nodes(xml, view=view)
     xml = strip_cloud_shape_types(xml, view=view)
+    if view == "logical":
+        xml = ensure_saas_labels_on_logical(xml)
+        xml = drop_nonsensical_logical_edges(xml, view=view)
     xml = strip_detail_cards(xml, view=view)
     xml = apply_edge_label_defaults(xml, view=view)
+    xml = ensure_edge_label_readability(xml, view=view)
+    from app.adapters.outbound.diagram.xml_diagnostics import sanitize_overview_panel_style
+    xml = sanitize_overview_panel_style(xml)
     return xml
 
 

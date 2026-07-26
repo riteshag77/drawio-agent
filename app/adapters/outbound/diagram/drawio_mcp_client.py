@@ -100,43 +100,44 @@ _LOGICAL_SHAPE_QUERIES: dict[str, str] = {
     "logical_platform": "rounded rectangle",
 }
 
-# Curated draw.io primitives for Logical roles (C4-style). MCP search is skipped —
-# keyword hits like "application"/"cloud" often render as empty boxes in the iframe.
+# Curated draw.io styles for Logical roles.
+# Prefer AWS4 resource icons for people/portals — they render in the embed iframe;
+# umlActor / vague MCP hits often show as empty boxes.
 _LOGICAL_BUILTIN_STYLES: dict[str, str] = {
     "logical_actor": (
-        "shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;"
-        "outlineConnect=0;fillColor=#E6E6E6;strokeColor=#666666;fontColor=#333333;"
-        "fontSize=12;align=center;aspect=fixed;"
+        "sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;"
+        "fillColor=#232F3D;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;"
+        "verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;"
+        "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.users;"
     ),
     "logical_channel": (
-        "rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#666666;"
-        "fontColor=#333333;fontSize=12;arcSize=12;align=center;"
-        "verticalLabelPosition=bottom;verticalAlign=top;aspect=fixed;"
+        "sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;"
+        "fillColor=#232F3D;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;"
+        "verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;"
+        "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.client;"
     ),
     "logical_capability": (
         "rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;"
-        "fontColor=#1A1A2E;fontSize=12;arcSize=8;align=center;"
-        "verticalLabelPosition=bottom;verticalAlign=top;aspect=fixed;"
+        "fontColor=#1A1A2E;fontSize=12;arcSize=8;align=center;verticalAlign=middle;"
     ),
     "logical_api": (
         "shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;"
         "fillColor=#E1D5E7;strokeColor=#9673A6;fontColor=#1A1A2E;fontSize=11;align=center;"
-        "verticalLabelPosition=bottom;verticalAlign=top;aspect=fixed;"
+        "verticalAlign=middle;"
     ),
     "logical_datastore": (
         "shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;"
         "fillColor=#D5E8D4;strokeColor=#82B366;fontColor=#1A1A2E;fontSize=12;align=center;"
-        "verticalLabelPosition=bottom;verticalAlign=top;aspect=fixed;"
+        "verticalAlign=middle;"
     ),
     "logical_saas": (
         "ellipse;shape=ellipse;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;"
         "fontColor=#1A1A2E;fontSize=12;align=center;"
-        "verticalLabelPosition=bottom;verticalAlign=top;aspect=fixed;"
+        "verticalLabelPosition=bottom;verticalAlign=top;"
     ),
     "logical_platform": (
         "rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#147EBA;"
-        "fontColor=#1A1A2E;fontSize=12;arcSize=8;dashed=1;align=center;"
-        "verticalLabelPosition=bottom;verticalAlign=top;aspect=fixed;"
+        "fontColor=#1A1A2E;fontSize=12;arcSize=8;dashed=1;align=center;verticalAlign=middle;"
     ),
 }
 
@@ -197,18 +198,116 @@ _BUILTIN_SHAPE_STYLES: dict[str, str] = {
     ),
 }
 
+# Curated SaaS stencils: SVG files in static/saas-icons/ embedded as data-URI image
+# styles (self-contained diagrams; no MCP brand search). Fallback = colored tile.
+_SAAS_LEAF = (
+    "whiteSpace=wrap;html=1;fontColor=#1A1A2E;fontSize=11;align=center;"
+    "verticalLabelPosition=bottom;verticalAlign=top;aspect=fixed;"
+)
+_SAAS_FALLBACK_COLORS: dict[str, str] = {
+    "saas_salesforce": "#00A1E0",
+    "saas_workday": "#F68D2E",
+    "saas_successfactors": "#008FD3",
+    "saas_servicenow": "#81B5A1",
+    "saas_okta": "#007DC1",
+    "saas_guidewire": "#E87722",
+    "saas_duck_creek": "#6B2D7B",
+    "saas_temenos": "#0033A0",
+    "saas_finastra": "#FF5A00",
+    "saas_fiserv": "#FF6600",
+    "saas_fis": "#00A3E0",
+    "saas_murex": "#1B3A5F",
+    "saas_bloomberg": "#2800D1",
+    "saas_refinitiv": "#FF8000",
+    "saas_experian": "#3B6E8F",
+    "saas_equifax": "#C8102E",
+    "saas_stripe": "#635BFF",
+    "saas_adyen": "#0ABF53",
+    "saas_plaid": "#111111",
+    "saas_slack": "#4A154B",
+    "saas_office365": "#D83B01",
+    "saas_microsoft_365": "#D83B01",
+}
+
+
+def _saas_icons_dir():
+    from app.adapters.outbound.config.env_config import EnvConfigAdapter
+    return EnvConfigAdapter.static_dir() / "saas-icons"
+
+
+def _saas_image_style_from_svg(svg_text: str) -> str:
+    import urllib.parse
+
+    # Collapse whitespace so draw.io style attrs stay compact.
+    compact = re.sub(r"\s+", " ", (svg_text or "").strip())
+    encoded = urllib.parse.quote(compact, safe="")
+    return (
+        f"shape=image;html=1;verticalLabelPosition=bottom;verticalAlign=top;"
+        f"imageAspect=0;aspect=fixed;align=center;fontSize=11;fontColor=#1A1A2E;"
+        f"image=data:image/svg+xml,{encoded};"
+    )
+
+
+def _saas_fallback_style(shape_type: str) -> str:
+    fill = _SAAS_FALLBACK_COLORS.get(shape_type, "#FFF2CC")
+    return (
+        f"rounded=1;{_SAAS_LEAF}fillColor={fill};strokeColor=#666666;arcSize=12;"
+    )
+
+
+def _load_saas_builtin_styles() -> dict[str, str]:
+    """Map saas_* → draw.io style using on-disk SVG stencils when present."""
+    icons = _saas_icons_dir()
+    out: dict[str, str] = {}
+    for shape_type in _SAAS_FALLBACK_COLORS:
+        stem = shape_type.removeprefix("saas_")
+        path = icons / f"{stem}.svg"
+        if path.is_file():
+            try:
+                out[shape_type] = _saas_image_style_from_svg(path.read_text(encoding="utf-8"))
+                continue
+            except OSError:
+                pass
+        out[shape_type] = _saas_fallback_style(shape_type)
+    return out
+
+
+_SAAS_BUILTIN_STYLES_CACHE: dict[str, str] | None = None
+
+
+def _saas_builtin_styles() -> dict[str, str]:
+    """Lazy-load SaaS SVG styles so icons added after process start are picked up."""
+    global _SAAS_BUILTIN_STYLES_CACHE
+    if _SAAS_BUILTIN_STYLES_CACHE is None:
+        _SAAS_BUILTIN_STYLES_CACHE = _load_saas_builtin_styles()
+    return _SAAS_BUILTIN_STYLES_CACHE
+
+
+def __getattr__(name: str):
+    # Tests / importers historically imported ``_SAAS_BUILTIN_STYLES`` as a dict.
+    if name == "_SAAS_BUILTIN_STYLES":
+        return _saas_builtin_styles()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 def _builtin_style(shape_type: str) -> str | None:
     """Early-resolve known-good styles — skip MCP when we already own the stencil.
 
-    Cloud actors (Users/Client) and all ``logical_*`` roles use curated draw.io
-    primitives. Logical must not go through MCP keyword search: queries like
-    ``application`` / ``cloud`` often return empty or non-rendering shapes that
-    overwrite the colored role boxes and look like blank squares.
+    Cloud actors (Users/Client), all ``logical_*`` roles, and curated ``saas_*``
+    stencil icons use builtins. Logical/SaaS must not go through MCP keyword search:
+    vague queries often return empty or non-rendering shapes.
     """
     st = (shape_type or "").strip().lower()
     if st.startswith("logical_"):
         style = _LOGICAL_BUILTIN_STYLES.get(st)
+        if style and not style.endswith(";"):
+            return style + ";"
+        return style
+    if st.startswith("saas_"):
+        styles = _saas_builtin_styles()
+        style = styles.get(st)
+        if style is None and st in _SAAS_FALLBACK_COLORS:
+            style = _saas_fallback_style(st)
         if style and not style.endswith(";"):
             return style + ";"
         return style

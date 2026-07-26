@@ -12,16 +12,25 @@ Page name: **`Security`**
 Not for: eng-lead capability reviews or payload walks. Microservice soup or VPC wallpaper → fail.
 
 ### Canvas (clean)
-- Group by **Trust Zones:** `zone_public`, `zone_dmz`, `zone_private`, `zone_restricted`, optional `zone_identity` / `zone_detect`.
+- Group by **Trust Zones** laid out **left → right**: `zone_public` → `zone_dmz`/perimeter → `zone_identity` → `zone_private` → `zone_restricted` (optional `zone_detect`).
 - Collapse apps into one private block; one sensitive-data boundary — not every table/service.
+- SaaS peers inside public/identity: order L→R by journey role. Never parent leaves under `overview_panel`.
 - **No** `note_*` / `ctrl_*` prose cards. Control story → Overview + `step_markers` badges on zone/control anchors.
 - Optional `legend_box`: less trust left → more restricted right.
 
 ### ALLOWED nodes
 IdP/IAM, WAF/API GW/public ALB/Shield, KMS/secrets/ACM when present, bastion/private access, high-level private app, sensitive boundary, detect tools. Keep cloud `shape_type`.
+External IdP / BFSI SaaS (Okta, Salesforce, Workday, Guidewire, …): use `shape_type=saas_<vendor>` when those products appear — curated glyphs. Place as external / identity-adjacent trust peers (`zone_public` or `zone_identity`) — not as VPC wallpaper.
 
 ### ALLOWED edges
 `AuthN`, `AuthZ`, `TLS`, `mTLS`, `inspect`, `perimeter cross`, `private path`, `issues token`.
+
+### Arrow / line craft (CRITICAL — readability)
+- Sparse trust path left → right (public → perimeter → identity → private → restricted). No mesh.
+- Orthogonal edges; choose exit/entry from relative placement — never all faces at 0.5.
+- Every labeled edge **must** include `labelBackgroundColor=#F5F5F5;fontSize=11;fontColor=#333333`.
+- Short control verbs only. Labels mid-corridor — **never** over icons or zone titles.
+- Parallel perimeter crossings: spread anchors; keep clear gaps between zone columns.
 
 ### FORBIDDEN
 Orders/Catalog/Checkout/UI soup, Kafka-as-hero, DB table/CRUD labels, full AZ/subnet wallpaper, note/ctrl cards.
@@ -40,4 +49,4 @@ Red **Recommended gaps** only for missing controls (edge filter, login, keys vau
 Emit `step_markers` on zone/control anchors.
 
 ### Quality bar
-Controls visible in two seconds. Acronym-only Overview = fail. note/ctrl cards = fail.
+Controls visible in two seconds. Unlabeled edges or labels over icons = fail. Acronym-only Overview = fail. note/ctrl cards = fail.

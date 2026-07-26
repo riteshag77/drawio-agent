@@ -209,8 +209,13 @@ def _is_step_badge_cell(cell: ET.Element) -> bool:
 
 
 def _cross_cutting_cell_ids(cells: list[ET.Element]) -> set[str]:
-    """All ids belonging to a cross-cutting group: each group container plus every descendant."""
+    """All ids belonging to a cross-cutting group: each group container plus every descendant.
+
+    Enterprise ``saas_*`` leaves are excluded even if nested under Integration —
+    they are vendor products (edges allowed); a separate fixer reparents them out.
+    """
     children_by_parent: dict[str, list[str]] = {}
+    by_id = {c.get("id"): c for c in cells if c.get("id")}
     for c in cells:
         pid, cid = c.get("parent"), c.get("id")
         if pid and cid:
@@ -229,6 +234,10 @@ def _cross_cutting_cell_ids(cells: list[ET.Element]) -> set[str]:
             cur = stack.pop()
             for child_id in children_by_parent.get(cur, ()):
                 if child_id not in out:
+                    child = by_id.get(child_id)
+                    st = ((child.get("shape_type") if child is not None else None) or "").strip().lower()
+                    if st.startswith("saas_"):
+                        continue
                     out.add(child_id)
                     stack.append(child_id)
     return out
@@ -253,6 +262,8 @@ def _group_rows(kids: list[ET.Element],
 def _leaf_siblings_by_parent(cells: list[ET.Element], parent_ids: set[str | None],
                               page_w: float, page_h: float) -> dict[str, list[ET.Element]]:
     """Group same-parent leaf (non-container, non-edge-label, non-background) siblings by parent id."""
+    from app.adapters.outbound.diagram.placement_fixers import _is_saas_leaf_cell
+
     by_parent: dict[str, list[ET.Element]] = {}
     for cell in cells:
         if cell.get("vertex") != "1" or _is_container_cell(cell) or _is_edge_label_cell(cell):
@@ -264,6 +275,10 @@ def _leaf_siblings_by_parent(cells: list[ET.Element], parent_ids: set[str | None
         if cell.get("id") in parent_ids:
             continue
         pid = cell.get("parent")
+        # External actors + SaaS on the canvas root use a reserved lane — keep them
+        # out of subnet-style pitch/overlap grids that scramble Network layout.
+        if pid == "1" and (_is_external_actor_cell(cell) or _is_saas_leaf_cell(cell)):
+            continue
         if pid:
             by_parent.setdefault(pid, []).append(cell)
     return by_parent
@@ -991,13 +1006,9 @@ def absolute_position(cell: ET.Element, by_id: dict[str, ET.Element]) -> tuple[f
 def resolve_misplaced_actors(xml: str) -> str:
     """Reparent external-actor icons nested inside a container back to parent="1".
 
-    The prompt requires Users/Client/Internet-style actors to always sit
-    outside the cloud boundary (they represent people/systems, not a
-    classifiable service) — this is the deterministic safety net for when
-    the LLM nests one inside Cloud/Region/VPC/etc. anyway. Repositions the
-    cell just left of the leftmost top-level container, mirroring the
-    positioning formula already proven in the AWS skill's actor-placement
-    fixer (cloud_x - width - 30, clamped to a 20px minimum margin).
+    Actors claim the far-left column (x≈20) so the SaaS journey lane can sit
+    between Users and Cloud without collision. Nested actors are hoisted with
+    absolute coords then parked in that column.
     """
     parsed = _parse_docroot(xml)
     if parsed is None:
@@ -1008,38 +1019,41 @@ def resolve_misplaced_actors(xml: str) -> str:
     by_id = {c.get("id"): c for c in cells if c.get("id")}
 
     misplaced = [c for c in cells if _is_external_actor_cell(c) and c.get("parent") not in (None, "1")]
-    if not misplaced:
+    root_actors = [c for c in cells if _is_external_actor_cell(c) and c.get("parent") == "1"]
+    if not misplaced and not root_actors:
         return xml
-
-    page_w, page_h = _page_size(tree)
-    top_level_containers = [
-        c for c in cells
-        if _is_container_cell(c) and c.get("parent") == "1" and not _is_canvas_background_cell(c, page_w, page_h)
-    ]
-    if not top_level_containers:
-        return xml
-    cloud_geo = min(
-        (g for g in (_cell_geometry(c) for c in top_level_containers) if g is not None),
-        key=lambda g: g[0],
-        default=None,
-    )
-    if cloud_geo is None:
-        return xml
-    cloud_x = cloud_geo[0]
 
     changed = False
     for cell in misplaced:
         abs_x, abs_y = absolute_position(cell, by_id)
-        geo = _cell_geometry(cell)
-        w = geo[2] if geo else 78.0
-        new_x = max(20.0, cloud_x - w - 30.0)
-        new_y = max(20.0, abs_y)
         cell.set("parent", "1")
         geom_el = cell.find("mxGeometry")
         if geom_el is not None:
-            geom_el.set("x", str(new_x))
-            geom_el.set("y", str(new_y))
+            geom_el.set("x", str(abs_x))
+            geom_el.set("y", str(abs_y))
         changed = True
+
+    # Refresh and stack all root actors in column 0.
+    cells = [c for c in root.findall("mxCell") if c.get("id")]
+    actors = [c for c in cells if _is_external_actor_cell(c) and c.get("parent") == "1"]
+    actors.sort(key=lambda c: (_cell_geometry(c) or (0.0, 0.0, 0.0, 0.0))[1])
+    for i, cell in enumerate(actors):
+        geom_el = cell.find("mxGeometry")
+        if geom_el is None:
+            continue
+        target_x = 20.0
+        target_y = 40.0 + i * 100.0
+        try:
+            cur_x = float(geom_el.get("x") or 0)
+            cur_y = float(geom_el.get("y") or 0)
+        except ValueError:
+            cur_x, cur_y = 0.0, 0.0
+        # Only force column when nested-hoisted or clearly not in the actor column.
+        if cell in misplaced or abs(cur_x - target_x) > 40.0 or cur_x > 120.0:
+            if abs(cur_x - target_x) > 0.5 or abs(cur_y - target_y) > 0.5:
+                geom_el.set("x", str(target_x))
+                geom_el.set("y", str(target_y))
+                changed = True
 
     if not changed:
         return xml
@@ -1294,6 +1308,95 @@ def _grow_page(tree: ET.Element, cells: list[ET.Element], page_w: float, page_h:
     return True
 
 
+def clear_overview_panel_children(xml: str) -> str:
+    """Hoist any leaf wrongly nested under overview_panel / legend_box to parent=1.
+
+    Prevents SaaS icons (e.g. SuccessFactors) from rendering on top of the
+    right-hand briefing panel when the LLM parents them to the panel cell.
+    """
+    parsed = _parse_docroot(xml)
+    if parsed is None:
+        return xml
+    tree, root, is_mxfile, trimmed = parsed
+    cells = [c for c in root.findall("mxCell") if c.get("id")]
+    by_id = {c.get("id"): c for c in cells if c.get("id")}
+    forbidden_parents = {_OVERVIEW_PANEL_ID, _LEGEND_ID}
+    changed = False
+    for cell in cells:
+        if cell.get("vertex") != "1" or cell.get("edge") == "1":
+            continue
+        pid = cell.get("parent") or ""
+        if pid not in forbidden_parents:
+            # Also hoist if any ancestor is the panel/legend.
+            cur = by_id.get(pid)
+            under = False
+            seen: set[str] = set()
+            while cur is not None:
+                cid = cur.get("id") or ""
+                if not cid or cid in seen:
+                    break
+                seen.add(cid)
+                if cid in forbidden_parents:
+                    under = True
+                    break
+                cur = by_id.get(cur.get("parent") or "")
+            if not under:
+                continue
+        abs_x, abs_y = absolute_position(cell, by_id)
+        cell.set("parent", "1")
+        geom = cell.find("mxGeometry")
+        if geom is not None:
+            geom.set("x", str(abs_x))
+            geom.set("y", str(abs_y))
+        changed = True
+    if not changed:
+        return xml
+    return _serialize_docroot(tree, root, is_mxfile, trimmed)
+
+
+_OVERVIEW_TEXT_STYLE = (
+    "rounded=1;arcSize=2;whiteSpace=wrap;html=1;align=left;verticalAlign=top;"
+    "spacingLeft=16;spacingTop=14;fillColor=#FFF8E1;strokeColor=#F5A623;strokeWidth=2;fontSize=15;"
+)
+
+
+def sanitize_overview_panel_style(xml: str) -> str:
+    """Force overview_panel / legend back to text-card chrome — never a SaaS image.
+
+    Strips ``shape=image``, ``image=data:…``, and ``saas_*`` shape_type that the
+    LLM (or MCP) may have applied because the panel HTML mentions a vendor.
+    """
+    parsed = _parse_docroot(xml)
+    if parsed is None:
+        return xml
+    tree, root, is_mxfile, trimmed = parsed
+    changed = False
+    for cell in root.findall("mxCell"):
+        cid = cell.get("id") or ""
+        if cid not in {_OVERVIEW_PANEL_ID, _LEGEND_ID}:
+            continue
+        st = (cell.get("shape_type") or "").strip().lower()
+        if st.startswith("saas_"):
+            if "shape_type" in cell.attrib:
+                del cell.attrib["shape_type"]
+                changed = True
+        style = cell.get("style") or ""
+        dirty = (
+            "shape=image" in style
+            or "image=" in style
+            or "data:image" in style
+        )
+        if dirty or not style:
+            cell.set("style", _OVERVIEW_TEXT_STYLE if cid == _OVERVIEW_PANEL_ID else (
+                "rounded=1;arcSize=2;whiteSpace=wrap;html=1;align=left;verticalAlign=top;"
+                "spacingLeft=12;spacingTop=8;fillColor=#F5F5F5;strokeColor=#666666;fontSize=12;"
+            ))
+            changed = True
+    if not changed:
+        return xml
+    return _serialize_docroot(tree, root, is_mxfile, trimmed)
+
+
 def ensure_overview_panel_position(xml: str) -> str:
     """Keep the right-hand overview panel clear of the architecture, sized to its real text, and the page big enough for it.
 
@@ -1331,12 +1434,24 @@ def ensure_overview_panel_position(xml: str) -> str:
         return xml if not changed else _serialize_docroot(tree, root, is_mxfile, trimmed)
 
     page_w, page_h = _page_size(tree)
-    others = [
-        c for c in cells
-        if c is not panel and c.get("edge") != "1" and c.get("parent") == "1"
-        and not _is_canvas_background_cell(c, page_w, page_h) and not _is_legend_cell(c)
-    ]
-    other_geoms = [g for g in (_cell_geometry(c) for c in others) if g is not None]
+    by_id = {c.get("id"): c for c in cells if c.get("id")}
+
+    # Absolute bounds of all architecture vertices (nested leaves included).
+    other_geoms: list[tuple[float, float, float, float]] = []
+    for c in cells:
+        if c is panel or c.get("edge") == "1":
+            continue
+        if _is_canvas_background_cell(c, page_w, page_h) or _is_legend_cell(c):
+            continue
+        if _is_step_badge_cell(c):
+            continue
+        if c.get("vertex") != "1":
+            continue
+        geo = _cell_geometry(c)
+        if geo is None:
+            continue
+        ax, ay = absolute_position(c, by_id)
+        other_geoms.append((ax, ay, geo[2], geo[3]))
 
     px, py, pw, ph = panel_geo
 
@@ -1354,7 +1469,9 @@ def ensure_overview_panel_position(xml: str) -> str:
     if other_geoms:
         content_max_x = max(g[0] + g[2] for g in other_geoms)
         content_min_y = min(g[1] for g in other_geoms)
-        needs_move = px < content_max_x or any(_rects_overlap((px, py, pw, ph), g) for g in other_geoms)
+        needs_move = px < content_max_x or any(
+            _rects_overlap((px, py, pw, ph), g) for g in other_geoms
+        )
         if needs_move:
             px, py = content_max_x + _OVERVIEW_PANEL_GAP, content_min_y
             geom_el = panel.find("mxGeometry")
@@ -1447,6 +1564,9 @@ def apply_step_markers(xml: str, step_markers: list[Any], logger: Any = None) ->
     ``cell_id``, or a ``cell_id`` not found in the document (typo, or a
     fixer removed it), are skipped and logged — never fabricates a position,
     never raises.
+
+    Network: never park badges on enterprise SaaS leaves (icons look "badged");
+    remount to Edge layer, Cloud, or Users when the LLM pointed at SaaS.
     """
     if not step_markers:
         return xml
@@ -1458,6 +1578,44 @@ def apply_step_markers(xml: str, step_markers: list[Any], logger: Any = None) ->
     cells = [c for c in root.findall("mxCell") if c.get("id")]
     by_id = {c.get("id"): c for c in cells if c.get("id")}
     existing_ids = set(by_id)
+
+    page_name = ""
+    if tree.tag == "mxfile":
+        diag = tree.find("diagram")
+        if diag is not None:
+            page_name = (diag.get("name") or "").strip().lower()
+
+    def _remap_saas_badge_target(target: ET.Element) -> ET.Element:
+        """On Network, move badges off SaaS icons onto Edge / Cloud / Users."""
+        if page_name != "network":
+            return target
+        try:
+            from app.adapters.outbound.diagram.placement_fixers import (
+                _is_edge_layer_container,
+                _is_cloud_container,
+                _is_saas_leaf_cell,
+            )
+        except Exception:
+            return target
+        if not _is_saas_leaf_cell(target):
+            return target
+        # Prefer Edge layer, then Cloud, then Users actor.
+        for c in cells:
+            if _is_edge_layer_container(c):
+                return c
+        for c in cells:
+            if _is_cloud_container(c) and c.get("parent") == "1":
+                return c
+        for c in cells:
+            if _is_external_actor_cell(c):
+                return c
+        if logger:
+            logger.log(
+                "step_markers",
+                f"skipping badge on SaaS leaf {target.get('id')!r} (no Edge/Cloud remount)",
+                level="info",
+            )
+        return target  # caller should skip if still saas
 
     collisions: dict[str, int] = {}
     added = False
@@ -1476,9 +1634,19 @@ def apply_step_markers(xml: str, step_markers: list[Any], logger: Any = None) ->
                 )
             continue
 
+        remapped = _remap_saas_badge_target(target)
+        try:
+            from app.adapters.outbound.diagram.placement_fixers import _is_saas_leaf_cell
+            if page_name == "network" and _is_saas_leaf_cell(remapped):
+                continue
+        except Exception:
+            pass
+        target = remapped
+        anchor_id = target.get("id") or cell_id
+
         abs_x, abs_y = absolute_position(target, by_id)
-        collision_index = collisions.get(cell_id, 0)
-        collisions[cell_id] = collision_index + 1
+        collision_index = collisions.get(anchor_id, 0)
+        collisions[anchor_id] = collision_index + 1
         nudge = collision_index * _STEP_BADGE_COLLISION_OFFSET
         badge_x = abs_x - _STEP_BADGE_OFFSET + nudge
         badge_y = abs_y - _STEP_BADGE_OFFSET + nudge
@@ -1543,19 +1711,26 @@ def repair_xml(xml: str) -> tuple[str, XmlDiagnostics]:
     fixed = resolve_orphaned_parents(fixed)
     fixed = resolve_parent_cycles(fixed)
     fixed = ensure_valid_vertex_geometry(fixed)
-    fixed = remove_dangling_edges(fixed)
-    fixed = remove_cross_cutting_edges(fixed)
+    fixed = clear_overview_panel_children(fixed)
+    fixed = sanitize_overview_panel_style(fixed)
     fixed = ensure_leaf_labels(fixed)
     fixed = resolve_misplaced_actors(fixed)
     from app.adapters.outbound.diagram.placement_fixers import (
+        enforce_view_journey_columns,
         fix_edge_anchors_from_geometry,
         resolve_misplaced_connectivity_hubs,
         resolve_misplaced_edge_services,
         resolve_misplaced_load_balancers,
+        resolve_misplaced_saas_leaves,
     )
+    # Hoist SaaS before cross-cutting edge strip so app↔SaaS edges survive.
+    fixed = resolve_misplaced_saas_leaves(fixed)
+    fixed = remove_dangling_edges(fixed)
+    fixed = remove_cross_cutting_edges(fixed)
     fixed = resolve_misplaced_connectivity_hubs(fixed)
     fixed = resolve_misplaced_edge_services(fixed)
     fixed = resolve_misplaced_load_balancers(fixed)
+    fixed = enforce_view_journey_columns(fixed)
     fixed = resolve_coordinate_only_nesting(fixed)
     fixed = resolve_row_overflow(fixed)
     fixed = resolve_pitch_outliers(fixed)
@@ -1563,6 +1738,22 @@ def repair_xml(xml: str) -> tuple[str, XmlDiagnostics]:
     fixed = resolve_leaf_overlaps(fixed)
     fixed = fit_containers_to_children(fixed)
     fixed = fix_edge_anchors_from_geometry(fixed)
+    page_name = ""
+    try:
+        parsed_name = _parse_docroot(fixed)
+        if parsed_name is not None:
+            tree_n, _, _, _ = parsed_name
+            if tree_n.tag == "mxfile":
+                diag = tree_n.find("diagram")
+                if diag is not None:
+                    page_name = (diag.get("name") or "").strip().lower()
+    except Exception:
+        page_name = ""
+    if page_name in {"logical", "security", "data flow"}:
+        from app.adapters.outbound.diagram.view_fixers import ensure_edge_label_readability
+        view_key = {"logical": "logical", "security": "security", "data flow": "data_flow"}[page_name]
+        fixed = ensure_edge_label_readability(fixed, view=view_key)
     fixed = ensure_overview_panel_position(fixed)
+    fixed = sanitize_overview_panel_style(fixed)
     fixed = ensure_legend_position(fixed)
     return fixed, diagnose_xml(fixed)

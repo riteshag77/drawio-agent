@@ -32,6 +32,11 @@ Every internal box must be **visually and structurally wrapped** inside its oute
 5. Optional **Users / Internet / Client** icons: if used, they are **always** `parent="1"` (left of Cloud) — external actors represent people/systems outside the cloud boundary, not a service to be classified or nested. Everything else cloud-related stays wrapped inside Cloud.
 6. **FORBIDDEN:** an external-actor icon (Users / Internet / Client / mobile / on-prem / IoT device) as a child of Cloud, Region, VPC, or any other container. It never has a classification decision — it is not a service.
 7. **Cross-VPC/cross-account connectivity hubs** (Transit Gateway, VPN Gateway, Direct Connect, PrivateLink and equivalents) connect *multiple* VPCs/accounts/regions — **never** place one as an ordinary sibling icon inside a single VPC's service row (that stretches the pitch to reach the other VPC and balloons every ancestor's width). Place it at the Cloud level instead, alongside the Edge/Global Layer, and connect it to each VPC with an edge, never shared containment.
+8. **Enterprise SaaS** (Salesforce, SuccessFactors, Workday, Okta, Guidewire, …): ungrouped leaves **always** `parent="1"` — **never** inside VPC/Integration and **never** one mega “External SaaS” container. Place by **call path**, not a single rigid column:
+   - **Ingress (left of Cloud, beside Users):** SaaS the **user hits first** (Okta/SSO login → redirect into Cloud/Edge). Draw `Users → IdP → Edge/App`.
+   - **Egress (right of Cloud):** SaaS that **cloud apps call** for data (Workday profile, Guidewire, payments APIs). Draw `App → SaaS`.
+   - User may also go **Users → Cloud/Edge first**; then only egress SaaS appear on the right.
+   - Within each side, order L→R by journey role when multiple. Align Y with Edge/Global. VPC PrivateLink endpoint stays in VPC.
 
 **Parent chain examples (AWS):**
 - `aws_cloud` → parent `"1"`
@@ -101,35 +106,37 @@ Place **four** separate groups side by side below the Zones, inside the VPC (`pa
 ## Network edge cases (brief)
 
 - 5–8 services in one App subnet → wrap to 2 rows; grow subnet/Zone height; keep pitch
-- 2–3 AZs mirrored → same relative roles and y-rows across AZs; do **not** mirror Security/Monitoring/Integration/Management/Edge
+- 2–3 AZs mirrored → each mirrored Zone must contain ≥1 leaf in each mirrored subnet; do **not** emit empty Zone/subnet shells; peer AZs that have leaves share top/height; do **not** mirror Security/Monitoring/Integration/Management/Edge
 - LB / API Gateway → sibling of Zones inside VPC (not inside a subnet)
-- Public subnet with only NAT/Bastion → still use title band + padding; do not invent empty stretch unless aligning AZ columns
-- Empty tier → omit the empty subnet rather than a huge empty box
+- Public subnet with only NAT/Bastion → still use title band + padding; **never** invent empty stretch to fake AZ column alignment
+- Empty tier → omit the empty subnet rather than a huge empty box; empty AZ → omit the AZ entirely
 - Multi-cloud → each provider keeps its own tree; cross-cloud = edge only, never nesting
-- Users / Internet → outside Cloud on left (`parent="1"`); edge into Edge layer or LB
+- Users / Internet → outside Cloud on left (`parent="1"`); **Enterprise SaaS** by call path — ingress IdP left of Cloud, egress SaaS right of Cloud; edges into Edge/LB/app (ingress) or from app (egress)
 
 ## Anti-Patterns — FORBIDDEN (Network)
 
-1. Edges into Security / Monitoring / Integration / Management
+1. Edges into Security / Monitoring / Integration / Management (cloud bus icons only — **not** SaaS products)
 2. Region/VPC/Zone/Subnet as `parent="1"` siblings that only look nested
 3. Mirroring Security / Monitoring / Integration / Management / Edge into every Zone
+4. Enterprise SaaS nested inside VPC / Integration / any subnet
+5. Empty Availability Zone or empty subnet shells kept only for alignment
 
 ## Output Rules — Parent (Network)
 
-- Every cell (except background, optional Users/Internet, and edges) must sit on the hierarchy chain above — **wrapped inside** its outer layer via `parent`
+- Every cell (except background, optional Users/Internet/**SaaS**, and edges) must sit on the hierarchy chain above — **wrapped inside** its outer layer via `parent`
 - Leaf `parent` = classification container id — never `"1"` for VPC/Zone/Subnet/supporting groups/services
-- Only Cloud (outer wrapper), page background, and optional external Users/Internet use `parent="1"`
+- Only Cloud (outer wrapper), page background, and optional external Users/Internet/**Enterprise SaaS** use `parent="1"`
 - Child geometry is **relative to parent** (x/y origin = parent's top-left), never absolute canvas coords for nested cells
 - Never infer parent from coordinate overlap — if a box is inside another visually, its `parent` MUST be that outer box's id
 
 ## Multi-Zone
 
-Mirror app-tier and data-tier into every Zone's matching subnet. Do **not** mirror Security / Monitoring / Integration / Management / Edge services.
+Mirror app-tier and data-tier into every Zone's matching subnet **only when inventory has replicas in that Zone**. Omit Zones/subnets with zero leaves. Do **not** mirror Security / Monitoring / Integration / Management / Edge services.
 
 ## Self-Check (must pass before return — Network)
 
-1. Cloud is the outer wrapper; Region/VPC/Zones/Subnets/supporting groups/Edge are all nested via parent (none of those on parent="1")? Any Users/Internet/Client external-actor icon is on parent="1", never nested inside Cloud/Region/VPC/any container?
-2. **Zero** edges touch Security, Monitoring, Integration, or Management cells?
+1. Cloud is the outer wrapper; Region/VPC/Zones/Subnets/supporting groups/Edge are all nested via parent (none of those on parent="1")? Any Users/Internet/Client/**Enterprise SaaS** icon is on parent="1", never nested inside Cloud/Region/VPC/any container?
+2. **Zero** edges touch Security, Monitoring, Integration, or Management cells (except SaaS must not live in those groups at all)?
 3. Supporting groups sit below Zones with **≥70px** clear gap (no overlap with Zones/Subnets), four boxes side by side with **≥20px** between them, still `parent=<vpc-id>`?
 4. All containers (including Availability Zones) use `arcSize=2`?
-5. Peer AZs aligned; subnet rows aligned across AZs?
+5. Every Zone has ≥1 leaf; no empty Zone/subnet shells; peer AZs with leaves aligned?
