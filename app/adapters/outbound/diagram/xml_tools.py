@@ -883,7 +883,7 @@ _FIT_CHILD_MIN = 24.0  # clamp negative/near-zero child coords
 _SIBLING_GAP = 24.0  # clear space between sibling containers (zones vs supporting groups)
 _ZONE_TO_SUPPORTING_GAP = 70.0  # craft rule: supporting groups ≥70px below Zones
 _SAME_ROW_TOL = 24.0  # treat tops within this as the same horizontal row
-_AZ_ARC_SIZE = "6"
+_CONTAINER_ARC_SIZE = "2"
 _OVERVIEW_PANEL_ID = "overview_panel"
 _OVERVIEW_PANEL_ARC_SIZE = "2"
 
@@ -942,28 +942,26 @@ def _ranges_overlap(a0: float, a1: float, b0: float, b1: float, pad: float = 0.0
     return a0 < b1 + pad and b0 < a1 + pad
 
 
-def _is_availability_zone_cell(cell: ET.Element) -> bool:
-    """Heuristic: AZ containers by label or id (not Management, which shares grey stroke)."""
-    if not _is_container_cell(cell):
-        return False
-    value = (cell.get("value") or "").lower()
-    if "availability" in value or value.startswith("az ") or value.startswith("az-"):
-        return True
-    cid = (cell.get("id") or "").lower()
-    return cid.startswith("az") or "avail" in cid or cid in {"az1", "az2", "az3"}
-
-
-def _soften_az_corners(cells: list[ET.Element]) -> bool:
+def _normalize_container_arc_size(cells: list[ET.Element]) -> bool:
+    """Force every architecture container to use subtle corners (arcSize=2)."""
     changed = False
     for cell in cells:
-        if not _is_availability_zone_cell(cell):
+        if not _is_container_cell(cell):
+            continue
+        if (cell.get("id") or "") == _OVERVIEW_PANEL_ID:
             continue
         style = cell.get("style") or ""
         parts = _parse_style(style)
-        if parts.get("arcSize") == _AZ_ARC_SIZE and parts.get("rounded", "1") == "1":
+        if parts.get("arcSize") == _CONTAINER_ARC_SIZE and parts.get("rounded", "1") == "1":
             continue
-        parts["rounded"] = "1"
-        parts["arcSize"] = _AZ_ARC_SIZE
+        # AWS group icon containers: set arcSize without forcing rounded=1
+        if "mxgraph.aws4.group" in style or "grIcon=" in style:
+            if parts.get("arcSize") == _CONTAINER_ARC_SIZE:
+                continue
+            parts["arcSize"] = _CONTAINER_ARC_SIZE
+        else:
+            parts["rounded"] = "1"
+            parts["arcSize"] = _CONTAINER_ARC_SIZE
         cell.set("style", _format_style(parts))
         changed = True
     return changed
@@ -1134,7 +1132,7 @@ def fit_containers_to_children(xml: str) -> str:
 
     Processes deepest containers first. Does not move children between parents or
     change leaf sizes/styles — only container width/height, sibling x/y when
-    needed for gaps, and a softer ``arcSize`` on Availability Zone boxes.
+    needed for gaps, and ``arcSize=2`` on all architecture containers.
     """
     if not (xml or "").strip() or "<mxCell" not in xml:
         return xml
@@ -1180,7 +1178,7 @@ def fit_containers_to_children(xml: str) -> str:
         changed = True
         _fit_one_pass(containers, children)
 
-    if _soften_az_corners(cells):
+    if _normalize_container_arc_size(cells):
         changed = True
 
     if _soften_overview_panel_corners(cells):

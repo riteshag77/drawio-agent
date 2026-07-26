@@ -175,12 +175,13 @@ def apply_edge_label_defaults(page_xml: str, *, view: str) -> str:
 
 
 def space_detail_cards(page_xml: str, *, view: str = "") -> str:
-    """Re-layout note_/ctrl_ cards so they never overlap each other or the overview.
+    """Place note_/ctrl_ cards just under their related section boxes.
 
-    Places cards on a dedicated shelf **below** architecture content (parent=\"1\"),
-    left-to-right with wrapping, keeping a clear gap from the overview panel.
+    Matches each card to a container by id/label keywords, parks it ~16px below
+    that box (left-aligned), then nudges to clear overlaps and the overview panel.
     """
     from app.adapters.outbound.diagram.xml_diagnostics import absolute_position
+    from app.adapters.outbound.diagram.xml_tools import _is_container_cell
 
     title = VIEW_PAGE_NAMES.get(view, view) if view else "Page"
     tree = _parse(page_xml, title)
@@ -188,7 +189,6 @@ def space_detail_cards(page_xml: str, *, view: str = "") -> str:
         return page_xml
     root = tree.find(".//root")
     if root is None:
-        # mxGraphModel root may be the tree itself after ensure_diagram_document
         root = tree.find("root") if tree.tag == "mxGraphModel" else None
         if root is None and tree.tag == "root":
             root = tree
@@ -204,21 +204,44 @@ def space_detail_cards(page_xml: str, *, view: str = "") -> str:
         return page_xml
 
     overview = by_id.get("overview_panel")
-    ov_x = ov_y = ov_w = None
+    ov_x = ov_y = ov_w = ov_h = None
     if overview is not None:
         ox, oy = absolute_position(overview, by_id)
         ogeo = overview.find("mxGeometry")
         try:
-            ov_x = ox
-            ov_y = oy
+            ov_x, ov_y = ox, oy
             ov_w = float(ogeo.get("width") or 400) if ogeo is not None else 400.0
+            ov_h = float(ogeo.get("height") or 200) if ogeo is not None else 200.0
         except ValueError:
-            ov_x, ov_y, ov_w = ox, oy, 400.0
+            ov_x, ov_y, ov_w, ov_h = ox, oy, 400.0, 200.0
 
-    # Content bounds (architecture — exclude cards, overview, badges, gaps)
+    # Prefer page-level / major containers for anchoring
+    containers: list[tuple[ET.Element, float, float, float, float, str]] = []
+    for cell in tree.iter("mxCell"):
+        if cell.get("vertex") != "1" or cell.get("edge") == "1":
+            continue
+        cid = cell.get("id") or ""
+        if cid in {"0", "1", "2", "overview_panel", "legend_box"} or cid.startswith(
+            ("step_badge_", "note_", "ctrl_", "sec_", "gap_", "degraded_")
+        ):
+            continue
+        if not _is_container_cell(cell):
+            continue
+        ax, ay = absolute_position(cell, by_id)
+        geo = cell.find("mxGeometry")
+        if geo is None:
+            continue
+        try:
+            w = float(geo.get("width") or 200)
+            h = float(geo.get("height") or 120)
+        except ValueError:
+            continue
+        label = ((cell.get("value") or "") + " " + cid).lower()
+        containers.append((cell, ax, ay, w, h, label))
+
+    # Fallback content bounds when no containers exist
     content_max_y = 40.0
     content_min_x = 40.0
-    content_max_x = 400.0
     for cell in tree.iter("mxCell"):
         if cell.get("vertex") != "1" or cell.get("edge") == "1":
             continue
@@ -239,73 +262,139 @@ def space_detail_cards(page_xml: str, *, view: str = "") -> str:
             h = float(geo.get("height") or 78)
         except ValueError:
             continue
-        # Under-icon label band for leaves
         if "container=1" not in style and "swimlane" not in style:
             h += 36
         content_max_y = max(content_max_y, ay + h)
         content_min_x = min(content_min_x, ax)
-        content_max_x = max(content_max_x, ax + w)
 
-    card_gap = 24.0
-    shelf_gap = 48.0
-    card_w_default = 280.0
-    shelf_y = content_max_y + shelf_gap
-    # Right limit: left of overview, or content extent + margin
-    right_limit = (ov_x - 40.0) if ov_x is not None else max(content_max_x + 40.0, 1600.0)
-    left = max(40.0, content_min_x)
-    usable = max(card_w_default, right_limit - left)
-    # How many cards per row
-    per_row = max(1, int((usable + card_gap) // (card_w_default + card_gap)))
+    def _card_needles(cid: str) -> tuple[str, ...]:
+        key = (cid or "").lower()
+        mapping = {
+            "note_experience": ("experience", "channel", "persona", "frontend", "client", "user", "portal"),
+            "note_core": ("core", "commerce", "order", "checkout", "business", "capability", "domain"),
+            "note_data_cap": ("data", "store", "persistence", "datastore"),
+            "note_shared": ("shared", "platform", "observ", "notification", "monitor"),
+            "ctrl_public": ("public", "internet", "untrusted", "external"),
+            "ctrl_dmz": ("dmz", "perimeter", "edge", "waf"),
+            "ctrl_private": ("private", "application", "app zone", "trusted app"),
+            "ctrl_restricted": ("restricted", "sensitive", "data zone", "highly"),
+            "ctrl_detect": ("detect", "respond", "monitor", "observ", "security ops"),
+            "note_ingest": ("ingest", "producer", "ingress", "source"),
+            "note_process": ("process", "processing", "transform", "stream"),
+            "note_store": ("store", "storage", "persist", "database", "warehouse"),
+            "note_consume": ("consum", "analytic", "read model", "downstream"),
+        }
+        if key in mapping:
+            return mapping[key]
+        # Derive from id suffix: note_foo / ctrl_bar
+        suffix = key.split("_", 1)[-1] if "_" in key else key
+        return (suffix, suffix.replace("_", " "))
 
-    # Stable order by id so layout is deterministic
+    def _match_container(cid: str) -> tuple[float, float, float, float] | None:
+        needles = _card_needles(cid)
+        best: tuple[float, float, float, float, float] | None = None
+        best_score = 0
+        for _cell, ax, ay, w, h, label in containers:
+            score = sum(1 for n in needles if n in label)
+            if score == 0:
+                continue
+            score_tie = score * 1000 + (w * h) / 10000.0
+            if best is None or score > best_score or (score == best_score and score_tie > best[0]):
+                best_score = score
+                best = (score_tie, ax, ay, w, h)
+        if best is None:
+            return None
+        return best[1], best[2], best[3], best[4]
+
+    card_gap = 16.0
+    under_gap = 16.0
+    card_w_default = 260.0
     cards_sorted = sorted(cards, key=lambda c: c.get("id") or "")
-    changed = False
-    row_heights: dict[int, float] = {}
-    # First pass: measure heights
-    heights: list[float] = []
+    placements: list[tuple[ET.Element, float, float, float, float]] = []
+
     for card in cards_sorted:
         geo = card.find("mxGeometry")
         try:
             h = float(geo.get("height") or 120) if geo is not None else 120.0
-            # Grow height to fit HTML-ish bullet count when tiny
             val = card.get("value") or ""
             bullets = val.count("•") + val.count("&lt;div&gt;") // 2
             h = max(h, 56 + 18 * max(3, min(bullets, 6)))
         except ValueError:
             h = 120.0
-        heights.append(h)
+        w = card_w_default
+        cid = card.get("id") or ""
+        matched = _match_container(cid)
+        if matched is not None:
+            cx, cy, cw, ch = matched
+            x = cx
+            y = cy + ch + under_gap
+            # If container is wide, keep card under left side (not stretched)
+            if cw > w + 40:
+                x = cx
+        else:
+            # No section match — park tightly under content, not a distant shelf
+            x = content_min_x
+            y = content_max_y + under_gap
+            # Spread unmatched cards horizontally
+            idx = len(placements)
+            x = content_min_x + (idx % 3) * (card_w_default + card_gap)
+            if idx >= 3:
+                y = content_max_y + under_gap + (h + card_gap) * (idx // 3)
 
-    for i, card in enumerate(cards_sorted):
-        row = i // per_row
-        col = i % per_row
+        # Keep left of overview
+        if ov_x is not None and x + w > ov_x - 20:
+            x = max(40.0, ov_x - w - 20)
+        placements.append((card, x, y, w, h))
+
+    # Resolve pairwise overlaps (push down)
+    for _ in range(8):
+        moved = False
+        for i in range(len(placements)):
+            for j in range(i + 1, len(placements)):
+                ai, ax, ay, aw, ah = placements[i]
+                bj, bx, by, bw, bh = placements[j]
+                if ax + aw + 4 <= bx or bx + bw + 4 <= ax or ay + ah + 4 <= by or by + bh + 4 <= ay:
+                    continue
+                # Push the lower/later card down
+                new_y = max(ay, by) + (ah if ay <= by else bh) + card_gap
+                if by <= ay:
+                    placements[i] = (ai, ax, new_y, aw, ah)
+                else:
+                    placements[j] = (bj, bx, new_y, bw, bh)
+                moved = True
+        if not moved:
+            break
+
+    # Avoid overlapping the overview panel itself
+    if ov_x is not None and ov_y is not None and ov_w is not None and ov_h is not None:
+        for i, (card, x, y, w, h) in enumerate(placements):
+            if not (x + w > ov_x and x < ov_x + ov_w and y + h > ov_y and y < ov_y + ov_h):
+                continue
+            # Prefer slide left; else drop below overview
+            left_x = max(40.0, ov_x - w - 20)
+            if left_x + w <= ov_x - 8:
+                placements[i] = (card, left_x, y, w, h)
+            else:
+                placements[i] = (card, x, ov_y + ov_h + card_gap, w, h)
+
+    changed = False
+    max_bottom = 0.0
+    for card, x, y, w, h in placements:
         geo = card.find("mxGeometry")
         if geo is None:
             geo = ET.SubElement(card, "mxGeometry")
             geo.set("as", "geometry")
-        w = card_w_default
-        h = heights[i]
-        row_heights[row] = max(row_heights.get(row, 0.0), h)
-        # y = shelf + sum of prior row heights
-        y = shelf_y
-        for r in range(row):
-            y += row_heights.get(r, h) + card_gap
-        x = left + col * (card_w_default + card_gap)
-        # Clamp so card stays left of overview
-        if ov_x is not None and x + w > ov_x - 20:
-            x = max(40.0, ov_x - w - 24)
-
-        # Reparent to page root so relative container offsets don't stack overlaps
         if card.get("parent") != "1":
             card.set("parent", "1")
             changed = True
-
         try:
             old_x, old_y = float(geo.get("x") or 0), float(geo.get("y") or 0)
             old_w, old_h = float(geo.get("width") or 0), float(geo.get("height") or 0)
         except ValueError:
             old_x = old_y = old_w = old_h = -1
-        nx, ny = float(int(x // 20) * 20), float(int(y // 20) * 20)
+        nx, ny = float(int(x // 10) * 10), float(int(y // 10) * 10)
         nw, nh = float(int(w)), float(int(h))
+        max_bottom = max(max_bottom, ny + nh)
         if (old_x, old_y, old_w, old_h) != (nx, ny, nw, nh):
             geo.set("x", str(int(nx)))
             geo.set("y", str(int(ny)))
@@ -314,13 +403,7 @@ def space_detail_cards(page_xml: str, *, view: str = "") -> str:
             geo.set("as", "geometry")
             changed = True
 
-    # Grow page if cards extend past pageHeight
     if changed:
-        max_bottom = shelf_y
-        for r, rh in row_heights.items():
-            max_bottom = max(max_bottom, shelf_y + sum(
-                row_heights.get(rr, 0) + card_gap for rr in range(r)
-            ) + rh + 40)
         for model in tree.iter("mxGraphModel"):
             try:
                 ph = float(model.get("pageHeight") or 1400)
@@ -328,7 +411,6 @@ def space_detail_cards(page_xml: str, *, view: str = "") -> str:
                 ph = 1400.0
             if max_bottom + 40 > ph:
                 model.set("pageHeight", str(int(max(ph, max_bottom + 80))))
-                # Stretch background cell if present
                 for cell in tree.iter("mxCell"):
                     style = cell.get("style") or ""
                     if "strokeColor=none" in style and cell.get("parent") == "1":

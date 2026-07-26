@@ -62,14 +62,14 @@ Inside every **Public / Private App / Private Data subnet** and every **Security
 
 ## Availability Zone & shelf container styles
 
-Availability Zone boxes use **slightly less rounded** corners — always append `arcSize=6` (do not use the default large radius):
+All containers (including Availability Zones) use subtle corners — always append `arcSize=2`:
 ```
-rounded=1;arcSize=6;whiteSpace=wrap;html=1;container=1;dropTarget=1;collapsible=0;recursiveResize=0;fillColor=none;strokeColor=#6B7280;strokeWidth=1;dashed=1;align=left;verticalAlign=top;spacingLeft=12;spacingTop=8;fontStyle=1;fontSize=12;fontColor=#6B7280;
+rounded=1;arcSize=2;whiteSpace=wrap;html=1;container=1;dropTarget=1;collapsible=0;recursiveResize=0;fillColor=none;strokeColor=#6B7280;strokeWidth=1;dashed=1;align=left;verticalAlign=top;spacingLeft=12;spacingTop=8;fontStyle=1;fontSize=12;fontColor=#6B7280;
 ```
 
 | Container | strokeColor | dashed | notes |
 |-----------|-------------|--------|-------|
-| Availability Zone | #6B7280 | dashed=1 | `arcSize=6` (subtle corners) |
+| Availability Zone | #6B7280 | dashed=1 | `arcSize=2` (subtle corners) |
 | Security Group | #DD344C | dashed=1 | |
 | Monitoring Group | #147EBA | dashed=1 | |
 | Integration Group | #E7157B | dashed=1 | |
@@ -131,5 +131,5 @@ Mirror app-tier and data-tier into every Zone's matching subnet. Do **not** mirr
 1. Cloud is the outer wrapper; Region/VPC/Zones/Subnets/supporting groups/Edge are all nested via parent (none of those on parent="1")? Any Users/Internet/Client external-actor icon is on parent="1", never nested inside Cloud/Region/VPC/any container?
 2. **Zero** edges touch Security, Monitoring, Integration, or Management cells?
 3. Supporting groups sit below Zones with **≥70px** clear gap (no overlap with Zones/Subnets), four boxes side by side with **≥20px** between them, still `parent=<vpc-id>`?
-4. Availability Zones use `arcSize=6`?
+4. All containers (including Availability Zones) use `arcSize=2`?
 5. Peer AZs aligned; subnet rows aligned across AZs?

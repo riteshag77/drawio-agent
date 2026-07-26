@@ -1382,14 +1382,14 @@ def ensure_view_detail_cards(
         if cid.startswith(("note_", "ctrl_")):
             existing += 1
     if existing >= min_cards:
-        # LLM already emitted cards — still force a non-overlapping shelf layout
+        # LLM already emitted cards — still snap them next to their sections
         return space_detail_cards(ET.tostring(tree, encoding="unicode"), view=view)
 
     specs = _build_view_detail_specs(view, primary_xml, request_text)
     have = {c.get("id") for c in root.iter("mxCell") if c.get("id")}
     by_id = {c.get("id"): c for c in root.iter("mxCell") if c.get("id")}
 
-    # Place new cards below architecture content, left of overview
+    # Temporary seed positions; space_detail_cards snaps next to section boxes
     panel = by_id.get("overview_panel")
     content_max_y = 40.0
     for cell in root.iter("mxCell"):
@@ -1408,7 +1408,7 @@ def ensure_view_detail_cards(
             h = 78.0
         content_max_y = max(content_max_y, ay + h + 36)
 
-    base_x, base_y = 40.0, content_max_y + 48.0
+    base_x, base_y = 40.0, content_max_y + 16.0
     if panel is not None:
         geom = panel.find("mxGeometry")
         if geom is not None:

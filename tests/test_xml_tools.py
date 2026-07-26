@@ -662,7 +662,9 @@ class FitContainersToChildrenTests(unittest.TestCase):
         self.assertGreaterEqual(sec_y, az_y + az_h + 24 - 0.5)
         self.assertEqual(sec_x, 24.0)
         az_cell = next(c for c in tree.iter("mxCell") if c.get("id") == "az1")
-        self.assertIn("arcSize=6", az_cell.get("style") or "")
+        self.assertIn("arcSize=2", az_cell.get("style") or "")
+        sec_cell = next(c for c in tree.iter("mxCell") if c.get("id") == "sec")
+        self.assertIn("arcSize=2", sec_cell.get("style") or "")
 
     def test_overview_panel_gets_soft_arc_size(self) -> None:
         """overview_panel arcSize is normalized to 2 even when the LLM omits it."""

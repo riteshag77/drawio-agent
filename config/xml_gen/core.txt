@@ -88,7 +88,7 @@ Plus `container=1;dropTarget=1;`
 
 Simple (non-icon) container template:
 ```
-rounded=1;whiteSpace=wrap;html=1;container=1;dropTarget=1;collapsible=0;recursiveResize=0;fillColor=none;strokeColor=COLOR;strokeWidth=1;DASHED;align=left;verticalAlign=top;spacingLeft=12;spacingTop=8;fontStyle=1;fontSize=12;fontColor=COLOR;
+rounded=1;arcSize=2;whiteSpace=wrap;html=1;container=1;dropTarget=1;collapsible=0;recursiveResize=0;fillColor=none;strokeColor=COLOR;strokeWidth=1;DASHED;align=left;verticalAlign=top;spacingLeft=12;spacingTop=8;fontStyle=1;fontSize=12;fontColor=COLOR;
 ```
 
 ## Edge Style

@@ -25,8 +25,8 @@ Same inventory may feed all tabs, but **labels, grouping, edges, and cards MUST 
 - Emit ONE mxfile / one `<diagram name="…">`. Fields: `xml` + `step_markers` only.
 
 ### Containers — colored sections with rich titles
-Base (plus CORE inside-top-left title rules):
-`rounded=1;whiteSpace=wrap;html=1;container=1;dropTarget=1;collapsible=0;recursiveResize=0;align=left;verticalAlign=top;spacingLeft=12;spacingTop=8;fontStyle=1;fontSize=12;`
+Base (plus CORE inside-top-left title rules; always `arcSize=2`):
+`rounded=1;arcSize=2;whiteSpace=wrap;html=1;container=1;dropTarget=1;collapsible=0;recursiveResize=0;align=left;verticalAlign=top;spacingLeft=12;spacingTop=8;fontStyle=1;fontSize=12;`
 + palette fill/stroke:
 - Client / channel: `#F5F5F5` / `#666666`
 - Edge / perimeter: `#FFF2CC` / `#D6B656`
@@ -51,7 +51,7 @@ Users chose this tool so they **do not** have to invent section narratives. You 
 
 **Style** (white info card, not a cloud group):
 `rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9E9E9E;strokeWidth=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=8;fontSize=11;`
-Width ~220–320px; height fits content; place **inside or just under** the related section (never over icons; never overlapping Overview).
+Width ~220–320px; height fits content; place **just under / beside** the related section box (~16px gap — not a distant shelf at the bottom). Never over icons; never overlapping Overview.
 
 **Card HTML pattern** (XML-escape `<` `>` `"` in the attribute):
 ```

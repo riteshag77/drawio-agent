@@ -173,6 +173,47 @@ class ViewFixerTests(unittest.TestCase):
         self.assertIn("Perimeter first", trimmed)
         self.assertIn("font-size:22px;font-weight:bold", trimmed)
 
+    def test_space_detail_cards_next_to_sections(self) -> None:
+        from app.adapters.outbound.diagram.view_fixers import space_detail_cards
+
+        xml = _wrap(
+            '<mxCell id="domain_experience" value="Experience domain" '
+            'style="rounded=1;container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="300" height="200" as="geometry"/></mxCell>'
+            '<mxCell id="domain_commerce" value="Core commerce domain" '
+            'style="rounded=1;container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="400" y="40" width="300" height="200" as="geometry"/></mxCell>'
+            '<mxCell id="note_experience" value="&lt;div&gt;Exp&lt;/div&gt;&lt;div&gt;• a&lt;/div&gt;'
+            '&lt;div&gt;• b&lt;/div&gt;&lt;div&gt;• c&lt;/div&gt;" '
+            'style="rounded=1;fillColor=#FFFFFF;" vertex="1" parent="1">'
+            '<mxGeometry x="100" y="900" width="280" height="110" as="geometry"/></mxCell>'
+            '<mxCell id="note_core" value="&lt;div&gt;Core&lt;/div&gt;&lt;div&gt;• a&lt;/div&gt;'
+            '&lt;div&gt;• b&lt;/div&gt;&lt;div&gt;• c&lt;/div&gt;" '
+            'style="rounded=1;fillColor=#FFFFFF;" vertex="1" parent="1">'
+            '<mxGeometry x="100" y="1000" width="280" height="110" as="geometry"/></mxCell>'
+            '<mxCell id="overview_panel" value="Overview" vertex="1" parent="1">'
+            '<mxGeometry x="1200" y="40" width="400" height="200" as="geometry"/></mxCell>'
+        )
+        out = space_detail_cards(xml, view="logical")
+        by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
+        exp_g = by_id["note_experience"].find("mxGeometry")
+        core_g = by_id["note_core"].find("mxGeometry")
+        # Just under related boxes (box bottom = 240), not a far shelf at y=900+
+        self.assertLessEqual(float(exp_g.get("y") or 0), 280)
+        self.assertGreaterEqual(float(exp_g.get("y") or 0), 240)
+        self.assertLessEqual(float(core_g.get("y") or 0), 280)
+        self.assertGreaterEqual(float(core_g.get("y") or 0), 240)
+        # Left-aligned near their sections
+        self.assertLess(abs(float(exp_g.get("x") or 0) - 40), 30)
+        self.assertLess(abs(float(core_g.get("x") or 0) - 400), 30)
+        # No overlap
+        ex, ey = float(exp_g.get("x") or 0), float(exp_g.get("y") or 0)
+        ew, eh = float(exp_g.get("width") or 0), float(exp_g.get("height") or 0)
+        cx, cy = float(core_g.get("x") or 0), float(core_g.get("y") or 0)
+        cw, ch = float(core_g.get("width") or 0), float(core_g.get("height") or 0)
+        overlap = not (ex + ew <= cx or cx + cw <= ex or ey + eh <= cy or cy + ch <= ey)
+        self.assertFalse(overlap)
+
     def test_space_detail_cards_no_overlap(self) -> None:
         from app.adapters.outbound.diagram.view_fixers import space_detail_cards
 
@@ -203,8 +244,8 @@ class ViewFixerTests(unittest.TestCase):
             x, y = float(g.get("x") or 0), float(g.get("y") or 0)
             w, h = float(g.get("width") or 0), float(g.get("height") or 0)
             self.assertEqual(c.get("parent"), "1")
-            # Below architecture icons (y≈40+78)
-            self.assertGreaterEqual(y, 100)
+            # Without containers, cards sit tightly under content (not a distant shelf)
+            self.assertLessEqual(y, 400)
             rects.append((x, y, w, h, cid))
         self.assertEqual(len(rects), 4)
         for i, (ax, ay, aw, ah, aid) in enumerate(rects):
