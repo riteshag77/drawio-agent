@@ -2186,16 +2186,8 @@
             color: var(--canvas-text-muted);
         }
 
-        .diagram-toolbar .token-cost,
         .diagram-toolbar .token-meter {
-            margin-left: 0;
-        }
-
-        .diagram-toolbar .token-cost {
             margin-left: auto;
-        }
-
-        .diagram-toolbar .token-meter {
             min-width: 150px;
             max-width: 220px;
             padding: 4px 8px 5px;
@@ -2232,23 +2224,6 @@
         .diagram-toolbar .toolbar-actions {
             margin-left: 0;
             flex-shrink: 0;
-        }
-
-        .token-cost {
-            font-size: 0.78rem;
-            font-weight: 700;
-            font-variant-numeric: tabular-nums;
-            color: var(--canvas-text);
-            background: var(--canvas-surface, rgba(0, 0, 0, 0.04));
-            border: 1px solid var(--canvas-border);
-            border-radius: 8px;
-            padding: 6px 10px;
-            white-space: nowrap;
-            flex-shrink: 0;
-        }
-
-        .token-cost[hidden] {
-            display: none !important;
         }
 
         .diagram-toolbar-meta {

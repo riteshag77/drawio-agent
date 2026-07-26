@@ -18,9 +18,18 @@ its zone via `parent="<zone-id>"`. Trust zones are never nested inside one anoth
 side by side, ordered left → right by trust level:
 
 ```
-[zone_public]  [zone_dmz]  [zone_identity]  [zone_partner]  [zone_private]  [zone_restricted]  [zone_detect]  [zone_external_saas]
-   ↑ public       ↑ perimeter   ↑ IAM/IdP        ↑ B2B/partners   ↑ app tier      ↑ sensitive data   ↑ monitoring    ↑ SaaS vendors
- (all eight are siblings, each parent="1"; leaves inside each are parent=<zone-id>)
+[zone_public]  [zone_dmz]  [zone_identity]  [zone_partner]  [zone_private]  [zone_restricted]  [zone_detect]
+   ↑ public       ↑ perimeter   ↑ IAM/IdP        ↑ B2B/partners   ↑ app tier      ↑ sensitive data   ↑ monitoring
+                                                                                       ↓
+                                                                                [zone_external_saas]
+                                                                                   ↑ SaaS vendors — anchored
+                                                                                     directly BELOW zone_restricted,
+                                                                                     same column, not a rightmost peer
+
+ (public/dmz/identity/partner/private/restricted/detect are siblings, each parent="1";
+  zone_external_saas is also parent="1" but excluded from the L→R rank — the engine
+  anchors it under zone_restricted since SaaS vendors typically process/receive the
+  organisation's sensitive data; leaves inside each are parent=<zone-id>)
 ```
 
 Only these eight zone ids are ever `parent="1"` containers (plus optional external actors and
@@ -66,7 +75,9 @@ zones by this exact id, not by label):**
 leaf inside its zone after this call — your job is correct **grouping** (right leaf → right
 zone via `parent=`) and correct, labeled **edges**; emit reasonable placeholder geometry
 (e.g. zones roughly 260×200, leaves 78×78) but do not spend effort perfecting alignment,
-since it will be discarded and rebuilt.
+since it will be discarded and rebuilt. `zone_external_saas`'s anchor position (under
+`zone_restricted`) is also finalized by the engine — focus on the right SaaS products in it,
+not its coordinates.
 
 ### Layout gaps (for placeholder geometry only — engine will finalize)
 - Horizontal gap between zone columns: **80–120px**

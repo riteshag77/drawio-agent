@@ -253,7 +253,6 @@ function _usageCostAmount(usage) {
 
 function displayTokenUsage(usage) {
     var badge = document.getElementById('token-badge');
-    var costEl = document.getElementById('token-cost');
     if (!badge) return;
     if (!usage || !usage.total_tokens) {
         hideTokenUsage();
@@ -292,18 +291,6 @@ function displayTokenUsage(usage) {
     if (inLabel) inLabel.textContent = 'in ' + _formatTokenCount(input);
     if (outLabel) outLabel.textContent = 'out ' + _formatTokenCount(output);
 
-    if (costEl) {
-        if (hasCost) {
-            costEl.textContent = costLabel;
-            costEl.hidden = false;
-            costEl.setAttribute('aria-label', 'Estimated LLM cost ' + costLabel);
-        } else {
-            costEl.textContent = '';
-            costEl.hidden = true;
-            costEl.removeAttribute('aria-label');
-        }
-    }
-
     badge.hidden = false;
     badge.removeAttribute('title');
     badge.setAttribute(
@@ -314,12 +301,6 @@ function displayTokenUsage(usage) {
 
 function hideTokenUsage() {
     var badge = document.getElementById('token-badge');
-    var costEl = document.getElementById('token-cost');
-    if (costEl) {
-        costEl.textContent = '';
-        costEl.hidden = true;
-        costEl.removeAttribute('aria-label');
-    }
     if (!badge) return;
     badge.hidden = true;
     var summaryEl = document.getElementById('token-meter-summary');

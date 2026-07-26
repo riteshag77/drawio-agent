@@ -289,7 +289,9 @@ def _leaf_siblings_by_parent(cells: list[ET.Element], parent_ids: set[str | None
 def _top_level_containers(cells: list[ET.Element], page_w: float, page_h: float) -> list[ET.Element]:
     return [
         c for c in cells
-        if _is_container_cell(c) and c.get("parent") == "1" and not _is_canvas_background_cell(c, page_w, page_h)
+        if _is_container_cell(c) and c.get("parent") == "1"
+        and not _is_canvas_background_cell(c, page_w, page_h)
+        and (c.get("id") or "") not in {"overview_panel", "legend_box"}
     ]
 
 
@@ -1492,6 +1494,10 @@ def sanitize_overview_panel_style(xml: str) -> str:
             "shape=image" in style
             or "image=" in style
             or "data:image" in style
+            or "container=1" in style
+            or "swimlane" in style
+            or "group" in style
+            or "mxgraph.aws4.group" in style
         )
         if dirty or not style:
             cell.set("style", _OVERVIEW_TEXT_STYLE if cid == _OVERVIEW_PANEL_ID else (
@@ -1614,8 +1620,15 @@ def ensure_overview_panel_position(xml: str) -> str:
     if other_geoms:
         content_max_x = max(g[0] + g[2] for g in other_geoms)
         content_min_y = min(g[1] for g in other_geoms)
-        needs_move = px < content_max_x or any(
-            _rects_overlap((px, py, pw, ph), g) for g in other_geoms
+        # Move when the panel overlaps/sits left of the content, AND when it
+        # sits implausibly far to the right of it — the LLM's one-shot x can
+        # land hundreds of px past the real content, which previously never
+        # got pulled back in since this only guarded against "too close".
+        gap = px - content_max_x
+        needs_move = (
+            px < content_max_x
+            or any(_rects_overlap((px, py, pw, ph), g) for g in other_geoms)
+            or gap > _OVERVIEW_PANEL_GAP * 4
         )
         if needs_move:
             px, py = content_max_x + _OVERVIEW_PANEL_GAP, content_min_y
@@ -1682,6 +1695,31 @@ def ensure_legend_position(xml: str) -> str:
 
     if not changed:
         return xml
+    return _serialize_docroot(tree, root, is_mxfile, trimmed)
+
+
+def move_overview_and_legend_to_end(xml: str) -> str:
+    """Guarantee the overview panel and legend are always the last children under
+    ``<root>``, so they always render on top (draw.io/mxGraph z-orders by document
+    order). Whatever their position in the LLM's output, or wherever a later fixer
+    reparents/creates a container (which can otherwise land after them in document
+    order and visually obscure them if it overlaps), this pushes both to the end.
+    Must run last, after every other repair step has finished moving things.
+    """
+    parsed = _parse_docroot(xml)
+    if parsed is None:
+        return xml
+    tree, root, is_mxfile, trimmed = parsed
+    cells = list(root.findall("mxCell"))
+    tail = [c for c in cells if _is_overview_panel_cell(c) or _is_legend_cell(c)]
+    if not tail:
+        return xml
+    # Already last (in this relative order)? No-op — avoids a pointless rewrite.
+    if [c.get("id") for c in cells[-len(tail):]] == [c.get("id") for c in tail]:
+        return xml
+    for cell in tail:
+        root.remove(cell)
+        root.append(cell)
     return _serialize_docroot(tree, root, is_mxfile, trimmed)
 
 
@@ -1931,8 +1969,10 @@ def repair_xml(xml: str) -> tuple[str, XmlDiagnostics]:
     fixed = ensure_leaf_labels(fixed)
     fixed = resolve_misplaced_actors(fixed)
     from app.adapters.outbound.diagram.placement_fixers import (
+        enforce_corridor_gap_consistency,
         enforce_view_journey_columns,
         fix_edge_anchors_from_geometry,
+        normalize_corridor_colors,
         resolve_misplaced_connectivity_hubs,
         resolve_misplaced_edge_services,
         resolve_misplaced_load_balancers,
@@ -1951,12 +1991,18 @@ def repair_xml(xml: str) -> tuple[str, XmlDiagnostics]:
     # scramble enforce_view_journey_columns's canonical zone order.
     fixed = resolve_misplaced_security_controls(fixed)
     fixed = enforce_view_journey_columns(fixed)
+    # Authoritative color-coding for every corridor container, whether the LLM
+    # emitted it directly or a fixer above created/reparented into it.
+    fixed = normalize_corridor_colors(fixed)
     fixed = resolve_coordinate_only_nesting(fixed)
     fixed = resolve_row_overflow(fixed)
     fixed = resolve_pitch_outliers(fixed)
     fixed = resolve_moderate_pitch_deviations(fixed)
     fixed = resolve_leaf_overlaps(fixed)
     fixed = fit_containers_to_children(fixed)
+    # Re-flow corridor gaps after any post-hoc width shrink above — otherwise the
+    # gap between two corridors balloons by whatever a container shrank by.
+    fixed = enforce_corridor_gap_consistency(fixed)
     fixed = fix_edge_anchors_from_geometry(fixed)
     page_name = ""
     try:
@@ -1978,4 +2024,10 @@ def repair_xml(xml: str) -> tuple[str, XmlDiagnostics]:
     fixed = ensure_overview_panel_position(fixed)
     fixed = sanitize_overview_panel_style(fixed)
     fixed = ensure_legend_position(fixed)
+    # Defensive re-run: a container-adjacent fixer earlier in the chain
+    # (coordinate-nesting, fit-to-children) could in principle still
+    # misparent the panel/legend into a shelf container it geometrically
+    # overlaps — restore parent="1" one last time before z-ordering.
+    fixed = ensure_overview_panel_parent_root(fixed)
+    fixed = move_overview_and_legend_to_end(fixed)
     return fixed, diagnose_xml(fixed)

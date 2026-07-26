@@ -52,6 +52,16 @@ def _security(cells: str) -> str:
     )
 
 
+def _data_flow(cells: str) -> str:
+    return (
+        '<mxfile><diagram name="Data flow" id="d1">'
+        '<mxGraphModel pageWidth="2400" pageHeight="1400"><root>'
+        '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+        f"{cells}"
+        "</root></mxGraphModel></diagram></mxfile>"
+    )
+
+
 def _x(cell: ET.Element) -> float:
     return float(cell.find("mxGeometry").get("x") or 0)
 
@@ -835,6 +845,392 @@ class RealOutputRegressionTests(unittest.TestCase):
         self.assertNotIn(("ok", "app"), pairs)
         self.assertIn(("ok", "portal"), pairs)
         self.assertIn(("portal", "app"), pairs)
+
+
+class CorridorGapConsistencyTests(unittest.TestCase):
+    """7a: a corridor width shrink elsewhere must not balloon the gap to the next one."""
+
+    def test_gap_snapped_back_after_simulated_shrink(self) -> None:
+        from app.adapters.outbound.diagram.placement_fixers import (
+            enforce_corridor_gap_consistency,
+        )
+
+        # domain_core's right edge (200+300=500) + the documented 110px gap would put
+        # domain_data at x=610 — simulate a post-hoc shrink leaving a stale x=900 (a
+        # ~290px inflated gap), mirroring fit_containers_to_children's independent
+        # width recompute with nothing re-flowing the next corridor afterward.
+        page = _logical(
+            '<mxCell id="domain_core" value="Core" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="200" y="140" width="300" height="200" as="geometry"/></mxCell>'
+            '<mxCell id="a1" value="Order Capability" vertex="1" parent="domain_core">'
+            '<mxGeometry x="28" y="56" width="160" height="60" as="geometry"/></mxCell>'
+            '<mxCell id="domain_data" value="Data" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="900" y="140" width="200" height="200" as="geometry"/></mxCell>'
+            '<mxCell id="d1" value="Order Store" vertex="1" parent="domain_data">'
+            '<mxGeometry x="28" y="56" width="160" height="60" as="geometry"/></mxCell>'
+        )
+        out = enforce_corridor_gap_consistency(page)
+        by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
+        core = by_id["domain_core"].find("mxGeometry")
+        data = by_id["domain_data"].find("mxGeometry")
+        gap = float(data.get("x")) - (float(core.get("x")) + float(core.get("width")))
+        self.assertAlmostEqual(gap, 110.0, delta=1.0)
+
+    def test_noop_when_gap_already_correct(self) -> None:
+        from app.adapters.outbound.diagram.placement_fixers import (
+            enforce_corridor_gap_consistency,
+        )
+
+        page = _logical(
+            '<mxCell id="domain_core" value="Core" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="160" y="140" width="300" height="200" as="geometry"/></mxCell>'
+            '<mxCell id="domain_data" value="Data" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="570" y="140" width="200" height="200" as="geometry"/></mxCell>'
+        )
+        out = enforce_corridor_gap_consistency(page)
+        self.assertEqual(out, page)
+
+
+class ZoneColorCodingTests(unittest.TestCase):
+    """7b: auto-created corridor containers must use their own zone's documented color."""
+
+    def test_synthesized_domains_get_distinct_colors(self) -> None:
+        # Call _synthesize_corridors directly (rather than the full
+        # enforce_view_journey_columns pipeline) — an actor/channel leaf would be
+        # swept onto the Logical spine afterward by _layout_logical_journey_spine,
+        # emptying (and Part 5a then removing) whichever domain synthesis put it
+        # in, which is correct pipeline behavior but not what this test targets.
+        from app.adapters.outbound.diagram.placement_fixers import _synthesize_corridors
+
+        def _is_layout_leaf(cell: ET.Element) -> bool:
+            return cell.get("vertex") == "1" and cell.get("edge") != "1"
+
+        page = _logical(
+            '<mxCell id="cap" value="Order Capability" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="160" height="60" as="geometry"/></mxCell>'
+            '<mxCell id="store" value="Customer data store" vertex="1" parent="1">'
+            '<mxGeometry x="400" y="40" width="160" height="60" as="geometry"/></mxCell>'
+        )
+        tree = ET.fromstring(page)
+        root = tree.find(".//root")
+        cells = [c for c in root.findall("mxCell") if c.get("id")]
+        by_id = {c.get("id"): c for c in cells}
+        created = _synthesize_corridors("logical", cells, root, by_id, _is_layout_leaf)
+        created_by_id = {c.get("id"): c for c in created}
+        # "Order Capability" -> Core domain (#DAE8FC/#6C8EBF); "data store" -> Data domain (#D5E8D4/#82B366)
+        self.assertIn("domain_core", created_by_id)
+        self.assertIn("domain_data", created_by_id)
+        core_style = created_by_id["domain_core"].get("style") or ""
+        data_style = created_by_id["domain_data"].get("style") or ""
+        self.assertIn("fillColor=#DAE8FC", core_style)
+        self.assertIn("strokeColor=#6C8EBF", core_style)
+        self.assertIn("fillColor=#D5E8D4", data_style)
+        self.assertIn("strokeColor=#82B366", data_style)
+        self.assertNotEqual(core_style, data_style)
+
+    def test_reparented_zone_gets_canonical_color(self) -> None:
+        from app.adapters.outbound.diagram.placement_fixers import (
+            resolve_misplaced_security_controls,
+        )
+
+        page = _security(
+            '<mxCell id="zone_identity" value="Identity Zone" style="container=1;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="400" y="140" width="300" height="200" as="geometry"/></mxCell>'
+            '<mxCell id="secrets" value="Secrets Manager" vertex="1" parent="zone_identity">'
+            '<mxGeometry x="150" y="56" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = resolve_misplaced_security_controls(page)
+        by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
+        self.assertIn("zone_private", by_id)
+        style = by_id["zone_private"].get("style") or ""
+        self.assertIn("fillColor=#DAE8FC", style)
+        self.assertIn("strokeColor=#6C8EBF", style)
+
+
+class DataFlowConsumeAnchorTests(unittest.TestCase):
+    """8: Consume phase anchors below Store instead of ranking as a 4th L→R column."""
+
+    def test_consume_anchored_below_store_same_column(self) -> None:
+        page = _data_flow(
+            '<mxCell id="phase_ingest" value="Ingest" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="160" y="140" width="130" height="186" as="geometry"/></mxCell>'
+            '<mxCell id="api_gw" value="API Gateway" vertex="1" parent="phase_ingest">'
+            '<mxGeometry x="28" y="56" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="phase_process" value="Process" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="400" y="140" width="130" height="186" as="geometry"/></mxCell>'
+            '<mxCell id="app" value="App" vertex="1" parent="phase_process">'
+            '<mxGeometry x="28" y="56" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="phase_store" value="Store" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="700" y="140" width="130" height="186" as="geometry"/></mxCell>'
+            '<mxCell id="db" value="Database" vertex="1" parent="phase_store">'
+            '<mxGeometry x="28" y="56" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="phase_consume" value="Consume" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="1000" y="140" width="130" height="186" as="geometry"/></mxCell>'
+            '<mxCell id="dash" value="Dashboard" vertex="1" parent="phase_consume">'
+            '<mxGeometry x="28" y="56" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = enforce_view_journey_columns(page)
+        by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
+        store_geo = by_id["phase_store"].find("mxGeometry")
+        consume_geo = by_id["phase_consume"].find("mxGeometry")
+        self.assertAlmostEqual(float(store_geo.get("x")), float(consume_geo.get("x")), delta=1.0)
+        self.assertGreater(
+            float(consume_geo.get("y")),
+            float(store_geo.get("y")) + float(store_geo.get("height")) - 1.0,
+        )
+
+
+class SecondReviewRoundTests(unittest.TestCase):
+    """Reproduces concrete defects found reviewing a second real generated capture (Part 9)."""
+
+    def test_overview_panel_text_never_targeted_as_portal(self) -> None:
+        """9a: overview panel narrative mentioning "portal" must not become the spine target."""
+        page = _logical(
+            '<mxCell id="emp" value="Employees" shape_type="logical_actor" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="100" width="68" height="68" as="geometry"/></mxCell>'
+            '<mxCell id="ok" value="Okta (SAAS)" shape_type="saas_okta" vertex="1" parent="1">'
+            '<mxGeometry x="200" y="100" width="68" height="68" as="geometry"/></mxCell>'
+            '<mxCell id="overview_panel" '
+            'value="Employees access the portal via the public URL." '
+            'style="fillColor=#FFF8E1;" vertex="1" parent="1">'
+            '<mxGeometry x="900" y="100" width="500" height="300" as="geometry"/></mxCell>'
+        )
+        out = enforce_view_journey_columns(page)
+        pairs = {
+            (c.get("source"), c.get("target"))
+            for c in ET.fromstring(out).iter("mxCell") if c.get("edge") == "1"
+        }
+        self.assertFalse(any(t == "overview_panel" for _s, t in pairs))
+
+    def test_llm_emitted_zone_color_gets_normalized(self) -> None:
+        """9b: an LLM-emitted zone with fillColor=none must be recolored to canonical."""
+        from app.adapters.outbound.diagram.placement_fixers import normalize_corridor_colors
+
+        page = _security(
+            '<mxCell id="zone_dmz" value="Perimeter" '
+            'style="rounded=1;container=1;fillColor=none;strokeColor=#D6B656;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="160" y="140" width="200" height="200" as="geometry"/></mxCell>'
+            '<mxCell id="waf" value="WAF" vertex="1" parent="zone_dmz">'
+            '<mxGeometry x="28" y="56" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = normalize_corridor_colors(page)
+        zone = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "zone_dmz")
+        style = zone.get("style") or ""
+        self.assertIn("fillColor=#FFF2CC", style)
+        self.assertIn("strokeColor=#D6B656", style)
+
+    def test_shelf_y_drift_snapped_back(self) -> None:
+        """9c: a shelf drifted far below its anchor must snap back to SHELF_GAP."""
+        from app.adapters.outbound.diagram.placement_fixers import (
+            enforce_corridor_gap_consistency,
+        )
+
+        page = _logical(
+            '<mxCell id="domain_data" value="Data" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="160" y="140" width="200" height="140" as="geometry"/></mxCell>'
+            '<mxCell id="d1" value="Store" vertex="1" parent="domain_data">'
+            '<mxGeometry x="28" y="56" width="160" height="60" as="geometry"/></mxCell>'
+            '<mxCell id="domain_saas" value="External SaaS" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="160" y="480" width="180" height="178" as="geometry" /></mxCell>'
+            '<mxCell id="sf" value="Salesforce (SAAS)" shape_type="saas_salesforce" vertex="1" '
+            'parent="domain_saas">'
+            '<mxGeometry x="24" y="48" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = enforce_corridor_gap_consistency(page)
+        by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
+        data_geo = by_id["domain_data"].find("mxGeometry")
+        saas_geo = by_id["domain_saas"].find("mxGeometry")
+        expected_y = float(data_geo.get("y")) + float(data_geo.get("height")) + 110.0
+        self.assertAlmostEqual(float(saas_geo.get("y")), expected_y, delta=1.0)
+
+    def test_security_external_saas_anchored_below_restricted(self) -> None:
+        """9d: zone_external_saas must anchor below zone_restricted, not rank as a peer column."""
+        page = _security(
+            '<mxCell id="zone_restricted" value="Restricted Data" style="container=1;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="400" y="140" width="200" height="140" as="geometry"/></mxCell>'
+            '<mxCell id="db" value="Aurora" vertex="1" parent="zone_restricted">'
+            '<mxGeometry x="28" y="56" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="zone_dmz" value="Perimeter" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="160" y="140" width="200" height="140" as="geometry"/></mxCell>'
+            '<mxCell id="waf" value="WAF" vertex="1" parent="zone_dmz">'
+            '<mxGeometry x="28" y="56" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="zone_external_saas" value="External SaaS Zone" style="container=1;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="900" y="140" width="180" height="178" as="geometry"/></mxCell>'
+            '<mxCell id="sf" value="Salesforce" shape_type="saas_salesforce" vertex="1" '
+            'parent="zone_external_saas">'
+            '<mxGeometry x="24" y="48" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = enforce_view_journey_columns(page)
+        by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
+        restricted_geo = by_id["zone_restricted"].find("mxGeometry")
+        saas_geo = by_id["zone_external_saas"].find("mxGeometry")
+        self.assertAlmostEqual(
+            float(restricted_geo.get("x")), float(saas_geo.get("x")), delta=1.0,
+        )
+        self.assertGreater(
+            float(saas_geo.get("y")),
+            float(restricted_geo.get("y")) + float(restricted_geo.get("height")) - 1.0,
+        )
+
+    def test_external_actor_repositioned_near_first_zone(self) -> None:
+        """9e: an actor far from the pushed-out first zone must be pulled in close."""
+        from app.adapters.outbound.diagram.placement_fixers import (
+            enforce_corridor_gap_consistency,
+        )
+
+        page = _security(
+            '<mxCell id="employees" value="Employees" shape_type="aws_users" vertex="1" parent="1">'
+            '<mxGeometry x="20" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="zone_dmz" value="Perimeter" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="510" y="140" width="200" height="140" as="geometry"/></mxCell>'
+            '<mxCell id="waf" value="WAF" vertex="1" parent="zone_dmz">'
+            '<mxGeometry x="28" y="56" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="zone_private" value="Private" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="850" y="140" width="200" height="140" as="geometry"/></mxCell>'
+            '<mxCell id="app" value="App" vertex="1" parent="zone_private">'
+            '<mxGeometry x="28" y="56" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = enforce_corridor_gap_consistency(page)
+        by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
+        actor_geo = by_id["employees"].find("mxGeometry")
+        zone_geo = by_id["zone_dmz"].find("mxGeometry")
+        gap = float(zone_geo.get("x")) - (float(actor_geo.get("x")) + float(actor_geo.get("width")))
+        self.assertLess(gap, 100.0)
+        self.assertGreater(gap, 0.0)
+
+    def test_missing_adjacent_domain_edge_is_synthesized(self) -> None:
+        """9f: two domains with content but no connecting edge must get one."""
+        page = _logical(
+            '<mxCell id="domain_core" value="Core" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="160" y="140" width="200" height="140" as="geometry"/></mxCell>'
+            '<mxCell id="cap" value="Order Capability" vertex="1" parent="domain_core">'
+            '<mxGeometry x="28" y="56" width="160" height="60" as="geometry"/></mxCell>'
+            '<mxCell id="domain_data" value="Data" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="500" y="140" width="200" height="140" as="geometry"/></mxCell>'
+            '<mxCell id="store" value="Customer data store" vertex="1" parent="domain_data">'
+            '<mxGeometry x="28" y="56" width="160" height="60" as="geometry"/></mxCell>'
+        )
+        out = enforce_view_journey_columns(page)
+        pairs = {
+            (c.get("source"), c.get("target"))
+            for c in ET.fromstring(out).iter("mxCell") if c.get("edge") == "1"
+        }
+        self.assertTrue(
+            ("cap", "store") in pairs or ("store", "cap") in pairs,
+            f"expected a synthesized edge between domain_core and domain_data leaves, got {pairs}",
+        )
+
+    def test_phase_control_gets_a_connecting_edge_when_isolated(self) -> None:
+        """9f: phase_control with content but zero edges must get one synthesized."""
+        page = _data_flow(
+            '<mxCell id="phase_process" value="Process" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="160" y="140" width="200" height="140" as="geometry"/></mxCell>'
+            '<mxCell id="app" value="App" vertex="1" parent="phase_process">'
+            '<mxGeometry x="28" y="56" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="phase_control" value="Control Plane" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="500" y="340" width="200" height="140" as="geometry"/></mxCell>'
+            '<mxCell id="registry" value="Schema Registry" vertex="1" parent="phase_control">'
+            '<mxGeometry x="28" y="56" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = enforce_view_journey_columns(page)
+        edges = [c for c in ET.fromstring(out).iter("mxCell") if c.get("edge") == "1"]
+        touches_registry = any(
+            e.get("source") == "registry" or e.get("target") == "registry" for e in edges
+        )
+        self.assertTrue(touches_registry)
+
+    def test_saas_leaf_pulled_into_dedicated_vertical_shelf(self) -> None:
+        """9g: an in-phase SaaS leaf must move to phase_saas, anchored under phase_store."""
+        page = _data_flow(
+            '<mxCell id="phase_store" value="Store" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="500" y="140" width="200" height="140" as="geometry"/></mxCell>'
+            '<mxCell id="db" value="Database" vertex="1" parent="phase_store">'
+            '<mxGeometry x="28" y="56" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="salesforce" value="Salesforce" shape_type="saas_salesforce" vertex="1" '
+            'parent="phase_store">'
+            '<mxGeometry x="120" y="56" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = enforce_view_journey_columns(page)
+        by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
+        self.assertIn("phase_saas", by_id)
+        self.assertEqual(by_id["salesforce"].get("parent"), "phase_saas")
+        store_geo = by_id["phase_store"].find("mxGeometry")
+        saas_geo = by_id["phase_saas"].find("mxGeometry")
+        self.assertAlmostEqual(float(store_geo.get("x")), float(saas_geo.get("x")), delta=1.0)
+        self.assertGreater(
+            float(saas_geo.get("y")),
+            float(store_geo.get("y")) + float(store_geo.get("height")) - 1.0,
+        )
+
+
+class PartTenOverviewContainerGapTests(unittest.TestCase):
+    """Reproduces the two container-detection defects found in the freshest
+    real capture (Part 10): overview_panel winning the primary spine-edge
+    scan, and overview_panel getting reparented into a shelf it overlaps."""
+
+    def test_primary_channel_scan_never_picks_overview_panel_over_real_portal(self) -> None:
+        """10a: with a real portal leaf present BEFORE the fallback would even
+        trigger, the primary `channels` list must never include overview_panel,
+        and the synthesized edge must target the real portal, not the panel."""
+        from app.adapters.outbound.diagram.placement_fixers import _is_logical_channel_cell
+
+        page = _logical(
+            '<mxCell id="overview_panel" '
+            'value="Employees access the portal via the public URL." '
+            'style="fillColor=#FFF8E1;" vertex="1" parent="1">'
+            '<mxGeometry x="900" y="40" width="500" height="300" as="geometry"/></mxCell>'
+            '<mxCell id="emp" value="Employees" shape_type="logical_actor" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="400" width="68" height="68" as="geometry"/></mxCell>'
+            '<mxCell id="ok" value="Okta (SAAS)" shape_type="saas_okta" vertex="1" parent="1">'
+            '<mxGeometry x="200" y="400" width="68" height="68" as="geometry"/></mxCell>'
+            '<mxCell id="portal" value="HR Portal" shape_type="logical_channel" vertex="1" parent="1">'
+            '<mxGeometry x="360" y="400" width="68" height="68" as="geometry"/></mxCell>'
+        )
+        root = ET.fromstring(page)
+        cells = [c for c in root.iter("mxCell") if c.get("id")]
+        overview = next(c for c in cells if c.get("id") == "overview_panel")
+        self.assertFalse(_is_logical_channel_cell(overview))
+
+        from app.adapters.outbound.diagram.placement_fixers import _ensure_logical_journey_edges
+
+        _ensure_logical_journey_edges(root, cells)
+        pairs = {
+            (c.get("source"), c.get("target"))
+            for c in root.iter("mxCell") if c.get("edge") == "1"
+        }
+        self.assertIn(("ok", "portal"), pairs)
+        self.assertFalse(any(t == "overview_panel" for _s, t in pairs))
+
+    def test_overview_panel_never_reparented_into_overlapping_shelf(self) -> None:
+        """10b: an overview_panel styled with container=1 that geometrically
+        overlaps a shelf container must stay at parent="1" through repair_xml,
+        never get swallowed into the shelf as a nesting violation."""
+        page = _data_flow(
+            '<mxCell id="phase_store" value="Store" style="container=1;fillColor=#D5E8D4;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="160" y="140" width="200" height="140" as="geometry"/></mxCell>'
+            '<mxCell id="db" value="Database" vertex="1" parent="phase_store">'
+            '<mxGeometry x="28" y="56" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="phase_saas" value="SaaS" style="container=1;fillColor=#FFF2CC;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="160" y="360" width="200" height="200" as="geometry"/></mxCell>'
+            '<mxCell id="salesforce" value="Salesforce" shape_type="saas_salesforce" vertex="1" '
+            'parent="phase_saas">'
+            '<mxGeometry x="24" y="48" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="overview_panel" value="Data journey overview." '
+            'style="rounded=1;container=1;fillColor=#FFF8E1;" vertex="1" parent="1">'
+            '<mxGeometry x="200" y="380" width="140" height="150" as="geometry"/></mxCell>'
+        )
+        out, _diag = repair_xml(page)
+        by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
+        overview = by_id["overview_panel"]
+        self.assertEqual(overview.get("parent"), "1")
+        style = overview.get("style") or ""
+        self.assertNotIn("container=1", style)
 
 
 if __name__ == "__main__":

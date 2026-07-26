@@ -1163,5 +1163,60 @@ class StepBadgeExclusionTests(unittest.TestCase):
         self.assertEqual((float(geom.get("x")), float(geom.get("y"))), (25.0, 25.0))
 
 
+class MoveOverviewAndLegendToEndTests(unittest.TestCase):
+    """7c: overview panel / legend must always render on top (last in document order)."""
+
+    def test_panel_emitted_first_moves_to_last(self) -> None:
+        from app.adapters.outbound.diagram.xml_diagnostics import (
+            move_overview_and_legend_to_end,
+        )
+
+        xml = _wrap(
+            '<mxCell id="overview_panel" value="&lt;div&gt;Title&lt;/div&gt;" '
+            'style="rounded=1;html=1;" vertex="1" parent="1">'
+            '<mxGeometry x="900" y="100" width="400" height="200" as="geometry"/></mxCell>'
+            '<mxCell id="a" value="A" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="b" value="B" vertex="1" parent="1">'
+            '<mxGeometry x="100" y="0" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = move_overview_and_legend_to_end(xml)
+        ids = [c.get("id") for c in ET.fromstring(out).iter("mxCell")]
+        self.assertEqual(ids[-1], "overview_panel")
+
+    def test_noop_when_already_last(self) -> None:
+        from app.adapters.outbound.diagram.xml_diagnostics import (
+            move_overview_and_legend_to_end,
+        )
+
+        xml = _wrap(
+            '<mxCell id="a" value="A" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="overview_panel" value="&lt;div&gt;Title&lt;/div&gt;" '
+            'style="rounded=1;html=1;" vertex="1" parent="1">'
+            '<mxGeometry x="900" y="100" width="400" height="200" as="geometry"/></mxCell>'
+        )
+        self.assertEqual(move_overview_and_legend_to_end(xml), xml)
+
+    def test_legend_and_panel_both_moved_last_preserving_order(self) -> None:
+        from app.adapters.outbound.diagram.xml_diagnostics import (
+            move_overview_and_legend_to_end,
+        )
+
+        xml = _wrap(
+            '<mxCell id="legend_box" value="Legend" style="rounded=1;" vertex="1" parent="1">'
+            '<mxGeometry x="900" y="500" width="200" height="80" as="geometry"/></mxCell>'
+            '<mxCell id="a" value="A" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="overview_panel" value="&lt;div&gt;Title&lt;/div&gt;" '
+            'style="rounded=1;html=1;" vertex="1" parent="1">'
+            '<mxGeometry x="900" y="100" width="400" height="200" as="geometry"/></mxCell>'
+        )
+        out = move_overview_and_legend_to_end(xml)
+        ids = [c.get("id") for c in ET.fromstring(out).iter("mxCell")]
+        self.assertEqual(set(ids[-2:]), {"overview_panel", "legend_box"})
+        self.assertEqual(ids[-1], "overview_panel")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -289,6 +289,45 @@ def _is_data_domain(cell: ET.Element) -> bool:
     return "data" in blob and "saas" not in blob
 
 
+def _is_consume_phase(cell: ET.Element) -> bool:
+    """Data-flow's Consume phase — anchored below Store, not a 4th L→R column."""
+    cid = (cell.get("id") or "").lower()
+    return cid.startswith("phase_consume")
+
+
+def _is_saas_phase(cell: ET.Element) -> bool:
+    """Data-flow's dedicated SaaS shelf — vertical stack, anchored below Store."""
+    cid = (cell.get("id") or "").lower()
+    return cid.startswith("phase_saas")
+
+
+def _is_data_flow_shelf(cell: ET.Element) -> bool:
+    """Either Data-flow shelf (Consume or SaaS) — both anchor under phase_store."""
+    return _is_consume_phase(cell) or _is_saas_phase(cell)
+
+
+def _is_store_phase(cell: ET.Element) -> bool:
+    cid = (cell.get("id") or "").lower()
+    label = (cell.get("value") or "").lower()
+    blob = f"{cid} {label}"
+    return "store" in blob and "consume" not in blob
+
+
+def _is_external_saas_zone(cell: ET.Element) -> bool:
+    """Security's External SaaS zone — anchored below Restricted, not the rightmost column."""
+    cid = (cell.get("id") or "").lower()
+    return cid.startswith("zone_external_saas") or (
+        "saas" in cid and cid.startswith("zone_")
+    )
+
+
+def _is_restricted_zone(cell: ET.Element) -> bool:
+    cid = (cell.get("id") or "").lower()
+    label = (cell.get("value") or "").lower()
+    blob = f"{cid} {label}"
+    return "restricted" in blob or "sensitive" in blob
+
+
 def leaf_container_id(cell: ET.Element, by_id: dict[str, ET.Element]) -> str | None:
     """Immediate domain/zone/phase parent for a leaf, if any."""
     pid = cell.get("parent") or ""
@@ -312,18 +351,23 @@ def apply_layered_corridor_layout(
     pitch_x: float = APP_PITCH_X,
     pitch_y: float = APP_PITCH_Y,
     mark_layout: bool = True,
+    shelf_filter: Callable[[ET.Element], bool] = _is_saas_domain,
+    shelf_anchor_filter: Callable[[ET.Element], bool] = _is_data_domain,
 ) -> bool:
     """Rank corridors by leaf edges, lay tiles by barycenter, write geometry.
 
-    ``domain_saas`` / SaaS shelves are excluded from the L→R rank and returned
-    so the caller can anchor them under the Data domain. Corridor x/height/tile
-    geometry is always **recomputed** here — whatever the LLM emitted for these
-    is a discardable hint, not ground truth, since a hand-guessed layout is
-    exactly what produces the crossing/misalignment defects this engine fixes.
+    ``shelf_filter`` identifies corridors excluded from the L→R rank and instead
+    anchored directly below whichever ranked corridor matches ``shelf_anchor_filter``
+    (falling back to the rightmost ranked corridor) — e.g. Logical's ``domain_saas``
+    under ``domain_data`` (the defaults), or Data-flow's ``phase_consume`` under
+    ``phase_store``. Corridor x/height/tile geometry is always **recomputed** here —
+    whatever the LLM emitted for these is a discardable hint, not ground truth, since
+    a hand-guessed layout is exactly what produces the crossing/misalignment defects
+    this engine fixes.
     """
     by_id = {c.get("id"): c for c in cells if c.get("id")}
-    ranked = [c for c in corridors if not _is_saas_domain(c)]
-    saas_shelves = [c for c in corridors if _is_saas_domain(c)]
+    ranked = [c for c in corridors if not shelf_filter(c)]
+    saas_shelves = [c for c in corridors if shelf_filter(c)]
     if not ranked and not saas_shelves:
         return False
 
@@ -406,14 +450,29 @@ def apply_layered_corridor_layout(
                 geom.set("height", str(band_h))
                 changed = True
 
-    # Anchor SaaS shelf under Data (or rightmost ranked domain).
+    # Anchor shelf corridors under their target (or rightmost ranked corridor).
+    # Multiple shelves (e.g. Data-flow's phase_consume + phase_saas, both under
+    # phase_store) stack one below the other via a running cursor, rather than
+    # all landing at the same y under the same anchor and overlapping.
     if saas_shelves:
-        anchor = next((c for c in ranked if _is_data_domain(c)), None)
+        anchor = next((c for c in ranked if shelf_anchor_filter(c)), None)
         if anchor is None and ranked:
             anchor = ranked[-1]
+        cursor_y: float | None = None
         for shelf in saas_shelves:
-            if _anchor_shelf_under(shelf, anchor, cells):
+            if _anchor_shelf_under(shelf, anchor, cells, y_override=cursor_y):
                 changed = True
+            # Non-SaaS shelves (e.g. Data-flow's phase_consume) get the normal
+            # tile grid, not the SaaS-specific vertical stack — SaaS shelves are
+            # skipped inside _layout_tiles_in_container itself (_is_saas_domain).
+            if _layout_tiles_in_container(
+                shelf, cells, edges, leaf_filter,
+                pitch_x=pitch_x, pitch_y=pitch_y, mark_layout=mark_layout,
+            ):
+                changed = True
+            shelf_geo = _cell_geometry(shelf)
+            if shelf_geo is not None:
+                cursor_y = shelf_geo[1] + shelf_geo[3] + SHELF_GAP
 
     return changed
 
@@ -436,7 +495,8 @@ def _layout_tiles_in_container(
     if not kids:
         return False
     # SaaS shelves stay vertical — caller handles via _sort_saas_children_in_shelf.
-    if _is_saas_domain(container):
+    cid_lower = cid.lower()
+    if _is_saas_domain(container) or cid_lower.startswith("phase_saas"):
         return False
 
     kid_ids = [c.get("id") or "" for c in kids if c.get("id")]
@@ -509,8 +569,16 @@ def _anchor_shelf_under(
     shelf: ET.Element,
     anchor: ET.Element | None,
     cells: list[ET.Element],
+    *,
+    y_override: float | None = None,
 ) -> bool:
-    """Place External SaaS shelf under the Data domain (same column)."""
+    """Place a shelf container under its anchor (same column).
+
+    ``y_override`` lets a caller stack a *second* shelf under the same anchor
+    (e.g. Data-flow's ``phase_consume`` + ``phase_saas`` both anchor under
+    ``phase_store``) without recomputing from the anchor's bottom edge, which
+    would otherwise place both shelves at the exact same y and overlap them.
+    """
     if anchor is None:
         return False
     a_geo = _cell_geometry(anchor)
@@ -530,8 +598,20 @@ def _anchor_shelf_under(
     )
     s_geo = _cell_geometry(shelf)
     tx = a_geo[0]
-    ty = a_geo[1] + a_geo[3] + SHELF_GAP
-    tw = max(a_geo[2], (s_geo[2] if s_geo else 180.0), 180.0)
+    ty = y_override if y_override is not None else a_geo[1] + a_geo[3] + SHELF_GAP
+    # A vertical SaaS shelf (domain_saas / phase_saas / zone_external_saas) is a
+    # single icon column — never stretch it to the anchor's own width (e.g. a wide
+    # phase_store), which is what made the shelf read as an oversized empty box.
+    # Anchors like phase_consume (a tile grid) still align to the anchor's width.
+    shelf_id = (shelf.get("id") or "").lower()
+    is_vertical_saas_shelf = "saas" in shelf_id and (
+        shelf_id.startswith("domain_") or shelf_id.startswith("phase_")
+        or shelf_id.startswith("zone_")
+    )
+    if is_vertical_saas_shelf:
+        tw = max((s_geo[2] if s_geo else 180.0), 180.0)
+    else:
+        tw = max(a_geo[2], (s_geo[2] if s_geo else 180.0), 180.0)
     changed = False
     try:
         cur_x = float(s_geom.get("x") or 0)

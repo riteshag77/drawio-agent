@@ -1728,6 +1728,116 @@ _CORRIDOR_CONTAINER_STYLE = {
 }
 _CORRIDOR_CONTAINER_STYLE["data_flow"] = _CORRIDOR_CONTAINER_STYLE["data flow"]
 
+# Per-bucket-id (fillColor, strokeColor) — matches each view pack's own documented
+# "Section colors" table exactly (config/xml_gen/views/logical|security|data_flow.txt).
+# Auto-created containers (_synthesize_corridors, resolve_misplaced_security_controls)
+# previously stamped one flat per-page style regardless of which specific domain/zone/
+# phase they were, and dropped the fill entirely — every LLM-emitted, prompt-conformant
+# container uses a real hex fill, not fillColor=none.
+_ZONE_COLORS: dict[str, tuple[str, str]] = {
+    # logical
+    "domain_experience": ("#F5F5F5", "#666666"),
+    "domain_identity": ("#E1D5E7", "#9673A6"),
+    "domain_core": ("#DAE8FC", "#6C8EBF"),
+    "domain_commerce": ("#DAE8FC", "#6C8EBF"),
+    "domain_platform": ("#DAE8FC", "#147EBA"),
+    "domain_data": ("#D5E8D4", "#82B366"),
+    "domain_saas": ("#FFF2CC", "#D6B656"),
+    # security
+    "zone_public": ("#FFF2CC", "#D6B656"),
+    "zone_dmz": ("#FFF2CC", "#D6B656"),
+    "zone_identity": ("#E1D5E7", "#9673A6"),
+    "zone_partner": ("#D5E8D4", "#82B366"),
+    "zone_private": ("#DAE8FC", "#6C8EBF"),
+    "zone_restricted": ("#F8CECC", "#B85450"),
+    "zone_detect": ("#DAE8FC", "#147EBA"),
+    "zone_external_saas": ("#FFF2CC", "#D6B656"),
+    # data flow
+    "phase_ingest": ("#FFF2CC", "#D6B656"),
+    "phase_process": ("#DAE8FC", "#6C8EBF"),
+    "phase_store": ("#D5E8D4", "#82B366"),
+    "phase_consume": ("#D5E8D4", "#82B366"),
+    "phase_control": ("#DAE8FC", "#147EBA"),
+    "phase_saas": ("#FFF2CC", "#D6B656"),
+}
+
+
+def _zone_colors_for(bucket_id: str) -> tuple[str, str] | None:
+    """(fillColor, strokeColor) for a bucket id, matched by exact id or prefix
+    (so a de-duplicated id like ``domain_core_2`` still resolves)."""
+    colors = _ZONE_COLORS.get(bucket_id)
+    if colors is not None:
+        return colors
+    for prefix, pair in _ZONE_COLORS.items():
+        if bucket_id.startswith(prefix):
+            return pair
+    return None
+
+
+def _corridor_style_for(page_name: str, bucket_id: str) -> str:
+    """Container style for a specific domain/zone/phase bucket id.
+
+    Looks up ``_ZONE_COLORS`` by the id's own prefix (so a de-duplicated id like
+    ``domain_core_2`` still resolves) and falls back to the flat per-page style
+    only when the id has no table entry.
+    """
+    colors = _zone_colors_for(bucket_id)
+    if colors is None:
+        return _CORRIDOR_CONTAINER_STYLE.get(page_name, _CORRIDOR_CONTAINER_STYLE["logical"])
+    fill, stroke = colors
+    return (
+        "rounded=1;arcSize=2;whiteSpace=wrap;html=1;container=1;dropTarget=1;"
+        f"collapsible=0;recursiveResize=0;fillColor={fill};strokeColor={stroke};"
+        "strokeWidth=1;dashed=1;align=left;verticalAlign=top;spacingLeft=12;"
+        f"spacingTop=8;fontStyle=1;fontSize=12;fontColor={stroke};"
+    )
+
+
+def normalize_corridor_colors(xml: str) -> str:
+    """Force every domain_/zone_/phase_ container's color to its canonical
+    Section-colors value, regardless of who created it.
+
+    Part 7b's ``_ZONE_COLORS`` table only applied to containers this pipeline
+    creates itself (``_synthesize_corridors``, ``resolve_misplaced_security_
+    controls``). The far more common case — the LLM emits the container
+    itself — was left with whatever style the model wrote (often
+    ``fillColor=none``), since nothing normalized it afterward. Authoritative:
+    overwrites existing fill/stroke/font color keys rather than filling gaps.
+    """
+    parsed = _parse_docroot(xml)
+    if parsed is None:
+        return xml
+    tree, root, is_mxfile, trimmed = parsed
+    page_name = _diagram_page_name(tree).lower()
+    if page_name not in {"logical", "security", "data flow", "data_flow"}:
+        return xml
+    prefix = {
+        "logical": "domain_", "security": "zone_",
+        "data flow": "phase_", "data_flow": "phase_",
+    }[page_name]
+
+    cells = [c for c in root.findall("mxCell") if c.get("id")]
+    changed = False
+    for cell in cells:
+        cid = cell.get("id") or ""
+        if not cid.lower().startswith(prefix) or not _is_container_cell(cell):
+            continue
+        colors = _zone_colors_for(cid.lower())
+        if colors is None:
+            continue
+        fill, stroke = colors
+        style = cell.get("style") or ""
+        new_style = _set_style_kv(style, {
+            "fillColor": fill, "strokeColor": stroke, "fontColor": stroke,
+        })
+        if new_style != style:
+            cell.set("style", new_style)
+            changed = True
+
+    if not changed:
+        return xml
+    return _serialize_docroot(tree, root, is_mxfile, trimmed)
+
 
 def _leaf_corridor_bucket(page_name: str, cell: ET.Element) -> tuple[str, str, int]:
     """(container_id, container_label, sort_order) bucket for an ungrouped leaf.
@@ -1826,7 +1936,6 @@ def _synthesize_corridors(
     if len(buckets) < 2:
         return []
 
-    style = _CORRIDOR_CONTAINER_STYLE.get(page_name, _CORRIDOR_CONTAINER_STYLE["logical"])
     existing_ids = set(by_id.keys())
     created: list[ET.Element] = []
     for cid, kids in sorted(buckets.items(), key=lambda kv: meta[kv[0]][1]):
@@ -1840,7 +1949,7 @@ def _synthesize_corridors(
         container = ET.Element("mxCell")
         container.set("id", container_id)
         container.set("value", label)
-        container.set("style", style)
+        container.set("style", _corridor_style_for(page_name, cid))
         container.set("vertex", "1")
         container.set("parent", "1")
         geom = ET.SubElement(container, "mxGeometry")
@@ -1855,6 +1964,56 @@ def _synthesize_corridors(
         for kid in kids:
             kid.set("parent", container_id)
     return created
+
+
+def _consolidate_data_flow_saas_shelf(
+    root: ET.Element,
+    cells: list[ET.Element],
+    by_id: dict[str, ET.Element],
+) -> ET.Element | None:
+    """Pull SaaS producer/consumer leaves out of every other phase and into a
+    dedicated, vertically-stacked ``phase_saas`` shelf (mirrors Logical's
+    ``domain_saas``), instead of leaving them "in-phase" mixed with cloud-native
+    leaves. Catches SaaS leaves under **any** other ``phase_*`` container (not
+    just ingest/process/store) — a SaaS leaf the LLM parented under
+    ``phase_consume`` (e.g. treating an app as both "source" and "consumer" of
+    the same SaaS vendor) previously survived untouched, leaving the same
+    vendor split across two shelves instead of consolidated into one. Returns
+    the (possibly newly-created) shelf container, or ``None`` if there was no
+    SaaS content to consolidate.
+    """
+    saas_leaves = [
+        c for c in cells
+        if _is_saas_leaf_cell(c)
+        and (c.get("parent") == "1" or (
+            by_id.get(c.get("parent") or "") is not None
+            and (by_id[c.get("parent")].get("id") or "").lower().startswith("phase_")
+            and (by_id[c.get("parent")].get("id") or "") != "phase_saas"
+        ))
+    ]
+    if not saas_leaves:
+        return None
+
+    shelf = by_id.get("phase_saas")
+    if shelf is None:
+        shelf = ET.Element("mxCell")
+        shelf.set("id", "phase_saas")
+        shelf.set("value", "External SaaS")
+        shelf.set("style", _corridor_style_for("data flow", "phase_saas"))
+        shelf.set("vertex", "1")
+        shelf.set("parent", "1")
+        geom = ET.SubElement(shelf, "mxGeometry")
+        geom.set("x", "160")
+        geom.set("y", "140")
+        geom.set("width", "180")
+        geom.set("height", "200")
+        geom.set("as", "geometry")
+        root.append(shelf)
+        by_id["phase_saas"] = shelf
+
+    for leaf in saas_leaves:
+        leaf.set("parent", "phase_saas")
+    return shelf
 
 
 _SECURITY_CANONICAL_ZONE_RULES: tuple[tuple[tuple[str, ...], str, str], ...] = (
@@ -1937,7 +2096,7 @@ def resolve_misplaced_security_controls(xml: str) -> str:
             zone = ET.Element("mxCell")
             zone.set("id", zone_id)
             zone.set("value", zone_label)
-            zone.set("style", _CORRIDOR_CONTAINER_STYLE["security"])
+            zone.set("style", _corridor_style_for("security", zone_id))
             zone.set("vertex", "1")
             zone.set("parent", "1")
             geom = ET.SubElement(zone, "mxGeometry")
@@ -2010,7 +2169,13 @@ def enforce_view_journey_columns(xml: str) -> str:
             return xml
         tree, root, is_mxfile, trimmed = parsed
 
-    from app.adapters.outbound.diagram.logical_layout import apply_layered_corridor_layout
+    from app.adapters.outbound.diagram.logical_layout import (
+        _is_data_flow_shelf,
+        _is_external_saas_zone,
+        _is_restricted_zone,
+        _is_store_phase,
+        apply_layered_corridor_layout,
+    )
     from app.adapters.outbound.diagram.xml_diagnostics import (
         _is_canvas_background_cell,
         _page_size,
@@ -2076,7 +2241,29 @@ def enforce_view_journey_columns(xml: str) -> str:
             cells = [c for c in root.findall("mxCell") if c.get("id")]
             changed = True
 
+    is_data_flow_page = page_name in {"data flow", "data_flow"}
+    if is_data_flow_page:
+        # Pull SaaS producers/consumers out of ingest/process/store into their
+        # own dedicated, vertically-stacked shelf instead of leaving them
+        # in-phase mixed with cloud-native leaves. Refresh by_id first — cells
+        # may have been reparented/synthesized just above.
+        by_id = {c.get("id"): c for c in cells if c.get("id")}
+        saas_shelf = _consolidate_data_flow_saas_shelf(root, cells, by_id)
+        if saas_shelf is not None:
+            cells = [c for c in root.findall("mxCell") if c.get("id")]
+            if not any((c.get("id") or "") == "phase_saas" for c in corridors):
+                corridors.append(saas_shelf)
+            changed = True
+
     gap = _LOGICAL_DOMAIN_GAP if page_name in {"logical", "security", "data flow", "data_flow"} else 40.0
+    if is_data_flow_page:
+        shelf_kwargs = {"shelf_filter": _is_data_flow_shelf, "shelf_anchor_filter": _is_store_phase}
+    elif page_name == "security":
+        shelf_kwargs = {
+            "shelf_filter": _is_external_saas_zone, "shelf_anchor_filter": _is_restricted_zone,
+        }
+    else:
+        shelf_kwargs = {}
     if corridors and apply_layered_corridor_layout(
         cells,
         corridors=corridors,
@@ -2085,6 +2272,7 @@ def enforce_view_journey_columns(xml: str) -> str:
         start_x=160.0,
         gap=gap,
         mark_layout=True,
+        **shelf_kwargs,
     ):
         changed = True
         cells = [c for c in root.findall("mxCell") if c.get("id")]
@@ -2101,7 +2289,12 @@ def enforce_view_journey_columns(xml: str) -> str:
             corridors.sort(key=key_fn)
             x = 160.0
             for cell in corridors:
-                if (cell.get("id") or "").lower().startswith("domain_saas"):
+                cid_lower = (cell.get("id") or "").lower()
+                if cid_lower.startswith("domain_saas") or (
+                    is_data_flow_page and (
+                        cid_lower.startswith("phase_consume") or cid_lower.startswith("phase_saas")
+                    )
+                ) or (page_name == "security" and cid_lower.startswith("zone_external_saas")):
                     continue
                 geo = _cell_geometry(cell)
                 geom = cell.find("mxGeometry")
@@ -2165,8 +2358,163 @@ def enforce_view_journey_columns(xml: str) -> str:
         if _ensure_logical_journey_edges(root, cells):
             changed = True
 
+    ranked_now = sorted(
+        [c for c in cells if _is_container_cell(c) and c.get("parent") == "1"
+         and (c.get("id") or "").lower().startswith(prefix)
+         and (c.get("id") or "") not in {"overview_panel", "legend_box"}
+         and not _is_anchored_shelf(page_name, c)],
+        key=lambda c: (_cell_geometry(c) or (0.0, 0.0, 0.0, 0.0))[0],
+    )
+    connectivity_label = {
+        "logical": "Invokes", "security": "private path",
+        "data flow": "JSON: Payload", "data_flow": "JSON: Payload",
+    }.get(page_name, "Invokes")
+    control = None
+    if is_data_flow_page:
+        control = next(
+            (c for c in cells if (c.get("id") or "").lower().startswith("phase_control")),
+            None,
+        )
+    if _ensure_minimum_corridor_connectivity(
+        root, cells, ranked_now, _is_layout_leaf, connectivity_label, control=control,
+    ):
+        changed = True
+        cells = [c for c in root.findall("mxCell") if c.get("id")]
+
     if _remove_empty_corridor_containers(root, prefix):
         changed = True
+
+    if not changed:
+        return xml
+    return _serialize_docroot(tree, root, is_mxfile, trimmed)
+
+
+def _is_anchored_shelf(page_name: str, cell: ET.Element) -> bool:
+    """True for a corridor container anchored *under* another, not part of the L→R row.
+
+    ``domain_saas`` (Logical) and ``phase_consume`` (Data flow) are positioned by
+    ``_anchor_shelf_under``/``apply_layered_corridor_layout``'s shelf mechanism, not
+    ranked in the horizontal row — ``enforce_corridor_gap_consistency`` must exclude
+    them or it would re-flow them back into the row.
+    """
+    cid = (cell.get("id") or "").lower()
+    if page_name == "logical":
+        return cid.startswith("domain_saas") or ("saas" in cid and cid.startswith("domain_"))
+    if page_name == "security":
+        return cid.startswith("zone_external_saas") or ("saas" in cid and cid.startswith("zone_"))
+    if page_name in {"data flow", "data_flow"}:
+        return cid.startswith("phase_consume") or cid.startswith("phase_saas")
+    return False
+
+
+def enforce_corridor_gap_consistency(xml: str) -> str:
+    """Re-flow domain_/zone_/phase_ corridors to a consistent gap after width changes.
+
+    ``apply_layered_corridor_layout`` sets each corridor's x using the gap constant
+    and whatever width the corridor had *at that moment*. ``fit_containers_to_children``
+    runs later in ``repair_xml`` and can independently **shrink** a corridor's width
+    (its own, separate width computation) — nothing re-flows the *next* corridor's x
+    afterward, so the visible gap balloons by the shrink delta (found via live-
+    generation review: a documented ~110px gap rendered as ~358px in practice). This
+    re-spaces corridors using their now-final widths, preserving whatever left-to-right
+    order was already established (sorts by current x — does not re-derive ranking),
+    then re-aligns any anchored shelf (domain_saas / phase_consume) under its anchor's
+    possibly-shifted x.
+    """
+    parsed = _parse_docroot(xml)
+    if parsed is None:
+        return xml
+    tree, root, is_mxfile, trimmed = parsed
+    page_name = _diagram_page_name(tree).lower()
+    if page_name not in {"logical", "security", "data flow", "data_flow"}:
+        return xml
+
+    prefix = {
+        "logical": "domain_", "security": "zone_",
+        "data flow": "phase_", "data_flow": "phase_",
+    }[page_name]
+    cells = [c for c in root.findall("mxCell") if c.get("id")]
+    all_corridors = [
+        c for c in cells
+        if _is_container_cell(c) and c.get("parent") == "1"
+        and (c.get("id") or "").lower().startswith(prefix)
+        and (c.get("id") or "") not in {"overview_panel", "legend_box"}
+    ]
+    row = [c for c in all_corridors if not _is_anchored_shelf(page_name, c)]
+    shelves = [c for c in all_corridors if _is_anchored_shelf(page_name, c)]
+    if not row and not shelves:
+        return xml
+
+    row.sort(key=lambda c: (_cell_geometry(c) or (0.0, 0.0, 0.0, 0.0))[0])
+    changed = False
+    if len(row) >= 2:
+        first_geo = _cell_geometry(row[0])
+        if first_geo is not None:
+            cursor = first_geo[0] + first_geo[2]
+            for cell in row[1:]:
+                geo = _cell_geometry(cell)
+                geom = cell.find("mxGeometry")
+                if geo is None or geom is None:
+                    continue
+                target_x = cursor + _LOGICAL_DOMAIN_GAP
+                if abs(geo[0] - target_x) > 1.0:
+                    geom.set("x", str(target_x))
+                    changed = True
+                cursor = target_x + geo[2]
+
+    # Re-align any anchored shelf under its anchor's (possibly shifted) x/y — the
+    # anchor is the rightmost ranked corridor, matching _anchor_shelf_under's own
+    # selection (domain_data / phase_store rank highest among non-shelf keys).
+    # Fixes both axes: a prior version only corrected x, leaving a shelf whose
+    # anchor grew/shrank in height (fit_containers_to_children) drifting far
+    # below SHELF_GAP (found via live-generation review: domain_saas ended up
+    # ~200px below domain_data's bottom instead of the intended 110px).
+    if shelves and row:
+        from app.adapters.outbound.diagram.logical_layout import SHELF_GAP
+
+        anchor_geo = _cell_geometry(row[-1])
+        if anchor_geo is not None:
+            target_y = anchor_geo[1] + anchor_geo[3] + SHELF_GAP
+            for shelf in shelves:
+                shelf_geom = shelf.find("mxGeometry")
+                shelf_geo = _cell_geometry(shelf)
+                if shelf_geom is None or shelf_geo is None:
+                    continue
+                if abs(shelf_geo[0] - anchor_geo[0]) > 1.0:
+                    shelf_geom.set("x", str(anchor_geo[0]))
+                    changed = True
+                if abs(shelf_geo[1] - target_y) > 1.0:
+                    shelf_geom.set("y", str(target_y))
+                    changed = True
+
+    # Security/Data-flow have no journey-spine mechanism (Logical's is Logical-only),
+    # so an external actor the LLM placed at an arbitrary x can end up hundreds of
+    # pixels from the first corridor once the row above shifts right (found via
+    # live-generation review: Employees at x=20, zone_dmz pushed out to x=510).
+    # Keep actors compact and just left of the leftmost row corridor.
+    if row and page_name in {"security", "data flow", "data_flow"}:
+        from app.adapters.outbound.diagram.xml_diagnostics import _is_external_actor_cell
+
+        actors = [
+            c for c in cells
+            if _is_external_actor_cell(c) and c.get("parent") == "1"
+        ]
+        leftmost_geo = _cell_geometry(row[0])
+        if actors and leftmost_geo is not None:
+            actor_gap = 60.0
+            for i, actor in enumerate(actors):
+                a_geom = actor.find("mxGeometry")
+                a_geo = _cell_geometry(actor)
+                if a_geom is None or a_geo is None:
+                    continue
+                target_ax = max(20.0, leftmost_geo[0] - a_geo[2] - actor_gap)
+                target_ay = leftmost_geo[1] + i * 110.0
+                if abs(a_geo[0] - target_ax) > 1.0:
+                    a_geom.set("x", str(target_ax))
+                    changed = True
+                if abs(a_geo[1] - target_ay) > 1.0:
+                    a_geom.set("y", str(target_ay))
+                    changed = True
 
     if not changed:
         return xml
@@ -2182,6 +2530,11 @@ def _is_logical_actor_cell(cell: ET.Element) -> bool:
 
 
 def _is_logical_channel_cell(cell: ET.Element) -> bool:
+    if cell.get("vertex") != "1" or cell.get("edge") == "1" or _is_container_cell(cell):
+        return False
+    cid = cell.get("id") or ""
+    if cid in {"overview_panel", "legend_box"} or cid.startswith("step_badge_"):
+        return False
     st = _shape(cell)
     if st == "logical_channel":
         return True
@@ -2399,10 +2752,147 @@ def _ensure_logical_journey_edges(root: ET.Element, cells: list[ET.Element]) -> 
         for c in cells:
             if c.get("vertex") != "1" or c.get("edge") == "1" or _is_container_cell(c):
                 continue
+            cid = c.get("id") or ""
+            if cid in {"overview_panel", "legend_box"} or cid.startswith("step_badge_"):
+                continue  # UI chrome — its narrative text can innocently contain
+                # "portal" ("access the portal...") and must never be mistaken
+                # for the real spine node (found via live-generation review).
             if _logical_leaf_role(_plain_label(c)) == "channel":
                 portals.append(c)
     if portals:
         _add(okta, portals[0], "Redirects to")
+
+    # Portal -> first domain: the journey spine (Employees -> Okta -> Portal)
+    # otherwise dead-ends at the portal leaf, leaving every domain container
+    # unconnected to how a request actually reaches it (found via live-
+    # generation review: portal parented on "1", never wired into any
+    # domain_*). Pick the leftmost non-SaaS domain (the entry point in
+    # reading order) and connect to its first leaf.
+    if portals:
+        domains = [
+            c for c in cells
+            if _is_container_cell(c) and c.get("parent") == "1"
+            and (c.get("id") or "").lower().startswith("domain_")
+            and not (c.get("id") or "").lower().startswith("domain_saas")
+        ]
+        if domains:
+            domains.sort(key=lambda c: (_cell_geometry(c) or (0.0, 0.0, 0.0, 0.0))[0])
+            entry_domain = domains[0]
+            domain_leaves = [
+                c for c in cells
+                if c.get("parent") == entry_domain.get("id")
+                and c.get("vertex") == "1" and c.get("edge") != "1"
+            ]
+            if domain_leaves:
+                _add(portals[0], domain_leaves[0], "Routes to")
+    return changed
+
+
+def _ensure_minimum_corridor_connectivity(
+    root: ET.Element,
+    cells: list[ET.Element],
+    row: list[ET.Element],
+    leaf_filter,
+    label: str,
+    *,
+    control: ET.Element | None = None,
+) -> bool:
+    """Guarantee at least one edge connects each adjacent corridor pair, and
+    at least one edge touches the control-plane shelf if it has content.
+
+    The prompt's own "Canonical data journey" / "REQUIRED companions" sections
+    describe these edges (e.g. Experience→Core→Data in Logical, app→schema
+    registry in Data-flow), but the LLM sometimes omits them entirely (found
+    via live-generation review: zero edges between adjacent domains, zero
+    edges touching ``phase_control``). Mirrors ``_ensure_logical_journey_edges``'s
+    philosophy for the spine, extended one level further — a synthesized
+    generic edge between two representative leaves beats a silently
+    disconnected diagram.
+    """
+    if len(row) < 2 and control is None:
+        return False
+
+    def _leaves_in(cid: str) -> list[ET.Element]:
+        return [c for c in cells if c.get("parent") == cid and leaf_filter(c)]
+
+    adj: dict[str, list[str]] = {}
+    for e in cells:
+        if e.get("edge") != "1":
+            continue
+        s, t = e.get("source"), e.get("target")
+        if s and t:
+            adj.setdefault(s, []).append(t)
+            adj.setdefault(t, []).append(s)
+
+    def _reachable(src_id: str, tgt_id: str) -> bool:
+        seen = {src_id}
+        stack = list(adj.get(src_id, []))
+        while stack:
+            cur = stack.pop()
+            if cur == tgt_id:
+                return True
+            if cur in seen:
+                continue
+            seen.add(cur)
+            stack.extend(adj.get(cur, []))
+        return False
+
+    existing_ids = {c.get("id") for c in cells if c.get("id")}
+    changed = False
+    n = 0
+
+    def _add_edge(src: ET.Element, tgt: ET.Element, edge_label: str) -> None:
+        nonlocal n, changed
+        eid = f"corridor_flow_e{n}"
+        n += 1
+        while eid in existing_ids:
+            eid = f"corridor_flow_e{n}"
+            n += 1
+        existing_ids.add(eid)
+        edge = ET.SubElement(root, "mxCell")
+        edge.set("id", eid)
+        edge.set("edge", "1")
+        edge.set("parent", "1")
+        edge.set("source", src.get("id"))
+        edge.set("target", tgt.get("id"))
+        edge.set("value", edge_label)
+        edge.set(
+            "style",
+            "edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;"
+            "strokeWidth=2;labelBackgroundColor=#F5F5F5;fontSize=11;fontColor=#333333;",
+        )
+        geom = ET.SubElement(edge, "mxGeometry")
+        geom.set("relative", "1")
+        geom.set("as", "geometry")
+        changed = True
+
+    for a, b in zip(row, row[1:]):
+        a_leaves = _leaves_in(a.get("id") or "")
+        b_leaves = _leaves_in(b.get("id") or "")
+        if not a_leaves or not b_leaves:
+            continue
+        if any(_reachable(al.get("id") or "", bl.get("id") or "") for al in a_leaves for bl in b_leaves):
+            continue
+        _add_edge(a_leaves[0], b_leaves[0], label)
+
+    if control is not None:
+        control_leaves = _leaves_in(control.get("id") or "")
+        if control_leaves:
+            control_ids = {c.get("id") for c in control_leaves}
+            touched = any(
+                e.get("source") in control_ids or e.get("target") in control_ids
+                for e in cells if e.get("edge") == "1"
+            )
+            if not touched:
+                source_leaves: list[ET.Element] = []
+                for c in reversed(row):
+                    ls = _leaves_in(c.get("id") or "")
+                    if ls:
+                        source_leaves = ls
+                        break
+                if source_leaves:
+                    _add_edge(source_leaves[0], control_leaves[0], "Validates Payload Schema")
+
     return changed
 
 
