@@ -11,9 +11,65 @@ Page name: **`Data flow`**
 60-second data journey: enters → transforms → stored → consumed; personal vs not when known.
 WAF/login tours or domain org charts → fail.
 
+## Canonical Phase Hierarchy — STRICT NESTING (CRITICAL)
+
+Every phase is a top-level container (`parent="1"`); every producer/consumer/store leaf sits
+**inside** its phase via `parent="<phase-id>"`. Phases sit side by side, ordered left → right
+by data journey order:
+
+```
+[phase_ingest]   [phase_process]   [phase_store]   [phase_consume]
+   ↑ enters          ↑ transforms      ↑ persisted      ↑ read downstream
+ (all four are siblings, each parent="1"; leaves inside each are parent=<phase-id>)
+
+[phase_control]  ← optional dashed shelf, BELOW the data-plane row, parent="1"
+   ↑ schema registry / catalog / schedules — never IdP/WAF
+```
+
+Only these ids are ever `parent="1"` containers (plus optional SaaS producers/consumers,
+external actors, and the overview/legend). **Every** producer/consumer/store/broker leaf
+must be nested inside one of the four data-plane phases via `parent=` — never a floating
+leaf on `parent="1"`.
+
+**Required id prefix (CRITICAL — the diagram is laid out by a deterministic engine that finds
+phases by this exact id, not by label):**
+- `phase_ingest`, `phase_process`, `phase_store`, `phase_consume` — emit **exactly** these
+  ids for whichever phases apply (omit a phase entirely if nothing belongs in it; never
+  emit an empty phase shell).
+- `phase_control` (optional) for the control-plane shelf when schema registry / catalog /
+  schedules are in inventory.
+- A leaf's `parent` MUST be the phase id it logically belongs to.
+
+**Parent chain examples:**
+- `phase_ingest` → parent `"1"`
+- `api_gw_1` → parent `phase_ingest`
+- `phase_process` → parent `"1"` (sibling of `phase_ingest`, not nested inside it)
+- `lambda_1` → parent `phase_process`
+- `phase_store` → parent `"1"`
+- `db_1` → parent `phase_store`
+- `replica_1` → parent `phase_store`
+- `phase_consume` → parent `"1"`
+- `dashboard_1` → parent `phase_consume`
+- `phase_control` → parent `"1"`
+- `schema_registry_1` → parent `phase_control`
+
+**You do not need to compute final pixel geometry.** A deterministic layout engine
+(rank-and-order layered layout) recomputes every phase's x/y/width/height and grids every
+leaf inside its phase after this call — your job is correct **grouping** (right leaf → right
+phase via `parent=`) and correct, labeled **edges**; emit reasonable placeholder geometry
+(e.g. phases roughly 260×200, leaves 78×78) but do not spend effort perfecting alignment,
+since it will be discarded and rebuilt.
+
+### Layout gaps (for placeholder geometry only — engine will finalize)
+- Horizontal gap between phase columns: **80–120px**
+- Phase top edges align (same y) — a shared data-plane band, not a staircase
+- `phase_control` sits **below** the data-plane row with a clear vertical gap (≥70px)
+- Container padding: **20–28px** sides/bottom, **≥48px** top for the phase title band
+- Leaf grid inside a phase: same CORE pitch rules (max 4/row, 180–220px pitch)
+
 ### Canvas (clean)
-- **Data plane** corridor **left → right**: `phase_ingest` → `phase_process` → `phase_store` → consume/analytics (or Hot vs Cold bands).
-- **Control plane** optional dashed shelf (schema registry, schedules, Glue catalog) when in inventory — never IdP/WAF.
+- **Data plane** corridor **left → right**: `phase_ingest` → `phase_process` → `phase_store` → `phase_consume` (or Hot vs Cold bands).
+- **Control plane** optional dashed shelf (`phase_control`: schema registry, schedules, Glue catalog) when in inventory — never IdP/WAF.
 - SaaS producers/consumers sit in-phase; order L→R by journey role within a phase. Never parent leaves under `overview_panel`.
 - **No** `note_*` / `ctrl_*` prose cards. Journey → Overview + `step_markers` badges on major hops.
 - Legend when needed: sync/async and `[PII]` / `[Non-PII]` / `[PCI]`.
@@ -23,8 +79,8 @@ These are **SaaS+store companions**, not density padding. Thin inventory without
 
 1. **Dead-letter / retry** in `phase_process`: Amazon SQS (or generic DLQ) leaf. Edge from app/portal → DLQ, dashed, label `JSON: Failed API Retries`.
 2. **Backup / retention** in `phase_store`: S3 (or object archive) leaf. Edge from primary DB → archive: `Automated Snapshots / Archive`.
-3. **CDC / read replica**: secondary store leaf labeled e.g. `Aurora (Read Replica)` (or platform equivalent). Edge primary → replica: `CDC / Replication`.
-4. **Schema registry** on the control-plane shelf: AWS Glue / Schema Registry. Edge from app → registry: `Validates Payload Schema`.
+3. **CDC / read replica**: secondary store leaf labeled e.g. `Aurora (Read Replica)` (or platform equivalent), inside `phase_store`. Edge primary → replica: `CDC / Replication`.
+4. **Schema registry** on the `phase_control` shelf: AWS Glue / Schema Registry. Edge from app → registry: `Validates Payload Schema`.
 
 ### ALLOWED nodes
 Producers/consumers, named stores/brokers/ETL/cache/replicas from inventory, control-plane orchestration when present, plus the REQUIRED companions above when SaaS+store apply. Keep cloud `shape_type`.
@@ -42,7 +98,7 @@ Retry/DLQ edges: dashed=1.
 - Parallel hops: offset or face-spread; wrap density rather than crossing labels through icons.
 
 ### FORBIDDEN
-UI wireframes, WAF/Shield/auth login sequences, VPC/AZ wallpaper, security-control essays, capability org charts, note/ctrl cards.
+UI wireframes, WAF/Shield/auth login sequences, VPC/AZ wallpaper, security-control essays, capability org charts, note/ctrl cards, phase containers nested inside each other, any leaf on `parent="1"` that isn't an external actor or SaaS peer.
 Do **not** invent brokers when SaaS+store are absent.
 
 ### Density
@@ -62,6 +118,7 @@ Emit `step_markers` on major hops.
 1. When SaaS + primary store: DLQ + backup archive + read replica + schema registry present with labeled edges?
 2. Retry/DLQ edges dashed? Primary corridor still readable?
 3. Blank edges or labels over icons = fail. note/ctrl cards = fail.
+4. Every phase used has the exact `phase_*` id prefix required above, is `parent="1"`, and every leaf inside it has `parent=<phase-id>`? No phase nested inside another phase?
 
 ### Quality bar
 Someone can retell the data journey from Overview alone. Blank edges or labels over icons = fail. note/ctrl cards = fail.

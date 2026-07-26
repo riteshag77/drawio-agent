@@ -1005,6 +1005,111 @@ def absolute_position(cell: ET.Element, by_id: dict[str, ET.Element]) -> tuple[f
     return x, y
 
 
+def _edge_anchor_num(style: str, key: str, default: float) -> float:
+    for part in (style or "").split(";"):
+        if part.startswith(key + "="):
+            try:
+                return float(part.split("=", 1)[1])
+            except (ValueError, IndexError):
+                return default
+    return default
+
+
+def _edge_polyline(
+    edge: ET.Element, by_id: dict[str, ET.Element],
+) -> list[tuple[float, float]] | None:
+    """Absolute polyline (source anchor → waypoints → target anchor) for an edge."""
+    src_id, tgt_id = edge.get("source"), edge.get("target")
+    if not src_id or not tgt_id or src_id not in by_id or tgt_id not in by_id:
+        return None
+    src, tgt = by_id[src_id], by_id[tgt_id]
+    sgeo, tgeo = _cell_geometry(src), _cell_geometry(tgt)
+    if sgeo is None or tgeo is None:
+        return None
+    sx, sy = absolute_position(src, by_id)
+    tx, ty = absolute_position(tgt, by_id)
+    style = edge.get("style") or ""
+    start = (
+        sx + sgeo[2] * _edge_anchor_num(style, "exitX", 0.5) + _edge_anchor_num(style, "exitDx", 0.0),
+        sy + sgeo[3] * _edge_anchor_num(style, "exitY", 0.5) + _edge_anchor_num(style, "exitDy", 0.0),
+    )
+    end = (
+        tx + tgeo[2] * _edge_anchor_num(style, "entryX", 0.5) + _edge_anchor_num(style, "entryDx", 0.0),
+        ty + tgeo[3] * _edge_anchor_num(style, "entryY", 0.5) + _edge_anchor_num(style, "entryDy", 0.0),
+    )
+    waypoints: list[tuple[float, float]] = []
+    geom = edge.find("mxGeometry")
+    if geom is not None:
+        for arr in geom.findall("Array"):
+            if arr.get("as") != "points":
+                continue
+            for pt in arr.findall("mxPoint"):
+                try:
+                    waypoints.append((float(pt.get("x") or 0), float(pt.get("y") or 0)))
+                except ValueError:
+                    pass
+    return [start, *waypoints, end]
+
+
+def _ccw(a: tuple[float, float], b: tuple[float, float], c: tuple[float, float]) -> bool:
+    return (c[1] - a[1]) * (b[0] - a[0]) > (b[1] - a[1]) * (c[0] - a[0])
+
+
+def _segments_cross(
+    p1: tuple[float, float], p2: tuple[float, float],
+    p3: tuple[float, float], p4: tuple[float, float],
+) -> bool:
+    """Proper line-segment crossing test — a shared endpoint is not a crossing."""
+    if p1 in (p3, p4) or p2 in (p3, p4):
+        return False
+    return _ccw(p1, p3, p4) != _ccw(p2, p3, p4) and _ccw(p1, p2, p3) != _ccw(p1, p2, p4)
+
+
+def count_edge_crossings(xml: str, page: str | None = None) -> int:
+    """Count geometric line-crossings among a page's edges.
+
+    A cheap proxy for "does this diagram look tangled" — nothing else in the
+    pipeline measures edge crossings directly, so this is the quality signal
+    the Logical/Security/Data-flow layout work (``logical_layout.py``,
+    ``enforce_view_journey_columns``) is scored against. Counts every pair of
+    segments (from different edges) that properly cross; segments that only
+    touch at a shared endpoint (e.g. two edges landing on the same icon) are
+    not counted. Never raises — returns 0 on anything unparseable.
+    """
+    parsed = _parse_docroot(xml)
+    if parsed is None:
+        return 0
+    tree, root, _is_mxfile, _trimmed = parsed
+    if page is not None and tree.tag == "mxfile":
+        for diag in tree.findall("diagram"):
+            if (diag.get("name") or "").strip().lower() == page.strip().lower():
+                page_root = diag.find("mxGraphModel/root")
+                if page_root is not None:
+                    root = page_root
+                break
+
+    cells = [c for c in root.findall("mxCell") if c.get("id")]
+    by_id = {c.get("id"): c for c in cells if c.get("id")}
+    edges = [c for c in cells if c.get("edge") == "1"]
+
+    polylines: list[list[tuple[float, float]]] = []
+    for edge in edges:
+        line = _edge_polyline(edge, by_id)
+        if line and len(line) >= 2:
+            polylines.append(line)
+
+    crossings = 0
+    for i in range(len(polylines)):
+        segs_i = list(zip(polylines[i], polylines[i][1:]))
+        for j in range(i + 1, len(polylines)):
+            segs_j = list(zip(polylines[j], polylines[j][1:]))
+            for a1, a2 in segs_i:
+                for b1, b2 in segs_j:
+                    if _segments_cross(a1, a2, b1, b2):
+                        crossings += 1
+    return crossings
+
+
 def resolve_misplaced_actors(xml: str) -> str:
     """Reparent external-actor icons nested inside a container back to parent="1".
 
@@ -1399,6 +1504,44 @@ def sanitize_overview_panel_style(xml: str) -> str:
     return _serialize_docroot(tree, root, is_mxfile, trimmed)
 
 
+def ensure_overview_panel_parent_root(xml: str) -> str:
+    """Force the overview panel and legend back to ``parent="1"``, absolute geometry.
+
+    Found via live-generation review (a Security page had ``overview_panel``
+    emitted with ``parent="zone_dmz"``): the focused views tell the LLM every
+    leaf's ``parent`` must be its owning zone/domain/phase, and the model can
+    apply that rule too literally to these page-level UI cells too. Every
+    downstream consumer (``ensure_overview_panel_position``, container
+    shrink-fit) assumes the panel's geometry is already absolute page space —
+    if its real parent is a zone container, that assumption silently breaks:
+    the "absolute" x/y is actually relative to the zone, and
+    ``fit_containers_to_children`` then balloons that zone to engulf the
+    panel's width. Must run before any of those fixers.
+    """
+    parsed = _parse_docroot(xml)
+    if parsed is None:
+        return xml
+    tree, root, is_mxfile, trimmed = parsed
+    cells = [c for c in root.findall("mxCell") if c.get("id")]
+    by_id = {c.get("id"): c for c in cells if c.get("id")}
+    changed = False
+    for cell in cells:
+        if not (_is_overview_panel_cell(cell) or _is_legend_cell(cell)):
+            continue
+        if (cell.get("parent") or "1") == "1":
+            continue
+        abs_x, abs_y = absolute_position(cell, by_id)
+        cell.set("parent", "1")
+        geom = cell.find("mxGeometry")
+        if geom is not None:
+            geom.set("x", str(abs_x))
+            geom.set("y", str(abs_y))
+        changed = True
+    if not changed:
+        return xml
+    return _serialize_docroot(tree, root, is_mxfile, trimmed)
+
+
 def ensure_overview_panel_position(xml: str) -> str:
     """Keep the right-hand overview panel clear of the architecture, sized to its real text, and the page big enough for it.
 
@@ -1782,6 +1925,7 @@ def repair_xml(xml: str) -> tuple[str, XmlDiagnostics]:
     fixed = resolve_orphaned_parents(fixed)
     fixed = resolve_parent_cycles(fixed)
     fixed = ensure_valid_vertex_geometry(fixed)
+    fixed = ensure_overview_panel_parent_root(fixed)
     fixed = clear_overview_panel_children(fixed)
     fixed = sanitize_overview_panel_style(fixed)
     fixed = ensure_leaf_labels(fixed)
@@ -1793,6 +1937,7 @@ def repair_xml(xml: str) -> tuple[str, XmlDiagnostics]:
         resolve_misplaced_edge_services,
         resolve_misplaced_load_balancers,
         resolve_misplaced_saas_leaves,
+        resolve_misplaced_security_controls,
     )
     # Hoist SaaS before cross-cutting edge strip so app↔SaaS edges survive.
     fixed = resolve_misplaced_saas_leaves(fixed)
@@ -1801,6 +1946,10 @@ def repair_xml(xml: str) -> tuple[str, XmlDiagnostics]:
     fixed = resolve_misplaced_connectivity_hubs(fixed)
     fixed = resolve_misplaced_edge_services(fixed)
     fixed = resolve_misplaced_load_balancers(fixed)
+    # Known-control correction before corridor ranking — a misplaced leaf (e.g.
+    # Secrets Manager under Identity instead of Private) must not be allowed to
+    # scramble enforce_view_journey_columns's canonical zone order.
+    fixed = resolve_misplaced_security_controls(fixed)
     fixed = enforce_view_journey_columns(fixed)
     fixed = resolve_coordinate_only_nesting(fixed)
     fixed = resolve_row_overflow(fixed)

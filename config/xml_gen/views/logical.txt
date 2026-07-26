@@ -38,6 +38,31 @@ Every domain box must be a real container (`parent="1"`). Leaves nest with `pare
 4. Child geometry is **relative to the domain** — never absolute canvas coords for nested leaves.
 5. **FORBIDDEN:** trust zones (`zone_public`, `zone_dmz`, DMZ, Highly restricted). **FORBIDDEN:** `note_*` / `ctrl_*` prose cards.
 
+**Required id prefix (CRITICAL — the diagram is laid out by a deterministic engine that
+finds domains by this exact id, not by label):** use exactly `domain_experience`,
+`domain_core` (or `domain_commerce`), `domain_data`, `domain_platform`, `domain_saas` for
+whichever domains apply — omit any domain with zero leaves rather than emitting an empty
+shell. A leaf's `parent` MUST be the domain id it logically belongs to.
+
+**Parent chain examples:**
+- `domain_experience` → parent `"1"`
+- `portal_1` → parent `domain_experience`
+- `domain_core` → parent `"1"` (sibling of `domain_experience`, not nested inside it)
+- `capability_1` → parent `domain_core`
+- `domain_data` → parent `"1"`
+- `customer_store_1` → parent `domain_data`
+- `domain_saas` → parent `"1"`
+- `workday_1` → parent `domain_saas`
+
+**You do not need to compute final pixel geometry.** A deterministic layout engine
+(rank-and-order layered layout) recomputes every domain's x/y/width/height and grids every
+leaf inside its domain after this call — your job is correct **grouping** (right leaf →
+right domain via `parent=`), the journey spine, and correct, labeled **edges**; emit
+reasonable placeholder geometry but do not spend effort perfecting alignment, since it will
+be discarded and rebuilt. The spine (Persona → IdP → Portal) and the `domain_saas` shelf
+anchor are also finalized by the engine — focus on getting the right actors/products in
+each, not their exact coordinates.
+
 ---
 
 ## Application / capability grid (CRITICAL — like Network service grid)
@@ -167,3 +192,4 @@ Red **Recommended gaps** may include cache / graceful degradation when SaaS egre
 7. Every gutter/corridor wide enough for its connector label; no line crosses a tile?
 8. Icon leaves square (68 personas/portals, 78 SaaS); text tiles 160×60?
 9. When egress SaaS + store: Profile cache + Check Cache + Cache Miss edges present?
+10. Every domain used has the exact `domain_*` id prefix required above, is `parent="1"`, and every leaf inside it has `parent=<domain-id>`? No domain nested inside another domain?

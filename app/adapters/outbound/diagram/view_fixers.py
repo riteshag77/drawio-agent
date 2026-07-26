@@ -69,6 +69,45 @@ def _parse(page_xml: str, title: str) -> ET.Element | None:
         return None
 
 
+def _splice_through_dropped_nodes(
+    root: ET.Element, drop_ids: set[str],
+) -> list[ET.Element]:
+    """Rewire edges through a dropped pass-through node instead of deleting them.
+
+    A node like a NAT Gateway relaying app→SaaS egress is forbidden in the
+    Security view, but the *connection* it represents (app calls SaaS) is
+    real and should survive as a direct edge — otherwise dropping the node
+    silently erases the relationship from the diagram instead of just its
+    (out-of-scope) mechanism.
+    """
+    edges = [c for c in root.findall("mxCell") if c.get("edge") == "1"]
+    spliced: list[ET.Element] = []
+    for did in drop_ids:
+        incoming = [e for e in edges if e.get("target") == did and (e.get("source") or "") not in drop_ids]
+        outgoing = [e for e in edges if e.get("source") == did and (e.get("target") or "") not in drop_ids]
+        if not incoming or not outgoing:
+            continue
+        in_edge = incoming[0]
+        for i, out_edge in enumerate(outgoing):
+            new_edge = ET.Element("mxCell")
+            new_edge.set("id", f"{did}_splice_{i}")
+            new_edge.set("edge", "1")
+            new_edge.set("parent", out_edge.get("parent") or in_edge.get("parent") or "1")
+            new_edge.set("source", in_edge.get("source") or "")
+            new_edge.set("target", out_edge.get("target") or "")
+            label = out_edge.get("value") or in_edge.get("value") or ""
+            if label:
+                new_edge.set("value", label)
+            style = out_edge.get("style") or in_edge.get("style") or ""
+            if style:
+                new_edge.set("style", style)
+            geom = ET.SubElement(new_edge, "mxGeometry")
+            geom.set("relative", "1")
+            geom.set("as", "geometry")
+            spliced.append(new_edge)
+    return spliced
+
+
 def drop_forbidden_nodes(page_xml: str, *, view: str) -> str:
     """Remove leaves whose labels match the view's forbidden vocabulary."""
     title = VIEW_PAGE_NAMES.get(view, view)
@@ -98,6 +137,7 @@ def drop_forbidden_nodes(page_xml: str, *, view: str) -> str:
     root = tree.find(".//root")
     if root is None:
         root = tree
+    spliced = _splice_through_dropped_nodes(root, drop_ids)
     for cell in list(root.findall("mxCell")):
         cid = cell.get("id") or ""
         if cid in drop_ids:
@@ -106,6 +146,8 @@ def drop_forbidden_nodes(page_xml: str, *, view: str) -> str:
         if cell.get("edge") == "1":
             if (cell.get("source") or "") in drop_ids or (cell.get("target") or "") in drop_ids:
                 root.remove(cell)
+    for edge in spliced:
+        root.append(edge)
     cleaned = _serialize(tree)
     return remove_dangling_edges(cleaned)
 

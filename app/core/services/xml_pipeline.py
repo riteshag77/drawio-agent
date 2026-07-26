@@ -32,13 +32,16 @@ from app.adapters.outbound.well_architected import assess_well_architected
 from app.adapters.outbound.diagram.architecture_docs import (
     AdrRecord,
     ArchitectureDocPack,
+    GapAnalysisResult,
     RaidItem,
+    RequiredAddition,
     SingleViewPage,
     VIEW_PAGE_NAMES,
     _gap_candidates,
     achievable_density_target,
     build_adr_page_xml,
     build_architecture_inventory,
+    build_gap_analysis_block,
     build_interview_prompt_block,
     build_raid_page_xml,
     build_single_view_human,
@@ -46,6 +49,7 @@ from app.adapters.outbound.diagram.architecture_docs import (
     build_views_prompt_block,
     ensure_minimal_overview_panel,
     load_docs_prompt_pack,
+    load_gap_analysis_prompt_pack,
     merge_mxfile_pages,
     normalize_diagram_views,
     normalize_single_page_xml,
@@ -141,6 +145,62 @@ def _fallback_raid() -> list[RaidItem]:
             mitigation="Track need-by dates and define a fallback.",
         ),
     ]
+
+
+def _fallback_gap_analysis(human_prompt: str) -> GapAnalysisResult:
+    """Deterministic gap defaults when the gap-analysis LLM call fails.
+
+    Reuses the existing keyword-based ``_gap_candidates`` helper (previously
+    only run *after* generation, against the produced inventory) with an
+    empty service inventory, since nothing has been generated yet at this
+    point in the pipeline.
+    """
+    gaps = _gap_candidates(human_prompt or "", [])
+    return GapAnalysisResult(
+        required_additions=[
+            RequiredAddition(
+                component=g, viewpoint="generic",
+                why="Deterministic fallback — gap-analysis LLM call was unavailable.",
+            )
+            for g in gaps
+        ],
+    )
+
+
+def _run_gap_analysis(
+    *,
+    human_prompt: str,
+    platform_key: str,
+    interview_answers: dict[str, str] | None,
+    views: list[str],
+    provider_key: str,
+    logger: Any,
+) -> GapAnalysisResult:
+    """Pre-generation architecture gap-analysis LLM call.
+
+    Runs once, before the primary XML call, and enriches every downstream
+    view (primary + fan-out) with defaulted security/resilience/
+    observability/data components a thin brief omitted — see
+    config/xml_gen/gap_analysis.txt. Mirrors ``_generate_adr_list``'s
+    structured-call + deterministic-fallback pattern; a failure here never
+    blocks diagram generation.
+    """
+    system = load_gap_analysis_prompt_pack()
+    parts = [
+        f"Platform: {platform_key}",
+        f"Requested views: {', '.join(normalize_diagram_views(views))}",
+        f"User brief: {human_prompt[:_REQUEST_TRUNCATE_DOCS]}",
+        build_interview_prompt_block(interview_answers),
+    ]
+    human = "\n".join(p for p in parts if p)
+    try:
+        result = get_llm()(system, human, provider_key, GapAnalysisResult, logger, None)
+        if isinstance(result, GapAnalysisResult):
+            return result
+    except Exception as exc:
+        if logger:
+            logger.log("gap", f"Gap analysis LLM failed: {exc}", level="warning")
+    return _fallback_gap_analysis(human_prompt)
 
 
 def _generate_adr_list(
@@ -389,6 +449,7 @@ def _generate_single_view_page(
     provider_key: str,
     view: str,
     logger: Any,
+    gap_block: str | None = None,
 ) -> str | None:
     """One LLM call for a focused view page, with one retry on empty/sparse results."""
     inventory = build_architecture_inventory(primary_xml, request_text=human_prompt or "")
@@ -399,6 +460,7 @@ def _generate_single_view_page(
         primary_xml=primary_xml,
         inventory_text=inventory,
         view=view,
+        gap_block=gap_block,
     )
     title = VIEW_PAGE_NAMES.get(view, view)
 
@@ -707,6 +769,35 @@ async def run_xml_pipeline(
     if attachment_documents and not image_replicate:
         image_replicate = True
 
+    # Pre-generation gap analysis: default missing security/resilience/observability/
+    # data components before anything is drawn, so every view (primary + fan-out)
+    # starts from an architecturally complete spec instead of the bare brief. Skipped
+    # for edits of an existing diagram (current_xml present) — there is nothing to
+    # "default" when the user is editing something already drawn.
+    gap_context_block: str | None = None
+    if get_config().gap_analysis_enabled and not (current_xml or "").strip():
+        await _emit(on_progress, "gap", "Analyzing architecture gaps…")
+        gap_result = await run_llm_sync(
+            _run_gap_analysis,
+            human_prompt=human_prompt,
+            platform_key=platform_key,
+            interview_answers=interview_answers,
+            views=views,
+            provider_key=provider_key,
+            logger=logger,
+        )
+        gap_context_block = build_gap_analysis_block(gap_result, views)
+        if logger:
+            logger.log(
+                "gap", "Gap analysis complete", level="success",
+                details={
+                    "domain": gap_result.inferred_domain,
+                    "additions": [a.component for a in gap_result.required_additions],
+                    "assumptions": len(gap_result.assumptions),
+                },
+            )
+        await _emit(on_progress, "gap", "Gap analysis complete")
+
     # Token-light context: interview answers + primary-view focus only.
     # Extra views / ADR / RAID are separate cheaper passes — never ask the main
     # XML call to emit multipage docs (that left Network/Security empty).
@@ -714,6 +805,7 @@ async def run_xml_pipeline(
         context_text or "",
         build_interview_prompt_block(interview_answers),
         build_views_prompt_block(views),
+        gap_context_block or "",
     ) if p]
     enriched_context = "\n\n".join(context_parts) if context_parts else None
 
@@ -864,6 +956,7 @@ async def run_xml_pipeline(
             provider_key=view_provider,
             view=view_key,
             logger=logger,
+            gap_block=gap_context_block,
         )
         if not page_xml:
             if logger:
@@ -1181,11 +1274,17 @@ async def run_xml_pipeline(
                     diagrams = list(tree_la.findall("diagram"))
                 else:
                     diagrams = []
+                from app.adapters.outbound.diagram.placement_fixers import (
+                    repark_edge_labels_after_external_routing,
+                )
+                _FOCUSED_PAGES = {"Logical", "Security", "Data flow"}
                 if len(diagrams) <= 1:
                     single_name = ""
                     if diagrams:
                         single_name = diagrams[0].get("name") or ""
-                    _LOCAL_ROUTED_PAGES = {"Logical", "Security", "Data flow"}
+                    _LOCAL_ROUTED_PAGES = (
+                        set() if get_config().libavoid_focused_views else _FOCUSED_PAGES
+                    )
                     if single_name in _LOCAL_ROUTED_PAGES:
                         if logger:
                             logger.log(
@@ -1219,6 +1318,8 @@ async def run_xml_pipeline(
                                 ET.fromstring(candidate)
                                 if candidate.lower().count("<mxfile") > 1:
                                     raise ET.ParseError("nested mxfile after repair")
+                                if single_name in _FOCUSED_PAGES:
+                                    candidate = repark_edge_labels_after_external_routing(candidate)
                                 local_xml = candidate
                                 if logger:
                                     logger.log("mcp", "Libavoid routing applied", level="success")
@@ -1232,9 +1333,12 @@ async def run_xml_pipeline(
                                 local_xml = pre_routing_xml
                 else:
                     # Route each page alone to avoid duplicate cell-id collisions across tabs.
-                    # Focused views (Logical / Security / Data flow) use the local
-                    # obstacle-aware router — libavoid re-routing fights those waypoints.
-                    _LOCAL_ROUTED_PAGES = {"Logical", "Security", "Data flow"}
+                    # Focused views (Logical / Security / Data flow) now go through libavoid
+                    # too by default (LIBAVOID_FOCUSED_VIEWS) — label positions are re-parked
+                    # onto libavoid's own waypoints afterward rather than re-routed locally.
+                    _LOCAL_ROUTED_PAGES = (
+                        set() if get_config().libavoid_focused_views else _FOCUSED_PAGES
+                    )
                     for diag in diagrams:
                         name = diag.get("name") or "Page"
                         if name in {"ADR Notes", "RAID"} or name in _LOCAL_ROUTED_PAGES:
@@ -1271,6 +1375,8 @@ async def run_xml_pipeline(
                             ET.fromstring(candidate)
                             if candidate.lower().count("<mxfile") > 1:
                                 raise ET.ParseError("nested mxfile")
+                            if name in _FOCUSED_PAGES:
+                                candidate = repark_edge_labels_after_external_routing(candidate)
                             routed_pages.append((name, ensure_diagram_document(candidate, name)))
                         except ET.ParseError:
                             routed_pages.append((name, page_xml))
@@ -1299,6 +1405,27 @@ async def run_xml_pipeline(
         xml_output = local_xml
     else:
         xml_output = fit_containers_to_children(xml_output)
+
+    if logger:
+        try:
+            from app.adapters.outbound.diagram.xml_diagnostics import count_edge_crossings
+            parsed_out = ET.fromstring(xml_output) if xml_output.strip() else None
+            page_names = (
+                [d.get("name") or "" for d in parsed_out.findall("diagram")]
+                if parsed_out is not None and parsed_out.tag == "mxfile"
+                else [primary_page_name]
+            )
+            for name in page_names:
+                if name.lower() not in {"logical", "security", "data flow", "data_flow"}:
+                    continue
+                n_crossings = count_edge_crossings(xml_output, page=name)
+                logger.log(
+                    "layout", f"{name}: {n_crossings} edge crossing(s)",
+                    level="warning" if n_crossings > 2 else "info",
+                    details={"page": name, "crossings": n_crossings},
+                )
+        except Exception:
+            pass  # crossing count is a diagnostic signal only — never fail the response over it
 
     # Append ADR / RAID pages from fan-out (independent soft-fail).
     if (adr_list or raid_list) and not surgical:

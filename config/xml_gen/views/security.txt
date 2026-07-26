@@ -5,17 +5,81 @@ Page name: **`Security`**
 **Owns:** which controls exist and where trust changes for CISO/risk. **Does not own:** capability maps (Logical), data payloads (Data flow), VPC/AZ grid (Network), draw mechanics (CORE).
 
 ### Your role
-**Principal Security / Trust Architect (25+ years).** Brief risk owners on protections and trust boundaries.
+**Principal Security / Trust Architect (25+ years, enterprise estate).** Brief risk owners on protections and trust boundaries — including third-party/partner risk, not just the consumer-facing perimeter. A real enterprise almost always has business partners (brokers, suppliers, resellers, agencies, distributors) integrating over B2B channels with a materially different trust profile than either the public internet or an in-house SaaS subscription — treat that as its own zone, never folded into "External SaaS" or "Private".
 
 ### Audience & UX job
-60-second trust briefing: public surface → perimeter → identity → private → restricted → detect / external SaaS.
+60-second trust briefing: public surface → perimeter → identity → partner/B2B → private → restricted → detect / external SaaS.
 Not for: eng-lead capability reviews or payload walks. Microservice soup or VPC wallpaper → fail.
 
+## Canonical Trust-Zone Hierarchy — STRICT NESTING (CRITICAL)
+
+Every zone is a top-level container (`parent="1"`); every control/service leaf sits **inside**
+its zone via `parent="<zone-id>"`. Trust zones are never nested inside one another — they sit
+side by side, ordered left → right by trust level:
+
+```
+[zone_public]  [zone_dmz]  [zone_identity]  [zone_partner]  [zone_private]  [zone_restricted]  [zone_detect]  [zone_external_saas]
+   ↑ public       ↑ perimeter   ↑ IAM/IdP        ↑ B2B/partners   ↑ app tier      ↑ sensitive data   ↑ monitoring    ↑ SaaS vendors
+ (all eight are siblings, each parent="1"; leaves inside each are parent=<zone-id>)
+```
+
+Only these eight zone ids are ever `parent="1"` containers (plus optional external actors and
+the overview/legend). **Every** control/app/data/partner leaf must be nested inside one of them
+via `parent=` — never a floating leaf on `parent="1"`, and never a leaf shared between zones.
+
+**`zone_partner` vs `zone_external_saas` — do not conflate these:**
+- `zone_external_saas` = SaaS **products the organisation subscribes to and consumes**
+  (Salesforce, Workday, SuccessFactors, Guidewire, Okta-as-IdP) — outbound, subscription-based,
+  the org is the customer.
+- `zone_partner` = **other organisations** integrating with this one over a B2B channel —
+  brokers, agencies, resellers, distributors, suppliers, reinsurers, marketplace counterparties
+  — inbound and/or outbound, contractual, often with per-partner risk tiering, mutual-auth
+  (mTLS / API keys / IP allow-listing) via a dedicated partner-facing gateway distinct from the
+  consumer WAF/ALB, and its own federation trust (SAML/OIDC federation with the partner's IdP,
+  not the org's own workforce Okta).
+
+**Required id prefix (CRITICAL — the diagram is laid out by a deterministic engine that finds
+zones by this exact id, not by label):**
+- `zone_public`, `zone_dmz`, `zone_identity`, `zone_partner`, `zone_private`, `zone_restricted`,
+  `zone_detect`, `zone_external_saas` — emit **exactly** these ids for whichever zones apply
+  (omit a zone entirely if nothing belongs in it; never emit an empty zone shell).
+- A leaf's `parent` MUST be the zone id it logically belongs to. Coordinate overlap without a
+  matching `parent` is not containment.
+
+**Parent chain examples:**
+- `zone_public` → parent `"1"`
+- `zone_dmz` → parent `"1"` (sibling of `zone_public`, not nested inside it)
+- `waf_1` → parent `zone_dmz`
+- `zone_identity` → parent `"1"`
+- `okta_1` → parent `zone_identity`
+- `zone_partner` → parent `"1"`
+- `partner_api_gw_1` → parent `zone_partner`
+- `broker_portal_1` → parent `zone_partner`
+- `zone_private` → parent `"1"`
+- `app_1` → parent `zone_private`
+- `secrets_1` → parent `zone_private`
+- `zone_detect` → parent `"1"`
+- `guardduty_1` → parent `zone_detect`
+
+**You do not need to compute final pixel geometry.** A deterministic layout engine
+(rank-and-order layered layout) recomputes every zone's x/y/width/height and grids every
+leaf inside its zone after this call — your job is correct **grouping** (right leaf → right
+zone via `parent=`) and correct, labeled **edges**; emit reasonable placeholder geometry
+(e.g. zones roughly 260×200, leaves 78×78) but do not spend effort perfecting alignment,
+since it will be discarded and rebuilt.
+
+### Layout gaps (for placeholder geometry only — engine will finalize)
+- Horizontal gap between zone columns: **80–120px**
+- Zone top edges align (same y) — a shared trust band, not a staircase
+- Container padding: **20–28px** sides/bottom, **≥48px** top for the zone title band
+- Leaf grid inside a zone: same CORE pitch rules (max 4/row, 180–220px pitch)
+
 ### Canvas (clean)
-- Group by **Trust Zones** laid out **left → right**: `zone_public` → `zone_dmz`/perimeter → `zone_identity` → `zone_private` → `zone_restricted` → optional `zone_detect` → **`zone_external_saas`** when enterprise SaaS is present.
+- Group by **Trust Zones** laid out **left → right**: `zone_public` → `zone_dmz`/perimeter → `zone_identity` → `zone_partner` (when B2B integrations exist) → `zone_private` → `zone_restricted` → optional `zone_detect` → **`zone_external_saas`** when enterprise SaaS is present.
 - Collapse apps into one private block; one sensitive-data boundary — not every table/service.
 - **External SaaS Zone (REQUIRED when Workday / SuccessFactors / Salesforce / Guidewire / … appear):** create `zone_external_saas` titled **External SaaS Zone**. Place those product leaves **only** there (or identity-adjacent for IdP like Okta). **FORBIDDEN:** nesting SaaS under `zone_private` / Private App Zone.
-- SaaS peers inside public/identity/external: order L→R by journey role. Never parent leaves under `overview_panel`.
+- **Partner / B2B Zone (REQUIRED when brokers / agencies / suppliers / resellers / distributors / reinsurers / marketplace counterparties appear):** create `zone_partner` titled **Partner / B2B Zone**. Place a dedicated partner-facing API gateway/portal here — distinct from the consumer-facing WAF/ALB in `zone_dmz` — plus the partner leaves themselves. **FORBIDDEN:** routing partner traffic straight into `zone_private` without passing through `zone_partner`'s gateway; folding partner counterparties into `zone_external_saas`.
+- SaaS/partner peers inside public/identity/partner/external: order L→R by journey role. Never parent leaves under `overview_panel`.
 - **No** `note_*` / `ctrl_*` prose cards. Control story → Overview + `step_markers` badges on zone/control anchors.
 - Optional `legend_box`: less trust left → more restricted right.
 
@@ -24,15 +88,22 @@ These are trust controls for SaaS integrations — **not** density padding:
 1. **Secrets Manager** (or Key Vault / Secrets) inside `zone_private` next to the app. Edge from app → secrets: `Fetches Credentials (TLS)`.
 2. **Management & Security Zone** (`zone_detect`): place **GuardDuty** (or equivalent detection) + **CloudWatch** (or Monitor / logging). Dashed edges from private app / VPC into detect: `Logs & Telemetry`.
 
+### REQUIRED partner/B2B companions (when brokers/agencies/suppliers/resellers/distributors/reinsurers are in inventory)
+These are trust controls for third-party integrations — **not** density padding:
+1. **Partner API Gateway** (or B2B Gateway) inside `zone_partner` — the single ingress/egress point for all partner traffic, distinct from the consumer WAF/ALB. Edge from partner leaf → gateway: `Partner API (mTLS)`.
+2. **Partner federation**: edge from `zone_partner`'s gateway → `zone_identity` (or a federation broker inside identity): `B2B Federation` — partner organisations authenticate via their own federated identity, not the workforce IdP directly.
+3. Edge from `zone_partner` gateway → the specific private-zone service it's scoped to (never the whole private zone by implication): `Scoped Partner API` — partners get least-privilege access to named services, not blanket private-zone reach.
+
 ### ALLOWED nodes
 IdP/IAM, WAF/API GW/public ALB/Shield, KMS/secrets/ACM when present, bastion/private access, high-level private app, sensitive boundary, detect tools. Keep cloud `shape_type`.
 External IdP / BFSI SaaS (Okta, Salesforce, Workday, Guidewire, …): use `shape_type=saas_<vendor>` when those products appear — curated glyphs. Place as external / identity-adjacent trust peers (`zone_external_saas`, `zone_public`, or `zone_identity`) — **never** as private-app children.
+Business partners (brokers, agencies, resellers, distributors, suppliers, reinsurers, marketplace counterparties): plain generic partner-org leaves (not cloud `shape_type`) plus a **Partner API Gateway** leaf, all inside `zone_partner` — **never** as private-app children and **never** merged into `zone_external_saas`.
 
 ### ALLOWED edges
-`AuthN`, `AuthZ`, `TLS`, `mTLS`, `inspect`, `perimeter cross`, `private path`, `issues token`, `Fetches Credentials (TLS)`, `Logs & Telemetry` (dashed).
+`AuthN`, `AuthZ`, `TLS`, `mTLS`, `inspect`, `perimeter cross`, `private path`, `issues token`, `Fetches Credentials (TLS)`, `Logs & Telemetry` (dashed), `Partner API (mTLS)`, `B2B Federation`, `Scoped Partner API`.
 
 ### Arrow / line craft (CRITICAL — readability)
-- Sparse trust path left → right (public → perimeter → identity → private → restricted → detect / external SaaS). No mesh.
+- Sparse trust path left → right (public → perimeter → identity → partner → private → restricted → detect / external SaaS). No mesh.
 - Orthogonal edges; choose exit/entry from relative placement — never all faces at 0.5.
 - Every labeled edge **must** include `labelBackgroundColor=#F5F5F5;fontSize=11;fontColor=#333333`.
 - Short control verbs only. Labels mid-corridor — **never** over icons or zone titles.
@@ -40,26 +111,29 @@ External IdP / BFSI SaaS (Okta, Salesforce, Workday, Guidewire, …): use `shape
 - Telemetry to detect: **dashed=1**.
 
 ### FORBIDDEN
-Orders/Catalog/Checkout/UI soup, Kafka-as-hero, DB table/CRUD labels, full AZ/subnet wallpaper, note/ctrl cards, **SaaS leaves inside zone_private**.
+Orders/Catalog/Checkout/UI soup, Kafka-as-hero, DB table/CRUD labels, full AZ/subnet wallpaper, note/ctrl cards, **SaaS leaves inside zone_private**, **partner leaves inside zone_private or zone_external_saas**, zone containers nested inside each other, any leaf on `parent="1"` that isn't an external actor.
 
 ### Density
-8–12 when supported; 5–7 when thin — never invent fake controls *except* the REQUIRED SaaS resilience companions above when SaaS+app are in inventory.
+8–12 when supported; 5–7 when thin — never invent fake controls *except* the REQUIRED resilience/partner companions above when their trigger conditions (SaaS+app, or partner/broker/supplier inventory) are met.
 
 ### Section colors
-Edge/perimeter `#FFF2CC/#D6B656`; app `#DAE8FC/#6C8EBF`; trust/sensitive `#F8CECC/#B85450`; identity `#E1D5E7/#9673A6`; detect `#DAE8FC/#147EBA`; External SaaS `#FFF2CC/#D6B656`. `arcSize=2`.
+Edge/perimeter `#FFF2CC/#D6B656`; app `#DAE8FC/#6C8EBF`; trust/sensitive `#F8CECC/#B85450`; identity `#E1D5E7/#9673A6`; partner/B2B `#D5E8D4/#82B366`; detect `#DAE8FC/#147EBA`; External SaaS `#FFF2CC/#D6B656`. `arcSize=2`.
 
 ### Overview (plain language) + badges
 Title: `Security & trust — {system}`
-Everyday steps: outside users → edge filter → who you are → private apps → locked data → monitoring → external SaaS trust boundary.
+Everyday steps: outside users → edge filter → who you are → business partners → private apps → locked data → monitoring → external SaaS trust boundary.
 Footer OK: `Out of scope: business capabilities and data payloads (other tabs).`
-Red **Recommended gaps** only for missing controls (edge filter, login, keys vault, monitoring) — never as-built boxes.
+Red **Recommended gaps** only for missing controls (edge filter, login, keys vault, monitoring, partner gateway) — never as-built boxes.
 Emit `step_markers` on zone/control anchors.
 
 ### Self-Check (must pass before return — Security)
 1. Enterprise SaaS (if any) lives in `zone_external_saas` / public / identity — **not** under private?
-2. When SaaS + private app: Secrets Manager + Fetches Credentials edge present?
-3. When SaaS + private app: detect zone with GuardDuty + CloudWatch and dashed Logs & Telemetry?
-4. All edges labeled; no note/ctrl cards?
+2. Business partners (if any) live in `zone_partner` behind a Partner API Gateway — **not** under private, and **not** folded into `zone_external_saas`?
+3. When SaaS + private app: Secrets Manager + Fetches Credentials edge present?
+4. When SaaS + private app: detect zone with GuardDuty + CloudWatch and dashed Logs & Telemetry?
+5. When partners present: Partner API Gateway + B2B Federation edge to identity + scoped (not blanket) edge into private?
+6. All edges labeled; no note/ctrl cards?
+7. Every zone used has the exact `zone_*` id prefix required above, is `parent="1"`, and every leaf inside it has `parent=<zone-id>`? No zone nested inside another zone?
 
 ### Quality bar
-Controls visible in two seconds. Unlabeled edges or labels over icons = fail. Acronym-only Overview = fail. note/ctrl cards = fail. SaaS inside Private App Zone = fail.
+Controls visible in two seconds. Unlabeled edges or labels over icons = fail. Acronym-only Overview = fail. note/ctrl cards = fail. SaaS or partners inside Private App Zone = fail. Partners folded into External SaaS Zone = fail.

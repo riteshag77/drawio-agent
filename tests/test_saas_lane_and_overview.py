@@ -205,6 +205,8 @@ class LogicalCorridorTests(unittest.TestCase):
         page = _logical(
             '<mxCell id="domain_commerce" value="Commerce" style="container=1;" vertex="1" parent="1">'
             '<mxGeometry x="400" y="80" width="300" height="200" as="geometry"/></mxCell>'
+            '<mxCell id="checkout" value="Checkout" vertex="1" parent="domain_commerce">'
+            '<mxGeometry x="28" y="56" width="160" height="60" as="geometry"/></mxCell>'
             '<mxCell id="domain_saas" value="External SaaS" style="container=1;" vertex="1" parent="1">'
             '<mxGeometry x="80" y="80" width="280" height="200" as="geometry"/></mxCell>'
             '<mxCell id="sf" value="Salesforce (SAAS)" shape_type="saas_salesforce" style="shape=image;" '
@@ -538,7 +540,7 @@ class LogicalRoutingAndIconTests(unittest.TestCase):
         page = _logical(
             '<mxCell id="domain_core" value="Core" style="container=1;" vertex="1" parent="1">'
             '<mxGeometry x="200" y="60" width="240" height="140" as="geometry"/></mxCell>'
-            '<mxCell id="a1" value="App" style="rounded=1;" vertex="1" parent="domain_core">'
+            '<mxCell id="a1" value="Order Capability" style="rounded=1;" vertex="1" parent="domain_core">'
             '<mxGeometry x="20" y="50" width="160" height="60" as="geometry"/></mxCell>'
             '<mxCell id="domain_data" value="Data" style="container=1;" vertex="1" parent="1">'
             '<mxGeometry x="500" y="60" width="240" height="140" as="geometry"/></mxCell>'
@@ -694,6 +696,145 @@ class ParallelEdgeOffsetTests(unittest.TestCase):
             if c.get("edge") == "1"
         }
         self.assertTrue(any("exitDy=" in s for s in styles.values()))
+
+
+class RealOutputRegressionTests(unittest.TestCase):
+    """Reproduces concrete defects found reviewing a real generated capture (Part 5)."""
+
+    def test_empty_corridor_shell_is_removed(self) -> None:
+        """5a: an unused domain/zone container must not survive as an empty box."""
+        page = _security(
+            '<mxCell id="zone_public" value="Public Zone" style="container=1;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="160" y="140" width="120" height="80" as="geometry"/></mxCell>'
+            '<mxCell id="zone_dmz" value="Perimeter Zone" style="container=1;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="400" y="140" width="200" height="200" as="geometry"/></mxCell>'
+            '<mxCell id="waf" value="WAF" vertex="1" parent="zone_dmz">'
+            '<mxGeometry x="40" y="60" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = enforce_view_journey_columns(page)
+        ids = {c.get("id") for c in ET.fromstring(out).iter("mxCell")}
+        self.assertNotIn("zone_public", ids)
+        self.assertIn("zone_dmz", ids)
+
+    def test_secrets_manager_reparented_to_private_zone(self) -> None:
+        """5c: a known control misplaced by the LLM is corrected to its canonical zone."""
+        from app.adapters.outbound.diagram.placement_fixers import (
+            resolve_misplaced_security_controls,
+        )
+
+        page = _security(
+            '<mxCell id="zone_identity" value="Identity Zone" style="container=1;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="400" y="140" width="300" height="200" as="geometry"/></mxCell>'
+            '<mxCell id="okta" value="Okta" shape_type="saas_okta" vertex="1" '
+            'parent="zone_identity">'
+            '<mxGeometry x="28" y="56" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="secrets" value="Secrets Manager" vertex="1" parent="zone_identity">'
+            '<mxGeometry x="150" y="56" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="zone_private" value="Private App Zone" style="container=1;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="800" y="140" width="200" height="200" as="geometry"/></mxCell>'
+            '<mxCell id="app" value="App" vertex="1" parent="zone_private">'
+            '<mxGeometry x="28" y="56" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = resolve_misplaced_security_controls(page)
+        by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
+        self.assertEqual(by_id["secrets"].get("parent"), "zone_private")
+        # Okta (a distinct known control) is untouched — already in its canonical zone.
+        self.assertEqual(by_id["okta"].get("parent"), "zone_identity")
+
+    def test_overview_panel_never_reparented_by_security_control_fixer(self) -> None:
+        """5c-regression: found via a live-generation review pass (Part 6). The
+        overview panel's narrative text legitimately mentions control names like
+        "WAF" and "CloudWatch" when summarizing the diagram in plain language —
+        resolve_misplaced_security_controls must not keyword-match that prose and
+        drag the panel into zone_dmz (which then balloons that zone's width via
+        fit_containers_to_children and forces edges into long cross-canvas
+        detours that cross each other)."""
+        from app.adapters.outbound.diagram.placement_fixers import (
+            resolve_misplaced_security_controls,
+        )
+
+        page = _security(
+            '<mxCell id="zone_dmz" value="Perimeter Zone" style="container=1;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="160" y="140" width="200" height="200" as="geometry"/></mxCell>'
+            '<mxCell id="waf" value="WAF" vertex="1" parent="zone_dmz">'
+            '<mxGeometry x="28" y="56" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="overview_panel" '
+            'value="Employees access the portal via CloudFront and WAF for edge '
+            'protection; CloudWatch monitors logs." '
+            'style="fillColor=#FFF8E1;" vertex="1" parent="1">'
+            '<mxGeometry x="900" y="140" width="500" height="300" as="geometry"/></mxCell>'
+        )
+        out = resolve_misplaced_security_controls(page)
+        by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
+        self.assertEqual(by_id["overview_panel"].get("parent"), "1")
+
+    def test_canonical_zone_order_survives_a_backward_edge(self) -> None:
+        """5b: an edge from a later-trust zone to an earlier one must not scramble order."""
+        page = _security(
+            '<mxCell id="zone_dmz" value="Perimeter Zone" style="container=1;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="200" height="160" as="geometry"/></mxCell>'
+            '<mxCell id="waf" value="WAF" vertex="1" parent="zone_dmz">'
+            '<mxGeometry x="20" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="zone_identity" value="Identity Zone" style="container=1;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="200" height="160" as="geometry"/></mxCell>'
+            '<mxCell id="okta" value="Okta" shape_type="saas_okta" vertex="1" '
+            'parent="zone_identity">'
+            '<mxGeometry x="20" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="zone_private" value="Private App Zone" style="container=1;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="200" height="160" as="geometry"/></mxCell>'
+            '<mxCell id="app" value="App" vertex="1" parent="zone_private">'
+            '<mxGeometry x="20" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            # Edge private -> identity (app fetches credentials) — under the old
+            # edge-first ranking this alone would push private ahead of identity.
+            '<mxCell id="e1" edge="1" parent="1" source="app" target="okta">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        out = enforce_view_journey_columns(page)
+        by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
+        dmz_x = _x(by_id["zone_dmz"])
+        identity_x = _x(by_id["zone_identity"])
+        private_x = _x(by_id["zone_private"])
+        self.assertLess(dmz_x, identity_x, "perimeter must stay left of identity")
+        self.assertLess(identity_x, private_x, "identity must stay left of private despite the backward edge")
+
+    def test_logical_journey_edge_synthesis_skips_already_reachable_target(self) -> None:
+        """5e: Okta -> Portal -> App already connects them; no duplicate Okta -> App edge."""
+        page = _logical(
+            '<mxCell id="emp" value="Employees" shape_type="logical_actor" vertex="1" '
+            'parent="1">'
+            '<mxGeometry x="40" y="100" width="68" height="68" as="geometry"/></mxCell>'
+            '<mxCell id="ok" value="Okta (SAAS)" shape_type="saas_okta" vertex="1" '
+            'parent="1">'
+            '<mxGeometry x="200" y="100" width="68" height="68" as="geometry"/></mxCell>'
+            '<mxCell id="portal" value="HR Portal" shape_type="logical_channel" vertex="1" '
+            'parent="1">'
+            '<mxGeometry x="360" y="100" width="68" height="68" as="geometry"/></mxCell>'
+            '<mxCell id="app" value="Portal App" shape_type="logical_channel" vertex="1" '
+            'parent="1">'
+            '<mxGeometry x="520" y="100" width="68" height="68" as="geometry"/></mxCell>'
+            '<mxCell id="e1" edge="1" parent="1" source="emp" target="ok" value="Authenticates via">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+            '<mxCell id="e2" edge="1" parent="1" source="ok" target="portal" value="Redirects to">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+            '<mxCell id="e3" edge="1" parent="1" source="portal" target="app" value="Invokes">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        out = enforce_view_journey_columns(page)
+        pairs = {
+            (c.get("source"), c.get("target"))
+            for c in ET.fromstring(out).iter("mxCell") if c.get("edge") == "1"
+        }
+        self.assertNotIn(("ok", "app"), pairs)
+        self.assertIn(("ok", "portal"), pairs)
+        self.assertIn(("portal", "app"), pairs)
 
 
 if __name__ == "__main__":

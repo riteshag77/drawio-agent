@@ -30,6 +30,10 @@ _FORBIDDEN_BY_VIEW: dict[str, tuple[str, ...]] = {
     "security": (
         "orders api", "orders capability", "catalog", "checkout", "wireframe",
         "kafka topic", "ui screen", "mobile app", "spa ",
+        # Network-plumbing mechanisms belong to Network, not the trust/control story —
+        # e.g. a NAT Gateway relaying app→SaaS egress is not itself a security control.
+        "nat gateway", "route table", "internet gateway", "subnet",
+        "availability zone", "az-",
     ),
     "data_flow": (
         "waf", "shield", "cognito", "entra", "login", "subnet", "vpc", "vnet",

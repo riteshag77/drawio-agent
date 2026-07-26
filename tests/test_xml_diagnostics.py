@@ -10,6 +10,7 @@ from app.adapters.outbound.diagram.xml_diagnostics import (
     diagnose_xml,
     ensure_leaf_labels,
     ensure_legend_position,
+    ensure_overview_panel_parent_root,
     ensure_overview_panel_position,
     ensure_valid_vertex_geometry,
     remove_cross_cutting_edges,
@@ -705,6 +706,46 @@ class EnsureOverviewPanelPositionTests(unittest.TestCase):
         out = ensure_overview_panel_position(xml)
         model = ET.fromstring(out).find(".//mxGraphModel")
         self.assertGreater(float(model.get("pageHeight")), 1400.0)
+
+
+class EnsureOverviewPanelParentRootTests(unittest.TestCase):
+    """Regression for a defect found via live-generation review (Part 6): a Security
+
+    page had ``overview_panel`` emitted with ``parent="zone_dmz"`` — the LLM applied
+    the view's "every leaf's parent must be its owning zone" rule too literally to
+    this page-level UI cell. Since every downstream consumer (position/size fixers,
+    container shrink-fit) treats the panel's geometry as already absolute, the wrong
+    parent silently balloons that zone's width to engulf the panel.
+    """
+
+    def test_overview_panel_reparented_to_root_with_absolute_geometry(self) -> None:
+        xml = _wrap(
+            '<mxCell id="zone_dmz" value="Perimeter Zone" style="container=1;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="160" y="140" width="200" height="200" as="geometry"/></mxCell>'
+            '<mxCell id="waf" value="WAF" vertex="1" parent="zone_dmz">'
+            '<mxGeometry x="28" y="56" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="overview_panel" value="&lt;div&gt;Title&lt;/div&gt;" '
+            'style="rounded=1;html=1;fillColor=#FFF8E1;" vertex="1" parent="zone_dmz">'
+            '<mxGeometry x="900" y="0" width="400" height="200" as="geometry"/></mxCell>'
+        )
+        out = ensure_overview_panel_parent_root(xml)
+        panel = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "overview_panel")
+        self.assertEqual(panel.get("parent"), "1")
+        geo = panel.find("mxGeometry")
+        # zone_dmz sits at (160, 140) — panel's absolute position is its
+        # zone-relative (900, 0) plus that offset, not the raw relative value.
+        self.assertAlmostEqual(float(geo.get("x")), 1060.0)
+        self.assertAlmostEqual(float(geo.get("y")), 140.0)
+
+    def test_noop_when_already_parent_root(self) -> None:
+        xml = _wrap(
+            '<mxCell id="overview_panel" value="&lt;div&gt;Title&lt;/div&gt;" '
+            'style="rounded=1;html=1;" vertex="1" parent="1">'
+            '<mxGeometry x="900" y="100" width="400" height="200" as="geometry"/></mxCell>'
+        )
+        out = ensure_overview_panel_parent_root(xml)
+        self.assertEqual(out, xml)
 
 
 class EnsureLegendPositionTests(unittest.TestCase):

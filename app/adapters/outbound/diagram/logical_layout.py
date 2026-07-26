@@ -151,6 +151,124 @@ def barycenter_order(
     return order
 
 
+def _ccw(a: tuple[float, float], b: tuple[float, float], c: tuple[float, float]) -> bool:
+    return (c[1] - a[1]) * (b[0] - a[0]) > (b[1] - a[1]) * (c[0] - a[0])
+
+
+def _segs_cross(
+    p1: tuple[float, float], p2: tuple[float, float],
+    p3: tuple[float, float], p4: tuple[float, float],
+) -> bool:
+    if p1 in (p3, p4) or p2 in (p3, p4):
+        return False
+    return _ccw(p1, p3, p4) != _ccw(p2, p3, p4) and _ccw(p1, p2, p3) != _ccw(p1, p2, p4)
+
+
+def _count_rank_order_crossings(
+    ranks: dict[str, int],
+    order: dict[str, int],
+    edges: list[tuple[str, str]],
+) -> int:
+    """Abstract crossing count treating (rank, order) as an (x, y) layout point.
+
+    Cheap proxy used to pick the least-tangled candidate ordering *before*
+    committing to pixel geometry — mirrors ``xml_diagnostics.count_edge_crossings``
+    (same proper-crossing test) but works on the pre-layout rank/order graph so
+    it can be evaluated many times per container without round-tripping XML.
+    """
+    pts: list[tuple[tuple[float, float], tuple[float, float]]] = []
+    for s, t in edges:
+        if s in ranks and t in ranks and s in order and t in order:
+            pts.append(((float(ranks[s]), float(order[s])), (float(ranks[t]), float(order[t]))))
+    crossings = 0
+    for i in range(len(pts)):
+        a1, a2 = pts[i]
+        for j in range(i + 1, len(pts)):
+            b1, b2 = pts[j]
+            if _segs_cross(a1, a2, b1, b2):
+                crossings += 1
+    return crossings
+
+
+def barycenter_order_best(
+    ranks: dict[str, int],
+    edges: list[tuple[str, str]],
+    *,
+    sweeps: int = 4,
+    restarts: int = 3,
+) -> dict[str, int]:
+    """Run ``barycenter_order`` from a few different initial tie-breaks, keep the
+
+    lowest-crossing result. ``barycenter_order`` alone always starts from the
+    same id-ascending tie-break, so its sweeps converge to one local optimum;
+    trying a couple of different starting permutations and scoring each with
+    ``_count_rank_order_crossings`` cheaply escapes bad local optima without
+    needing a real (and much slower) global crossing-minimisation algorithm.
+    """
+    nodes = list(ranks.keys())
+    if not nodes:
+        return {}
+    seeds = [
+        sorted(nodes),
+        sorted(nodes, reverse=True),
+    ]
+    if restarts > 2:
+        # Cheap third seed: shuffle deterministically by hash so it differs
+        # from both sorted orders without importing `random` for one call.
+        seeds.append(sorted(nodes, key=lambda n: (hash(n) & 0xFFFF, n)))
+    seeds = seeds[: max(1, restarts)]
+
+    best_order: dict[str, int] | None = None
+    best_score: int | None = None
+    for seed in seeds:
+        # Seed the rank buckets with this tie-break before sweeping.
+        by_rank: dict[int, list[str]] = defaultdict(list)
+        for n in seed:
+            by_rank[ranks[n]].append(n)
+        order = _barycenter_order_from_seed(by_rank, edges, sweeps)
+        score = _count_rank_order_crossings(ranks, order, edges)
+        if best_score is None or score < best_score:
+            best_order, best_score = order, score
+    return best_order if best_order is not None else barycenter_order(ranks, edges, sweeps)
+
+
+def _barycenter_order_from_seed(
+    by_rank: dict[int, list[str]],
+    edges: list[tuple[str, str]],
+    sweeps: int,
+) -> dict[str, int]:
+    """Same sweep logic as ``barycenter_order`` but from a caller-seeded bucket order."""
+    adj_fwd: dict[str, list[str]] = defaultdict(list)
+    adj_bwd: dict[str, list[str]] = defaultdict(list)
+    ranked_nodes = {n for nodes in by_rank.values() for n in nodes}
+    for s, t in edges:
+        if s in ranked_nodes and t in ranked_nodes:
+            adj_fwd[s].append(t)
+            adj_bwd[t].append(s)
+
+    def _mean_pos(nbrs: list[str], pos: dict[str, int]) -> float:
+        vals = [pos[n] for n in nbrs if n in pos]
+        return sum(vals) / len(vals) if vals else 0.0
+
+    for _ in range(sweeps):
+        sorted_ranks = sorted(by_rank.keys())
+        pos = {n: i for r in sorted_ranks for i, n in enumerate(by_rank[r])}
+        for r in sorted_ranks[1:]:
+            by_rank[r].sort(key=lambda n: (_mean_pos(adj_bwd[n], pos), n))
+            for i, n in enumerate(by_rank[r]):
+                pos[n] = i
+        for r in reversed(sorted_ranks[:-1] if len(sorted_ranks) > 1 else []):
+            by_rank[r].sort(key=lambda n: (_mean_pos(adj_fwd[n], pos), n))
+            for i, n in enumerate(by_rank[r]):
+                pos[n] = i
+
+    order: dict[str, int] = {}
+    for _r, nodes in by_rank.items():
+        for i, n in enumerate(nodes):
+            order[n] = i
+    return order
+
+
 def grid_cols(count: int) -> int:
     if count <= 3:
         return max(1, count)
@@ -189,6 +307,7 @@ def apply_layered_corridor_layout(
     leaf_filter: Callable[[ET.Element], bool],
     keyword_key: Callable[[ET.Element], tuple],
     start_x: float = 160.0,
+    start_y: float = 140.0,
     gap: float = DOMAIN_GAP,
     pitch_x: float = APP_PITCH_X,
     pitch_y: float = APP_PITCH_Y,
@@ -197,7 +316,10 @@ def apply_layered_corridor_layout(
     """Rank corridors by leaf edges, lay tiles by barycenter, write geometry.
 
     ``domain_saas`` / SaaS shelves are excluded from the L→R rank and returned
-    so the caller can anchor them under the Data domain.
+    so the caller can anchor them under the Data domain. Corridor x/height/tile
+    geometry is always **recomputed** here — whatever the LLM emitted for these
+    is a discardable hint, not ground truth, since a hand-guessed layout is
+    exactly what produces the crossing/misalignment defects this engine fixes.
     """
     by_id = {c.get("id"): c for c in cells if c.get("id")}
     ranked = [c for c in corridors if not _is_saas_domain(c)]
@@ -232,8 +354,16 @@ def apply_layered_corridor_layout(
                 c_edges.append(pair)
 
     if c_edges:
+        # Canonical trust/domain/phase order (keyword_key) is a fixed domain invariant —
+        # public→dmz→identity→partner→private→restricted→detect→external_saas (and the
+        # Logical/Data-flow equivalents) must never move because of one incidental edge.
+        # A misplaced leaf (e.g. Secrets Manager drawn under Identity instead of Private)
+        # previously could flip the whole corridor row via edge-derived rank; dependency
+        # data is now only a tiebreaker within the same canonical slot.
         ranks = longest_path_ranks(container_ids, c_edges)
-        ranked.sort(key=lambda c: (ranks.get(c.get("id") or "", 99), keyword_key(c)))
+        ranked.sort(key=lambda c: (
+            keyword_key(c)[0], ranks.get(c.get("id") or "", 99), keyword_key(c)[1],
+        ))
     else:
         ranked.sort(key=keyword_key)
 
@@ -254,6 +384,27 @@ def apply_layered_corridor_layout(
             changed = True
             geo = _cell_geometry(cell) or geo
         x += geo[2] + gap
+
+    # Uniform corridor band: every ranked corridor shares one top y and one
+    # height (the tallest corridor's content), so the row of corridors reads
+    # as a single aligned band instead of a staircase of LLM-guessed heights.
+    if ranked:
+        band_h = 0.0
+        for cell in ranked:
+            geo = _cell_geometry(cell)
+            if geo:
+                band_h = max(band_h, geo[3])
+        for cell in ranked:
+            geom = cell.find("mxGeometry")
+            geo = _cell_geometry(cell)
+            if geom is None or geo is None:
+                continue
+            if abs(geo[1] - start_y) > 1.0:
+                geom.set("y", str(start_y))
+                changed = True
+            if geo[3] < band_h - 1.0:
+                geom.set("height", str(band_h))
+                changed = True
 
     # Anchor SaaS shelf under Data (or rightmost ranked domain).
     if saas_shelves:
@@ -294,7 +445,7 @@ def _layout_tiles_in_container(
 
     if local_edges and len(kids) > 1:
         ranks = longest_path_ranks(kid_ids, local_edges)
-        order = barycenter_order(ranks, local_edges)
+        order = barycenter_order_best(ranks, local_edges)
         # Place by rank as column, order as row — capped to balanced grid.
         max_rank = max(ranks.values(), default=0) + 1
         cols_n = min(grid_cols(len(kids)), max(1, max_rank))

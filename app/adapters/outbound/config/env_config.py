@@ -218,6 +218,26 @@ class EnvConfigAdapter:
         return max(0, self.get_int("XML_REPAIR_MAX_ATTEMPTS", 0))
 
     @property
+    def gap_analysis_enabled(self) -> bool:
+        """When true, run the pre-generation architecture gap-analysis LLM pass.
+
+        Enriches Logical/Security/Data-flow/Network context with defaulted,
+        industry-standard components (security, resilience, observability,
+        data classification) before the primary XML generation call.
+        """
+        return self.get_bool("GAP_ANALYSIS_ENABLED", True)
+
+    @property
+    def libavoid_focused_views(self) -> bool:
+        """When true, route Logical/Security/Data-flow edges via libavoid (MCP) too.
+
+        Previously these pages were excluded from libavoid and left entirely to
+        the local obstacle-aware router. Defaults to True; set false to fall
+        back to local-only routing for focused views.
+        """
+        return self.get_bool("LIBAVOID_FOCUSED_VIEWS", True)
+
+    @property
     def log_format(self) -> str:
         """text | json — file/console log line format."""
         value = (self.get("LOG_FORMAT", "text") or "text").strip().lower()

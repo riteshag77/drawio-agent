@@ -29,6 +29,7 @@ _VIEW_PACK_FILES = {
     "data_flow": "views/data_flow.txt",
 }
 _DOCS_PACK_FILE = "docs/adr_raid.txt"
+_GAP_ANALYSIS_PACK_FILE = "gap_analysis.txt"
 _VIEW_COMMON_FILE = "views/common.txt"  # removed — lenses are self-contained; kept for API compat
 _CORE_PACK_FILE = "core.txt"
 _CONFIG_DIR = EnvConfigAdapter.base_dir() / "config" / "xml_gen"
@@ -151,6 +152,18 @@ def load_core_pack() -> str:
     if path.is_file():
         return path.read_text(encoding="utf-8")
     return ""
+
+
+def load_gap_analysis_prompt_pack() -> str:
+    path = _CONFIG_DIR / _GAP_ANALYSIS_PACK_FILE
+    if path.is_file():
+        return path.read_text(encoding="utf-8")
+    return (
+        "You are a senior enterprise architect. Given a short brief, default any "
+        "missing security, resilience, observability, and data-classification "
+        "components using industry-standard practice, and record each default as "
+        "an explicit, low-ceremony assumption. Never invent numbers as fact."
+    )
 
 
 def load_view_common_pack() -> str:
@@ -756,6 +769,7 @@ def build_single_view_human(
     primary_xml: str | None = None,
     primary_xml_summary: list[str] | None = None,
     inventory_text: str | None = None,
+    gap_block: str | None = None,
 ) -> str:
     title = VIEW_PAGE_NAMES.get(view, view)
     if inventory_text is None:
@@ -776,12 +790,14 @@ def build_single_view_human(
                 "Key flows (from Network — re-label by THIS view's lens):\n- (none)"
             )
     briefing = _VIEW_BRIEFING.get(view, "")
+    gap_section = f"{gap_block}\n" if gap_block else ""
     return (
         f"Platform: {platform}\n"
         f"Original request (truncate ok): {human_prompt[:_REQUEST_TRUNCATE_VIEW]}\n"
         f"{briefing}\n"
         "Architecture inventory (from Network/primary — ground truth):\n"
         f"{inventory_text}\n"
+        f"{gap_section}"
         f"Produce ONE page named `{title}` only.\n"
         "This page MUST be visually and narratively distinct from the other view tabs.\n"
         "Return complete draw.io XML in xml + step_markers."
@@ -808,6 +824,74 @@ def build_extra_views_human(
 
 
 _EXTRA_VIEW_SYSTEM = _SINGLE_VIEW_SYSTEM_PREFIX  # backward-compatible alias
+
+
+class RequiredAddition(BaseModel):
+    """One architecturally-necessary component the brief omitted."""
+
+    component: str
+    viewpoint: str = "generic"  # security | resilience | observability | data | network | cost
+    why: str = ""
+    applies_to_views: list[str] = Field(default_factory=list)  # logical|network|security|data_flow
+
+
+class GapAssumption(BaseModel):
+    """One explicit, defensible default the gap-analysis pass took."""
+
+    id: str
+    assumption: str
+    confidence: str = "medium"  # high | medium | low
+    severity: str = "medium"  # low | medium | high | critical
+
+
+class GapAnalysisResult(BaseModel):
+    """Pre-generation architecture gap-analysis enrichment.
+
+    Deliberately compact — this is prompt-context for the diagram generator,
+    not an ARB deliverable. See ``config/xml_gen/gap_analysis.txt`` for the
+    full viewpoint checklist this is derived from.
+    """
+
+    primary_capability: str = ""
+    inferred_domain: str = ""  # ecommerce | saas | fintech | healthcare | insurance | generic | ...
+    diagram_altitude: str = "container"  # context | container | component | deployment
+    in_scope: list[str] = Field(default_factory=list)
+    out_of_scope: list[str] = Field(default_factory=list)
+    required_additions: list[RequiredAddition] = Field(default_factory=list)
+    assumptions: list[GapAssumption] = Field(default_factory=list)
+    nfr_summary: dict[str, str] = Field(default_factory=dict)
+
+
+def build_gap_analysis_block(result: "GapAnalysisResult | None", views: list[str] | None = None) -> str:
+    """Flatten a ``GapAnalysisResult`` into a compact prompt-text block.
+
+    Filters ``required_additions`` to the views actually being rendered (a
+    Security-only addition shouldn't bloat the Data-flow prompt). Returns
+    ``""`` when there is nothing to say, so callers can safely append this to
+    ``context_parts`` unconditionally.
+    """
+    if result is None:
+        return ""
+    selected = set(normalize_diagram_views(views)) if views else None
+    lines: list[str] = ["Architecture gap analysis (defaulted — treat as authoritative unless the request contradicts it):"]
+    if result.primary_capability:
+        lines.append(f"- Primary capability: {result.primary_capability}")
+    if result.in_scope:
+        lines.append(f"- In scope: {', '.join(result.in_scope)}")
+    if result.out_of_scope:
+        lines.append(f"- Out of scope (do not draw): {', '.join(result.out_of_scope)}")
+    additions = [
+        a for a in result.required_additions
+        if not selected or not a.applies_to_views or selected & set(a.applies_to_views)
+    ]
+    for a in additions:
+        why = f" — {a.why}" if a.why else ""
+        lines.append(f"- Add ({a.viewpoint}): {a.component}{why}")
+    if result.nfr_summary:
+        nfr_bits = "; ".join(f"{k}={v}" for k, v in result.nfr_summary.items() if v)
+        if nfr_bits:
+            lines.append(f"- NFRs: {nfr_bits}")
+    return "\n".join(lines) if len(lines) > 1 else ""
 
 
 class AdrRecord(BaseModel):
