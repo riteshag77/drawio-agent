@@ -343,13 +343,18 @@ def _platform_style_predicate(platform: str):
     platform = (platform or "aws").lower()
     if platform == "logical":
         def _logical_ok(low: str) -> bool:
+            # People / portal icons: AWS4 users/client render reliably in the iframe.
+            if "resicon=mxgraph.aws4.users" in low or "resicon=mxgraph.aws4.client" in low:
+                return True
+            if "resicon=mxgraph.aws4.mobile_client" in low:
+                return True
             if _is_cloud_vendor_style(low):
                 return False
             return any(
                 token in low
                 for token in (
                     "umlactor", "cylinder", "rounded=1", "ellipse",
-                    "mxgraph.basic", "flowchart", "shape=mxgraph",
+                    "mxgraph.basic", "flowchart", "shape=mxgraph", "hexagon",
                 )
             ) or ("shape=" in low and "resicon=" not in low)
         return _logical_ok
@@ -369,9 +374,9 @@ def _pick_style(styles: list[str], platform: str = "aws", shape_type: str = "") 
     st = (shape_type or "").lower()
     # Prefer exact resourceIcon match for external actors when MCP returns a list.
     prefer_token = ""
-    if st in ("aws_users", "aws_user", "users", "user"):
+    if st in ("aws_users", "aws_user", "users", "user", "logical_actor"):
         prefer_token = "resicon=mxgraph.aws4.users"
-    elif st in ("aws_client", "client"):
+    elif st in ("aws_client", "client", "logical_channel"):
         prefer_token = "resicon=mxgraph.aws4.client"
     if prefer_token:
         for style in styles:
@@ -379,10 +384,23 @@ def _pick_style(styles: list[str], platform: str = "aws", shape_type: str = "") 
                 pick = style if style.endswith(";") else style + ";"
                 return pick
     prefer = _platform_style_predicate(platform)
-    # Logical: never accept cloud vendor icons even as first hit
+    # Logical: allow AWS4 users/client for people/portals; reject other cloud icons
     if platform == "logical" or st.startswith("logical_"):
-        non_cloud = [s for s in styles if not _is_cloud_vendor_style(s)]
-        candidates = non_cloud or []
+        allow_people = st in {
+            "logical_actor", "logical_channel", "aws_users", "aws_user", "aws_client",
+        }
+
+        def _keep(s: str) -> bool:
+            low = s.lower()
+            if allow_people and (
+                "resicon=mxgraph.aws4.users" in low
+                or "resicon=mxgraph.aws4.client" in low
+                or "resicon=mxgraph.aws4.mobile_client" in low
+            ):
+                return True
+            return not _is_cloud_vendor_style(s)
+
+        candidates = [s for s in styles if _keep(s)]
         pick = None
         for style in candidates:
             if prefer(style.lower()):

@@ -252,7 +252,7 @@ class ViewPackQualityTests(unittest.TestCase):
         self.assertIn("overview_panel", logical)
         self.assertIn("step_markers", logical)
         self.assertIn("Logical", logical)
-        self.assertIn("Bounded Contexts", logical)
+        self.assertIn("Canonical Logical Structure", logical)
         self.assertIn("Invokes", logical)
         self.assertIn("FORBIDDEN", logical)
         self.assertIn("Application / Solution Architect", logical)
@@ -406,9 +406,10 @@ class ViewEnrichmentFixerTests(unittest.TestCase):
         self.assertEqual(by_id["user"].get("shape_type"), "logical_actor")
         self.assertIn("DAE8FC", by_id["ord"].get("style") or "")
         self.assertIn("cylinder", (by_id["ds"].get("style") or "").lower())
-        self.assertIn("umlActor", by_id["user"].get("style") or "")
+        self.assertIn("mxgraph.aws4.users", by_id["user"].get("style") or "")
         self.assertNotIn("aws_ecs", out)
-        self.assertNotIn("mxgraph.aws4", out)
+        # People icons use AWS4 users on purpose (umlActor renders empty in embed).
+        self.assertNotIn("resIcon=mxgraph.aws4.lambda", out)
 
     def test_logical_role_edge_cases(self) -> None:
         from app.adapters.outbound.diagram.architecture_docs import (
@@ -420,6 +421,8 @@ class ViewEnrichmentFixerTests(unittest.TestCase):
         self.assertEqual(_logical_leaf_role("Customer data store"), "datastore")
         self.assertEqual(_logical_leaf_role("Admin portal"), "channel")
         self.assertEqual(_logical_leaf_role("Mobile app"), "channel")
+        self.assertEqual(_logical_leaf_role("Application"), "channel")
+        self.assertEqual(_logical_leaf_role("HR Application"), "channel")
         self.assertEqual(_logical_leaf_role("Okta"), "saas")
         self.assertEqual(_logical_leaf_role("Auth0 IdP"), "saas")
         self.assertEqual(_logical_leaf_role("Orders BFF"), "api")

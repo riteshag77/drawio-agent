@@ -46,7 +46,7 @@ def test_network_pack_loaded_for_primary():
 def test_logical_primary_skips_network_hierarchy():
     prompt = get_xml_gen_system_prompt(platform="aws", primary_view="logical")
     assert "Canonical Container Hierarchy" not in prompt
-    assert "Bounded Contexts" in prompt or "business capabilities" in prompt.lower()
+    assert "Canonical Logical Structure" in prompt or "JOURNEY SPINE" in prompt
     # Logical primary must not load cloud classify/icon packs (anti-mix).
     assert "Service Classification — AWS" not in prompt
     assert "logical_*" in prompt.lower() or "logical_" in prompt

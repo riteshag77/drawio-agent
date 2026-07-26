@@ -1286,12 +1286,13 @@ def _logical_leaf_role(label: str) -> str:
         "catalog store", "payment store",
     )) or (low.endswith(" store") and "app store" not in low):
         return "datastore"
-    # Experience surfaces before personas ("Admin portal", "Ops portal").
+    # Experience surfaces before personas ("Admin portal", "Ops portal", "Application").
     if any(x in low for x in (
         "channel", "frontend", "portal", "mobile", "web ui", "spa",
         "experience app", "web app", "mobile app", "admin console",
         "employee portal", "hr portal", "corporate portal",
-    )):
+        "web application", "mobile application",
+    )) or low in {"application", "app", "the application", "hr application"}:
         return "channel"
     # External IdP / SaaS products (not in-house Identity capability).
     if _label_looks_like_saas(label):

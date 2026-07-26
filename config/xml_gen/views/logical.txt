@@ -1,8 +1,8 @@
-## Logical architecture view (this call only)
+## Logical architecture view (this pack only)
 
-Page name: **`Logical`**
+Use this pack **with** the shared CORE craft. Page name: **`Logical`**.
 
-**Owns:** capability/dependency briefing for eng leads. **Does not own:** VPC nesting (Network), trust zones (Security), payload novels (Data flow), draw mechanics (CORE).
+**Owns:** capability/dependency briefing for eng leads. **Does not own:** VPC nesting (Network), trust zones (Security), payload novels (Data flow).
 
 ### Your role
 **Principal Application / Solution Architect (25+ years).** Brief eng leads on **what the system does** and **how capabilities depend** — not infrastructure.
@@ -11,54 +11,120 @@ Page name: **`Logical`**
 60-second design-authority brief: domains, capabilities, collaboration story.
 Not for: CISO, data engineers, FinOps. If this looks like a VPC map or trust-zone diagram after blurring the title → fail.
 
-### Canvas (clean)
-- Group by **Bounded Contexts / Business Domains** (`domain_experience`, `domain_commerce`, …) laid out **left → right** (channels/personas → app capabilities → data → External SaaS).
-- **REQUIRED journey spine when auth or external SaaS appears:** draw a **persona/actor (or channel) on the LEFT** — never start the story at a data store or IdP alone.
-- When **2+ external apps** appear (Salesforce, SuccessFactors, Workday, Guidewire, …), also use **`domain_saas` — External SaaS** (Logical capability grouping only — Network stays ungrouped by journey).
-- Inside `domain_saas`, stack apps **vertically** (top→bottom by journey role: identity → experience → workforce → industry → payments → collab) — not a horizontal row.
-- **FORBIDDEN grouping:** trust zones (`zone_public`, `zone_dmz`, DMZ, Highly restricted as Security wallpaper).
-- **No** `note_*` / `ctrl_*` prose cards. Story → Overview + `step_markers` badges on domain/capability anchors.
-- **Legend (recommended):** `(SAAS)` = external application; brand glyphs when vendor is known.
-- Never parent any service leaf under `overview_panel`. Never put `shape=image` / `saas_*` on `overview_panel`.
+---
 
-### External SaaS (REQUIRED when present)
-- Each external product is its **own leaf**, labeled **`{Product} (SAAS)`** e.g. `Salesforce (SAAS)`, `Workday (SAAS)`.
-- Prefer `shape_type=saas_<vendor>` from the enterprise SaaS catalog (e.g. `saas_salesforce`) — server merges curated stencil icons. Unknown vendor → generic yellow `logical_saas`.
-- Prefer placing those leaves inside `domain_saas` when there are two or more.
+## Canonical Logical Structure — STRICT (CRITICAL)
+
+Every domain box must be a real container (`parent="1"`). Leaves nest with `parent=<domain-id>` and **relative** child geometry. Spine actors / IdP / portal sit on `parent="1"` (outside domains), like Network’s Users/SaaS outside Cloud.
+
+```
+[Persona] → [Okta / IdP (SAAS)] → [Portal / Application]     ← JOURNEY SPINE (parent="1", tight L→R)
+                                                              ↓
+[domain_experience] → [domain_core / commerce] → [domain_data] → [domain_saas]
+   channels/APIs         capabilities (apps)       stores         other SaaS (vertical)
+```
+
+**Spine rules (Network-inspired call path):**
+1. When auth or external SaaS appears: **Persona → Identity SaaS → Portal/Application** on one horizontal band — never start at a data store or IdP alone.
+2. Gaps on the spine: **~one icon width (~36–48px)** between icons — **FORBIDDEN** empty 300+ px corridors between Employees and Okta.
+3. Okta/SSO prefers the spine (left), not buried only inside `domain_saas`.
+4. **Egress SaaS** (Workday, SuccessFactors, Guidewire, payments, …) live in **`domain_saas`** when 2+ external apps appear — stack **vertically** by journey role.
+
+**Domain wrap rules:**
+1. Create domain containers first (`domain_experience`, `domain_core`, `domain_commerce`, `domain_data`, `domain_platform`, `domain_saas`). Size with **tight** shrink-wrap: pad **20–28px** sides/bottom, **≥48px** top for title — no huge empty regions.
+2. **Omit empty domain shells** — if a domain has zero leaves, do not emit it.
+3. Domains lay out **left → right** on `parent="1"` (experience → core → data → saas).
+4. Child geometry is **relative to the domain** — never absolute canvas coords for nested leaves.
+5. **FORBIDDEN:** trust zones (`zone_public`, `zone_dmz`, DMZ, Highly restricted). **FORBIDDEN:** `note_*` / `ctrl_*` prose cards.
+
+---
+
+## Application / capability grid (CRITICAL — like Network service grid)
+
+Inside every **non-SaaS** domain (experience / core / commerce / data / platform):
+
+- **MAX 4 applications (capabilities / APIs / channels) per horizontal row**
+- When adding a 5th: place on the **next row below** — never squeeze a 5th into the first row
+- Pitch: ~**180–200px** horizontal, ~**110–130px** vertical between rows
+- Align columns ruthlessly across rows (same x for col 0 / 1 / 2 / 3)
+- Data stores in `domain_data` follow the same wrap rule
+
+`domain_saas` is the exception: stack SaaS **vertically** (one column), not 4-across.
+
+---
+
+## Logical Artist Principles
+
+1. **One primary story:** Persona → auth (if any) → portal → capabilities → data → external SaaS. Secondary deps are sparse.
+2. Nest only real business domains — not infra boundaries.
+3. Inventory ≠ mesh — do not draw every-to-every edges.
+4. Align ruthlessly — spine on one Y; peer domain tops aligned when possible.
+
+---
+
+## External SaaS (REQUIRED when present)
+
+- Each product is its **own leaf**, labeled **`{Product} (SAAS)`** e.g. `Okta (SAAS)`, `Workday (SAAS)`.
+- Prefer `shape_type=saas_<vendor>` from the enterprise SaaS catalog. Unknown → generic yellow `logical_saas`.
+- Prefer `domain_saas` when there are **two or more** egress products.
 - Do **not** invent `resIcon=` / AWS/GCP/Azure stencils for SaaS leaves.
 
-### ALLOWED nodes
-Personas/actors, channels/portals, capabilities (business verbs), BFF/API as interface, SaaS deps as above, generic data stores (“Customer data store” — not Postgres/Aurora names), shared platform capabilities when present.
-Server assigns `logical_*` for non-SaaS roles; use `saas_*` for known external products. Do **not** emit cloud `shape_type` (aws_*/gcp_*/azure_*).
+---
 
-### ALLOWED edges (every edge labeled)
-`Uses`, `Authenticates via`, `Invokes`, `Calls API`, `Relies on`, `Reads/Writes via API` — never TLS/WAF/JSON payload tours.
-**Canonical auth journey:** `Persona/channel → Okta (SAAS)` with `Authenticates via`, then `→ capability/BFF`.  
-**Canonical data journey:** `capability → Customer data store` with `Reads/Writes via API`.  
+## ALLOWED nodes
+
+Personas/actors, channels/portals/applications, capabilities (business verbs), BFF/API as interface, SaaS as above, generic data stores (“Customer data store” — not Postgres/Aurora names), shared platform when present.
+
+Server assigns people/portal icons and `logical_*` styles — emit plain grey placeholders with clear labels (`Employees`, `HR Portal`, `Application`). Use `saas_*` for known vendors. Do **not** emit cloud `shape_type` (aws_*/gcp_*/azure_*) or empty umlActor boxes.
+
+## ALLOWED edges (every edge labeled)
+
+`Uses`, `Authenticates via`, `Invokes`, `Calls API`, `Relies on`, `Reads/Writes via API`, `Redirects to` — never TLS/WAF/JSON payload tours.
+
+**Canonical auth journey:** `Persona → Okta (SAAS)` (`Authenticates via`) → `Portal/Application` (`Redirects to`) → capability/BFF.  
+**Canonical data journey:** `capability → Customer data store` (`Reads/Writes via API`).  
 **FORBIDDEN edges:** data store → Okta/IdP; Okta → data store; every-to-every mesh.
 
-### Arrow / line craft (CRITICAL — readability)
-- Sparse path only: primary dependency story; no every-to-every mesh.
-- Orthogonal edges; exit/entry from relative placement (right→left / below→above) — never stack all anchors at 0.5.
-- Every labeled edge **must** include `labelBackgroundColor=#F5F5F5;fontSize=11;fontColor=#333333` so text is readable over lines and icons.
-- Short labels (1–4 words). Park label mid-corridor — **never** on top of a leaf icon or domain title.
-- Parallel edges in the same corridor: offset / spread faces (0.25 / 0.5 / 0.75); leave clear white space between nodes (pitch rules from CORE).
-- Prefer L→R / top→bottom reading; **route elbows around** intervening boxes — never draw a straight connector through another capability or SaaS icon.
+### Arrow / line craft (CRITICAL)
+- Sparse path only; orthogonal edges; face anchors from relative placement (never all 0.5).
+- Every labeled edge **must** include `labelBackgroundColor=#F5F5F5;fontSize=11;fontColor=#333333`.
+- Short labels (1–4 words). Park mid-corridor — **never** on a leaf icon or domain title.
+- Parallel edges: spread faces (0.25 / 0.5 / 0.75). Route elbows **around** intervening boxes.
 
-### FORBIDDEN nodes
+---
+
+## FORBIDDEN nodes
 WAF/Shield/VPC/subnet/AZ/NAT/bastion, CDN/ALB/NLB/Route53 as products, DB/queue product heroes, encryption/IAM spaghetti, trust-zone containers.
 
-### Density
+## Density
 8–12 nodes when inventory supports; 5–7 when thin — never invent domains to pad.
 
-### Section colors (containers)
+## Section colors (containers)
 Client/channel `#F5F5F5/#666666`; application `#DAE8FC/#6C8EBF`; data `#D5E8D4/#82B366`; identity `#E1D5E7/#9673A6`; platform/obs `#DAE8FC/#147EBA`; External SaaS shelf `#FFF2CC/#D6B656`. Always `arcSize=2`.
 
-### Overview (plain language) + badges
-Title: `Logical architecture — {system}`
-Steps = **who starts (persona)** → how they authenticate (if Okta/SSO) → owning domain → capability handoffs → where state lives → external SaaS if material.
-Footer OK: `Out of scope: network topology, trust controls, payloads (other tabs).`
-Emit `step_markers` for steps with a clear cell id.
+## Overview + badges
+Title: `Logical architecture — {system}`  
+Steps = persona → authenticate (if Okta) → owning domain → capability handoffs → state → external SaaS if material.  
+Footer OK: `Out of scope: network topology, trust controls, payloads (other tabs).`  
+Emit `step_markers` on **persona / portal / domain** anchors — **never** on SaaS brand icons.  
+Never parent leaves under `overview_panel`. Never put `shape=image` / `saas_*` on `overview_panel`.
 
-### Quality bar
-Domains + dependencies only. Missing persona when Okta/SaaS present = fail. Data store → IdP edge = fail. Unlabeled edges = fail. Labels over icons / unreadable line text = fail. Zones or note/ctrl cards = fail.
+---
+
+## Anti-Patterns — FORBIDDEN (Logical)
+
+1. Empty people/portal boxes (leave grey placeholders; server paints icons)
+2. Huge Employee ↔ Okta gap; Okta with no Redirects-to portal/app
+3. 5+ apps in one horizontal row inside a domain
+4. Empty domain shells kept only for alignment
+5. Trust zones / note/ctrl cards / store → IdP edges
+6. Step badges parked on SaaS icons
+
+## Self-Check (must pass before return — Logical)
+
+1. Spine present when Okta/SaaS appears: Persona → IdP → Portal/App with tight gaps?
+2. Every non-SaaS domain has ≤4 apps per row; 5th+ wrapped to next row?
+3. `domain_saas` (if any) is vertical; Okta prefers spine?
+4. All edges labeled; no store→IdP; no every-to-every mesh?
+5. No empty domain shells; no trust zones; badges not on SaaS?
+6. All domain containers use `arcSize=2`?

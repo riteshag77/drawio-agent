@@ -418,6 +418,12 @@ _SAAS_LANE_GAP = 40.0
 _SAAS_ICON = 78.0
 _SAAS_PITCH_X = 100.0
 _SAAS_PITCH_Y = 110.0
+# Logical domain apps: Network-style service grid (max 4 across, then next row).
+_LOGICAL_APP_MAX_COLS = 4
+_LOGICAL_APP_PITCH_X = 180.0
+_LOGICAL_APP_PITCH_Y = 120.0
+_LOGICAL_APP_BASE_X = 24.0
+_LOGICAL_APP_BASE_Y = 48.0
 _ACTOR_COL_X = 20.0
 _MEGA_SAAS_LABEL_HINTS = (
     "external saas", "enterprise saas", "saas apps", "saas applications",
@@ -553,10 +559,10 @@ def fix_edge_anchors_from_geometry(xml: str) -> str:
 
     # CORE parallel-corridor offset: stagger Dx/Dy so stacked orthogonal paths separate.
     for corridor, group in corridor_buckets.items():
-        if len(group) < 2 and not is_logical:
+        if len(group) < 2:
             continue
         axis = corridor[0]
-        n = max(1, len(group))
+        n = len(group)
         for i, edge in enumerate(group):
             offset = (i - (n - 1) / 2.0) * parallel_px
             style = edge.get("style") or ""
@@ -567,33 +573,22 @@ def fix_edge_anchors_from_geometry(xml: str) -> str:
             edge.set("style", _set_style_kv(style, updates))
             changed = True
 
-            # Logical: route via a clear horizontal/vertical band so lines
-            # do not cut through other service boxes between source and target.
-            if not is_logical:
+            # Logical: light elbow only for parallel edges (avoid huge detours).
+            if not is_logical or n < 2:
                 continue
             eid = edge.get("id") or ""
             meta = edge_meta.get(eid)
             if not meta:
                 continue
-            band = (i - (n - 1) / 2.0) * _LOGICAL_EDGE_ROUTE_GAP
+            band = (i - (n - 1) / 2.0) * 28.0
             if meta["axis"] == "h":
-                # Elbow above or below the higher node row.
                 top = min(meta["sy"], meta["ty"])
-                bottom = max(meta["sy"] + meta["sh"], meta["ty"] + meta["th"])
-                # Prefer above when band <= 0, below when band > 0
-                if band <= 0:
-                    wy = top - _LOGICAL_EDGE_ROUTE_GAP + band
-                else:
-                    wy = bottom + _LOGICAL_EDGE_ROUTE_GAP + band
+                wy = top - 36.0 - abs(band)
                 mid_x = (meta["scx"] + meta["tcx"]) / 2.0
                 _set_edge_waypoints(edge, [(mid_x, wy)])
             else:
                 left = min(meta["sx"], meta["tx"])
-                right = max(meta["sx"] + meta["sw"], meta["tx"] + meta["tw"])
-                if band <= 0:
-                    wx = left - _LOGICAL_EDGE_ROUTE_GAP + band
-                else:
-                    wx = right + _LOGICAL_EDGE_ROUTE_GAP + band
+                wx = left - 36.0 - abs(band)
                 mid_y = (meta["scy"] + meta["tcy"]) / 2.0
                 _set_edge_waypoints(edge, [(wx, mid_y)])
             changed = True
@@ -1020,6 +1015,72 @@ def _phase_corridor_key(cell: ET.Element) -> tuple[int, str]:
     return (1, label)
 
 
+def _grid_logical_domain_apps(domain: ET.Element, cells: list[ET.Element]) -> bool:
+    """Lay out non-SaaS leaves in a domain: max 4 across, then wrap to next row.
+
+    Mirrors Network's service-grid rule. ``domain_saas`` stays vertical via
+    ``_sort_saas_children_in_shelf`` and is skipped here.
+    """
+    did = (domain.get("id") or "").lower()
+    if did.startswith("domain_saas") or "saas" in did:
+        return False
+    kids = [
+        c for c in cells
+        if c.get("parent") == domain.get("id")
+        and c.get("vertex") == "1"
+        and c.get("edge") != "1"
+        and not _is_container_cell(c)
+        and not _is_saas_leaf_cell(c)
+        and not (c.get("id") or "").startswith("step_badge_")
+    ]
+    if len(kids) < 1:
+        return False
+    # Stable reading order: existing top→left, then grid.
+    kids.sort(key=lambda c: (
+        (_cell_geometry(c) or (0, 0, 0, 0))[1],
+        (_cell_geometry(c) or (0, 0, 0, 0))[0],
+        c.get("id") or "",
+    ))
+    changed = False
+    for i, kid in enumerate(kids):
+        col = i % _LOGICAL_APP_MAX_COLS
+        row = i // _LOGICAL_APP_MAX_COLS
+        x = _LOGICAL_APP_BASE_X + col * _LOGICAL_APP_PITCH_X
+        y = _LOGICAL_APP_BASE_Y + row * _LOGICAL_APP_PITCH_Y
+        geom = kid.find("mxGeometry")
+        if geom is None:
+            continue
+        try:
+            cur_x = float(geom.get("x") or 0)
+            cur_y = float(geom.get("y") or 0)
+        except ValueError:
+            cur_x, cur_y = 0.0, 0.0
+        if abs(cur_x - x) > 0.5 or abs(cur_y - y) > 0.5:
+            geom.set("x", str(x))
+            geom.set("y", str(y))
+            changed = True
+    # Grow domain so wrapped rows are not clipped.
+    if kids:
+        rows = (len(kids) - 1) // _LOGICAL_APP_MAX_COLS + 1
+        cols = min(len(kids), _LOGICAL_APP_MAX_COLS)
+        needed_w = _LOGICAL_APP_BASE_X + cols * _LOGICAL_APP_PITCH_X + 20.0
+        needed_h = _LOGICAL_APP_BASE_Y + rows * _LOGICAL_APP_PITCH_Y + 24.0
+        shelf_geo = domain.find("mxGeometry")
+        if shelf_geo is not None:
+            try:
+                cur_w = float(shelf_geo.get("width") or 0)
+                cur_h = float(shelf_geo.get("height") or 0)
+            except ValueError:
+                cur_w, cur_h = 0.0, 0.0
+            if cur_w < needed_w:
+                shelf_geo.set("width", str(needed_w))
+                changed = True
+            if cur_h < needed_h:
+                shelf_geo.set("height", str(needed_h))
+                changed = True
+    return changed
+
+
 def _sort_saas_children_in_shelf(
     shelf: ET.Element,
     cells: list[ET.Element],
@@ -1150,6 +1211,9 @@ def enforce_view_journey_columns(xml: str) -> str:
             if abs(geo[0] - x) > 1.0:
                 geom.set("x", str(x))
                 changed = True
+            if page_name == "logical" and _grid_logical_domain_apps(cell, cells):
+                changed = True
+                geo = _cell_geometry(cell) or geo
             if _sort_saas_children_in_shelf(cell, cells, vertical=vertical_saas):
                 changed = True
                 # Width may have shrunk for SaaS column — re-read before advancing x
@@ -1157,12 +1221,14 @@ def enforce_view_journey_columns(xml: str) -> str:
             x += geo[2] + gap
     else:
         for cell in corridors:
+            if page_name == "logical" and _grid_logical_domain_apps(cell, cells):
+                changed = True
             if _sort_saas_children_in_shelf(cell, cells, vertical=vertical_saas):
                 changed = True
 
-    # Root-level SaaS on focused views: vertical stack (Logical) beside first corridor.
+    # Root-level SaaS on focused views: vertical stack beside first corridor.
     root_saas = [c for c in cells if _is_saas_leaf_cell(c) and c.get("parent") == "1"]
-    if root_saas:
+    if root_saas and page_name != "logical":
         from app.adapters.outbound.diagram.architecture_docs import saas_journey_sort_key
 
         root_saas.sort(key=lambda c: saas_journey_sort_key(_shape(c), _plain_label(c)))
@@ -1190,9 +1256,215 @@ def enforce_view_journey_columns(xml: str) -> str:
                 geom.set("y", str(y))
                 changed = True
 
+    if page_name == "logical":
+        if _layout_logical_journey_spine(root, cells):
+            changed = True
+        if _ensure_logical_journey_edges(root, cells):
+            changed = True
+
     if not changed:
         return xml
     return _serialize_docroot(tree, root, is_mxfile, trimmed)
+
+
+def _is_logical_actor_cell(cell: ET.Element) -> bool:
+    st = _shape(cell)
+    if st == "logical_actor":
+        return True
+    from app.adapters.outbound.diagram.architecture_docs import _logical_leaf_role
+    return _logical_leaf_role(_plain_label(cell)) == "actor"
+
+
+def _is_logical_channel_cell(cell: ET.Element) -> bool:
+    st = _shape(cell)
+    if st == "logical_channel":
+        return True
+    from app.adapters.outbound.diagram.architecture_docs import _logical_leaf_role
+    return _logical_leaf_role(_plain_label(cell)) == "channel"
+
+
+def _is_identity_saas_cell(cell: ET.Element) -> bool:
+    st = _shape(cell)
+    if st == "saas_okta":
+        return True
+    low = _plain_label(cell)
+    return _is_saas_leaf_cell(cell) and any(
+        x in low for x in ("okta", "auth0", "idp", "sso", "entra")
+    )
+
+
+def _layout_logical_journey_spine(root: ET.Element, cells: list[ET.Element]) -> bool:
+    """Compact Network-inspired spine: Actor → Okta → Portal → domains (tight gaps)."""
+    leaves = [
+        c for c in cells
+        if c.get("vertex") == "1" and c.get("edge") != "1" and not _is_container_cell(c)
+        and (c.get("id") or "") not in {"overview_panel", "legend_box"}
+        and not (c.get("id") or "").startswith("step_badge_")
+    ]
+    actors = [c for c in leaves if _is_logical_actor_cell(c)]
+    channels = [c for c in leaves if _is_logical_channel_cell(c)]
+    id_saas = [c for c in leaves if _is_identity_saas_cell(c)]
+    other_saas = [
+        c for c in leaves
+        if _is_saas_leaf_cell(c) and c not in id_saas
+    ]
+
+    # Hoist spine leaves to parent=1 with absolute coords so gaps are controllable.
+    by_id = {c.get("id"): c for c in cells if c.get("id")}
+    changed = False
+    for cell in actors + channels + id_saas + other_saas:
+        if cell.get("parent") not in (None, "1"):
+            # Keep non-identity SaaS nested in domain shelves.
+            if cell in other_saas:
+                continue
+            # Hoist actors, portals, and Okta onto the journey spine.
+            ax, ay = absolute_position(cell, by_id)
+            cell.set("parent", "1")
+            geom = cell.find("mxGeometry")
+            if geom is not None:
+                geom.set("x", str(ax))
+                geom.set("y", str(ay))
+            changed = True
+
+    # Refresh lists for parent=1 placement
+    actors = [c for c in actors if c.get("parent") == "1"]
+    channels = [c for c in channels if c.get("parent") == "1"]
+    id_saas = [c for c in id_saas if c.get("parent") == "1"]
+
+    spine_y = 100.0
+    x = 40.0
+    gap = 36.0
+    icon = 64.0
+
+    def _park(group: list[ET.Element], start_x: float) -> float:
+        nonlocal changed
+        cx = start_x
+        for i, cell in enumerate(group):
+            geom = cell.find("mxGeometry")
+            if geom is None:
+                continue
+            tx, ty = cx, spine_y + i * 0  # single row for spine roles
+            if len(group) > 1 and group is actors:
+                ty = spine_y + i * _SAAS_PITCH_Y
+            try:
+                cur_x = float(geom.get("x") or 0)
+                cur_y = float(geom.get("y") or 0)
+            except ValueError:
+                cur_x, cur_y = 0.0, 0.0
+            if abs(cur_x - tx) > 1.0 or abs(cur_y - ty) > 1.0:
+                geom.set("x", str(tx))
+                geom.set("y", str(ty))
+                geom.set("width", str(icon))
+                geom.set("height", str(icon))
+                changed = True
+            if group is actors and len(group) > 1:
+                continue  # stacked — same x
+            cx += icon + gap
+        if group is actors and group:
+            return start_x + icon + gap
+        return cx if group else start_x
+
+    x = _park(actors[:2], x)  # at most two actor icons on spine
+    x = _park(id_saas[:2], x)
+    x = _park(channels[:2], x)
+
+    # Pull domain containers close to the spine (no huge empty gap).
+    domains = [
+        c for c in cells
+        if _is_container_cell(c)
+        and c.get("parent") == "1"
+        and (c.get("id") or "").startswith("domain_")
+    ]
+    domains.sort(key=_domain_corridor_key)
+    dx = max(x + 20.0, 280.0)
+    for cell in domains:
+        geom = cell.find("mxGeometry")
+        geo = _cell_geometry(cell)
+        if geom is None or geo is None:
+            continue
+        if abs(geo[0] - dx) > 1.0 or abs(geo[1] - 60.0) > 40.0:
+            geom.set("x", str(dx))
+            if geo[1] > 200 or geo[1] < 40:
+                geom.set("y", "60")
+            changed = True
+        # Apps: max-4 horizontal wrap; SaaS shelf: vertical column.
+        if (cell.get("id") or "").startswith("domain_saas"):
+            _sort_saas_children_in_shelf(cell, cells, vertical=True)
+        else:
+            _grid_logical_domain_apps(cell, cells)
+        geo = _cell_geometry(cell) or geo
+        dx += geo[2] + 32.0
+
+    return changed
+
+
+def _ensure_logical_journey_edges(root: ET.Element, cells: list[ET.Element]) -> bool:
+    """Add missing Actor→Okta and Okta→Portal edges for a readable auth journey."""
+    actors = [c for c in cells if _is_logical_actor_cell(c)]
+    channels = [c for c in cells if _is_logical_channel_cell(c)]
+    id_saas = [c for c in cells if _is_identity_saas_cell(c)]
+    if not id_saas:
+        return False
+
+    def _has_edge(a: ET.Element, b: ET.Element) -> bool:
+        aid, bid = a.get("id"), b.get("id")
+        for e in cells:
+            if e.get("edge") != "1":
+                continue
+            s, t = e.get("source"), e.get("target")
+            if {s, t} == {aid, bid}:
+                return True
+        return False
+
+    existing_ids = {c.get("id") for c in cells if c.get("id")}
+    changed = False
+    n = 0
+
+    def _add(src: ET.Element, tgt: ET.Element, label: str) -> None:
+        nonlocal n, changed
+        if _has_edge(src, tgt):
+            return
+        sid, tid = src.get("id"), tgt.get("id")
+        if not sid or not tid:
+            return
+        eid = f"logical_journey_e{n}"
+        n += 1
+        while eid in existing_ids:
+            eid = f"logical_journey_e{n}"
+            n += 1
+        existing_ids.add(eid)
+        edge = ET.SubElement(root, "mxCell")
+        edge.set("id", eid)
+        edge.set("edge", "1")
+        edge.set("parent", "1")
+        edge.set("source", sid)
+        edge.set("target", tid)
+        edge.set("value", label)
+        edge.set(
+            "style",
+            "edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;"
+            "strokeWidth=2;labelBackgroundColor=#F5F5F5;fontSize=11;fontColor=#333333;",
+        )
+        geom = ET.SubElement(edge, "mxGeometry")
+        geom.set("relative", "1")
+        geom.set("as", "geometry")
+        changed = True
+
+    okta = id_saas[0]
+    if actors:
+        _add(actors[0], okta, "Authenticates via")
+    portals = list(channels)
+    if not portals:
+        # "Application" / experience caps when LLM skipped portal wording.
+        from app.adapters.outbound.diagram.architecture_docs import _logical_leaf_role
+        for c in cells:
+            if c.get("vertex") != "1" or c.get("edge") == "1" or _is_container_cell(c):
+                continue
+            if _logical_leaf_role(_plain_label(c)) == "channel":
+                portals.append(c)
+    if portals:
+        _add(okta, portals[0], "Redirects to")
+    return changed
 
 
 def resolve_misplaced_saas_leaves(xml: str) -> str:

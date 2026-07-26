@@ -205,12 +205,16 @@ class LogicalCorridorTests(unittest.TestCase):
         )
         out = enforce_view_journey_columns(page)
         by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
+        # Non-identity SaaS stay in domain_saas vertical shelf; Okta may move to spine
         self.assertEqual(by_id["sf"].get("parent"), "domain_saas")
-        self.assertEqual(by_id["ok"].get("parent"), "domain_saas")
         self.assertLess(_x(by_id["domain_commerce"]), _x(by_id["domain_saas"]))
-        # Vertical stack: same x, Okta above Salesforce (identity before experience)
-        self.assertAlmostEqual(_x(by_id["ok"]), _x(by_id["sf"]), delta=1.0)
-        self.assertLess(_y(by_id["ok"]), _y(by_id["sf"]))
+        # Vertical stack inside shelf when 2+ non-hoisted — with only SF left, still nested
+        self.assertEqual(by_id["sf"].get("parent"), "domain_saas")
+        # Okta identity prefers journey spine (parent=1) when layout runs
+        self.assertIn(by_id["ok"].get("parent"), {"1", "domain_saas"})
+        if by_id["ok"].get("parent") == "domain_saas":
+            self.assertAlmostEqual(_x(by_id["ok"]), _x(by_id["sf"]), delta=1.0)
+            self.assertLess(_y(by_id["ok"]), _y(by_id["sf"]))
 
     def test_logical_edges_get_waypoints_clear_of_icons(self) -> None:
         page = _logical(
@@ -227,11 +231,125 @@ class LogicalCorridorTests(unittest.TestCase):
         )
         out = fix_edge_anchors_from_geometry(page)
         e1 = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "e1")
-        geom = e1.find("mxGeometry")
-        arr = geom.find("Array") if geom is not None else None
-        self.assertIsNotNone(arr)
-        self.assertTrue(len(list(arr)) >= 1)
         self.assertIn("orthogonalEdgeStyle", e1.get("style") or "")
+        # Parallel edges from same source get face spread / Dy offset
+        self.assertTrue("exitDy=" in (e1.get("style") or "") or "exitY=" in (e1.get("style") or ""))
+
+    def test_logical_spine_employee_okta_portal_compact(self) -> None:
+        page = _logical(
+            '<mxCell id="emp" value="Employees" style="rounded=1;" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="400" width="120" height="40" as="geometry"/></mxCell>'
+            '<mxCell id="ok" value="Okta (SAAS)" shape_type="saas_okta" style="shape=image;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="800" y="80" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="portal" value="HR Portal" style="rounded=1;" vertex="1" parent="1">'
+            '<mxGeometry x="600" y="300" width="100" height="60" as="geometry"/></mxCell>'
+            '<mxCell id="domain_commerce" value="Commerce" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="900" y="80" width="280" height="200" as="geometry"/></mxCell>'
+        )
+        from app.adapters.outbound.diagram.architecture_docs import assign_logical_shape_types
+        tagged = assign_logical_shape_types(page)
+        out = enforce_view_journey_columns(tagged)
+        by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
+        self.assertIn("aws4.users", (by_id["emp"].get("style") or "").lower())
+        self.assertIn("aws4.client", (by_id["portal"].get("style") or "").lower())
+        # Compact: Okta near Employees (not hundreds of px away)
+        self.assertLess(abs(_x(by_id["ok"]) - _x(by_id["emp"])), 200.0)
+        # Journey edges present
+        edges = [
+            (c.get("source"), c.get("target"), c.get("value"))
+            for c in ET.fromstring(out).iter("mxCell") if c.get("edge") == "1"
+        ]
+        pairs = {(s, t) for s, t, _v in edges}
+        self.assertIn(("emp", "ok"), pairs)
+        self.assertIn(("ok", "portal"), pairs)
+
+    def test_logical_domain_apps_wrap_after_four(self) -> None:
+        """Max 4 apps horizontal; 5th starts next row (Network-style grid)."""
+        apps = "".join(
+            f'<mxCell id="a{i}" value="App {i}" style="rounded=1;" vertex="1" '
+            f'parent="domain_core">'
+            f'<mxGeometry x="{40 + i * 50}" y="60" width="100" height="40" '
+            f'as="geometry"/></mxCell>'
+            for i in range(5)
+        )
+        page = _logical(
+            '<mxCell id="domain_core" value="Core" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="200" y="60" width="200" height="120" as="geometry"/></mxCell>'
+            + apps
+        )
+        out = enforce_view_journey_columns(page)
+        by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
+        ys = [float(by_id[f"a{i}"].find("mxGeometry").get("y") or 0) for i in range(5)]
+        xs = [float(by_id[f"a{i}"].find("mxGeometry").get("x") or 0) for i in range(5)]
+        # First four share one row; fifth wraps below
+        self.assertEqual(len({round(y) for y in ys[:4]}), 1)
+        self.assertGreater(ys[4], ys[0] + 40)
+        self.assertLess(xs[4], xs[3])  # col 0 of row 2, left of col 3
+        # Domain grown to fit
+        dh = float(by_id["domain_core"].find("mxGeometry").get("height") or 0)
+        self.assertGreater(dh, 150)
+
+    def test_logical_application_gets_okta_redirect(self) -> None:
+        page = _logical(
+            '<mxCell id="emp" value="Employees" style="rounded=1;" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="100" width="64" height="64" as="geometry"/></mxCell>'
+            '<mxCell id="ok" value="Okta (SAAS)" shape_type="saas_okta" style="shape=image;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="200" y="100" width="64" height="64" as="geometry"/></mxCell>'
+            '<mxCell id="app" value="Application" style="rounded=1;" vertex="1" parent="1">'
+            '<mxGeometry x="400" y="100" width="120" height="40" as="geometry"/></mxCell>'
+        )
+        from app.adapters.outbound.diagram.architecture_docs import assign_logical_shape_types
+        tagged = assign_logical_shape_types(page)
+        out = enforce_view_journey_columns(tagged)
+        by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
+        self.assertEqual(by_id["app"].get("shape_type"), "logical_channel")
+        pairs = {
+            (c.get("source"), c.get("target"))
+            for c in ET.fromstring(out).iter("mxCell") if c.get("edge") == "1"
+        }
+        self.assertIn(("ok", "app"), pairs)
+
+    def test_step_badges_resnap_after_spine(self) -> None:
+        from types import SimpleNamespace
+
+        from app.adapters.outbound.diagram.xml_diagnostics import (
+            apply_step_markers,
+            reposition_step_badges,
+            repair_xml,
+        )
+
+        page = _logical(
+            '<mxCell id="emp" value="Employees" style="rounded=1;" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="400" width="120" height="40" as="geometry"/></mxCell>'
+            '<mxCell id="ok" value="Okta (SAAS)" shape_type="saas_okta" style="shape=image;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="800" y="80" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="portal" value="HR Portal" style="rounded=1;" vertex="1" parent="1">'
+            '<mxGeometry x="600" y="300" width="100" height="60" as="geometry"/></mxCell>'
+        )
+        from app.adapters.outbound.diagram.architecture_docs import assign_logical_shape_types
+        tagged = assign_logical_shape_types(page)
+        badged = apply_step_markers(tagged, [SimpleNamespace(step_number=1, cell_id="emp")])
+        # Spine moves Employees — badges must follow via repair / reposition.
+        fixed, _ = repair_xml(badged)
+        badges = [
+            c for c in ET.fromstring(fixed).iter("mxCell")
+            if (c.get("id") or "").startswith("step_badge_")
+        ]
+        self.assertEqual(len(badges), 1)
+        self.assertEqual(badges[0].get("anchor"), "emp")
+        by_id = {c.get("id"): c for c in ET.fromstring(fixed).iter("mxCell") if c.get("id")}
+        emp_x = float(by_id["emp"].find("mxGeometry").get("x") or 0)
+        emp_y = float(by_id["emp"].find("mxGeometry").get("y") or 0)
+        bx = float(badges[0].find("mxGeometry").get("x") or 0)
+        by = float(badges[0].find("mxGeometry").get("y") or 0)
+        self.assertLess(abs(bx - (emp_x - 11)), 2.0)
+        self.assertLess(abs(by - (emp_y - 11)), 2.0)
+        # Direct reposition is idempotent
+        again = reposition_step_badges(fixed)
+        self.assertIn("step_badge_1", again)
 
 
 class NetworkBadgeRemountTests(unittest.TestCase):

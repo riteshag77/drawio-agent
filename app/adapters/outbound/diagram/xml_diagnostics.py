@@ -1585,21 +1585,35 @@ def apply_step_markers(xml: str, step_markers: list[Any], logger: Any = None) ->
         if diag is not None:
             page_name = (diag.get("name") or "").strip().lower()
 
-    def _remap_saas_badge_target(target: ET.Element) -> ET.Element:
-        """On Network, move badges off SaaS icons onto Edge / Cloud / Users."""
-        if page_name != "network":
-            return target
+    def _remap_saas_badge_target(target: ET.Element) -> ET.Element | None:
+        """Remount badges off SaaS icons; on Logical prefer portal/domain anchors."""
         try:
             from app.adapters.outbound.diagram.placement_fixers import (
-                _is_edge_layer_container,
                 _is_cloud_container,
+                _is_edge_layer_container,
+                _is_logical_channel_cell,
                 _is_saas_leaf_cell,
             )
         except Exception:
             return target
+
+        if page_name == "logical":
+            # Prefer spine anchors (persona → portal → domain) — not SaaS / random leaves.
+            if _is_saas_leaf_cell(target):
+                for c in cells:
+                    if _is_logical_channel_cell(c):
+                        return c
+                for c in cells:
+                    cid = (c.get("id") or "")
+                    if cid.startswith("domain_") and "saas" not in cid:
+                        return c
+                return None
+            return target
+
+        if page_name != "network":
+            return target
         if not _is_saas_leaf_cell(target):
             return target
-        # Prefer Edge layer, then Cloud, then Users actor.
         for c in cells:
             if _is_edge_layer_container(c):
                 return c
@@ -1615,11 +1629,15 @@ def apply_step_markers(xml: str, step_markers: list[Any], logger: Any = None) ->
                 f"skipping badge on SaaS leaf {target.get('id')!r} (no Edge/Cloud remount)",
                 level="info",
             )
-        return target  # caller should skip if still saas
+        return None
 
     collisions: dict[str, int] = {}
     added = False
+    badge_count = 0
+    max_badges = 6
     for marker in step_markers:
+        if badge_count >= max_badges:
+            break
         step_number = getattr(marker, "step_number", None)
         cell_id = getattr(marker, "cell_id", None)
         if step_number is None or not cell_id:
@@ -1635,12 +1653,8 @@ def apply_step_markers(xml: str, step_markers: list[Any], logger: Any = None) ->
             continue
 
         remapped = _remap_saas_badge_target(target)
-        try:
-            from app.adapters.outbound.diagram.placement_fixers import _is_saas_leaf_cell
-            if page_name == "network" and _is_saas_leaf_cell(remapped):
-                continue
-        except Exception:
-            pass
+        if remapped is None:
+            continue
         target = remapped
         anchor_id = target.get("id") or cell_id
 
@@ -1664,6 +1678,8 @@ def apply_step_markers(xml: str, step_markers: list[Any], logger: Any = None) ->
         badge.set("style", _STEP_BADGE_STYLE)
         badge.set("vertex", "1")
         badge.set("parent", "1")
+        # Persist anchor so repair/spine can re-snap badges after layout moves.
+        badge.set("anchor", anchor_id)
         geom = ET.SubElement(badge, "mxGeometry")
         geom.set("x", str(badge_x))
         geom.set("y", str(badge_y))
@@ -1671,8 +1687,61 @@ def apply_step_markers(xml: str, step_markers: list[Any], logger: Any = None) ->
         geom.set("height", str(_STEP_BADGE_SIZE))
         geom.set("as", "geometry")
         added = True
+        badge_count += 1
 
     if not added:
+        return xml
+    return _serialize_docroot(tree, root, is_mxfile, trimmed)
+
+
+def reposition_step_badges(xml: str) -> str:
+    """Re-snap existing step badges to their ``anchor`` cells after layout moves.
+
+    Badges are often inserted before journey-spine / SaaS placement; without this
+    pass they float at stale coordinates ("badges all over the place").
+    """
+    parsed = _parse_docroot(xml)
+    if parsed is None:
+        return xml
+    tree, root, is_mxfile, trimmed = parsed
+    cells = [c for c in root.findall("mxCell") if c.get("id")]
+    by_id = {c.get("id"): c for c in cells if c.get("id")}
+    badges = [
+        c for c in cells
+        if (c.get("id") or "").startswith(_STEP_BADGE_ID_PREFIX) and c.get("anchor")
+    ]
+    if not badges:
+        return xml
+
+    collisions: dict[str, int] = {}
+    changed = False
+    for badge in badges:
+        anchor_id = badge.get("anchor") or ""
+        target = by_id.get(anchor_id)
+        if target is None:
+            continue
+        abs_x, abs_y = absolute_position(target, by_id)
+        collision_index = collisions.get(anchor_id, 0)
+        collisions[anchor_id] = collision_index + 1
+        nudge = collision_index * _STEP_BADGE_COLLISION_OFFSET
+        badge_x = abs_x - _STEP_BADGE_OFFSET + nudge
+        badge_y = abs_y - _STEP_BADGE_OFFSET + nudge
+        geom = badge.find("mxGeometry")
+        if geom is None:
+            continue
+        try:
+            cur_x = float(geom.get("x") or 0)
+            cur_y = float(geom.get("y") or 0)
+        except ValueError:
+            cur_x, cur_y = 0.0, 0.0
+        if abs(cur_x - badge_x) > 0.5 or abs(cur_y - badge_y) > 0.5:
+            geom.set("x", str(badge_x))
+            geom.set("y", str(badge_y))
+            changed = True
+        if badge.get("parent") != "1":
+            badge.set("parent", "1")
+            changed = True
+    if not changed:
         return xml
     return _serialize_docroot(tree, root, is_mxfile, trimmed)
 
@@ -1753,6 +1822,8 @@ def repair_xml(xml: str) -> tuple[str, XmlDiagnostics]:
         from app.adapters.outbound.diagram.view_fixers import ensure_edge_label_readability
         view_key = {"logical": "logical", "security": "security", "data flow": "data_flow"}[page_name]
         fixed = ensure_edge_label_readability(fixed, view=view_key)
+    # After spine/SaaS layout moves, re-snap badges to their anchor cells.
+    fixed = reposition_step_badges(fixed)
     fixed = ensure_overview_panel_position(fixed)
     fixed = sanitize_overview_panel_style(fixed)
     fixed = ensure_legend_position(fixed)

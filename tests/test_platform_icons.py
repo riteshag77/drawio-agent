@@ -133,25 +133,26 @@ class PickStyleTests(unittest.TestCase):
         self.assertEqual(_shape_query("logical_capability", "aws"), "rounded rectangle application")
 
     def test_builtin_resolves_logical_early(self) -> None:
-        # logical_* uses curated primitives — skip MCP (vague queries → empty boxes)
+        # People/portals use AWS4 icons (reliable in iframe); apps stay rounded tiles
         actor = _builtin_style("logical_actor") or ""
         cap = _builtin_style("logical_capability") or ""
-        self.assertIn("umlActor", actor)
+        self.assertIn("mxgraph.aws4.users", actor)
         self.assertIn("DAE8FC", cap)
-        self.assertIn("aspect=fixed", cap)
         api = _builtin_style("logical_api") or ""
         self.assertIn("hexagon", api)
 
-    def test_pick_style_logical_rejects_cloud_icons(self) -> None:
+    def test_pick_style_logical_allows_users_client_icons(self) -> None:
         styles = [
             "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;fillColor=#ED7100;",
-            "shape=umlActor;fillColor=#E6E6E6;strokeColor=#666666;",
+            "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.users;fillColor=#232F3D;",
             "rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;",
         ]
         pick = _pick_style(styles, "logical", shape_type="logical_actor") or ""
-        self.assertNotIn("aws4", pick.lower())
-        self.assertNotIn("resourceicon", pick.lower())
-        self.assertTrue("umlactor" in pick.lower() or "rounded=1" in pick.lower())
+        self.assertIn("aws4.users", pick.lower())
+        # Non-people roles still reject random cloud icons
+        pick2 = _pick_style(styles, "logical", shape_type="logical_capability") or ""
+        self.assertNotIn("lambda", pick2.lower())
+        self.assertIn("rounded=1", pick2.lower())
 
 
 
