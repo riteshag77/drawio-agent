@@ -1004,6 +1004,12 @@ def _is_mega_saas_container(cell: ET.Element) -> bool:
     cid = (cell.get("id") or "").lower()
     if cid.startswith("domain_"):
         return False
+    # Security External SaaS Zone is the correct home for SaaS leaves — not a
+    # Network-style mega box that should be emptied onto the canvas root.
+    if cid.startswith("zone_external_saas") or (
+        cid.startswith("zone_") and "external saas" in label
+    ):
+        return False
     if "saas" in cid and "domain" not in cid:
         return True
     return any(h in label for h in _MEGA_SAAS_LABEL_HINTS) or label in {
