@@ -198,11 +198,22 @@ class ExtraViewsPack(BaseModel):
 
 _SINGLE_VIEW_SYSTEM_PREFIX = """You are producing ONE product-grade architecture briefing page as draw.io XML.
 Adopt the specialised architect persona named in the view pack below (25+ years in that discipline).
-The Network tab already shows VPC/subnet placement — this page must answer a DIFFERENT question for that persona's audience.
-Reuse inventory services (same shape_type keys). Do not invent unrelated cloud products.
+Shared context (inventory + request) is the factual source — representation on THIS page is independent.
+The Network tab (when present) shows VPC/subnet placement — this page must answer a DIFFERENT question for that persona's audience.
+Do not invent unrelated systems absent from inventory/request. Do not clone Network layout with a new title.
 Emit one mxfile with one <diagram name="..."> matching the required page title.
-REQUIRED: overview_panel (numbered amber steps) + step_markers + official shape_type on EVERY service leaf.
+REQUIRED: overview_panel (numbered amber steps) + step_markers.
 No ADR/RAID. No commentary outside xml + step_markers.
+"""
+
+_SINGLE_VIEW_LOGICAL_SHAPE_RULE = """
+LEAF SHAPES (Logical only): Prefer grey/simple placeholders. The server assigns shape_type=logical_*
+(actor/channel/capability/api/datastore/saas/platform) and MCP resolves non-cloud stencils.
+Do NOT emit cloud shape_type (aws_*/gcp_*/azure_*) or invent resIcon / vendor stencils.
+"""
+
+_SINGLE_VIEW_CLOUD_SHAPE_RULE = """
+LEAF SHAPES: Reuse inventory shape_type keys on every cloud service leaf so MCP can resolve official icons.
 """
 
 
@@ -210,7 +221,14 @@ def build_single_view_system(view: str) -> str:
     core = load_core_pack()
     common = load_view_common_pack()
     pack = load_view_prompt_pack(view)
-    return f"{_SINGLE_VIEW_SYSTEM_PREFIX}\n\n{core}\n\n{common}\n\n{pack}".strip()
+    shape_rule = (
+        _SINGLE_VIEW_LOGICAL_SHAPE_RULE
+        if (view or "").strip().lower() == "logical"
+        else _SINGLE_VIEW_CLOUD_SHAPE_RULE
+    )
+    return (
+        f"{_SINGLE_VIEW_SYSTEM_PREFIX}\n{shape_rule}\n\n{core}\n\n{common}\n\n{pack}"
+    ).strip()
 
 
 def _plain_cell_label(value: str) -> str:
@@ -926,24 +944,42 @@ _LOGICAL_ROLE_TO_SHAPE_TYPE: dict[str, str] = {
 
 
 def _logical_leaf_role(label: str) -> str:
-    """Classify a Logical leaf for generic stencil selection."""
+    """Classify a Logical leaf for generic stencil selection.
+
+    Order matters: stores and channels before actors; external IdP SaaS before
+    in-house identity capabilities; API/BFF before generic capability.
+    """
     low = _norm_label(label)
-    if any(x in low for x in (
-        "persona", "actor", "user", "customer", "partner", "ops ", "operator", "admin",
-    )) and "data store" not in low and "store" not in low:
-        return "actor"
-    if any(x in low for x in ("channel", "frontend", "portal", "mobile", "web ui", "spa", "experience app")):
-        return "channel"
+    # Persistence first — "User store" / "Customer store" must not become actors.
     if any(x in low for x in (
         "data store", "datastore", "database", "persistence", "warehouse",
         "session store", "customer store", "order store", "user store",
-    )):
+        "catalog store", "payment store",
+    )) or (low.endswith(" store") and "app store" not in low):
         return "datastore"
-    if any(x in low for x in ("saas", "third party", "external", "stripe", "salesforce", "okta")):
+    # Experience surfaces before personas ("Admin portal", "Ops portal").
+    if any(x in low for x in (
+        "channel", "frontend", "portal", "mobile", "web ui", "spa",
+        "experience app", "web app", "mobile app", "admin console",
+    )):
+        return "channel"
+    # External IdP / SaaS products (not in-house Identity capability).
+    if any(x in low for x in (
+        "saas", "third party", "third-party", "external idp", "stripe", "salesforce",
+        "okta", "auth0", "auth 0", "entra id", "cognito", "twilio", "sendgrid",
+        "shopify", "workday",
+    )):
         return "saas"
-    if any(x in low for x in ("bff", "api", "gateway", "endpoint", "interface")):
+    if any(x in low for x in ("bff", " api", "api ", "gateway", "endpoint", "interface")) or low.endswith(" api"):
         return "api"
-    if any(x in low for x in ("monitor", "observ", "platform", "notification", "shared")):
+    if any(x in low for x in ("monitor", "observ", "notification", "shared platform", "platform service")):
+        return "platform"
+    # Personas / actors — exclude store/portal already handled above.
+    if any(x in low for x in (
+        "persona", "actor", "customer", "partner", "operator", "end user", "end-user",
+    )) or low in {"user", "users", "admin", "ops"} or low.startswith("ops "):
+        return "actor"
+    if "platform" in low and "capability" not in low:
         return "platform"
     return "capability"
 
@@ -1455,6 +1491,44 @@ def page_has_overview_panel(xml: str) -> bool:
     return any(c.get("id") == "overview_panel" for c in tree.iter("mxCell"))
 
 
+def _overview_stub_body(view_title: str) -> str:
+    """Audience-specific fallback overview HTML (XML-escaped attribute value)."""
+    title_key = (view_title or "").strip().lower()
+    if title_key == "logical":
+        title = _esc("Logical architecture — system")
+        return (
+            f"&lt;div style=&quot;font-size:22px;font-weight:bold;&quot;&gt;{title}&lt;/div&gt;"
+            "&lt;div style=&quot;font-size:15px;&quot;&gt;1. Channels and personas initiate the business journey.&lt;/div&gt;"
+            "&lt;div style=&quot;font-size:15px;&quot;&gt;2. Owning domains handle the request through capabilities.&lt;/div&gt;"
+            "&lt;div style=&quot;font-size:15px;&quot;&gt;3. Capabilities invoke APIs and rely on shared platform services.&lt;/div&gt;"
+            "&lt;div style=&quot;font-size:15px;&quot;&gt;4. Generic data stores hold domain state reached via APIs.&lt;/div&gt;"
+            "&lt;div style=&quot;font-size:13px;&quot;&gt;Out of scope on this page: network topology, trust controls, and payload schemas (other tabs).&lt;/div&gt;"
+        )
+    if title_key == "security":
+        title = _esc("Security architecture — system")
+        return (
+            f"&lt;div style=&quot;font-size:22px;font-weight:bold;&quot;&gt;{title}&lt;/div&gt;"
+            "&lt;div style=&quot;font-size:15px;&quot;&gt;1. Review trust zones from public edge to restricted data.&lt;/div&gt;"
+            "&lt;div style=&quot;font-size:15px;&quot;&gt;2. Follow AuthN / TLS / inspect paths across boundaries.&lt;/div&gt;"
+            "&lt;div style=&quot;font-size:15px;&quot;&gt;3. Use other tabs for capability map and payload detail.&lt;/div&gt;"
+        )
+    if title_key in {"data flow", "data_flow"}:
+        title = _esc("Data flow — system")
+        return (
+            f"&lt;div style=&quot;font-size:22px;font-weight:bold;&quot;&gt;{title}&lt;/div&gt;"
+            "&lt;div style=&quot;font-size:15px;&quot;&gt;1. Follow ingest → process → store lifecycle hops.&lt;/div&gt;"
+            "&lt;div style=&quot;font-size:15px;&quot;&gt;2. Read JSON / SQL / Event labels for payload contracts.&lt;/div&gt;"
+            "&lt;div style=&quot;font-size:15px;&quot;&gt;3. Use other tabs for topology and trust controls.&lt;/div&gt;"
+        )
+    title = _esc(f"{view_title} overview")
+    return (
+        f"&lt;div style=&quot;font-size:22px;font-weight:bold;&quot;&gt;{title}&lt;/div&gt;"
+        "&lt;div style=&quot;font-size:15px;&quot;&gt;1. Review the services and groups on this page.&lt;/div&gt;"
+        "&lt;div style=&quot;font-size:15px;&quot;&gt;2. Follow the relationships that matter for this view.&lt;/div&gt;"
+        "&lt;div style=&quot;font-size:15px;&quot;&gt;3. Use other tabs for complementary architecture detail.&lt;/div&gt;"
+    )
+
+
 def ensure_minimal_overview_panel(xml: str, view_title: str) -> str:
     """If overview_panel is missing, add a short stub titled for this view."""
     if page_has_overview_panel(xml):
@@ -1475,19 +1549,13 @@ def ensure_minimal_overview_panel(xml: str, view_title: str) -> str:
         root = tree.find("root")
     if root is None:
         return trimmed
-    title = _esc(f"{view_title} overview")
-    body = (
-        f"&lt;b&gt;{title}&lt;/b&gt;&lt;br/&gt;"
-        "1. Review the services and groups on this page.&lt;br/&gt;"
-        "2. Follow the relationships that matter for this view.&lt;br/&gt;"
-        "3. Use other tabs for network, security, or data-path detail."
-    )
+    body = _overview_stub_body(view_title)
     panel = ET.fromstring(
         f'<mxCell id="overview_panel" value="{body}" '
-        'style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;'
-        'spacingLeft=10;spacingTop=8;fillColor=#FFF8E1;strokeColor=#F5A623;fontSize=11;" '
+        'style="rounded=1;arcSize=2;whiteSpace=wrap;html=1;align=left;verticalAlign=top;'
+        'spacingLeft=16;spacingTop=14;fillColor=#FFF8E1;strokeColor=#F5A623;strokeWidth=2;fontSize=15;" '
         'vertex="1" parent="1">'
-        '<mxGeometry x="980" y="40" width="260" height="140" as="geometry"/></mxCell>'
+        '<mxGeometry x="980" y="40" width="420" height="220" as="geometry"/></mxCell>'
     )
     root.append(panel)
     return ET.tostring(tree, encoding="unicode")

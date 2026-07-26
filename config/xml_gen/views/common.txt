@@ -5,15 +5,30 @@ You inherit **CORE** (grid, pitch, under-icon labels, edge anchors, overview pan
 
 Answer this tab’s question — **not** VPC / subnet / AZ nesting (that is Network only).
 
+### Viewpoint contract (NON-NEGOTIABLE)
+
+**Shared context, independent representation.**
+- **Shared:** user request + architecture inventory = system *facts* (what exists).
+- **Independent:** this page’s grouping, labels, icons/colors, edge vocabulary, detail cards, and overview narrative.
+- Do **not** invent systems absent from inventory/request. Abstraction is allowed (e.g. Aurora → “Customer data store” on Logical).
+- Do **not** paste another view’s hop list, trust tour, or payload novel onto this page.
+- **Anti-clone law:** if a reviewer blurs the page title and still thinks this is Network (or another tab), rewrite grouping + edges + icons — fail.
+
+**60-second audience UX bar (world-class):**
+1. The named audience understands the system from *this* page alone.
+2. Icons, containers, and edge labels alone identify the lens (title optional).
+3. Overview + section cards teach something concrete — no filler bullets.
+4. Craft: pitch, no overlaps, purposeful color, readable legend when roles matter.
+
 ### Differentiation law (non-negotiable)
-| Tab | Persona (25+ yrs) | Core purpose | Grouping | Edge labels |
-|-----|-------------------|--------------|----------|-------------|
-| Logical | Application / Solution Architect | What the system does; capability dependencies | Bounded contexts / business domains | `Invokes` / `Calls API` / `Relies on` |
-| Security | Security / Trust Architect | Trust boundaries, attack surface, identity | Trust zones (Public / DMZ / Private / Restricted) | `TLS` / `AuthN` / `inspect` / `private path` |
-| Data flow | Integration / Data-Flow Architect | Data/state lifecycle & payloads | Lifecycle phases (Ingest / Process / Store) or Hot/Cold | `JSON:…` / `SQL:…` / `Event:…` |
+| Tab | Persona (25+ yrs) | Audience | Core purpose | Grouping | Edge labels | Leaf language |
+|-----|-------------------|----------|--------------|----------|-------------|---------------|
+| Logical | Application / Solution Architect | Eng leads / solution architects / delivery | What the system does; capability dependencies | Bounded contexts / business domains | `Invokes` / `Calls API` / `Relies on` | `logical_*` non-cloud stencils |
+| Security | Security / Trust Architect | CISO / security architects | Trust boundaries, attack surface, identity | Trust zones (Public / DMZ / Private / Restricted) | `TLS` / `AuthN` / `inspect` / `private path` | Cloud icons OK; collapse app soup |
+| Data flow | Integration / Data-Flow Architect | Data / integration engineers | Data/state lifecycle & payloads | Lifecycle phases (Ingest / Process / Store) or Hot/Cold | `JSON:…` / `SQL:…` / `Event:…` | Cloud icons OK; name stores/brokers |
 
 **Strict viewpoint:** if a node does not belong in this view’s ALLOWED list, **do not draw it** — even if it exists on Network.
-Same inventory may feed all tabs, but **labels, grouping, edges, and cards MUST change**. Aim for **8–12 detailed nodes** when inventory supports it (enterprise density), never a trivial 3-box sketch. **Every edge labeled.**
+Same inventory may feed all tabs, but **labels, grouping, edges, cards, and overview MUST change**. Aim for **8–12 detailed nodes** when inventory supports it; when inventory is thin, **5–7** is OK — never invent fake domains to pad. **Every edge labeled.**
 
 ### Ground truth
 - Inventory + user request are the factual source of which systems exist.
@@ -43,7 +58,7 @@ Grey leaf template for Security / Data flow / Network cloud services (+ `shape_t
 `rounded=0;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#CCCCCC;fontColor=#232F3E;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontSize=12;aspect=fixed;`
 
 **FORBIDDEN for cloud services (Security / Data flow / Network):** naked `shape=ellipse` / `shape=rectangle` / `shape=hexagon` without `shape_type`.
-**Logical exception:** server assigns `logical_*` shape_types; MCP resolves non-cloud stencils (builtins on miss). Do not emit cloud `shape_type`.
+**Logical exception:** server assigns `logical_*` shape_types; MCP resolves non-cloud stencils (builtins on miss). Do **not** emit cloud `shape_type` (`aws_*` / `gcp_*` / `azure_*`) or invent `resIcon` / vendor stencils.
 
 ### Annotation / detail cards — product quality bar (CRITICAL)
 
@@ -65,14 +80,15 @@ Width ~220–320px; height fits content; place **just under / beside** the relat
 **Hard rules:**
 - **One detail card per major section** that exists on the page (typically 4–6 cards).
 - Each card: **bold mini-title + 3–5 bullets** grounded in *this* inventory/request — not generic filler (“best practices”).
-- Name real services from inventory in bullets when useful.
+- Name real services from inventory in bullets when useful (Security/Data flow); on Logical prefer capability names.
 - Do **not** invent products; infer placement/control/payload facts the request already implies.
 - Cards are text-only (`id` like `note_experience`, `ctrl_dmz`, `note_ingest`) — **no** `shape_type`, **no** `container=1`.
 
 ### Compliance annotations & gaps (when inventory/request supports)
 - Security cards may cite control refs (e.g. `ISO 27001 A.13.1 / NIST CSF PR.AC-5`) when applicable.
 - Data flow edges/cards may tag classification (`[PII]`, `[PCI]`, `[Confidential]`) and note retention/residency when the request implies them.
-- Gaps (Security / Data flow): listed under a **Recommended gaps** section in the Overview Panel (bullet list, red `#B85450` text). Do **not** draw on-canvas gap boxes. Never present gaps as as-built. Do not change the amber overview title/step colours.
+- Gaps (Security / Data flow **only**): listed under a **Recommended gaps** section in the Overview Panel (bullet list, red `#B85450` text). Do **not** draw on-canvas gap boxes. Never present gaps as as-built. Do not change the amber overview title/step colours.
+- Logical overview may end with one short **Out of scope** footer (neutral text, not red gaps): e.g. topology / trust / payloads live on other tabs.
 
 ### View-specific edge rule
 Every edge on Logical / Security / Data flow **MUST** have a label in that view’s vocabulary (see Differentiation law). Blank edges = fail for these tabs.
@@ -80,7 +96,7 @@ Every edge on Logical / Security / Data flow **MUST** have a label in that view�
 ### Final self-check (quality tool bar)
 1. Would a buyer confuse this with another tab? → rewrite.
 2. Any overlapping boxes or lines across icons? → fix spacing / anchors / reduce edges.
-3. Every cloud service leaf has `shape_type`.
+3. Every cloud service leaf (Security / Data flow) has `shape_type`. Logical leaves must **not** carry cloud `shape_type`.
 4. **Every major section has a detail card with 3–5 concrete bullets** — empty sections = fail.
 5. Overview matches this lens only and names real capabilities/controls/hops from this design.
 6. A stakeholder should learn something useful **without asking a follow-up question**.

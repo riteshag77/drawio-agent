@@ -168,12 +168,21 @@ def _assemble_prompt_parts(
                     stable.append(_load_prompt("network.txt"))
                 except FileNotFoundError:
                     pass
-        stable.append(_load_prompt(f"classify/{platform_key}.txt"))
-        stable.append(_load_prompt(f"icons/{platform_key}.txt"))
-        for ref in _get_reference_files(platform_key, three_d=False):
-            content = _load_reference(ref)
-            if content:
-                volatile.append(_filter_catalog(content, user_hint))
+        # Logical primary: capability UX — skip cloud classify/icon packs and
+        # stencil catalogs so the model is not nudged toward Network vocabulary.
+        if view_key != "logical":
+            stable.append(_load_prompt(f"classify/{platform_key}.txt"))
+            stable.append(_load_prompt(f"icons/{platform_key}.txt"))
+            for ref in _get_reference_files(platform_key, three_d=False):
+                content = _load_reference(ref)
+                if content:
+                    volatile.append(_filter_catalog(content, user_hint))
+        else:
+            stable.append(
+                "## Logical primary — leaf language\n"
+                "Do not emit cloud shape_type (aws_*/gcp_*/azure_*) or vendor icon stencils. "
+                "Use capability/generic labels; the server assigns logical_* for MCP."
+            )
 
     custom = (custom_system_message or "").strip()
     if custom:

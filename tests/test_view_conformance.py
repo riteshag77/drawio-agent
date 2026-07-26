@@ -266,6 +266,34 @@ class ViewFixerTests(unittest.TestCase):
         self.assertNotIn("waf", ids)
         db = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "db")
         self.assertIn("data store", (db.get("value") or "").lower())
+        # Cloud shape_types stripped on Logical (assign_logical runs later in pipeline).
+        self.assertIsNone(db.get("shape_type"))
+        app = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "app")
+        self.assertIsNone(app.get("shape_type"))
+
+    def test_relabel_kafka_and_drop_alb(self) -> None:
+        xml = _wrap(
+            _leaf("k", "Kafka", 40, "aws_msk")
+            + _leaf("alb", "ALB", 240, "aws_alb")
+            + _leaf("ord", "Orders", 440, "aws_ecs")
+            + '<mxCell id="e1" edge="1" parent="1" source="ord" target="k" value="Invokes">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        out = apply_view_fixers(xml, view="logical")
+        by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
+        self.assertNotIn("alb", by_id)
+        self.assertIn("k", by_id)
+        self.assertIn("Async messaging", by_id["k"].get("value") or "")
+
+    def test_cloud_shape_violation_on_logical(self) -> None:
+        xml = _wrap(
+            _leaf("a", "Orders", 40, "aws_ecs")
+            + _leaf("b", "Customer data store", 240, "aws_rds")
+            + '<mxCell id="e1" edge="1" parent="1" source="a" target="b" value="Reads/Writes via API">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        scored = score_view(xml, view="logical", min_score=75)
+        self.assertTrue(any(v.code == "cloud_shape_on_logical" for v in scored.violations))
 
 
 class InventoryBriefTests(unittest.TestCase):

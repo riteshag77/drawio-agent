@@ -23,6 +23,9 @@ _FORBIDDEN_BY_VIEW: dict[str, tuple[str, ...]] = {
     "logical": (
         "waf", "shield", "firewall", "subnet", "vpc", "vnet", "availability zone",
         "az-", "nat gateway", "bastion", "private link",
+        "cloudfront", "cdn", "application load balancer", "network load balancer",
+        "route 53", "route53", "transit gateway",
+        "kafka", "kinesis", "sqs queue", "sns topic", "amazon sqs", "amazon sns",
     ),
     "security": (
         "orders api", "catalog", "checkout", "wireframe", "kafka topic",
@@ -231,6 +234,21 @@ def score_view(
                     [cid],
                 ))
                 break
+
+    # Logical must not keep cloud vendor shape_types (anti-mix with Network)
+    if view == "logical":
+        for cell in leaves:
+            st = (cell.get("shape_type") or "").strip().lower()
+            cid = cell.get("id") or ""
+            if st.startswith(("aws_", "gcp_", "azure_")) or st in {
+                "aws", "gcp", "azure",
+            }:
+                violations.append(ViewViolation(
+                    "cloud_shape_on_logical",
+                    "error",
+                    f"Logical leaf {cid!r} still has cloud shape_type={st!r}",
+                    [cid],
+                ))
 
     # Unlabeled edges + vocab
     vocab = _EDGE_VOCAB.get(view, ())

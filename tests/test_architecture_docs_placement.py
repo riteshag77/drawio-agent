@@ -162,6 +162,19 @@ class DocPagesTests(unittest.TestCase):
         panel = next(c for c in ET.fromstring(with_panel).iter("mxCell") if c.get("id") == "overview_panel")
         self.assertIn("Security", panel.get("value") or "")
 
+    def test_logical_overview_stub_collaboration_story(self) -> None:
+        bare = _wrap(
+            '<mxCell id="svc" value="Orders" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        with_panel = ensure_minimal_overview_panel(bare, "Logical")
+        panel = next(c for c in ET.fromstring(with_panel).iter("mxCell") if c.get("id") == "overview_panel")
+        val = panel.get("value") or ""
+        self.assertIn("Logical architecture", val)
+        self.assertIn("capabilities", val.lower())
+        self.assertIn("Out of scope", val)
+        self.assertNotIn("Recommended gaps", val)
+
     def test_network_only_extra_view_context_empty(self) -> None:
         self.assertEqual(build_views_prompt_block(["network"]), "")
         human = build_single_view_human(
@@ -238,6 +251,9 @@ class ViewPackQualityTests(unittest.TestCase):
         self.assertIn("FORBIDDEN", data_flow)
         self.assertIn("Hot path", data_flow)
         self.assertIn("product quality bar", build_single_view_system("logical").lower())
+        self.assertIn("Viewpoint contract", logical)
+        self.assertIn("logical_*", logical)
+        self.assertNotIn("official shape_type on EVERY service leaf", logical)
 
     def test_architecture_inventory_services_and_flows(self) -> None:
         xml = _wrap(
@@ -350,6 +366,38 @@ class ViewEnrichmentFixerTests(unittest.TestCase):
         self.assertIn("umlActor", by_id["user"].get("style") or "")
         self.assertNotIn("aws_ecs", out)
         self.assertNotIn("mxgraph.aws4", out)
+
+    def test_logical_role_edge_cases(self) -> None:
+        from app.adapters.outbound.diagram.architecture_docs import (
+            _logical_leaf_role,
+            assign_logical_shape_types,
+        )
+
+        self.assertEqual(_logical_leaf_role("User store"), "datastore")
+        self.assertEqual(_logical_leaf_role("Customer data store"), "datastore")
+        self.assertEqual(_logical_leaf_role("Admin portal"), "channel")
+        self.assertEqual(_logical_leaf_role("Mobile app"), "channel")
+        self.assertEqual(_logical_leaf_role("Okta"), "saas")
+        self.assertEqual(_logical_leaf_role("Auth0 IdP"), "saas")
+        self.assertEqual(_logical_leaf_role("Orders BFF"), "api")
+        self.assertEqual(_logical_leaf_role("Checkout API"), "api")
+        self.assertEqual(_logical_leaf_role("Customer"), "actor")
+        self.assertEqual(_logical_leaf_role("Identity"), "capability")
+        self.assertEqual(_logical_leaf_role("User management"), "capability")
+
+        page = _wrap(
+            '<mxCell id="us" value="User store" style="shape=rectangle;" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="120" height="60" as="geometry"/></mxCell>'
+            '<mxCell id="ap" value="Admin portal" style="shape=rectangle;" vertex="1" parent="1">'
+            '<mxGeometry x="200" y="40" width="120" height="60" as="geometry"/></mxCell>'
+            '<mxCell id="ok" value="Okta" style="shape=ellipse;" vertex="1" parent="1">'
+            '<mxGeometry x="360" y="40" width="80" height="60" as="geometry"/></mxCell>'
+        )
+        out = assign_logical_shape_types(page)
+        by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
+        self.assertEqual(by_id["us"].get("shape_type"), "logical_datastore")
+        self.assertEqual(by_id["ap"].get("shape_type"), "logical_channel")
+        self.assertEqual(by_id["ok"].get("shape_type"), "logical_saas")
 
     def test_inject_logical_capability_and_data_store_labels(self) -> None:
         from app.adapters.outbound.diagram.architecture_docs import inject_shape_types_from_primary

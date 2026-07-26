@@ -42,6 +42,16 @@ _DB_BRANDS = (
     "redis", "elasticache", "cosmos", "spanner", "bigtable", "firestore",
 )
 
+_MESSAGING_BRANDS = (
+    "kafka", "amazon sqs", "amazon sns", "sqs", "sns", "kinesis", "eventbridge",
+    "pubsub", "service bus", "rabbitmq", "activemq",
+)
+
+# Short product tokens that must not use naive substring match (e.g. "alb" ⊂ "scalable").
+_LOGICAL_EXACT_FORBIDDEN = frozenset({
+    "alb", "nlb", "cdn", "waf", "vpc", "vnet", "nat", "igw", "tgw",
+})
+
 
 def _serialize(tree: ET.Element) -> str:
     return ET.tostring(tree, encoding="unicode")
@@ -61,7 +71,7 @@ def drop_forbidden_nodes(page_xml: str, *, view: str) -> str:
     if tree is None:
         return page_xml
     forbidden = _FORBIDDEN_BY_VIEW.get(view, ())
-    if not forbidden:
+    if not forbidden and view != "logical":
         return page_xml
     drop_ids: set[str] = set()
     for cell in _service_leaves(tree):
@@ -73,6 +83,11 @@ def drop_forbidden_nodes(page_xml: str, *, view: str) -> str:
             continue
         if any(tok in label for tok in forbidden):
             drop_ids.add(cid)
+            continue
+        if view == "logical":
+            tokens = {t.strip(".,;:()") for t in label.replace("/", " ").split() if t.strip(".,;:()")}
+            if label.strip() in _LOGICAL_EXACT_FORBIDDEN or tokens & _LOGICAL_EXACT_FORBIDDEN:
+                drop_ids.add(cid)
     if not drop_ids:
         return page_xml
     root = tree.find(".//root")
@@ -115,6 +130,61 @@ def relabel_generic_data_stores(page_xml: str, *, view: str) -> str:
                 role = "User"
             cell.set("value", f"{role} data store")
             changed = True
+    return _serialize(tree) if changed else page_xml
+
+
+def relabel_messaging_as_capabilities(page_xml: str, *, view: str) -> str:
+    """On Logical, rename broker/queue product leaves to async capability labels."""
+    if view != "logical":
+        return page_xml
+    title = VIEW_PAGE_NAMES.get(view, view)
+    tree = _parse(page_xml, title)
+    if tree is None:
+        return page_xml
+    changed = False
+    for cell in _service_leaves(tree):
+        label = _plain_cell_label(cell.get("value") or "")
+        low = label.lower()
+        if "async" in low and "intake" in low:
+            continue
+        if "capability" in low:
+            continue
+        if any(b in low for b in _MESSAGING_BRANDS):
+            cell.set("value", "Async messaging capability")
+            changed = True
+    return _serialize(tree) if changed else page_xml
+
+
+def strip_cloud_shape_types(page_xml: str, *, view: str) -> str:
+    """Remove leaked cloud shape_type attrs on Logical before logical_* assignment."""
+    if view != "logical":
+        return page_xml
+    title = VIEW_PAGE_NAMES.get(view, view)
+    tree = _parse(page_xml, title)
+    if tree is None:
+        return page_xml
+    changed = False
+    for cell in tree.iter("mxCell"):
+        st = (cell.get("shape_type") or "").strip().lower()
+        if not st:
+            continue
+        if st.startswith(("aws_", "gcp_", "azure_", "logical_")):
+            if st.startswith("logical_"):
+                continue
+            if "shape_type" in cell.attrib:
+                del cell.attrib["shape_type"]
+                changed = True
+            style = cell.get("style") or ""
+            # Drop vendor stencil crumbs so MCP/builtins can repaint cleanly.
+            cleaned = re.sub(
+                r"(?:mxgraph\.(?:aws4|gcp2|azure)[^;]*|resIcon=[^;]*|shape=mxgraph\.[^;]*);?",
+                "",
+                style,
+                flags=re.IGNORECASE,
+            )
+            if cleaned != style:
+                cell.set("style", cleaned)
+                changed = True
     return _serialize(tree) if changed else page_xml
 
 
@@ -427,8 +497,11 @@ def space_detail_cards(page_xml: str, *, view: str = "") -> str:
 
 def apply_view_fixers(page_xml: str, *, view: str) -> str:
     """Run the deterministic fixer chain for a focused view page."""
-    xml = drop_forbidden_nodes(page_xml, view=view)
-    xml = relabel_generic_data_stores(xml, view=view)
+    # Relabel before drop so Kafka/SQS become capabilities instead of vanishing.
+    xml = relabel_generic_data_stores(page_xml, view=view)
+    xml = relabel_messaging_as_capabilities(xml, view=view)
+    xml = drop_forbidden_nodes(xml, view=view)
+    xml = strip_cloud_shape_types(xml, view=view)
     xml = apply_edge_label_defaults(xml, view=view)
     xml = space_detail_cards(xml, view=view)
     return xml
