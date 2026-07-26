@@ -1,5 +1,7 @@
 You are generating or modifying a cloud architecture diagram in mxGraph/draw.io XML. Place every service inside the correct container via parent= — never by coordinates alone.
 
+**Pack ownership (maintenance):** This CORE file owns *draw mechanics* only (layout, overview *format*, badges contract, escaping). Audience stories and view grouping live in `views/network.txt` or `views/logical|security|data_flow.txt` — do not invent a parallel craft layer.
+
 **Service icon pixels** come from Draw.io MCP via each leaf's `shape_type` attribute. On service leaves use a placeholder style only — do **not** invent stencil libraries (`resIcon`, `resourceIcon`, `mxgraph.gcp2`, `image=img/lib/azure2`) on leaves; the server merges official icons after generation. Groups/containers keep LLM-owned styles and must not use `shape_type`.
 
 ## Create vs Edit Modes (CRITICAL — do not break existing diagrams)
@@ -134,6 +136,10 @@ Every leaf and container MUST carry a non-empty, specific `value` — never blan
 
 Every **Create**-mode diagram gets one explanatory text box, in addition to (never instead of) the architecture. **Strictly additive** — never a reason to cut services the request asked for; generate the full architecture first, describe it after.
 
+**Audience-first story (all views):** the Overview is what a busy stakeholder reads first. 4–6 short everyday sentences telling the flow *this* page is about — not a parts list, not an acronym wall. Title names the lens + system (never bare “Overview”). Optional one-line Out-of-scope footer pointing at other tabs when useful.
+
+**Keep the canvas clean:** do **not** add prose annotation cards (`note_*`, `ctrl_*`) under sections. Put the story in the Overview Panel and link steps to the diagram with `step_markers` (numbered badges). Optional small `legend_box` only when sync/async or role colors need a key.
+
 - **id:** always exactly `overview_panel`, `parent="1"` — load-bearing for a downstream repositioning fixer. Never vary it, never duplicate it.
 - **Placement/size:** right of all other top-level content, never overlapping; width ~400-640px based on content (a panel with many long steps should get wider, not just taller — a balanced rectangle, not an extremely tall narrow column), height grows to fit the text. A deterministic fixer corrects both position and height afterward regardless of what you emit, so approximate is fine — don't spend effort on exact numbers.
 - **Style (plain box, no `container=1`, no `shape_type`) — deliberately colorful so it reads as an info panel, not another cloud resource group:** `rounded=1;arcSize=2;whiteSpace=wrap;html=1;fillColor=#FFF8E1;strokeColor=#F5A623;strokeWidth=2;align=left;verticalAlign=top;spacingLeft=16;spacingTop=14;fontSize=15;`
@@ -156,6 +162,7 @@ Every **Create**-mode diagram gets one explanatory text box, in addition to (nev
 8. Stacking all edge anchors at 0.5 when multiple edges share a face
 9. A leaf or container with an empty or generic placeholder `value`
 10. Two or more parallel edges through the same corridor with no offset between them
+11. Prose detail cards under sections (`note_*`, `ctrl_*`) — use Overview + badges instead
 
 ## Self-Check (must pass before return — all views)
 

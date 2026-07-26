@@ -148,15 +148,8 @@ def _assemble_prompt_parts(
                 volatile.append(_filter_catalog(content, user_hint))
     else:
         stable.append(_load_prompt("core.txt"))
-        # Primary view pack (Network nesting, or Logical/Security/Data flow lens)
-        if view_key != "network":
-            # Non-network primary shares view craft (cards, differentiation)
-            try:
-                common = _load_prompt("views/common.txt")
-                if common:
-                    stable.append(common)
-            except FileNotFoundError:
-                pass
+        # Primary view pack (Network nesting, or Logical/Security/Data flow lens).
+        # No shared views/common.txt — lenses are self-contained; CORE owns mechanics.
         try:
             view_pack = _load_prompt(f"views/{view_key}.txt")
             if view_pack:

@@ -175,6 +175,50 @@ class DocPagesTests(unittest.TestCase):
         self.assertIn("Out of scope", val)
         self.assertNotIn("Recommended gaps", val)
 
+    def test_security_overview_stub_plain_language(self) -> None:
+        bare = _wrap(
+            '<mxCell id="svc" value="WAF" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        with_panel = ensure_minimal_overview_panel(bare, "Security")
+        val = next(c for c in ET.fromstring(with_panel).iter("mxCell") if c.get("id") == "overview_panel").get("value") or ""
+        self.assertIn("Security & trust", val)
+        self.assertIn("Outside users", val)
+        self.assertIn("private area", val.lower())
+        self.assertIn("Out of scope", val)
+        self.assertNotIn("AuthN / TLS", val)
+
+    def test_data_flow_overview_stub_plain_language(self) -> None:
+        bare = _wrap(
+            '<mxCell id="svc" value="RDS" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        with_panel = ensure_minimal_overview_panel(bare, "Data flow")
+        val = next(c for c in ET.fromstring(with_panel).iter("mxCell") if c.get("id") == "overview_panel").get("value") or ""
+        self.assertIn("Data journey", val)
+        self.assertIn("enters from", val.lower())
+        self.assertIn("personal data", val.lower())
+        self.assertIn("Out of scope", val)
+
+    def test_gap_candidates_split_by_view(self) -> None:
+        from app.adapters.outbound.diagram.architecture_docs import _gap_candidates
+
+        labels = ["ALB", "ECS", "Aurora"]
+        req = "secure web app with PII and event pipeline"
+        sec = _gap_candidates(req, labels, view="security")
+        data = _gap_candidates(req, labels, view="data_flow")
+        self.assertTrue(
+            any("filter" in g.lower() or "login" in g.lower() or "vault" in g.lower() or "monitor" in g.lower()
+                for g in sec),
+            msg=f"security gaps={sec}",
+        )
+        self.assertFalse(any(g.startswith("Edge web") or "WAF" in g for g in data), msg=f"data gaps={data}")
+        self.assertFalse(any("login" in g.lower() or "IdP" in g for g in data), msg=f"data gaps={data}")
+        self.assertTrue(
+            any(x in g for g in data for x in ("Dead-letter", "Backup", "Schema", "CDC")),
+            msg=f"data gaps={data}",
+        )
+
     def test_network_only_extra_view_context_empty(self) -> None:
         self.assertEqual(build_views_prompt_block(["network"]), "")
         human = build_single_view_human(
@@ -203,57 +247,52 @@ class DocPagesTests(unittest.TestCase):
 
 
 class ViewPackQualityTests(unittest.TestCase):
-    def test_system_includes_common_and_lens(self) -> None:
+    def test_system_includes_core_and_self_contained_lens(self) -> None:
         logical = build_single_view_system("logical")
         self.assertIn("overview_panel", logical)
-        self.assertIn("shape_type", logical)
         self.assertIn("step_markers", logical)
         self.assertIn("Logical", logical)
         self.assertIn("Bounded Contexts", logical)
         self.assertIn("Invokes", logical)
         self.assertIn("FORBIDDEN", logical)
-        self.assertIn("3–5", logical)
         self.assertIn("Application / Solution Architect", logical)
         self.assertIn("25+", logical)
         self.assertIn("capability", logical.lower())
-        self.assertIn("Differentiation", logical)
-        self.assertIn("anti-overlap", logical.lower())
+        self.assertIn("Pack ownership", logical)  # from CORE
+        self.assertIn("Audience-first story", logical)  # from CORE overview
         self.assertIn("180–220", logical)
         self.assertIn("#DAE8FC", logical)
-        self.assertIn("note_experience", logical)
-        self.assertIn("overview_panel", logical)
+        self.assertIn("logical_*", logical)
+        self.assertIn("step_markers", logical)
+        self.assertNotIn("note_experience", logical)
+        self.assertNotIn("ctrl_dmz", logical)
+        self.assertIn("note_*", logical)  # forbidden in CORE/lens, not required cards
         self.assertNotIn("Canonical Container Hierarchy", logical)
         self.assertNotIn("Cross-Cutting Groups", logical)
-        # AZ styling lives in the Network pack, not view prompts
         self.assertNotIn("arcSize=6", logical)
+        self.assertNotIn("official shape_type on EVERY service leaf", logical)
+        # common.txt removed
+        self.assertNotIn("Viewpoint contract", logical)
+        self.assertNotIn("Differentiation law", logical)
 
         security = build_single_view_system("security")
         self.assertIn("Trust Zones", security)
-        self.assertIn("ctrl_dmz", security)
+        self.assertIn("zone_dmz", security)
         self.assertIn("Security / Trust Architect", security)
-        self.assertIn("25+", security)
-        self.assertIn("trust", security.lower())
-        self.assertIn("overview_panel", security)
-        self.assertIn("AuthN", security)
         self.assertIn("CISO", security)
+        self.assertIn("Security & trust", security)
         self.assertIn("FORBIDDEN", security)
-        self.assertIn("0.25", security)
+        self.assertNotIn("ctrl_dmz", security)
+        self.assertNotIn("note_experience", security)
 
         data_flow = build_single_view_system("data_flow")
-        self.assertIn("lifecycle", data_flow.lower())
-        self.assertIn("note_ingest", data_flow)
+        self.assertIn("Data journey", data_flow)
         self.assertIn("Integration / Data-Flow Architect", data_flow)
-        self.assertIn("25+", data_flow)
-        self.assertIn("Data flow", data_flow)
         self.assertIn("JSON:", data_flow)
-        self.assertIn("pipeline", data_flow.lower())
-        self.assertIn("payload", data_flow.lower())
-        self.assertIn("FORBIDDEN", data_flow)
-        self.assertIn("Hot path", data_flow)
-        self.assertIn("product quality bar", build_single_view_system("logical").lower())
-        self.assertIn("Viewpoint contract", logical)
-        self.assertIn("logical_*", logical)
-        self.assertNotIn("official shape_type on EVERY service leaf", logical)
+        self.assertIn("PII", data_flow)
+        self.assertIn("control plane", data_flow.lower())
+        self.assertIn("phase_ingest", data_flow)
+        self.assertNotIn("note_ingest", data_flow)
 
     def test_architecture_inventory_services_and_flows(self) -> None:
         xml = _wrap(
@@ -333,15 +372,19 @@ class ViewEnrichmentFixerTests(unittest.TestCase):
         self.assertEqual(by_id["app"].get("shape_type"), "aws_ec2")
         self.assertNotIn("shape=ellipse", by_id["shield"].get("style") or "")
 
-        with_cards = ensure_view_detail_cards(
-            out, view="logical", primary_xml=primary, request_text="HA web app",
+        # Detail cards deprecated — ensure_view_detail_cards strips leftovers
+        with_note = out.replace(
+            "</root>",
+            '<mxCell id="note_experience" value="old card" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="400" width="200" height="80" as="geometry"/></mxCell></root>',
+            1,
         )
-        ids = {c.get("id") for c in ET.fromstring(with_cards).iter("mxCell")}
-        self.assertIn("note_experience", ids)
-        self.assertIn("note_core", ids)
-        self.assertIn("note_data_cap", ids)
-        core_card = next(c for c in ET.fromstring(with_cards).iter("mxCell") if c.get("id") == "note_core")
-        self.assertIn("EC2", core_card.get("value") or "")
+        stripped = ensure_view_detail_cards(
+            with_note, view="logical", primary_xml=primary, request_text="HA web app",
+        )
+        ids = {c.get("id") for c in ET.fromstring(stripped).iter("mxCell")}
+        self.assertNotIn("note_experience", ids)
+        self.assertIn("shield", ids)
 
     def test_logical_assigns_mcp_shape_types(self) -> None:
         from app.adapters.outbound.diagram.architecture_docs import assign_logical_shape_types

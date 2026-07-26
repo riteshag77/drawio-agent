@@ -29,7 +29,7 @@ _VIEW_PACK_FILES = {
     "data_flow": "views/data_flow.txt",
 }
 _DOCS_PACK_FILE = "docs/adr_raid.txt"
-_VIEW_COMMON_FILE = "views/common.txt"
+_VIEW_COMMON_FILE = "views/common.txt"  # removed — lenses are self-contained; kept for API compat
 _CORE_PACK_FILE = "core.txt"
 _CONFIG_DIR = EnvConfigAdapter.base_dir() / "config" / "xml_gen"
 _MAX_ADRS = 15  # soft safety against runaway model dumps
@@ -154,13 +154,8 @@ def load_core_pack() -> str:
 
 
 def load_view_common_pack() -> str:
-    path = _CONFIG_DIR / _VIEW_COMMON_FILE
-    if path.is_file():
-        return path.read_text(encoding="utf-8")
-    return (
-        "Produce one briefing-quality draw.io page. Reuse inventory services. "
-        "Require overview_panel with 4–6 layman steps. Use shape_type placeholders."
-    )
+    """Deprecated: shared views/common.txt removed. Lenses are self-contained."""
+    return ""
 
 
 def load_view_prompt_pack(view: str) -> str:
@@ -219,16 +214,13 @@ LEAF SHAPES: Reuse inventory shape_type keys on every cloud service leaf so MCP 
 
 def build_single_view_system(view: str) -> str:
     core = load_core_pack()
-    common = load_view_common_pack()
     pack = load_view_prompt_pack(view)
     shape_rule = (
         _SINGLE_VIEW_LOGICAL_SHAPE_RULE
         if (view or "").strip().lower() == "logical"
         else _SINGLE_VIEW_CLOUD_SHAPE_RULE
     )
-    return (
-        f"{_SINGLE_VIEW_SYSTEM_PREFIX}\n{shape_rule}\n\n{core}\n\n{common}\n\n{pack}"
-    ).strip()
+    return f"{_SINGLE_VIEW_SYSTEM_PREFIX}\n{shape_rule}\n\n{core}\n\n{pack}".strip()
 
 
 def _plain_cell_label(value: str) -> str:
@@ -408,30 +400,72 @@ def _classify_data_label(label: str) -> str:
     return "Internal"
 
 
-def _gap_candidates(request_text: str, service_labels: list[str]) -> list[str]:
+def _gap_candidates(
+    request_text: str,
+    service_labels: list[str],
+    *,
+    view: str = "",
+) -> list[str]:
+    """Recommend missing items relevant to the audience of ``view``.
+
+    Security → control gaps (edge filter, IdP, KMS, monitoring).
+    Data flow → data-path gaps (DLQ, backup, CDC, schema registry).
+    Other / empty view → security-flavored defaults for inventory briefs.
+    """
     blob = f"{request_text} {' '.join(service_labels)}".lower()
     labels_joined = " ".join(service_labels).lower()
+    view_key = (view or "").strip().lower()
     gaps: list[str] = []
-    checks = [
-        (("waf", "shield", "cloud armor"), "WAF / edge threat filter"),
-        (("cognito", "entra", "idp", "identity", "oauth"), "Identity Provider / IdP"),
-        (("kms", "key vault", "secrets manager"), "KMS / secrets management"),
-        (("backup", "archive", "glacier", "retention"), "Backup / retention archive"),
-    ]
-    for needles, name in checks:
-        if any(n in blob for n in needles) and not any(n in labels_joined for n in needles):
-            gaps.append(name)
-        elif not any(n in labels_joined for n in needles) and name.startswith(("WAF", "Identity", "KMS")):
-            # Recommend common controls even when request is silent — marked as gaps
-            if name not in gaps and (
-                ("secure" in blob or "compliance" in blob or "pci" in blob or "pii" in blob)
-                or name.startswith("WAF")
+
+    def _missing(needles: tuple[str, ...]) -> bool:
+        return not any(n in labels_joined for n in needles)
+
+    def _mentioned(needles: tuple[str, ...]) -> bool:
+        return any(n in blob for n in needles)
+
+    if view_key == "data_flow":
+        checks = [
+            (("dlq", "dead letter", "dead-letter", "retry queue"), "Dead-letter / retry path"),
+            (("backup", "archive", "glacier", "retention", "snapshot"), "Backup / retention archive"),
+            (("cdc", "replica", "read replica", "dms"), "CDC / read replica path"),
+            (("schema registry", "glue catalog", "avro schema"), "Schema registry / data catalog"),
+        ]
+        for needles, name in checks:
+            if _missing(needles) and (
+                _mentioned(needles)
+                or _mentioned(("pii", "pci", "pipeline", "stream", "event", "batch", "etl", "data"))
+                or name.startswith(("Dead-letter", "Backup"))
             ):
-                if name.startswith("WAF") and "web" in blob:
-                    gaps.append(name)
-                elif not name.startswith("WAF"):
-                    gaps.append(name)
-    # Dedupe while preserving order
+                gaps.append(name)
+    else:
+        # Security (default) — control gaps for risk owners
+        checks = [
+            (("waf", "shield", "cloud armor"), "Edge web filter (WAF)"),
+            (("cognito", "entra", "idp", "identity", "oauth", "auth0", "okta"), "Central login / identity service"),
+            (("kms", "key vault", "secrets manager"), "Keys / secrets vault"),
+            (
+                ("cloudwatch", "guardduty", "security hub", "sentinel", "siem", "logging"),
+                "Attack / abuse monitoring",
+            ),
+            (("backup", "archive", "glacier", "retention"), "Backup / retention archive"),
+        ]
+        sensitive = _mentioned(("secure", "compliance", "pci", "pii", "trust", "zero trust", "ciso"))
+        for needles, name in checks:
+            if not _missing(needles):
+                continue
+            if _mentioned(needles):
+                gaps.append(name)
+            elif name.startswith("Edge web filter") and ("web" in blob or "api" in blob or sensitive):
+                gaps.append(name)
+            elif name.startswith("Central login") and (sensitive or "login" in blob or "auth" in blob):
+                gaps.append(name)
+            elif name.startswith("Keys") and sensitive:
+                gaps.append(name)
+            elif name.startswith("Attack") and (sensitive or "monitor" in blob or "detect" in blob):
+                gaps.append(name)
+            elif view_key != "data_flow" and name.startswith("Edge web filter") and "web" in blob:
+                gaps.append(name)
+
     seen: set[str] = set()
     out: list[str] = []
     for g in gaps:
@@ -468,7 +502,7 @@ def build_view_target_brief(
         )
     ][:12]
     control_lines = [f"- {zone}: {ref}" for zone, ref in _CONTROL_REFS.items()]
-    gaps = _gap_candidates(request_text, svc_labels)
+    gaps = _gap_candidates(request_text, svc_labels, view="")
     gap_lines = [f"- {g} (recommended - not in current design)" for g in gaps] or ["- (none)"]
     domain_hints = [
         "- domain_experience — channels / personas",
@@ -620,31 +654,22 @@ def build_architecture_inventory(
 
 _VIEW_BRIEFING: dict[str, str] = {
     "logical": (
-        "PERSONA: Principal Application / Solution Architect — 25+ years (capability & domain modelling).\n"
-        "VIEWPOINT = LOGICAL — what the system does; dependencies between capabilities.\n"
-        "GROUP BY: Bounded Contexts / Business Domains. 8–12 capability nodes when possible.\n"
-        "EDGES: every edge labeled Invokes / Calls API / Relies on — NOT TLS, NOT JSON payloads.\n"
-        "FORBIDDEN: WAF, VPC/AZ/subnet, specific DB product names as the story, encryption, queues-as-hero.\n"
-        "ALLOWED: personas, frontends, microservices/capabilities, generic Data Stores, SaaS deps.\n"
-        "AUTO-FILL domain detail cards (3–5 bullets). Use generic architecture shapes (no cloud shape_type / MCP icons)."
+        "PERSONA: Principal Application / Solution Architect — 25+ years.\n"
+        "VIEWPOINT = LOGICAL — capabilities & domains; no trust zones; no note/ctrl cards.\n"
+        "OVERVIEW + step_markers badges (plain language). GROUP BY bounded contexts only.\n"
+        "EDGES: Invokes / Calls API / Relies on. FORBIDDEN: WAF/VPC/zones/cards. logical_* leaves."
     ),
     "security": (
-        "PERSONA: Principal Security / Trust Architect — 25+ years (zero-trust / cyber / audit).\n"
-        "VIEWPOINT = SECURITY — trust boundaries, attack surface, identity verification.\n"
-        "GROUP BY: Trust Zones (Public / DMZ / Private / Highly Restricted / Identity / Detect).\n"
-        "EDGES: every edge labeled AuthN / AuthZ / TLS / mTLS / inspect / private path — NOT business Invokes, NOT JSON payloads.\n"
-        "FORBIDDEN: business microservice soup, UI, queues-as-hero, DB tables, subnet wallpaper.\n"
-        "ALLOWED: IdP/IAM, WAF, API GW/ALB, KMS/secrets/ACM when present, high-level app block, sensitive boundary, detect.\n"
-        "AUTO-FILL control cards per zone (3–5 bullets). 8–12 nodes when inventory supports."
+        "PERSONA: Principal Security / Trust Architect — 25+ years.\n"
+        "VIEWPOINT = SECURITY — controls present; trust zones; no note/ctrl cards.\n"
+        "OVERVIEW + step_markers badges (plain language). GROUP BY trust zones.\n"
+        "EDGES: AuthN / TLS / inspect / private path. FORBIDDEN: microservice soup, UI, cards."
     ),
     "data_flow": (
-        "PERSONA: Principal Integration / Data-Flow Architect — 25+ years (messaging / ETL / state lifecycle).\n"
-        "VIEWPOINT = DATA FLOW — lifecycle, transformation, and storage of state/data.\n"
-        "GROUP BY: Ingestion / Processing / Storage (/ Analytics) OR Hot path vs Cold path.\n"
-        "EDGES: every edge labeled with payload/object (JSON: Order, SQL: CustomerRow, Event: OrderPlaced, Cache: SessionKey).\n"
-        "FORBIDDEN: WAF/UI/auth login flows, VPC/subnet wallpaper, security-control essays.\n"
-        "ALLOWED: specific DB/cache/broker/ETL types from inventory, producers/consumers.\n"
-        "AUTO-FILL phase journey cards (3–5 bullets). 8–12 nodes; omit pure security hops."
+        "PERSONA: Principal Integration / Data-Flow Architect — 25+ years.\n"
+        "VIEWPOINT = DATA FLOW — data journey; PII tags when known; no note/ctrl cards.\n"
+        "OVERVIEW + step_markers badges (plain language). GROUP BY lifecycle phases.\n"
+        "EDGES: JSON:/SQL:/Event: payloads. FORBIDDEN: WAF/login, VPC wallpaper, cards."
     ),
 }
 
@@ -1340,59 +1365,60 @@ def _build_view_detail_specs(
     if view == "security":
         return [
             ("ctrl_public", "Public Internet / Untrusted", [
-                "Attack surface starts here — actors outside the trust boundary",
-                "No standing trust; all entry must cross the DMZ/perimeter",
-                "Do not place private app or data icons in this zone",
+                "Anyone on the internet starts here — no standing trust",
+                "Private apps and sensitive data must not live in this zone",
+                "All entry should cross the perimeter next",
+                "Residual risk: anything exposed here is easy to probe",
             ]),
             ("ctrl_dmz", "DMZ / Perimeter", [
-                f"Perimeter controls: {join(edge, 'WAF / CDN / public LB / API GW')}",
-                "AuthN/TLS/inspect happen on perimeter crossings",
+                f"Edge protections present: {join(edge, 'web filter / public gateway / CDN')}",
+                "Traffic is checked and filtered before it goes further",
                 "Only this zone should be directly internet-reachable",
-                "Edge labels: TLS, inspect, AuthN — not business Invokes",
+                "Crossings use protected paths (TLS / inspect / login check on edges)",
             ]),
             ("ctrl_private", "Private application zone", [
-                f"High-level private app block (collapse microservices): {join(app, 'app tier')}",
-                "No UI/business soup — one trusted app boundary is enough",
-                "Crossings from DMZ only via controlled private path",
-                "Multi-AZ isolation when the request implies HA" if ("az" in req or "multi" in req or "ha" in req)
-                else "Keep admin paths off the public internet",
+                f"Private apps sit here (collapsed): {join(app, 'application tier')}",
+                "Only allowed paths from the perimeter reach this zone",
+                "Keep admin and break-glass paths off the public internet",
+                "Residual risk: a weak perimeter path still reaches apps",
             ]),
             ("ctrl_restricted", "Highly restricted / sensitive", [
-                f"Sensitive boundary for: {join(data, 'data stores')}",
-                "App-only private path; no internet → data",
-                "KMS/secrets/ACM only when inventory/request supports them",
-                "Edge labels: private path / TLS — not JSON payloads",
+                f"Sensitive data boundary: {join(data, 'data stores')}",
+                "Apps reach data on a private path — not from the internet",
+                "Keys and secrets vaults only when inventory/request supports them",
+                "Residual risk: over-broad app access into this zone",
             ]),
             ("ctrl_detect", "Detect & respond", [
-                f"Detection/visibility: {join(obs, 'monitoring / security tools')}",
-                "Complements perimeter — does not replace it",
-                "Place as a shelf below trust zones with clear gap",
+                f"Watching for abuse: {join(obs, 'monitoring / security tools')}",
+                "Complements the perimeter — does not replace it",
+                "Place as a shelf below trust zones with a clear gap",
+                "Residual risk: alerts without someone to act",
             ]),
         ]
     return [
         ("note_ingest", "Ingestion / producers", [
-            f"Producers: {join((app[:2] or edge[:1]), 'client / app producers')}",
-            "What enters the system (events, API writes, batch files)",
-            "Edge labels use payload names (JSON:… / Event:…) — not WAF inspect essays",
-            "Omit UI wireframes and auth login sequences",
+            f"Data enters from: {join((app[:2] or edge[:1]), 'apps / partners / jobs')}",
+            "Say what arrives (orders, files, events) in plain words",
+            "Arrows name the payload — not security inspect essays",
+            "Skip UI screens and login sequences on this page",
         ]),
         ("note_process", "Processing", [
-            f"Processors: {join(app, 'application / stream processors')}",
-            "Transforms or enriches state before durable write",
-            "Sync vs async: solid vs dashed with payload labels",
-            "Hot path stays on the main corridor",
+            f"Processing step: {join(app, 'application / stream processors')}",
+            "Data is cleaned, enriched, or routed before it is saved",
+            "Solid arrows = sync; dashed = async — keep labels readable",
+            "Main data path stays on this corridor",
         ]),
         ("note_store", "Storage", [
-            f"Stores: {join(data, 'cache / database / object store')}",
-            "Name specific tech when inventory has it (RDS, ElastiCache, S3…)",
-            "Payloads: SQL:…, Cache:…, Object:…",
-            "Replicas/cache as distinct hops when present",
+            f"Where data lives: {join(data, 'cache / database / object store')}",
+            "Name the store from inventory when known",
+            "Mark personal data [PII] vs non-personal when the request implies it",
+            "Note retention or residency only when already implied",
         ]),
         ("note_consume", "Consumers / analytics", [
-            "Who reads the data next (app read models, batch, analytics if present)",
-            "Cold path below hot path when batch exists",
-            "Every edge still carries a payload label",
-            "No VPC/subnet grouping on this page",
+            "Who reads the data next (apps, reports, batch jobs)",
+            "Batch / cold path sits below the live path when present",
+            "Every arrow still names what data moves",
+            "Orchestration schedules sit on a dashed control shelf if present",
         ]),
     ]
 
@@ -1401,86 +1427,17 @@ def ensure_view_detail_cards(
     page_xml: str,
     *,
     view: str,
-    primary_xml: str,
+    primary_xml: str = "",
     request_text: str = "",
     min_cards: int = 4,
 ) -> str:
-    """Inject rich section detail cards when the LLM under-delivers, then de-overlap."""
-    from app.adapters.outbound.diagram.view_fixers import space_detail_cards
-    from app.adapters.outbound.diagram.xml_diagnostics import absolute_position
+    """Deprecated no-op: prose cards removed — Overview + badges own the story.
 
-    parsed = _iter_diagram_root(page_xml)
-    if parsed is None:
-        return page_xml
-    tree, root = parsed
-    existing = 0
-    for cell in root.iter("mxCell"):
-        cid = cell.get("id") or ""
-        if cid.startswith(("note_", "ctrl_")):
-            existing += 1
-    if existing >= min_cards:
-        # LLM already emitted cards — still snap them next to their sections
-        return space_detail_cards(ET.tostring(tree, encoding="unicode"), view=view)
-
-    specs = _build_view_detail_specs(view, primary_xml, request_text)
-    have = {c.get("id") for c in root.iter("mxCell") if c.get("id")}
-    by_id = {c.get("id"): c for c in root.iter("mxCell") if c.get("id")}
-
-    # Temporary seed positions; space_detail_cards snaps next to section boxes
-    panel = by_id.get("overview_panel")
-    content_max_y = 40.0
-    for cell in root.iter("mxCell"):
-        if cell.get("vertex") != "1" or cell.get("edge") == "1":
-            continue
-        cid = cell.get("id") or ""
-        if cid in {"0", "1", "overview_panel", "legend_box"} or cid.startswith(
-            ("step_badge_", "note_", "ctrl_", "sec_", "gap_")
-        ):
-            continue
-        ax, ay = absolute_position(cell, by_id)
-        geo = cell.find("mxGeometry")
-        try:
-            h = float(geo.get("height") or 78) if geo is not None else 78.0
-        except ValueError:
-            h = 78.0
-        content_max_y = max(content_max_y, ay + h + 36)
-
-    base_x, base_y = 40.0, content_max_y + 16.0
-    if panel is not None:
-        geom = panel.find("mxGeometry")
-        if geom is not None:
-            try:
-                base_x = max(40.0, float(geom.get("x") or 1000) - 340.0)
-            except ValueError:
-                pass
-    y = base_y
-    added = 0
-    for card_id, title, bullets in specs:
-        if card_id in have:
-            continue
-        cell = ET.Element("mxCell")
-        cell.set("id", card_id)
-        cell.set(
-            "value",
-            f'<div style="font-size:12px;font-weight:bold;">{title}</div>'
-            + "".join(f"<div>• {b}</div>" for b in bullets),
-        )
-        cell.set("style", _VIEW_CARD_STYLE)
-        cell.set("vertex", "1")
-        cell.set("parent", "1")
-        geom = ET.SubElement(cell, "mxGeometry")
-        geom.set("x", str(int(base_x)))
-        geom.set("y", str(int(y)))
-        geom.set("width", "280")
-        h = 56 + 18 * len(bullets)
-        geom.set("height", str(h))
-        geom.set("as", "geometry")
-        root.append(cell)
-        have.add(card_id)
-        y += h + 24
-        added += 1
-    xml_out = ET.tostring(tree, encoding="unicode") if added else page_xml
-    return space_detail_cards(xml_out, view=view)
+    Strips any leftover note_*/ctrl_* cells for backward-compatible call sites.
+    """
+    del primary_xml, request_text, min_cards  # unused
+    from app.adapters.outbound.diagram.view_fixers import strip_detail_cards
+    return strip_detail_cards(page_xml, view=view)
 
 
 def page_has_overview_panel(xml: str) -> bool:
@@ -1505,20 +1462,27 @@ def _overview_stub_body(view_title: str) -> str:
             "&lt;div style=&quot;font-size:13px;&quot;&gt;Out of scope on this page: network topology, trust controls, and payload schemas (other tabs).&lt;/div&gt;"
         )
     if title_key == "security":
-        title = _esc("Security architecture — system")
+        title = _esc("Security & trust — system")
         return (
             f"&lt;div style=&quot;font-size:22px;font-weight:bold;&quot;&gt;{title}&lt;/div&gt;"
-            "&lt;div style=&quot;font-size:15px;&quot;&gt;1. Review trust zones from public edge to restricted data.&lt;/div&gt;"
-            "&lt;div style=&quot;font-size:15px;&quot;&gt;2. Follow AuthN / TLS / inspect paths across boundaries.&lt;/div&gt;"
-            "&lt;div style=&quot;font-size:15px;&quot;&gt;3. Use other tabs for capability map and payload detail.&lt;/div&gt;"
+            "&lt;div style=&quot;font-size:15px;&quot;&gt;1. Outside users reach the public edge of the system.&lt;/div&gt;"
+            "&lt;div style=&quot;font-size:15px;&quot;&gt;2. Edge protections check and filter traffic before it goes further.&lt;/div&gt;"
+            "&lt;div style=&quot;font-size:15px;&quot;&gt;3. The system checks who someone is before sensitive work.&lt;/div&gt;"
+            "&lt;div style=&quot;font-size:15px;&quot;&gt;4. Apps run in a private area; only allowed paths get in.&lt;/div&gt;"
+            "&lt;div style=&quot;font-size:15px;&quot;&gt;5. The most sensitive data sits in a tighter, locked zone.&lt;/div&gt;"
+            "&lt;div style=&quot;font-size:15px;&quot;&gt;6. Monitoring watches for abuse and raises alerts.&lt;/div&gt;"
+            "&lt;div style=&quot;font-size:13px;&quot;&gt;Out of scope here: business capabilities and data payload detail (other tabs).&lt;/div&gt;"
         )
     if title_key in {"data flow", "data_flow"}:
-        title = _esc("Data flow — system")
+        title = _esc("Data journey — system")
         return (
             f"&lt;div style=&quot;font-size:22px;font-weight:bold;&quot;&gt;{title}&lt;/div&gt;"
-            "&lt;div style=&quot;font-size:15px;&quot;&gt;1. Follow ingest → process → store lifecycle hops.&lt;/div&gt;"
-            "&lt;div style=&quot;font-size:15px;&quot;&gt;2. Read JSON / SQL / Event labels for payload contracts.&lt;/div&gt;"
-            "&lt;div style=&quot;font-size:15px;&quot;&gt;3. Use other tabs for topology and trust controls.&lt;/div&gt;"
+            "&lt;div style=&quot;font-size:15px;&quot;&gt;1. Data enters from apps, partners, or batch jobs.&lt;/div&gt;"
+            "&lt;div style=&quot;font-size:15px;&quot;&gt;2. It is cleaned or transformed in the processing step.&lt;/div&gt;"
+            "&lt;div style=&quot;font-size:15px;&quot;&gt;3. Important records are saved in the main store (and cache if used).&lt;/div&gt;"
+            "&lt;div style=&quot;font-size:15px;&quot;&gt;4. Downstream apps or analytics read what they need.&lt;/div&gt;"
+            "&lt;div style=&quot;font-size:15px;&quot;&gt;5. Customer-related hops are marked as personal data where known.&lt;/div&gt;"
+            "&lt;div style=&quot;font-size:13px;&quot;&gt;Out of scope here: network layout and security controls (other tabs).&lt;/div&gt;"
         )
     title = _esc(f"{view_title} overview")
     return (

@@ -29,7 +29,7 @@ _EDGE_DEFAULTS: dict[str, dict[str, str]] = {
         "default": "perimeter cross",
     },
     "data_flow": {
-        "app->data": "SQL: CustomerRow",
+        "app->data": "SQL: Record",
         "app->cache": "Cache: SessionKey",
         "edge->app": "JSON: Request",
         "app->app": "Event: DomainEvent",
@@ -495,6 +495,30 @@ def space_detail_cards(page_xml: str, *, view: str = "") -> str:
     return _serialize(tree) if changed else page_xml
 
 
+def strip_detail_cards(page_xml: str, *, view: str = "") -> str:
+    """Remove note_*/ctrl_* prose cards — Overview + badges own the story."""
+    title = VIEW_PAGE_NAMES.get(view, view or "Page")
+    tree = _parse(page_xml, title)
+    if tree is None:
+        return page_xml
+    root = tree.find(".//root")
+    if root is None:
+        root = tree
+    drop_ids: set[str] = set()
+    for cell in list(root.findall("mxCell")):
+        cid = cell.get("id") or ""
+        if cid.startswith(("note_", "ctrl_")):
+            drop_ids.add(cid)
+            root.remove(cell)
+    if not drop_ids:
+        return page_xml
+    for cell in list(root.findall("mxCell")):
+        if cell.get("edge") == "1":
+            if (cell.get("source") or "") in drop_ids or (cell.get("target") or "") in drop_ids:
+                root.remove(cell)
+    return remove_dangling_edges(_serialize(tree))
+
+
 def apply_view_fixers(page_xml: str, *, view: str) -> str:
     """Run the deterministic fixer chain for a focused view page."""
     # Relabel before drop so Kafka/SQS become capabilities instead of vanishing.
@@ -502,8 +526,8 @@ def apply_view_fixers(page_xml: str, *, view: str) -> str:
     xml = relabel_messaging_as_capabilities(xml, view=view)
     xml = drop_forbidden_nodes(xml, view=view)
     xml = strip_cloud_shape_types(xml, view=view)
+    xml = strip_detail_cards(xml, view=view)
     xml = apply_edge_label_defaults(xml, view=view)
-    xml = space_detail_cards(xml, view=view)
     return xml
 
 

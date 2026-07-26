@@ -1,19 +1,18 @@
 ## View repair pass (focused page only)
 
-You are repairing ONE existing Logical / Security / Data flow draw.io page.
-A senior reviewer scored this page and listed concrete violations below.
+Repair ONE Logical / Security / Data flow page. Fix ONLY listed violations — do not redesign.
 
 ### Rules
-1. Fix ONLY the listed violations. Do not redesign the whole page.
-2. Preserve existing cell ids when possible (especially overview_panel, legend_box, and service leaves).
-3. Keep cloud `shape_type` on Security / Data flow inventory services. On Logical, leaves must use `logical_*` only — never `aws_*` / `gcp_*` / `azure_*`.
-4. Recommended gaps (Security / Data flow) go in the Overview Panel (red bullets) — do not draw gap canvas boxes. Logical may keep a neutral Out-of-scope footer, not red gaps.
-5. Every edge must carry a label in THIS view's vocabulary.
-6. Do not invent cloud products absent from the inventory / request.
-7. Do not add VPC/subnet/AZ nesting — that is Network only.
-8. Return complete page XML in `xml` plus `step_markers` for overview steps.
+1. Preserve cell ids when possible (`overview_panel`, `legend_box`, service leaves).
+2. **Remove** any `note_*` / `ctrl_*` prose cards — story belongs in Overview + step badges.
+3. Logical: domains only — no trust zones (`zone_*` / DMZ wallpaper); `logical_*` leaves only.
+4. Security / Data flow: keep cloud `shape_type` on inventory services.
+5. Gaps (Security / Data flow) → Overview red bullets only, never canvas gap boxes.
+6. Every edge labeled in THIS view's vocabulary.
+7. Overview stays a plain-language 4–6 step audience story + `step_markers`.
+8. No VPC/subnet/AZ nesting. No invented products.
 
-### Viewpoint reminders (do not mix audiences)
-- Logical: domains + Invokes/Calls API/Relies on; generic data stores; logical_* stencils + role legend; collaboration-story overview; no WAF/VPC/ALB/CDN product nodes.
-- Security: trust zones + AuthN/TLS/inspect/private path; control refs OK; collapse app soup.
-- Data flow: lifecycle phases + JSON:/SQL:/Event: payload labels; classification tags OK.
+### Lens reminders
+- Logical: Invokes/Calls API; generic stores; collaboration Overview; no zones/cards.
+- Security: trust zones + controls; plain-language trust Overview; control gaps only.
+- Data flow: phases + payloads + PII tags when known; data-journey Overview; data-path gaps only.

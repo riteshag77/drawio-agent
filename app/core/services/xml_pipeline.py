@@ -52,7 +52,6 @@ from app.adapters.outbound.diagram.architecture_docs import (
     page_has_overview_panel,
     pick_primary_view,
     inject_shape_types_from_primary,
-    ensure_view_detail_cards,
 )
 from app.adapters.outbound.diagram.view_conformance import (
     format_violations_for_repair,
@@ -347,14 +346,7 @@ def _finalize_view_page_xml(
             )
         xml = ensure_minimal_overview_panel(xml, title)
     if view and primary_xml:
-        xml = ensure_view_detail_cards(
-            xml,
-            view=view,
-            primary_xml=primary_xml,
-            request_text=human_prompt,
-            min_cards=4,
-        )
-        # Gap recommendations → Overview Panel section (security / data_flow)
+        # Gap recommendations → Overview Panel (security / data_flow); then strip cards
         try:
             inv_labels: list[str] = []
             tree = ET.fromstring(ensure_diagram_document(primary_xml, "Architecture"))
@@ -364,10 +356,12 @@ def _finalize_view_page_xml(
                     lab = _plain_cell_label(cell.get("value") or "")
                     if lab:
                         inv_labels.append(lab)
-            gaps = _gap_candidates(human_prompt or "", inv_labels)
+            gaps = _gap_candidates(human_prompt or "", inv_labels, view=view)
             xml = ensure_gap_nodes(xml, view=view, gap_labels=gaps)
         except Exception:
             pass
+        xml = apply_view_fixers(xml, view=view)
+    elif view:
         xml = apply_view_fixers(xml, view=view)
     if view == "logical":
         from app.adapters.outbound.diagram.architecture_docs import assign_logical_shape_types

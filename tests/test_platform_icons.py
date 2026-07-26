@@ -132,10 +132,15 @@ class PickStyleTests(unittest.TestCase):
         self.assertEqual(_shape_query("logical_datastore", "aws"), "cylinder database")
         self.assertEqual(_shape_query("logical_capability", "aws"), "rounded rectangle application")
 
-    def test_builtin_skips_logical_early(self) -> None:
-        # logical_* must reach MCP search; builtins are miss-fallbacks only
-        self.assertIsNone(_builtin_style("logical_actor"))
-        self.assertIsNone(_builtin_style("logical_capability"))
+    def test_builtin_resolves_logical_early(self) -> None:
+        # logical_* uses curated primitives — skip MCP (vague queries → empty boxes)
+        actor = _builtin_style("logical_actor") or ""
+        cap = _builtin_style("logical_capability") or ""
+        self.assertIn("umlActor", actor)
+        self.assertIn("DAE8FC", cap)
+        self.assertIn("aspect=fixed", cap)
+        api = _builtin_style("logical_api") or ""
+        self.assertIn("hexagon", api)
 
     def test_pick_style_logical_rejects_cloud_icons(self) -> None:
         styles = [

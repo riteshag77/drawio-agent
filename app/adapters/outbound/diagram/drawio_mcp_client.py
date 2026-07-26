@@ -100,37 +100,43 @@ _LOGICAL_SHAPE_QUERIES: dict[str, str] = {
     "logical_platform": "rounded rectangle",
 }
 
-# Miss fallbacks when MCP search returns nothing useful for logical_*.
+# Curated draw.io primitives for Logical roles (C4-style). MCP search is skipped —
+# keyword hits like "application"/"cloud" often render as empty boxes in the iframe.
 _LOGICAL_BUILTIN_STYLES: dict[str, str] = {
     "logical_actor": (
         "shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;"
         "outlineConnect=0;fillColor=#E6E6E6;strokeColor=#666666;fontColor=#333333;"
-        "fontSize=12;align=center;"
+        "fontSize=12;align=center;aspect=fixed;"
     ),
     "logical_channel": (
         "rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#666666;"
-        "fontColor=#333333;align=center;verticalAlign=middle;fontSize=12;arcSize=12;"
+        "fontColor=#333333;fontSize=12;arcSize=12;align=center;"
+        "verticalLabelPosition=bottom;verticalAlign=top;aspect=fixed;"
     ),
     "logical_capability": (
         "rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;"
-        "fontColor=#1A1A2E;align=center;verticalAlign=middle;fontSize=12;arcSize=8;"
+        "fontColor=#1A1A2E;fontSize=12;arcSize=8;align=center;"
+        "verticalLabelPosition=bottom;verticalAlign=top;aspect=fixed;"
     ),
     "logical_api": (
-        "rounded=1;whiteSpace=wrap;html=1;fillColor=#E1D5E7;strokeColor=#9673A6;"
-        "fontColor=#1A1A2E;align=center;verticalAlign=middle;fontSize=12;arcSize=8;"
+        "shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;"
+        "fillColor=#E1D5E7;strokeColor=#9673A6;fontColor=#1A1A2E;fontSize=11;align=center;"
+        "verticalLabelPosition=bottom;verticalAlign=top;aspect=fixed;"
     ),
     "logical_datastore": (
         "shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;"
-        "fillColor=#D5E8D4;strokeColor=#82B366;fontColor=#1A1A2E;"
-        "align=center;verticalAlign=middle;fontSize=12;"
+        "fillColor=#D5E8D4;strokeColor=#82B366;fontColor=#1A1A2E;fontSize=12;align=center;"
+        "verticalLabelPosition=bottom;verticalAlign=top;aspect=fixed;"
     ),
     "logical_saas": (
-        "ellipse;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;"
-        "fontColor=#1A1A2E;align=center;verticalAlign=middle;fontSize=12;"
+        "ellipse;shape=ellipse;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;"
+        "fontColor=#1A1A2E;fontSize=12;align=center;"
+        "verticalLabelPosition=bottom;verticalAlign=top;aspect=fixed;"
     ),
     "logical_platform": (
         "rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#147EBA;"
-        "fontColor=#1A1A2E;align=center;verticalAlign=middle;fontSize=12;arcSize=8;dashed=1;"
+        "fontColor=#1A1A2E;fontSize=12;arcSize=8;dashed=1;align=center;"
+        "verticalLabelPosition=bottom;verticalAlign=top;aspect=fixed;"
     ),
 }
 
@@ -193,10 +199,19 @@ _BUILTIN_SHAPE_STYLES: dict[str, str] = {
 
 
 def _builtin_style(shape_type: str) -> str | None:
-    """Early-resolve builtins for noisy cloud actor icons only (not logical_*)."""
+    """Early-resolve known-good styles — skip MCP when we already own the stencil.
+
+    Cloud actors (Users/Client) and all ``logical_*`` roles use curated draw.io
+    primitives. Logical must not go through MCP keyword search: queries like
+    ``application`` / ``cloud`` often return empty or non-rendering shapes that
+    overwrite the colored role boxes and look like blank squares.
+    """
     st = (shape_type or "").strip().lower()
     if st.startswith("logical_"):
-        return None  # logical builtins are miss-fallbacks so MCP search still runs
+        style = _LOGICAL_BUILTIN_STYLES.get(st)
+        if style and not style.endswith(";"):
+            return style + ";"
+        return style
     style = _BUILTIN_SHAPE_STYLES.get(st)
     if style and not style.endswith(";"):
         return style + ";"

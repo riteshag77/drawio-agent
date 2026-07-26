@@ -28,11 +28,12 @@ _FORBIDDEN_BY_VIEW: dict[str, tuple[str, ...]] = {
         "kafka", "kinesis", "sqs queue", "sns topic", "amazon sqs", "amazon sns",
     ),
     "security": (
-        "orders api", "catalog", "checkout", "wireframe", "kafka topic",
+        "orders api", "orders capability", "catalog", "checkout", "wireframe",
+        "kafka topic", "ui screen", "mobile app", "spa ",
     ),
     "data_flow": (
         "waf", "shield", "cognito", "entra", "login", "subnet", "vpc", "vnet",
-        "availability zone",
+        "availability zone", "authn", "authz", "mfa ", "bastion",
     ),
 }
 
@@ -275,6 +276,33 @@ def score_view(
     metrics["blank_edges"] = blank
     metrics["vocab_miss"] = vocab_miss
 
+    # Data flow: request implies PII/PCI but diagram has no classification tags
+    if view == "data_flow":
+        req = (request_text or "").lower()
+        needs_class = any(x in req for x in ("pii", "pci", "personal data", "gdpr", "hipaa"))
+        if needs_class:
+            tagged = False
+            for _eid, label, _ in edges:
+                low = (label or "").lower()
+                if "[pii]" in low or "[pci]" in low or "[non-pii]" in low or "[confidential]" in low:
+                    tagged = True
+                    break
+            if not tagged:
+                for card in _iter_cells(root):
+                    cid = card.get("id") or ""
+                    if not cid.startswith(("note_", "ctrl_", "overview")):
+                        continue
+                    low = _plain_cell_label(card.get("value") or "").lower()
+                    if any(t in low for t in ("[pii]", "[pci]", "personal data", "non-pii", "non personal")):
+                        tagged = True
+                        break
+            if not tagged:
+                violations.append(ViewViolation(
+                    "missing_classification",
+                    "warning",
+                    "Request implies PII/PCI but no [PII]/[PCI]/[Non-PII] tags on edges or cards",
+                ))
+
     # Density
     if leaf_n < max(3, target // 2):
         violations.append(ViewViolation(
@@ -297,17 +325,49 @@ def score_view(
             f"No {view} grouping containers found (expected domain/zone/phase style titles)",
         ))
 
-    # Detail cards
+    # Detail cards removed — Overview + badges own the narrative
     cards = [
         c for c in _iter_cells(root)
         if (c.get("id") or "").startswith(("note_", "ctrl_"))
     ]
     metrics["card_count"] = len(cards)
-    if len(cards) < 4:
+    if cards:
         violations.append(ViewViolation(
-            "missing_cards",
+            "detail_cards_present",
             "warning",
-            f"Only {len(cards)} detail cards (want ≥4)",
+            f"Found {len(cards)} note_/ctrl_ cards — strip; use Overview + badges",
+            [c.get("id") or "" for c in cards[:6]],
+        ))
+
+    # Logical must not use Security trust-zone wallpaper
+    if view == "logical":
+        zone_needles = (
+            "zone_public", "zone_dmz", "zone_private", "zone_restricted",
+            "zone_identity", "zone_detect", "dmz", "highly restricted",
+            "trust zone", "untrusted",
+        )
+        for cell in _iter_cells(root):
+            if not _is_container(cell):
+                continue
+            label = _plain_cell_label(cell.get("value") or "").lower()
+            cid = (cell.get("id") or "").lower()
+            if any(z in label or z in cid for z in zone_needles):
+                violations.append(ViewViolation(
+                    "logical_trust_zone",
+                    "error",
+                    f"Logical page must not use trust zones: {label or cid!r}",
+                    [cell.get("id") or ""],
+                ))
+
+    # Soft: overview without step badges
+    has_overview = any((c.get("id") or "") == "overview_panel" for c in _iter_cells(root))
+    badges = [c for c in _iter_cells(root) if (c.get("id") or "").startswith("step_badge_")]
+    metrics["badge_count"] = len(badges)
+    if has_overview and not badges:
+        violations.append(ViewViolation(
+            "missing_step_badges",
+            "warning",
+            "Overview present but no step_badge_* markers — prefer step_markers",
         ))
 
     # Escaped HTML leak (double-escaped): after XML parse, `&amp;lt;` becomes `&lt;`

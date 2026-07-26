@@ -50,7 +50,9 @@ def test_logical_primary_skips_network_hierarchy():
     # Logical primary must not load cloud classify/icon packs (anti-mix).
     assert "Service Classification — AWS" not in prompt
     assert "logical_*" in prompt.lower() or "logical_" in prompt
-    assert "Viewpoint contract" in prompt or "Anti-clone" in prompt or "anti-clone" in prompt.lower()
+    # common.txt removed — lenses are self-contained with CORE
+    assert "views/common" not in prompt
+    assert "Audience-first story" in prompt or "Pack ownership" in prompt
 
 
 def test_core_excludes_network_hierarchy():
