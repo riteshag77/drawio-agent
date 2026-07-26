@@ -219,6 +219,23 @@ class DocPagesTests(unittest.TestCase):
             msg=f"data gaps={data}",
         )
 
+    def test_gap_candidates_saas_ecs_aurora_without_pii_keywords(self) -> None:
+        """Enterprise SaaS + app + store must trigger resilience gaps without PCI/PII."""
+        from app.adapters.outbound.diagram.architecture_docs import _gap_candidates
+
+        labels = ["ECS Portal", "Aurora", "Workday", "SuccessFactors"]
+        req = "HR portal integrates with Workday and SuccessFactors"
+        sec = _gap_candidates(req, labels, view="security")
+        data = _gap_candidates(req, labels, view="data_flow")
+        logical = _gap_candidates(req, labels, view="logical")
+        self.assertTrue(any("vault" in g.lower() or "Keys" in g for g in sec), msg=sec)
+        self.assertTrue(any("monitor" in g.lower() or "Attack" in g for g in sec), msg=sec)
+        self.assertTrue(any("Dead-letter" in g for g in data), msg=data)
+        self.assertTrue(any("Backup" in g for g in data), msg=data)
+        self.assertTrue(any("CDC" in g or "replica" in g.lower() for g in data), msg=data)
+        self.assertTrue(any("Schema" in g for g in data), msg=data)
+        self.assertTrue(any("Cache" in g for g in logical), msg=logical)
+
     def test_network_only_extra_view_context_empty(self) -> None:
         self.assertEqual(build_views_prompt_block(["network"]), "")
         human = build_single_view_human(

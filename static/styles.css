@@ -1447,6 +1447,9 @@
             gap: 1rem;
             overflow: auto;
         }
+        .network-insights-panel[hidden] {
+            display: none !important;
+        }
         .network-insight-section {
             border: 1px solid var(--border, rgba(127, 127, 127, 0.28));
             border-radius: 10px;

@@ -514,13 +514,14 @@
                 </div>
             </div>
             <div class="insights-tabs" role="tablist" aria-label="Insights">
-                <button type="button" class="insights-tab active" data-tab="network" role="tab" aria-selected="true" onclick="switchInsightsTab('network')">Network</button>
+                <button type="button" class="insights-tab active" data-tab="cost" role="tab" aria-selected="true" onclick="switchInsightsTab('cost')">Cost</button>
+                <button type="button" class="insights-tab" data-tab="waf" role="tab" aria-selected="false" onclick="switchInsightsTab('waf')">WAF / Compliance</button>
                 <button type="button" class="insights-tab" data-tab="suggestions" role="tab" aria-selected="false" onclick="switchInsightsTab('suggestions')">Suggestions</button>
                 <button type="button" class="insights-tab" data-tab="logs" role="tab" aria-selected="false" onclick="switchInsightsTab('logs')">Logs</button>
             </div>
             <div class="insights-tab-panels">
-            <div id="network-insights-panel" class="insights-panel network-insights-panel active" data-panel="network">
-            <div id="cost-panel" class="cost-panel network-insight-section">
+            <div id="network-insights-panel" class="insights-panel network-insights-panel active" data-panel="cost">
+            <div id="cost-panel" class="cost-panel network-insight-section active">
                 <div class="cost-panel-header">
                     <div class="cost-panel-header-left">
                         <svg class="cost-panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
@@ -534,7 +535,8 @@
                 <div id="cost-donut" class="cost-donut" hidden></div>
                 <div id="cost-panel-body" class="cost-panel-body"></div>
             </div>
-            <div id="waf-compliance-panel" class="network-insight-section">
+            </div>
+            <div id="waf-compliance-panel" class="insights-panel network-insights-panel network-insight-section" data-panel="waf" hidden>
                 <div class="chat-suggestions-header" id="insight-select-all-row" hidden>
                     <div class="chat-suggestions-title">Findings with recommendations</div>
                     <label class="chat-suggestions-select-all">
@@ -576,7 +578,6 @@
                     <button type="button" class="suggestion-btn" id="insight-apply-selected">Apply Selected</button>
                     <button type="button" class="suggestion-btn suggestion-btn-primary" id="insight-apply-all">Apply All</button>
                 </div>
-            </div>
             </div>
             <div id="suggestions-panel" class="suggestions-panel insights-panel" data-panel="suggestions" hidden>
                 <div class="suggestions-panel-header">

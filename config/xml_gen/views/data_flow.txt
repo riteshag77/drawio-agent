@@ -18,12 +18,21 @@ WAF/login tours or domain org charts → fail.
 - **No** `note_*` / `ctrl_*` prose cards. Journey → Overview + `step_markers` badges on major hops.
 - Legend when needed: sync/async and `[PII]` / `[Non-PII]` / `[PCI]`.
 
+### REQUIRED resilience companions (when app calls external SaaS AND a primary store exists)
+These are **SaaS+store companions**, not density padding. Thin inventory without SaaS stays sparse.
+
+1. **Dead-letter / retry** in `phase_process`: Amazon SQS (or generic DLQ) leaf. Edge from app/portal → DLQ, dashed, label `JSON: Failed API Retries`.
+2. **Backup / retention** in `phase_store`: S3 (or object archive) leaf. Edge from primary DB → archive: `Automated Snapshots / Archive`.
+3. **CDC / read replica**: secondary store leaf labeled e.g. `Aurora (Read Replica)` (or platform equivalent). Edge primary → replica: `CDC / Replication`.
+4. **Schema registry** on the control-plane shelf: AWS Glue / Schema Registry. Edge from app → registry: `Validates Payload Schema`.
+
 ### ALLOWED nodes
-Producers/consumers, named stores/brokers/ETL/cache/replicas from inventory, control-plane orchestration when present. Keep cloud `shape_type`.
+Producers/consumers, named stores/brokers/ETL/cache/replicas from inventory, control-plane orchestration when present, plus the REQUIRED companions above when SaaS+store apply. Keep cloud `shape_type`.
 Enterprise SaaS producers/consumers (Salesforce, Workday, Guidewire, Stripe, …): use `shape_type=saas_<vendor>` when present — place on the data plane as producer/consumer hops, not on the control-plane shelf.
 
 ### ALLOWED edges (every edge labeled)
 `JSON:…`, `SQL:…`, `Event:…`, `Cache:…`, `Object:…`, `CDC:…`, `Batch:…` — add `[PII]` / `[Non-PII]` / `[PCI]` when request implies sensitivity (never invent PII). Keep each label **≤ 28 characters** when possible (short type + optional tag).
+Retry/DLQ edges: dashed=1.
 
 ### Arrow / line craft (CRITICAL — readability)
 - One primary data corridor L→R (ingest → process → store → consume). Secondary/async dashed and sparse.
@@ -34,9 +43,10 @@ Enterprise SaaS producers/consumers (Salesforce, Workday, Guidewire, Stripe, …
 
 ### FORBIDDEN
 UI wireframes, WAF/Shield/auth login sequences, VPC/AZ wallpaper, security-control essays, capability org charts, note/ctrl cards.
+Do **not** invent brokers when SaaS+store are absent.
 
 ### Density
-8–12 when supported; 5–7 when thin — never invent brokers to pad.
+8–12 when supported; 5–7 when thin — never invent brokers to pad **except** the REQUIRED SaaS+store companions above.
 
 ### Section colors
 Ingest/edge `#FFF2CC/#D6B656`; process/app `#DAE8FC/#6C8EBF`; data `#D5E8D4/#82B366`; events `#F5E1F5/#E7157B`. `arcSize=2`.
@@ -47,6 +57,11 @@ Everyday steps: data enters → cleaned/transformed → saved → read downstrea
 Footer OK: `Out of scope: network layout and security controls (other tabs).`
 Red gaps = data-path only (dead-letter, backup/retention, CDC/replica, schema registry) — never WAF/IdP.
 Emit `step_markers` on major hops.
+
+### Self-Check (must pass before return — Data flow)
+1. When SaaS + primary store: DLQ + backup archive + read replica + schema registry present with labeled edges?
+2. Retry/DLQ edges dashed? Primary corridor still readable?
+3. Blank edges or labels over icons = fail. note/ctrl cards = fail.
 
 ### Quality bar
 Someone can retell the data journey from Overview alone. Blank edges or labels over icons = fail. note/ctrl cards = fail.

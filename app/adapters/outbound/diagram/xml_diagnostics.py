@@ -272,6 +272,8 @@ def _leaf_siblings_by_parent(cells: list[ET.Element], parent_ids: set[str | None
             continue
         if _is_legend_cell(cell) or _is_step_badge_cell(cell):
             continue
+        if cell.get("spine") == "1" or cell.get("layout") == "1":
+            continue
         if cell.get("id") in parent_ids:
             continue
         pid = cell.get("parent")

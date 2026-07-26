@@ -241,9 +241,11 @@ def _saas_image_style_from_svg(svg_text: str) -> str:
     # Collapse whitespace so draw.io style attrs stay compact.
     compact = re.sub(r"\s+", " ", (svg_text or "").strip())
     encoded = urllib.parse.quote(compact, safe="")
+    # imageAspect=1 keeps the logo's own ratio — imageAspect=0 stretches it to the
+    # cell box, which looks wrong whenever a leaf is not square.
     return (
         f"shape=image;html=1;verticalLabelPosition=bottom;verticalAlign=top;"
-        f"imageAspect=0;aspect=fixed;align=center;fontSize=11;fontColor=#1A1A2E;"
+        f"imageAspect=1;aspect=fixed;align=center;fontSize=11;fontColor=#1A1A2E;"
         f"image=data:image/svg+xml,{encoded};"
     )
 

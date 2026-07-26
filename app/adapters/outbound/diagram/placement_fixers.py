@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 import xml.etree.ElementTree as ET
 
@@ -419,16 +420,228 @@ _SAAS_ICON = 78.0
 _SAAS_PITCH_X = 100.0
 _SAAS_PITCH_Y = 110.0
 # Logical domain apps: Network-style service grid (max 4 across, then next row).
+# Pitch leaves a gutter wide enough for a labelled connector between columns.
 _LOGICAL_APP_MAX_COLS = 4
-_LOGICAL_APP_PITCH_X = 180.0
-_LOGICAL_APP_PITCH_Y = 120.0
-_LOGICAL_APP_BASE_X = 24.0
-_LOGICAL_APP_BASE_Y = 48.0
+_LOGICAL_APP_PITCH_X = 220.0
+_LOGICAL_APP_PITCH_Y = 150.0
+_LOGICAL_APP_BASE_X = 28.0
+_LOGICAL_APP_BASE_Y = 56.0
+# Corridor between Logical domain containers — labelled edges live in here.
+_LOGICAL_DOMAIN_GAP = 110.0
+# Spine icon gap: enough horizontal run for "Authenticates via" without
+# painting the label over the persona / IdP icons.
+_LOGICAL_SPINE_GAP = 120.0
+# Obstacle clearance used by the Logical edge router.
+_LOGICAL_ROUTE_CLEARANCE = 16.0
+_LOGICAL_ROUTE_BAND = 44.0
+# Edges only count as "parallel" when they run in the same lane of the canvas.
+_CORRIDOR_LANE_PX = 140.0
+_CORRIDOR_BAND_STEP = 28.0
+# Two runs must share at least this much travel to count as parallel.
+_CORRIDOR_MIN_SHARED_PX = 60.0
 _ACTOR_COL_X = 20.0
 _MEGA_SAAS_LABEL_HINTS = (
     "external saas", "enterprise saas", "saas apps", "saas applications",
     "third party saas", "3rd party saas",
 )
+
+
+def _style_map(style: str) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for part in (style or "").split(";"):
+        if "=" in part:
+            k, v = part.split("=", 1)
+            out[k.strip()] = v.strip()
+    return out
+
+
+def _logical_obstacle_rects(
+    cells: list[ET.Element],
+    by_id: dict[str, ET.Element],
+    skip_ids: set[str],
+) -> list[tuple[float, float, float, float]]:
+    """Absolute leaf boxes (incl. under-icon label band) an edge must not cross."""
+    from app.adapters.outbound.diagram.xml_diagnostics import _band_height
+
+    rects: list[tuple[float, float, float, float]] = []
+    for cell in cells:
+        cid = cell.get("id") or ""
+        if cid in skip_ids:
+            continue
+        if cell.get("vertex") != "1" or cell.get("edge") == "1" or _is_container_cell(cell):
+            continue
+        if cid in {"overview_panel", "legend_box"} or cid.startswith("step_badge_"):
+            continue
+        geo = _cell_geometry(cell)
+        if geo is None:
+            continue
+        ax, ay = absolute_position(cell, by_id)
+        rects.append((ax, ay, geo[2], geo[3] + _band_height(cell)))
+    return rects
+
+
+def _segment_blocked(
+    p: tuple[float, float],
+    q: tuple[float, float],
+    obstacles: list[tuple[float, float, float, float]],
+    clearance: float,
+) -> bool:
+    x1, x2 = sorted((p[0], q[0]))
+    y1, y2 = sorted((p[1], q[1]))
+    for ox, oy, ow, oh in obstacles:
+        if (
+            x1 < ox + ow + clearance
+            and ox - clearance < x2
+            and y1 < oy + oh + clearance
+            and oy - clearance < y2
+        ):
+            return True
+    return False
+
+
+def _path_blocked_count(
+    points: list[tuple[float, float]],
+    obstacles: list[tuple[float, float, float, float]],
+    clearance: float,
+) -> int:
+    return sum(
+        1 for a, b in zip(points, points[1:])
+        if _segment_blocked(a, b, obstacles, clearance)
+    )
+
+
+def _route_candidates(
+    start: tuple[float, float],
+    end: tuple[float, float],
+    axis: str,
+    obstacles: list[tuple[float, float, float, float]],
+    offsets: tuple[float, float],
+    frames: list[tuple[float, float, float, float]],
+) -> list[list[tuple[float, float]]]:
+    """Orthogonal paths to try, cheapest (straightest) first.
+
+    ``frames`` are domain boxes: a detour has to clear the whole box, otherwise
+    the connector cuts across a container title. ``offsets`` is
+    ``(mid_shift, band_shift)`` — the first spreads parallel elbow columns, the
+    second stacks parallel detours into their own lanes.
+    """
+    mid_shift, band_shift = offsets
+    sx, sy = start
+    ex, ey = end
+    out: list[list[tuple[float, float]]] = []
+    if axis == "h":
+        if abs(sy - ey) < 1.0:
+            out.append([start, end])
+        mid = (sx + ex) / 2.0 + mid_shift
+        for shift in (0.0, 40.0, -40.0, 80.0, -80.0):
+            mx = mid + shift
+            out.append([start, (mx, sy), (mx, ey), end])
+        span = [
+            r for r in obstacles + frames
+            if min(sx, ex) - 40 < r[0] + r[2] and r[0] < max(sx, ex) + 40
+        ]
+        top = min((r[1] for r in span), default=min(sy, ey))
+        bottom = max((r[1] + r[3] for r in span), default=max(sy, ey))
+        # Under-corridor first: the space above holds titles and the overview panel.
+        for band_y in (
+            bottom + _LOGICAL_ROUTE_BAND + band_shift,
+            top - _LOGICAL_ROUTE_BAND - band_shift,
+        ):
+            out.append([
+                start, (sx + 24.0, sy), (sx + 24.0, band_y),
+                (ex - 24.0, band_y), (ex - 24.0, ey), end,
+            ])
+    else:
+        if abs(sx - ex) < 1.0:
+            out.append([start, end])
+        mid = (sy + ey) / 2.0 + mid_shift
+        for shift in (0.0, 40.0, -40.0, 80.0, -80.0):
+            my = mid + shift
+            out.append([start, (sx, my), (ex, my), end])
+        span = [
+            r for r in obstacles + frames
+            if min(sy, ey) - 40 < r[1] + r[3] and r[1] < max(sy, ey) + 40
+        ]
+        left = min((r[0] for r in span), default=min(sx, ex))
+        right = max((r[0] + r[2] for r in span), default=max(sx, ex))
+        for band_x in (
+            right + _LOGICAL_ROUTE_BAND + band_shift,
+            left - _LOGICAL_ROUTE_BAND - band_shift,
+        ):
+            out.append([
+                start, (sx, sy + 24.0), (band_x, sy + 24.0),
+                (band_x, ey - 24.0), (ex, ey - 24.0), end,
+            ])
+    return out
+
+
+def _cluster_overlapping_edges(
+    bucket: list[ET.Element],
+    edge_meta: dict[str, dict],
+) -> list[list[ET.Element]]:
+    """Split a lane bucket into runs whose travel ranges actually overlap."""
+    items = []
+    for edge in bucket:
+        meta = edge_meta.get(edge.get("id") or "")
+        if meta and meta.get("travel"):
+            items.append((meta["travel"], edge))
+    items.sort(key=lambda it: it[0][0])
+    clusters: list[list[ET.Element]] = []
+    current: list[ET.Element] = []
+    reach = None
+    for (lo, hi), edge in items:
+        if current and reach is not None and lo < reach - _CORRIDOR_MIN_SHARED_PX:
+            current.append(edge)
+            reach = max(reach, hi)
+            continue
+        if current:
+            clusters.append(current)
+        current, reach = [edge], hi
+    if current:
+        clusters.append(current)
+    return clusters
+
+
+def _route_logical_edge(
+    edge: ET.Element,
+    meta: dict,
+    obstacles: list[tuple[float, float, float, float]],
+    offsets: tuple[float, float],
+    frames: list[tuple[float, float, float, float]],
+) -> bool:
+    """Pick the straightest orthogonal path that clears every other icon."""
+    kv = _style_map(edge.get("style") or "")
+
+    def _num(key: str, default: float) -> float:
+        try:
+            return float(kv.get(key, default))
+        except (TypeError, ValueError):
+            return default
+
+    start = (
+        meta["sx"] + meta["sw"] * _num("exitX", 0.5) + _num("exitDx", 0.0),
+        meta["sy"] + meta["sh"] * _num("exitY", 0.5) + _num("exitDy", 0.0),
+    )
+    end = (
+        meta["tx"] + meta["tw"] * _num("entryX", 0.5) + _num("entryDx", 0.0),
+        meta["ty"] + meta["th"] * _num("entryY", 0.5) + _num("entryDy", 0.0),
+    )
+    axis = meta["axis"]
+    candidates = _route_candidates(start, end, axis, obstacles, offsets, frames)
+    best: list[tuple[float, float]] | None = None
+    best_score = None
+    for points in candidates:
+        score = _path_blocked_count(points, obstacles, _LOGICAL_ROUTE_CLEARANCE)
+        if score == 0:
+            best = points
+            break
+        if best_score is None or score < best_score:
+            best, best_score = points, score
+    if best is None:
+        return False
+    interior = best[1:-1]
+    _set_edge_waypoints(edge, interior)
+    return True
 
 
 def _set_edge_waypoints(edge: ET.Element, points: list[tuple[float, float]]) -> None:
@@ -452,6 +665,124 @@ def _set_edge_waypoints(edge: ET.Element, points: list[tuple[float, float]]) -> 
         pt.set("y", str(round(py, 1)))
 
 
+def _bundle_under_corridor_trunks(
+    edges: list[ET.Element],
+    edge_meta: dict[str, dict],
+    routed_paths: dict[str, list[tuple[float, float]]],
+) -> bool:
+    """Collapse 3+ parallel under-corridor detours onto a shared trunk with taps."""
+    # Group by shared horizontal under-band (y of longest horizontal mid segment).
+    bands: dict[int, list[str]] = {}
+    for edge in edges:
+        eid = edge.get("id") or ""
+        pts = routed_paths.get(eid) or []
+        if len(pts) < 2:
+            continue
+        # Find longest near-horizontal segment among waypoints.
+        best = None
+        best_len = 0.0
+        seq = pts
+        meta = edge_meta.get(eid)
+        if not meta:
+            continue
+        # Include start/end for length estimate
+        full = [
+            (meta["sx"] + meta["sw"], meta["scy"]),
+            *pts,
+            (meta["tx"], meta["tcy"]),
+        ]
+        for a, b in zip(full, full[1:]):
+            if abs(a[1] - b[1]) < 8.0:  # horizontal
+                length = abs(b[0] - a[0])
+                if length > best_len:
+                    best_len = length
+                    best = round(a[1] / 14.0) * 14  # snap band key
+        if best is not None and best_len > 200:
+            bands.setdefault(int(best), []).append(eid)
+
+    changed = False
+    for band_y, eids in bands.items():
+        if len(eids) < 3:
+            continue
+        trunk_y = float(band_y)
+        for i, eid in enumerate(eids):
+            edge = next((e for e in edges if e.get("id") == eid), None)
+            meta = edge_meta.get(eid)
+            if edge is None or meta is None:
+                continue
+            tap = (i - (len(eids) - 1) / 2.0) * 18.0
+            start = (meta["sx"] + meta["sw"], meta["scy"] + float(
+                _style_map(edge.get("style") or "").get("exitDy", 0) or 0
+            ))
+            end = (meta["tx"], meta["tcy"] + float(
+                _style_map(edge.get("style") or "").get("entryDy", 0) or 0
+            ))
+            interior = [
+                (start[0] + 24.0, start[1]),
+                (start[0] + 24.0, trunk_y + tap),
+                (end[0] - 24.0, trunk_y + tap),
+                (end[0] - 24.0, end[1]),
+            ]
+            _set_edge_waypoints(edge, interior)
+            routed_paths[eid] = interior
+            changed = True
+    return changed
+
+
+def _park_edge_labels_on_longest_segment(
+    edges: list[ET.Element],
+    edge_meta: dict[str, dict],
+    routed_paths: dict[str, list[tuple[float, float]]],
+) -> bool:
+    """Park labelled-edge text on the longest straight segment (mxGeometry offset)."""
+    changed = False
+    for edge in edges:
+        label = (edge.get("value") or "").strip()
+        if not label:
+            continue
+        eid = edge.get("id") or ""
+        meta = edge_meta.get(eid)
+        if not meta:
+            continue
+        pts = routed_paths.get(eid) or []
+        full = [
+            (meta["scx"], meta["scy"]),
+            *pts,
+            (meta["tcx"], meta["tcy"]),
+        ]
+        best_i = 0
+        best_len = 0.0
+        for i, (a, b) in enumerate(zip(full, full[1:])):
+            length = abs(b[0] - a[0]) + abs(b[1] - a[1])
+            if length > best_len:
+                best_len = length
+                best_i = i
+        # Relative offset along the edge: fraction of segment midpoints.
+        # draw.io x/y on relative geometry are -1..1 normalised offsets.
+        # Prefer mid of longest segment ≈ (best_i + 0.5) / (n_segs).
+        n_segs = max(1, len(full) - 1)
+        frac = (best_i + 0.5) / n_segs
+        # Convert to draw.io label offset: x along edge (-1 left .. 1 right of mid)
+        # 0.5 frac → x=0 (mid); earlier → negative.
+        label_x = (frac - 0.5) * 2.0
+        geom = edge.find("mxGeometry")
+        if geom is None:
+            continue
+        # Only set when different enough
+        try:
+            cur = float(geom.get("x") or 0)
+        except ValueError:
+            cur = 0.0
+        if abs(cur - label_x) > 0.05:
+            geom.set("x", str(round(label_x, 3)))
+            changed = True
+        # Soft vertical nudge off the stroke when label present
+        if geom.get("y") in (None, ""):
+            geom.set("y", "-1")
+            changed = True
+    return changed
+
+
 def fix_edge_anchors_from_geometry(xml: str) -> str:
     """Set exit/entry anchors from relative source→target placement + parallel offset.
 
@@ -464,8 +795,9 @@ def fix_edge_anchors_from_geometry(xml: str) -> str:
     tree, root, is_mxfile, trimmed = parsed
     cells = [c for c in root.findall("mxCell") if c.get("id")]
     by_id = {c.get("id"): c for c in cells if c.get("id")}
-    is_logical = _diagram_page_name(tree).lower() == "logical"
-    parallel_px = _LOGICAL_PARALLEL_EDGE_OFFSET_PX if is_logical else _PARALLEL_EDGE_OFFSET_PX
+    page = _diagram_page_name(tree).lower()
+    is_focused = page in {"logical", "security", "data flow", "data_flow"}
+    parallel_px = _LOGICAL_PARALLEL_EDGE_OFFSET_PX if is_focused else _PARALLEL_EDGE_OFFSET_PX
 
     edges = [c for c in cells if c.get("edge") == "1"]
     if not edges:
@@ -473,7 +805,7 @@ def fix_edge_anchors_from_geometry(xml: str) -> str:
 
     # Group edges by shared face for spread
     face_buckets: dict[tuple[str, str, str], list[ET.Element]] = {}
-    corridor_buckets: dict[tuple[str, str, str], list[ET.Element]] = {}
+    corridor_buckets: dict[tuple, list[ET.Element]] = {}
     edge_meta: dict[str, dict] = {}
     changed = False
 
@@ -515,9 +847,18 @@ def fix_edge_anchors_from_geometry(xml: str) -> str:
                 corridor = ("v", "top", "bottom")
 
         face_buckets.setdefault(face, []).append(edge)
-        corridor_buckets.setdefault(corridor, []).append(edge)
+        # Only stagger edges that genuinely share a corridor — bucketing every
+        # left→right edge on the page together pushed anchors off their shapes.
+        if corridor[0] == "h":
+            lane = (round(scy / _CORRIDOR_LANE_PX), round(tcy / _CORRIDOR_LANE_PX))
+            travel = (min(scx, tcx), max(scx, tcx))
+        else:
+            lane = (round(scx / _CORRIDOR_LANE_PX), round(tcx / _CORRIDOR_LANE_PX))
+            travel = (min(scy, tcy), max(scy, tcy))
+        corridor_buckets.setdefault((*corridor, *lane), []).append(edge)
         eid = edge.get("id") or id(edge)
         edge_meta[str(eid)] = {
+            "travel": travel,
             "axis": corridor[0],
             "sx": sx, "sy": sy, "sw": sw, "sh": sh,
             "tx": tx, "ty": ty, "tw": tw, "th": th,
@@ -542,7 +883,7 @@ def fix_edge_anchors_from_geometry(xml: str) -> str:
             changed = True
 
     # Spread multiple edges sharing a source face (finer on Logical)
-    spreads = ("0.15", "0.35", "0.5", "0.65", "0.85") if is_logical else ("0.25", "0.5", "0.75")
+    spreads = ("0.15", "0.35", "0.5", "0.65", "0.85") if is_focused else ("0.25", "0.5", "0.75")
     for face, group in face_buckets.items():
         if len(group) < 2:
             continue
@@ -557,40 +898,75 @@ def fix_edge_anchors_from_geometry(xml: str) -> str:
             edge.set("style", _set_style_kv(style, updates))
             changed = True
 
-    # CORE parallel-corridor offset: stagger Dx/Dy so stacked orthogonal paths separate.
-    for corridor, group in corridor_buckets.items():
-        if len(group) < 2:
-            continue
+    # CORE parallel-corridor offset: stagger Dx/Dy so stacked orthogonal paths
+    # separate. Sequential hops (a→b→c) share a lane but never overlay, so only
+    # edges whose travel ranges actually overlap are treated as parallel.
+    band_offsets: dict[str, tuple[float, float]] = {}
+    for corridor, bucket in corridor_buckets.items():
         axis = corridor[0]
-        n = len(group)
-        for i, edge in enumerate(group):
-            offset = (i - (n - 1) / 2.0) * parallel_px
-            style = edge.get("style") or ""
-            if axis == "h":
-                updates = {"exitDy": str(offset), "entryDy": str(offset)}
-            else:
-                updates = {"exitDx": str(offset), "entryDx": str(offset)}
-            edge.set("style", _set_style_kv(style, updates))
-            changed = True
-
-            # Logical: light elbow only for parallel edges (avoid huge detours).
-            if not is_logical or n < 2:
+        for group in _cluster_overlapping_edges(bucket, edge_meta):
+            n = len(group)
+            if n < 2:
                 continue
+            for i, edge in enumerate(group):
+                slot = i - (n - 1) / 2.0
+                meta = edge_meta.get(edge.get("id") or "") or {}
+                # Keep the anchor on the shape: a big Dy on a 68px icon starts
+                # the line in empty space beside it.
+                span = min(meta.get("sh", 78.0), meta.get("th", 78.0)) if axis == "h" else \
+                    min(meta.get("sw", 78.0), meta.get("tw", 78.0))
+                limit = max(0.0, span / 2.0 - 10.0)
+                offset = max(-limit, min(limit, slot * parallel_px))
+                style = edge.get("style") or ""
+                if axis == "h":
+                    updates = {"exitDy": str(offset), "entryDy": str(offset)}
+                else:
+                    updates = {"exitDx": str(offset), "entryDx": str(offset)}
+                edge.set("style", _set_style_kv(style, updates))
+                band_offsets[edge.get("id") or ""] = (
+                    slot * _CORRIDOR_BAND_STEP,
+                    i * _CORRIDOR_BAND_STEP,
+                )
+                changed = True
+
+    # Focused views: route each connector around other icons instead of through them.
+    if is_focused:
+        frames = [
+            (*absolute_position(c, by_id), _cell_geometry(c)[2], _cell_geometry(c)[3])
+            for c in cells
+            if _is_container_cell(c)
+            and _cell_geometry(c) is not None
+            and (c.get("id") or "") not in {"overview_panel", "legend_box"}
+        ]
+        routed_paths: dict[str, list[tuple[float, float]]] = {}
+        for edge in edges:
             eid = edge.get("id") or ""
             meta = edge_meta.get(eid)
             if not meta:
                 continue
-            band = (i - (n - 1) / 2.0) * 28.0
-            if meta["axis"] == "h":
-                top = min(meta["sy"], meta["ty"])
-                wy = top - 36.0 - abs(band)
-                mid_x = (meta["scx"] + meta["tcx"]) / 2.0
-                _set_edge_waypoints(edge, [(mid_x, wy)])
-            else:
-                left = min(meta["sx"], meta["tx"])
-                wx = left - 36.0 - abs(band)
-                mid_y = (meta["scy"] + meta["tcy"]) / 2.0
-                _set_edge_waypoints(edge, [(wx, mid_y)])
+            obstacles = _logical_obstacle_rects(
+                cells, by_id, {edge.get("source") or "", edge.get("target") or ""}
+            )
+            if _route_logical_edge(
+                edge, meta, obstacles, band_offsets.get(eid, (0.0, 0.0)), frames
+            ):
+                changed = True
+            # Capture waypoints for label parking / trunk bundling.
+            geom = edge.find("mxGeometry")
+            pts = []
+            if geom is not None:
+                for arr in geom.findall("Array"):
+                    if arr.get("as") == "points":
+                        for pt in arr.findall("mxPoint"):
+                            try:
+                                pts.append((float(pt.get("x") or 0), float(pt.get("y") or 0)))
+                            except ValueError:
+                                pass
+            routed_paths[eid] = pts
+
+        if _bundle_under_corridor_trunks(edges, edge_meta, routed_paths):
+            changed = True
+        if _park_edge_labels_on_longest_segment(edges, edge_meta, routed_paths):
             changed = True
 
     if not changed:
@@ -991,12 +1367,123 @@ def _zone_corridor_key(cell: ET.Element) -> tuple[int, str]:
     order = [
         ("public", 0), ("perimeter", 1), ("dmz", 1), ("edge", 1),
         ("identity", 2), ("private", 3), ("restricted", 4), ("highly", 4),
-        ("sensitive", 4),
+        ("sensitive", 4), ("detect", 5), ("management", 5), ("monitoring", 5),
+        ("external saas", 6), ("external_saas", 6), ("saas", 6),
     ]
     for needle, idx in order:
         if needle in blob:
             return (idx, label)
     return (3, label)
+
+
+_SECURITY_PRIVATE_ZONE_HINTS = (
+    "private", "restricted", "highly", "sensitive", "app zone", "app tier",
+)
+_EXTERNAL_SAAS_ZONE_ID = "zone_external_saas"
+_EXTERNAL_SAAS_ZONE_STYLE = (
+    "rounded=1;arcSize=2;whiteSpace=wrap;html=1;container=1;dropTarget=1;"
+    "collapsible=0;recursiveResize=0;fillColor=#FFF2CC;strokeColor=#D6B656;"
+    "strokeWidth=1;dashed=1;align=left;verticalAlign=top;spacingLeft=12;"
+    "spacingTop=8;fontStyle=1;fontSize=12;fontColor=#D6B656;"
+)
+
+
+def _security_zone_is_private_like(cell: ET.Element | None) -> bool:
+    if cell is None or not _is_container_cell(cell):
+        return False
+    blob = f"{(cell.get('id') or '').lower()} {_plain_label(cell)}"
+    if "saas" in blob or "public" in blob or "identity" in blob or "detect" in blob:
+        return False
+    return any(h in blob for h in _SECURITY_PRIVATE_ZONE_HINTS)
+
+
+def _ensure_external_saas_zone(
+    root: ET.Element,
+    cells: list[ET.Element],
+    by_id: dict[str, ET.Element],
+) -> ET.Element:
+    """Return existing or newly created External SaaS Zone on parent=1."""
+    existing = by_id.get(_EXTERNAL_SAAS_ZONE_ID)
+    if existing is not None:
+        return existing
+    for c in cells:
+        blob = f"{(c.get('id') or '').lower()} {_plain_label(c)}"
+        if _is_container_cell(c) and "external saas" in blob:
+            return c
+    zone = ET.SubElement(root, "mxCell")
+    zone.set("id", _EXTERNAL_SAAS_ZONE_ID)
+    zone.set("value", "External SaaS Zone")
+    zone.set("style", _EXTERNAL_SAAS_ZONE_STYLE)
+    zone.set("vertex", "1")
+    zone.set("parent", "1")
+    geom = ET.SubElement(zone, "mxGeometry")
+    geom.set("x", "900")
+    geom.set("y", "80")
+    geom.set("width", "220")
+    geom.set("height", "220")
+    geom.set("as", "geometry")
+    by_id[_EXTERNAL_SAAS_ZONE_ID] = zone
+    cells.append(zone)
+    return zone
+
+
+def hoist_security_saas_from_private_zones(xml: str) -> str:
+    """Move enterprise SaaS out of Private/Restricted zones into External SaaS Zone."""
+    parsed = _parse_docroot(xml)
+    if parsed is None:
+        return xml
+    tree, root, is_mxfile, trimmed = parsed
+    if _diagram_page_name(tree).lower() != "security":
+        return xml
+
+    cells = [c for c in root.findall("mxCell") if c.get("id")]
+    by_id = {c.get("id"): c for c in cells if c.get("id")}
+    saas_leaves = [c for c in cells if _is_saas_leaf_cell(c)]
+    if not saas_leaves:
+        return xml
+
+    changed = False
+    zone: ET.Element | None = None
+    for leaf in saas_leaves:
+        pid = leaf.get("parent") or ""
+        private_ancestor = None
+        while pid and pid not in {"0", "1"}:
+            parent = by_id.get(pid)
+            if parent is None:
+                break
+            if _security_zone_is_private_like(parent):
+                private_ancestor = parent
+                break
+            blob = f"{(parent.get('id') or '').lower()} {_plain_label(parent)}"
+            if any(x in blob for x in ("external saas", "external_saas", "public", "identity", "detect")):
+                private_ancestor = None
+                break
+            if not _is_container_cell(parent):
+                break
+            pid = parent.get("parent") or ""
+        if private_ancestor is None and leaf.get("parent") not in (None, "1"):
+            parent = by_id.get(leaf.get("parent") or "")
+            if _security_zone_is_private_like(parent):
+                private_ancestor = parent
+        if private_ancestor is None:
+            continue
+        if zone is None:
+            zone = _ensure_external_saas_zone(root, cells, by_id)
+            changed = True
+        ax, ay = absolute_position(leaf, by_id)
+        zx, zy = absolute_position(zone, by_id)
+        leaf.set("parent", zone.get("id") or _EXTERNAL_SAAS_ZONE_ID)
+        geom = leaf.find("mxGeometry")
+        if geom is not None:
+            geom.set("x", str(max(24.0, ax - zx)))
+            geom.set("y", str(max(48.0, ay - zy)))
+        changed = True
+
+    if not changed:
+        return xml
+    if zone is not None:
+        _sort_saas_children_in_shelf(zone, cells, vertical=True)
+    return _serialize_docroot(tree, root, is_mxfile, trimmed)
 
 
 def _phase_corridor_key(cell: ET.Element) -> tuple[int, str]:
@@ -1015,8 +1502,20 @@ def _phase_corridor_key(cell: ET.Element) -> tuple[int, str]:
     return (1, label)
 
 
+def _logical_grid_cols(count: int) -> int:
+    """Columns for a domain's app grid — balanced, never more than 4.
+
+    A hard 4-wide row makes a single domain ~900px, so three domains no longer
+    fit on screen at a readable zoom. Keeping the grid roughly square packs the
+    same apps into a compact block while still honouring the max-4 cap.
+    """
+    if count <= 3:
+        return max(1, count)
+    return min(_LOGICAL_APP_MAX_COLS, math.ceil(math.sqrt(count)))
+
+
 def _grid_logical_domain_apps(domain: ET.Element, cells: list[ET.Element]) -> bool:
-    """Lay out non-SaaS leaves in a domain: max 4 across, then wrap to next row.
+    """Lay out non-SaaS leaves in a domain as a balanced grid, max 4 across.
 
     Mirrors Network's service-grid rule. ``domain_saas`` stays vertical via
     ``_sort_saas_children_in_shelf`` and is skipped here.
@@ -1042,9 +1541,10 @@ def _grid_logical_domain_apps(domain: ET.Element, cells: list[ET.Element]) -> bo
         c.get("id") or "",
     ))
     changed = False
+    cols_n = _logical_grid_cols(len(kids))
     for i, kid in enumerate(kids):
-        col = i % _LOGICAL_APP_MAX_COLS
-        row = i // _LOGICAL_APP_MAX_COLS
+        col = i % cols_n
+        row = i // cols_n
         x = _LOGICAL_APP_BASE_X + col * _LOGICAL_APP_PITCH_X
         y = _LOGICAL_APP_BASE_Y + row * _LOGICAL_APP_PITCH_Y
         geom = kid.find("mxGeometry")
@@ -1061,8 +1561,8 @@ def _grid_logical_domain_apps(domain: ET.Element, cells: list[ET.Element]) -> bo
             changed = True
     # Grow domain so wrapped rows are not clipped.
     if kids:
-        rows = (len(kids) - 1) // _LOGICAL_APP_MAX_COLS + 1
-        cols = min(len(kids), _LOGICAL_APP_MAX_COLS)
+        rows = (len(kids) - 1) // cols_n + 1
+        cols = min(len(kids), cols_n)
         needed_w = _LOGICAL_APP_BASE_X + cols * _LOGICAL_APP_PITCH_X + 20.0
         needed_h = _LOGICAL_APP_BASE_Y + rows * _LOGICAL_APP_PITCH_Y + 24.0
         shelf_geo = domain.find("mxGeometry")
@@ -1139,7 +1639,11 @@ def _sort_saas_children_in_shelf(
 
 
 def enforce_view_journey_columns(xml: str) -> str:
-    """L→R corridor for Logical domains / Security zones / Data phases + SaaS in shelf."""
+    """L→R corridor for Logical domains / Security zones / Data phases + SaaS shelf.
+
+    Logical / Security / Data flow use dependency-driven layered placement so
+    most edges are short adjacent-rank hops; External SaaS anchors under Data.
+    """
     parsed = _parse_docroot(xml)
     if parsed is None:
         return xml
@@ -1148,6 +1652,14 @@ def enforce_view_journey_columns(xml: str) -> str:
     if page_name not in {"logical", "security", "data flow", "data_flow"}:
         return xml
 
+    if page_name == "security":
+        xml = hoist_security_saas_from_private_zones(xml)
+        parsed = _parse_docroot(xml)
+        if parsed is None:
+            return xml
+        tree, root, is_mxfile, trimmed = parsed
+
+    from app.adapters.outbound.diagram.logical_layout import apply_layered_corridor_layout
     from app.adapters.outbound.diagram.xml_diagnostics import (
         _is_canvas_background_cell,
         _page_size,
@@ -1176,8 +1688,6 @@ def enforce_view_journey_columns(xml: str) -> str:
         "data flow": _phase_corridor_key,
         "data_flow": _phase_corridor_key,
     }[page_name]
-    # Logical: vertical SaaS column. Other focused views: keep vertical too for clarity.
-    vertical_saas = True
 
     corridors = [
         c for c in cells
@@ -1187,7 +1697,6 @@ def enforce_view_journey_columns(xml: str) -> str:
         and not _is_canvas_background_cell(c, page_w, page_h)
         and (c.get("id") or "") not in {"overview_panel", "legend_box"}
     ]
-    # Also match unlabeled containers by role keywords when ids lack prefix.
     if not corridors:
         corridors = [
             c for c in cells
@@ -1198,35 +1707,63 @@ def enforce_view_journey_columns(xml: str) -> str:
             and not _is_cloud_container(c)
         ]
 
-    if len(corridors) >= 2:
-        corridors.sort(key=key_fn)
-        x = 160.0
-        gap = 40.0
-        for cell in corridors:
-            geo = _cell_geometry(cell)
-            geom = cell.find("mxGeometry")
-            if geo is None or geom is None:
-                continue
-            _, y, w, h = geo
-            if abs(geo[0] - x) > 1.0:
-                geom.set("x", str(x))
-                changed = True
-            if page_name == "logical" and _grid_logical_domain_apps(cell, cells):
-                changed = True
-                geo = _cell_geometry(cell) or geo
-            if _sort_saas_children_in_shelf(cell, cells, vertical=vertical_saas):
-                changed = True
-                # Width may have shrunk for SaaS column — re-read before advancing x
-                geo = _cell_geometry(cell) or geo
-            x += geo[2] + gap
-    else:
-        for cell in corridors:
-            if page_name == "logical" and _grid_logical_domain_apps(cell, cells):
-                changed = True
-            if _sort_saas_children_in_shelf(cell, cells, vertical=vertical_saas):
-                changed = True
+    def _is_layout_leaf(cell: ET.Element) -> bool:
+        if cell.get("vertex") != "1" or cell.get("edge") == "1" or _is_container_cell(cell):
+            return False
+        cid = cell.get("id") or ""
+        if cid in {"overview_panel", "legend_box"} or cid.startswith("step_badge_"):
+            return False
+        return True
 
-    # Root-level SaaS on focused views: vertical stack beside first corridor.
+    gap = _LOGICAL_DOMAIN_GAP if page_name in {"logical", "security", "data flow", "data_flow"} else 40.0
+    if corridors and apply_layered_corridor_layout(
+        cells,
+        corridors=corridors,
+        leaf_filter=_is_layout_leaf,
+        keyword_key=key_fn,
+        start_x=160.0,
+        gap=gap,
+        mark_layout=True,
+    ):
+        changed = True
+        cells = [c for c in root.findall("mxCell") if c.get("id")]
+        # Re-stack SaaS children vertically after the shelf was re-anchored.
+        for cell in cells:
+            cid = (cell.get("id") or "").lower()
+            if cid.startswith("domain_saas") or (cid.startswith("domain_") and "saas" in cid):
+                if _sort_saas_children_in_shelf(cell, cells, vertical=True):
+                    changed = True
+    else:
+        # Fallback: previous keyword corridor + grid for thin pages
+        vertical_saas = True
+        if len(corridors) >= 2:
+            corridors.sort(key=key_fn)
+            x = 160.0
+            for cell in corridors:
+                if (cell.get("id") or "").lower().startswith("domain_saas"):
+                    continue
+                geo = _cell_geometry(cell)
+                geom = cell.find("mxGeometry")
+                if geo is None or geom is None:
+                    continue
+                if abs(geo[0] - x) > 1.0:
+                    geom.set("x", str(x))
+                    changed = True
+                if page_name == "logical" and _grid_logical_domain_apps(cell, cells):
+                    changed = True
+                    geo = _cell_geometry(cell) or geo
+                if _sort_saas_children_in_shelf(cell, cells, vertical=vertical_saas):
+                    changed = True
+                    geo = _cell_geometry(cell) or geo
+                x += geo[2] + gap
+        else:
+            for cell in corridors:
+                if page_name == "logical" and _grid_logical_domain_apps(cell, cells):
+                    changed = True
+                if _sort_saas_children_in_shelf(cell, cells, vertical=vertical_saas):
+                    changed = True
+
+    # Root-level SaaS on Security / Data flow: vertical stack beside first corridor.
     root_saas = [c for c in cells if _is_saas_leaf_cell(c) and c.get("parent") == "1"]
     if root_saas and page_name != "logical":
         from app.adapters.outbound.diagram.architecture_docs import saas_journey_sort_key
@@ -1234,13 +1771,15 @@ def enforce_view_journey_columns(xml: str) -> str:
         root_saas.sort(key=lambda c: saas_journey_sort_key(_shape(c), _plain_label(c)))
         base_x = 40.0
         base_y = 80.0
-        if corridors:
+        ranked = [c for c in corridors if not (c.get("id") or "").lower().startswith("domain_saas")]
+        if ranked:
             leftmost = min(
-                (_cell_geometry(c)[0] for c in corridors if _cell_geometry(c)),
+                (_cell_geometry(c)[0] for c in ranked if _cell_geometry(c)),
                 default=200.0,
             )
             base_x = max(40.0, leftmost - _SAAS_ICON - 40.0)
         for i, cell in enumerate(root_saas):
+            # Identity SaaS on Logical spine handled below; on Security keep left band.
             x = base_x
             y = base_y + i * _SAAS_PITCH_Y
             geom = cell.find("mxGeometry")
@@ -1254,6 +1793,9 @@ def enforce_view_journey_columns(xml: str) -> str:
             if abs(cur_x - x) > 0.5 or abs(cur_y - y) > 0.5:
                 geom.set("x", str(x))
                 geom.set("y", str(y))
+                changed = True
+            if cell.get("layout") != "1":
+                cell.set("layout", "1")
                 changed = True
 
     if page_name == "logical":
@@ -1333,8 +1875,8 @@ def _layout_logical_journey_spine(root: ET.Element, cells: list[ET.Element]) -> 
 
     spine_y = 100.0
     x = 40.0
-    gap = 36.0
-    icon = 64.0
+    gap = _LOGICAL_SPINE_GAP
+    icon = 68.0
 
     def _park(group: list[ET.Element], start_x: float) -> float:
         nonlocal changed
@@ -1357,6 +1899,9 @@ def _layout_logical_journey_spine(root: ET.Element, cells: list[ET.Element]) -> 
                 geom.set("width", str(icon))
                 geom.set("height", str(icon))
                 changed = True
+            if cell.get("spine") != "1":
+                cell.set("spine", "1")
+                changed = True
             if group is actors and len(group) > 1:
                 continue  # stacked — same x
             cx += icon + gap
@@ -1368,32 +1913,36 @@ def _layout_logical_journey_spine(root: ET.Element, cells: list[ET.Element]) -> 
     x = _park(id_saas[:2], x)
     x = _park(channels[:2], x)
 
-    # Pull domain containers close to the spine (no huge empty gap).
+    # Domains are placed by apply_layered_corridor_layout (incl. SaaS under Data).
+    # If the leftmost ranked domain still overlaps the spine, shift the whole
+    # domain band (and any SaaS shelf under it) right together.
     domains = [
         c for c in cells
         if _is_container_cell(c)
         and c.get("parent") == "1"
         and (c.get("id") or "").startswith("domain_")
+        and not (c.get("id") or "").startswith("domain_saas")
     ]
-    domains.sort(key=_domain_corridor_key)
-    dx = max(x + 20.0, 280.0)
-    for cell in domains:
-        geom = cell.find("mxGeometry")
-        geo = _cell_geometry(cell)
-        if geom is None or geo is None:
-            continue
-        if abs(geo[0] - dx) > 1.0 or abs(geo[1] - 60.0) > 40.0:
-            geom.set("x", str(dx))
-            if geo[1] > 200 or geo[1] < 40:
-                geom.set("y", "60")
-            changed = True
-        # Apps: max-4 horizontal wrap; SaaS shelf: vertical column.
-        if (cell.get("id") or "").startswith("domain_saas"):
-            _sort_saas_children_in_shelf(cell, cells, vertical=True)
-        else:
-            _grid_logical_domain_apps(cell, cells)
-        geo = _cell_geometry(cell) or geo
-        dx += geo[2] + 32.0
+    shelves = [
+        c for c in cells
+        if _is_container_cell(c)
+        and (c.get("id") or "").startswith("domain_saas")
+    ]
+    min_domain_x = max(x + 20.0, 280.0)
+    left_xs = [
+        (_cell_geometry(c) or (min_domain_x, 0, 0, 0))[0] for c in domains
+    ]
+    if left_xs:
+        leftmost = min(left_xs)
+        if leftmost < min_domain_x - 1.0:
+            shift = min_domain_x - leftmost
+            for cell in domains + shelves:
+                geom = cell.find("mxGeometry")
+                geo = _cell_geometry(cell)
+                if geom is None or geo is None:
+                    continue
+                geom.set("x", str(geo[0] + shift))
+                changed = True
 
     return changed
 

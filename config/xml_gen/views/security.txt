@@ -8,45 +8,58 @@ Page name: **`Security`**
 **Principal Security / Trust Architect (25+ years).** Brief risk owners on protections and trust boundaries.
 
 ### Audience & UX job
-60-second trust briefing: public surface → perimeter → identity → private → restricted → detect.
+60-second trust briefing: public surface → perimeter → identity → private → restricted → detect / external SaaS.
 Not for: eng-lead capability reviews or payload walks. Microservice soup or VPC wallpaper → fail.
 
 ### Canvas (clean)
-- Group by **Trust Zones** laid out **left → right**: `zone_public` → `zone_dmz`/perimeter → `zone_identity` → `zone_private` → `zone_restricted` (optional `zone_detect`).
+- Group by **Trust Zones** laid out **left → right**: `zone_public` → `zone_dmz`/perimeter → `zone_identity` → `zone_private` → `zone_restricted` → optional `zone_detect` → **`zone_external_saas`** when enterprise SaaS is present.
 - Collapse apps into one private block; one sensitive-data boundary — not every table/service.
-- SaaS peers inside public/identity: order L→R by journey role. Never parent leaves under `overview_panel`.
+- **External SaaS Zone (REQUIRED when Workday / SuccessFactors / Salesforce / Guidewire / … appear):** create `zone_external_saas` titled **External SaaS Zone**. Place those product leaves **only** there (or identity-adjacent for IdP like Okta). **FORBIDDEN:** nesting SaaS under `zone_private` / Private App Zone.
+- SaaS peers inside public/identity/external: order L→R by journey role. Never parent leaves under `overview_panel`.
 - **No** `note_*` / `ctrl_*` prose cards. Control story → Overview + `step_markers` badges on zone/control anchors.
 - Optional `legend_box`: less trust left → more restricted right.
 
+### REQUIRED resilience companions (when private app + enterprise SaaS)
+These are trust controls for SaaS integrations — **not** density padding:
+1. **Secrets Manager** (or Key Vault / Secrets) inside `zone_private` next to the app. Edge from app → secrets: `Fetches Credentials (TLS)`.
+2. **Management & Security Zone** (`zone_detect`): place **GuardDuty** (or equivalent detection) + **CloudWatch** (or Monitor / logging). Dashed edges from private app / VPC into detect: `Logs & Telemetry`.
+
 ### ALLOWED nodes
 IdP/IAM, WAF/API GW/public ALB/Shield, KMS/secrets/ACM when present, bastion/private access, high-level private app, sensitive boundary, detect tools. Keep cloud `shape_type`.
-External IdP / BFSI SaaS (Okta, Salesforce, Workday, Guidewire, …): use `shape_type=saas_<vendor>` when those products appear — curated glyphs. Place as external / identity-adjacent trust peers (`zone_public` or `zone_identity`) — not as VPC wallpaper.
+External IdP / BFSI SaaS (Okta, Salesforce, Workday, Guidewire, …): use `shape_type=saas_<vendor>` when those products appear — curated glyphs. Place as external / identity-adjacent trust peers (`zone_external_saas`, `zone_public`, or `zone_identity`) — **never** as private-app children.
 
 ### ALLOWED edges
-`AuthN`, `AuthZ`, `TLS`, `mTLS`, `inspect`, `perimeter cross`, `private path`, `issues token`.
+`AuthN`, `AuthZ`, `TLS`, `mTLS`, `inspect`, `perimeter cross`, `private path`, `issues token`, `Fetches Credentials (TLS)`, `Logs & Telemetry` (dashed).
 
 ### Arrow / line craft (CRITICAL — readability)
-- Sparse trust path left → right (public → perimeter → identity → private → restricted). No mesh.
+- Sparse trust path left → right (public → perimeter → identity → private → restricted → detect / external SaaS). No mesh.
 - Orthogonal edges; choose exit/entry from relative placement — never all faces at 0.5.
 - Every labeled edge **must** include `labelBackgroundColor=#F5F5F5;fontSize=11;fontColor=#333333`.
 - Short control verbs only. Labels mid-corridor — **never** over icons or zone titles.
 - Parallel perimeter crossings: spread anchors; keep clear gaps between zone columns.
+- Telemetry to detect: **dashed=1**.
 
 ### FORBIDDEN
-Orders/Catalog/Checkout/UI soup, Kafka-as-hero, DB table/CRUD labels, full AZ/subnet wallpaper, note/ctrl cards.
+Orders/Catalog/Checkout/UI soup, Kafka-as-hero, DB table/CRUD labels, full AZ/subnet wallpaper, note/ctrl cards, **SaaS leaves inside zone_private**.
 
 ### Density
-8–12 when supported; 5–7 when thin — never invent fake controls.
+8–12 when supported; 5–7 when thin — never invent fake controls *except* the REQUIRED SaaS resilience companions above when SaaS+app are in inventory.
 
 ### Section colors
-Edge/perimeter `#FFF2CC/#D6B656`; app `#DAE8FC/#6C8EBF`; trust/sensitive `#F8CECC/#B85450`; identity `#E1D5E7/#9673A6`; detect `#DAE8FC/#147EBA`. `arcSize=2`.
+Edge/perimeter `#FFF2CC/#D6B656`; app `#DAE8FC/#6C8EBF`; trust/sensitive `#F8CECC/#B85450`; identity `#E1D5E7/#9673A6`; detect `#DAE8FC/#147EBA`; External SaaS `#FFF2CC/#D6B656`. `arcSize=2`.
 
 ### Overview (plain language) + badges
 Title: `Security & trust — {system}`
-Everyday steps: outside users → edge filter → who you are → private apps → locked data → monitoring.
+Everyday steps: outside users → edge filter → who you are → private apps → locked data → monitoring → external SaaS trust boundary.
 Footer OK: `Out of scope: business capabilities and data payloads (other tabs).`
 Red **Recommended gaps** only for missing controls (edge filter, login, keys vault, monitoring) — never as-built boxes.
 Emit `step_markers` on zone/control anchors.
 
+### Self-Check (must pass before return — Security)
+1. Enterprise SaaS (if any) lives in `zone_external_saas` / public / identity — **not** under private?
+2. When SaaS + private app: Secrets Manager + Fetches Credentials edge present?
+3. When SaaS + private app: detect zone with GuardDuty + CloudWatch and dashed Logs & Telemetry?
+4. All edges labeled; no note/ctrl cards?
+
 ### Quality bar
-Controls visible in two seconds. Unlabeled edges or labels over icons = fail. Acronym-only Overview = fail. note/ctrl cards = fail.
+Controls visible in two seconds. Unlabeled edges or labels over icons = fail. Acronym-only Overview = fail. note/ctrl cards = fail. SaaS inside Private App Zone = fail.

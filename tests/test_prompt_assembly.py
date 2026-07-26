@@ -55,6 +55,27 @@ def test_logical_primary_skips_network_hierarchy():
     assert "Audience-first story" in prompt or "Pack ownership" in prompt
 
 
+def test_security_prompt_requires_external_saas_zone():
+    prompt = get_xml_gen_system_prompt(platform="aws", primary_view="security")
+    assert "External SaaS Zone" in prompt
+    assert "zone_external_saas" in prompt
+    assert "Fetches Credentials" in prompt
+
+
+def test_data_flow_prompt_requires_saas_resilience_companions():
+    prompt = get_xml_gen_system_prompt(platform="aws", primary_view="data_flow")
+    assert "Dead-letter" in prompt or "DLQ" in prompt
+    assert "Failed API Retries" in prompt
+    assert "Schema" in prompt
+
+
+def test_logical_prompt_requires_cache_aside_for_saas():
+    prompt = get_xml_gen_system_prompt(platform="aws", primary_view="logical")
+    assert "Cache Miss: Fetches via API" in prompt
+    assert "Check Cache" in prompt
+    assert "cache-aside" in prompt.lower() or "Profile cache" in prompt
+
+
 def test_core_excludes_network_hierarchy():
     from app.adapters.outbound.llm.prompts.system import _load_prompt
 

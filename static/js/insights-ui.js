@@ -5,6 +5,8 @@ let diagramVersions = [];
 let activeDiagramVersion = -1;
 
 function switchInsightsTab(tab) {
+    // Back-compat: older call sites used a single "network" tab.
+    if (tab === 'network') tab = 'cost';
     document.querySelectorAll('.insights-tab').forEach((btn) => {
         const on = btn.dataset.tab === tab;
         btn.classList.toggle('active', on);
@@ -109,7 +111,7 @@ function updateContextChip() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    switchInsightsTab('network');
+    switchInsightsTab('cost');
     switchMobilePane('chat');
     updateContextChip();
     const provider = document.getElementById('provider-select');

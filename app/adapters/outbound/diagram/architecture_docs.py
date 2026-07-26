@@ -410,6 +410,50 @@ def _classify_data_label(label: str) -> str:
     return "Internal"
 
 
+def _labels_blob(service_labels: list[str]) -> str:
+    return " ".join(service_labels).lower()
+
+
+def _has_enterprise_saas(service_labels: list[str], request_text: str = "") -> bool:
+    """True when inventory/request names external enterprise SaaS products."""
+    blob = f"{request_text} {_labels_blob(service_labels)}".lower()
+    needles = (
+        "workday", "successfactors", "salesforce", "guidewire", "servicenow",
+        "okta", "auth0", "stripe", "adyen", "saas", "(saas)",
+    )
+    return any(n in blob for n in needles)
+
+
+def _has_app_runtime(service_labels: list[str], request_text: str = "") -> bool:
+    blob = f"{request_text} {_labels_blob(service_labels)}".lower()
+    return any(
+        n in blob
+        for n in (
+            "ecs", "eks", "lambda", "ec2", "fargate", "app service", "cloud run",
+            "gke", "aks", "portal", "bff", "microservice", "application",
+        )
+    )
+
+
+def _has_primary_store(service_labels: list[str], request_text: str = "") -> bool:
+    blob = f"{request_text} {_labels_blob(service_labels)}".lower()
+    return any(
+        n in blob
+        for n in (
+            "aurora", "rds", "dynamodb", "postgres", "mysql", "sql", "database",
+            "data store", "datastore",
+        )
+    )
+
+
+def _has_cache_layer(service_labels: list[str], request_text: str = "") -> bool:
+    blob = f"{request_text} {_labels_blob(service_labels)}".lower()
+    return any(
+        n in blob
+        for n in ("elasticache", "redis", "memcached", "memorystore", "cache")
+    )
+
+
 def _gap_candidates(
     request_text: str,
     service_labels: list[str],
@@ -420,7 +464,11 @@ def _gap_candidates(
 
     Security → control gaps (edge filter, IdP, KMS, monitoring).
     Data flow → data-path gaps (DLQ, backup, CDC, schema registry).
+    Logical → cache / graceful degradation when SaaS egress lacks a cache.
     Other / empty view → security-flavored defaults for inventory briefs.
+
+    Enterprise SaaS + app/store is enough to recommend resilience companions —
+    callers need not mention PCI/PII for those gaps to fire.
     """
     blob = f"{request_text} {' '.join(service_labels)}".lower()
     labels_joined = " ".join(service_labels).lower()
@@ -433,26 +481,37 @@ def _gap_candidates(
     def _mentioned(needles: tuple[str, ...]) -> bool:
         return any(n in blob for n in needles)
 
+    has_saas = _has_enterprise_saas(service_labels, request_text)
+    has_app = _has_app_runtime(service_labels, request_text)
+    has_store = _has_primary_store(service_labels, request_text)
+    saas_resilience = has_saas and (has_app or has_store)
+
     if view_key == "data_flow":
         checks = [
-            (("dlq", "dead letter", "dead-letter", "retry queue"), "Dead-letter / retry path"),
+            (("dlq", "dead letter", "dead-letter", "retry queue", "sqs"), "Dead-letter / retry path"),
             (("backup", "archive", "glacier", "retention", "snapshot"), "Backup / retention archive"),
             (("cdc", "replica", "read replica", "dms"), "CDC / read replica path"),
-            (("schema registry", "glue catalog", "avro schema"), "Schema registry / data catalog"),
+            (("schema registry", "glue catalog", "glue", "avro schema"), "Schema registry / data catalog"),
         ]
         for needles, name in checks:
-            if _missing(needles) and (
+            if not _missing(needles):
+                continue
+            if (
                 _mentioned(needles)
                 or _mentioned(("pii", "pci", "pipeline", "stream", "event", "batch", "etl", "data"))
                 or name.startswith(("Dead-letter", "Backup"))
+                or saas_resilience
             ):
                 gaps.append(name)
+    elif view_key == "logical":
+        if saas_resilience and not _has_cache_layer(service_labels, request_text):
+            gaps.append("Cache / graceful degradation for SaaS outage")
     else:
         # Security (default) — control gaps for risk owners
         checks = [
             (("waf", "shield", "cloud armor"), "Edge web filter (WAF)"),
             (("cognito", "entra", "idp", "identity", "oauth", "auth0", "okta"), "Central login / identity service"),
-            (("kms", "key vault", "secrets manager"), "Keys / secrets vault"),
+            (("kms", "key vault", "secrets manager", "secrets"), "Keys / secrets vault"),
             (
                 ("cloudwatch", "guardduty", "security hub", "sentinel", "siem", "logging"),
                 "Attack / abuse monitoring",
@@ -467,11 +526,14 @@ def _gap_candidates(
                 gaps.append(name)
             elif name.startswith("Edge web filter") and ("web" in blob or "api" in blob or sensitive):
                 gaps.append(name)
-            elif name.startswith("Central login") and (sensitive or "login" in blob or "auth" in blob):
+            elif name.startswith("Central login") and (sensitive or "login" in blob or "auth" in blob or has_saas):
                 gaps.append(name)
-            elif name.startswith("Keys") and sensitive:
+            # SaaS + app: always recommend secrets vault and attack monitoring when missing.
+            elif name.startswith("Keys") and (sensitive or (has_saas and has_app)):
                 gaps.append(name)
-            elif name.startswith("Attack") and (sensitive or "monitor" in blob or "detect" in blob):
+            elif name.startswith("Attack") and (
+                sensitive or "monitor" in blob or "detect" in blob or (has_saas and has_app)
+            ):
                 gaps.append(name)
             elif view_key != "data_flow" and name.startswith("Edge web filter") and "web" in blob:
                 gaps.append(name)
@@ -1267,9 +1329,55 @@ def assign_saas_shape_types(page_xml: str) -> str:
         if builtin and cell.get("style") != builtin:
             cell.set("style", builtin)
             changed = True
+        # Brand logos are square stencils — a non-square box distorts them.
+        if _square_up_icon_geometry(cell, _SAAS_ICON_SIZE):
+            changed = True
     if not changed:
         return page_xml
     return ET.tostring(tree, encoding="unicode")
+
+
+_SAAS_ICON_SIZE = 78.0
+_LOGICAL_ICON_SIZE = 68.0
+# Logical capability/API/store tiles carry their label inside the box.
+_LOGICAL_TILE_W = 160.0
+_LOGICAL_TILE_H = 60.0
+
+
+def _size_up_text_tile(cell: ET.Element) -> bool:
+    """Give label-inside tiles a consistent, readable card size."""
+    geom = cell.find("mxGeometry")
+    if geom is None:
+        return False
+    try:
+        w = float(geom.get("width") or 0)
+        h = float(geom.get("height") or 0)
+    except ValueError:
+        w, h = 0.0, 0.0
+    new_w = max(w, _LOGICAL_TILE_W)
+    new_h = max(min(h, 90.0), _LOGICAL_TILE_H)
+    if abs(new_w - w) <= 1.0 and abs(new_h - h) <= 1.0:
+        return False
+    geom.set("width", str(new_w))
+    geom.set("height", str(new_h))
+    return True
+
+
+def _square_up_icon_geometry(cell: ET.Element, size: float) -> bool:
+    """Force a square box on icon leaves so SVG/stencil art is never stretched."""
+    geom = cell.find("mxGeometry")
+    if geom is None:
+        return False
+    try:
+        w = float(geom.get("width") or 0)
+        h = float(geom.get("height") or 0)
+    except ValueError:
+        w, h = 0.0, 0.0
+    if abs(w - h) <= 1.0 and w >= size - 1.0:
+        return False
+    geom.set("width", str(size))
+    geom.set("height", str(size))
+    return True
 
 
 def _logical_leaf_role(label: str) -> str:
@@ -1357,19 +1465,14 @@ def assign_logical_shape_types(page_xml: str) -> str:
         if cell.get("style") != new_style:
             cell.set("style", new_style)
             changed = True
-        # Icon roles need square-ish geometry or they look like empty tiles.
+        # Icon roles need square geometry or the stencil stretches / looks empty.
         if st in {"logical_actor", "logical_channel"}:
-            geom = cell.find("mxGeometry")
-            if geom is not None:
-                try:
-                    w = float(geom.get("width") or 0)
-                    h = float(geom.get("height") or 0)
-                except ValueError:
-                    w, h = 0.0, 0.0
-                if w < 56 or h < 56 or abs(w - h) > 40:
-                    geom.set("width", "64")
-                    geom.set("height", "64")
-                    changed = True
+            if _square_up_icon_geometry(cell, _LOGICAL_ICON_SIZE):
+                changed = True
+        elif st in {"logical_capability", "logical_api", "logical_datastore", "logical_platform"}:
+            # Text tiles: enforce a readable card size so labels do not clip.
+            if _size_up_text_tile(cell):
+                changed = True
     if not changed:
         return page_xml
     return ET.tostring(tree, encoding="unicode")

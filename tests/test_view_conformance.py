@@ -173,6 +173,25 @@ class ViewFixerTests(unittest.TestCase):
         self.assertIn("Perimeter first", trimmed)
         self.assertIn("font-size:22px;font-weight:bold", trimmed)
 
+    def test_logical_gap_nodes_allowed(self) -> None:
+        from app.adapters.outbound.diagram.view_fixers import append_gaps_to_overview_panel
+
+        xml = _wrap(
+            _leaf("app", "App", 40, "logical_capability")
+            + '<mxCell id="overview_panel" value="'
+            "&lt;div style=&quot;font-size:22px;font-weight:bold;&quot;&gt;Logical&lt;/div&gt;"
+            "&lt;div style=&quot;font-size:15px;&quot;&gt;1. Persona first.&lt;/div&gt;"
+            '" vertex="1" parent="1">'
+            '<mxGeometry x="900" y="40" width="400" height="200" as="geometry"/></mxCell>'
+        )
+        out = append_gaps_to_overview_panel(
+            xml, view="logical", gap_labels=["Cache / graceful degradation for SaaS outage"],
+        )
+        panel = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "overview_panel")
+        val = panel.get("value") or ""
+        self.assertIn("Recommended gaps", val)
+        self.assertIn("Cache", val)
+
     def test_strip_detail_cards(self) -> None:
         from app.adapters.outbound.diagram.view_fixers import strip_detail_cards
 

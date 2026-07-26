@@ -768,7 +768,7 @@ def append_gaps_to_overview_panel(
     """Write gap recommendations into overview_panel; remove on-canvas gap boxes."""
     import html as html_mod
 
-    if view not in {"security", "data_flow"}:
+    if view not in {"security", "data_flow", "logical"}:
         # Still strip any stray canvas gap nodes on other views
         gap_labels = []
     title = VIEW_PAGE_NAMES.get(view, view)

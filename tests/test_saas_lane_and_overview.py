@@ -12,6 +12,7 @@ from app.adapters.outbound.diagram.architecture_docs import (
 from app.adapters.outbound.diagram.placement_fixers import (
     enforce_view_journey_columns,
     fix_edge_anchors_from_geometry,
+    hoist_security_saas_from_private_zones,
     resolve_misplaced_saas_leaves,
 )
 from app.adapters.outbound.diagram.xml_diagnostics import (
@@ -34,6 +35,16 @@ def _network(cells: str) -> str:
 def _logical(cells: str) -> str:
     return (
         '<mxfile><diagram name="Logical" id="l1">'
+        '<mxGraphModel pageWidth="2400" pageHeight="1400"><root>'
+        '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+        f"{cells}"
+        "</root></mxGraphModel></diagram></mxfile>"
+    )
+
+
+def _security(cells: str) -> str:
+    return (
+        '<mxfile><diagram name="Security" id="s1">'
         '<mxGraphModel pageWidth="2400" pageHeight="1400"><root>'
         '<mxCell id="0"/><mxCell id="1" parent="0"/>'
         f"{cells}"
@@ -207,7 +218,11 @@ class LogicalCorridorTests(unittest.TestCase):
         by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
         # Non-identity SaaS stay in domain_saas vertical shelf; Okta may move to spine
         self.assertEqual(by_id["sf"].get("parent"), "domain_saas")
-        self.assertLess(_x(by_id["domain_commerce"]), _x(by_id["domain_saas"]))
+        # External SaaS shelf sits under / aligned with a domain column (not a
+        # mandatory right-hand neighbour of commerce).
+        saas_y = _y(by_id["domain_saas"])
+        commerce_y = _y(by_id["domain_commerce"])
+        self.assertGreaterEqual(saas_y, commerce_y)
         # Vertical stack inside shelf when 2+ non-hoisted — with only SF left, still nested
         self.assertEqual(by_id["sf"].get("parent"), "domain_saas")
         # Okta identity prefers journey spine (parent=1) when layout runs
@@ -216,6 +231,33 @@ class LogicalCorridorTests(unittest.TestCase):
             self.assertAlmostEqual(_x(by_id["ok"]), _x(by_id["sf"]), delta=1.0)
             self.assertLess(_y(by_id["ok"]), _y(by_id["sf"]))
 
+    def test_saas_shelf_anchors_under_data_domain(self) -> None:
+        page = _logical(
+            '<mxCell id="domain_core" value="Core" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="200" y="80" width="280" height="180" as="geometry"/></mxCell>'
+            '<mxCell id="cap" value="Orders" style="rounded=1;" vertex="1" parent="domain_core">'
+            '<mxGeometry x="40" y="48" width="120" height="40" as="geometry"/></mxCell>'
+            '<mxCell id="domain_data" value="Data" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="520" y="80" width="280" height="180" as="geometry"/></mxCell>'
+            '<mxCell id="ds" value="Customer data store" style="rounded=1;" vertex="1" parent="domain_data">'
+            '<mxGeometry x="40" y="48" width="120" height="40" as="geometry"/></mxCell>'
+            '<mxCell id="domain_saas" value="External SaaS" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="900" y="80" width="200" height="200" as="geometry"/></mxCell>'
+            '<mxCell id="wd" value="Workday (SAAS)" shape_type="saas_workday" style="shape=image;" '
+            'vertex="1" parent="domain_saas">'
+            '<mxGeometry x="40" y="48" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="e1" edge="1" parent="1" source="cap" target="ds" value="Writes">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        out = enforce_view_journey_columns(page)
+        by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
+        data = by_id["domain_data"].find("mxGeometry")
+        saas = by_id["domain_saas"].find("mxGeometry")
+        self.assertAlmostEqual(float(saas.get("x")), float(data.get("x")), delta=2.0)
+        self.assertGreater(
+            float(saas.get("y")),
+            float(data.get("y")) + float(data.get("height")) - 1.0,
+        )
     def test_logical_edges_get_waypoints_clear_of_icons(self) -> None:
         page = _logical(
             '<mxCell id="a" value="Orders" vertex="1" parent="1">'
@@ -264,14 +306,13 @@ class LogicalCorridorTests(unittest.TestCase):
         self.assertIn(("emp", "ok"), pairs)
         self.assertIn(("ok", "portal"), pairs)
 
-    def test_logical_domain_apps_wrap_after_four(self) -> None:
-        """Max 4 apps horizontal; 5th starts next row (Network-style grid)."""
+    def _domain_with_apps(self, count: int) -> dict[str, ET.Element]:
         apps = "".join(
             f'<mxCell id="a{i}" value="App {i}" style="rounded=1;" vertex="1" '
             f'parent="domain_core">'
             f'<mxGeometry x="{40 + i * 50}" y="60" width="100" height="40" '
             f'as="geometry"/></mxCell>'
-            for i in range(5)
+            for i in range(count)
         )
         page = _logical(
             '<mxCell id="domain_core" value="Core" style="container=1;" vertex="1" parent="1">'
@@ -279,16 +320,30 @@ class LogicalCorridorTests(unittest.TestCase):
             + apps
         )
         out = enforce_view_journey_columns(page)
-        by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
-        ys = [float(by_id[f"a{i}"].find("mxGeometry").get("y") or 0) for i in range(5)]
-        xs = [float(by_id[f"a{i}"].find("mxGeometry").get("x") or 0) for i in range(5)]
-        # First four share one row; fifth wraps below
-        self.assertEqual(len({round(y) for y in ys[:4]}), 1)
-        self.assertGreater(ys[4], ys[0] + 40)
-        self.assertLess(xs[4], xs[3])  # col 0 of row 2, left of col 3
-        # Domain grown to fit
+        return {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
+
+    def test_logical_domain_apps_never_exceed_four_per_row(self) -> None:
+        """Hard cap: a 5th app in a full row wraps to the next line."""
+        by_id = self._domain_with_apps(10)
+        rows: dict[float, int] = {}
+        for i in range(10):
+            y = round(float(by_id[f"a{i}"].find("mxGeometry").get("y") or 0))
+            rows[y] = rows.get(y, 0) + 1
+        self.assertTrue(rows)
+        self.assertLessEqual(max(rows.values()), 4)
+        # Domain grew to fit the wrapped rows.
         dh = float(by_id["domain_core"].find("mxGeometry").get("height") or 0)
         self.assertGreater(dh, 150)
+
+    def test_logical_domain_apps_use_a_balanced_grid(self) -> None:
+        """Four apps read better as 2x2 than as one 900px-wide row."""
+        by_id = self._domain_with_apps(4)
+        ys = {round(float(by_id[f"a{i}"].find("mxGeometry").get("y") or 0)) for i in range(4)}
+        xs = {round(float(by_id[f"a{i}"].find("mxGeometry").get("x") or 0)) for i in range(4)}
+        self.assertEqual(len(ys), 2)
+        self.assertEqual(len(xs), 2)
+        dw = float(by_id["domain_core"].find("mxGeometry").get("width") or 0)
+        self.assertLess(dw, 700.0, "balanced grid keeps domains on-screen")
 
     def test_logical_application_gets_okta_redirect(self) -> None:
         page = _logical(
@@ -350,6 +405,152 @@ class LogicalCorridorTests(unittest.TestCase):
         # Direct reposition is idempotent
         again = reposition_step_badges(fixed)
         self.assertIn("step_badge_1", again)
+
+
+class SecuritySaasHoistTests(unittest.TestCase):
+    def test_workday_under_private_hoisted_to_external_saas_zone(self) -> None:
+        page = _security(
+            '<mxCell id="zone_private" value="Private App Zone" style="container=1;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="400" y="80" width="360" height="280" as="geometry"/></mxCell>'
+            '<mxCell id="ecs" value="ECS Portal" style="rounded=1;" vertex="1" parent="zone_private">'
+            '<mxGeometry x="40" y="48" width="120" height="60" as="geometry"/></mxCell>'
+            '<mxCell id="wd" value="Workday (SAAS)" shape_type="saas_workday" style="shape=image;" '
+            'vertex="1" parent="zone_private">'
+            '<mxGeometry x="180" y="48" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = hoist_security_saas_from_private_zones(page)
+        by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
+        self.assertIn("zone_external_saas", by_id)
+        self.assertEqual(by_id["wd"].get("parent"), "zone_external_saas")
+        self.assertEqual(by_id["ecs"].get("parent"), "zone_private")
+
+    def test_enforce_journey_columns_hoists_security_saas(self) -> None:
+        page = _security(
+            '<mxCell id="zone_private" value="Private App Zone" style="container=1;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="200" y="100" width="400" height="300" as="geometry"/></mxCell>'
+            '<mxCell id="sf" value="SuccessFactors (SAAS)" shape_type="saas_successfactors" '
+            'style="shape=image;" vertex="1" parent="zone_private">'
+            '<mxGeometry x="40" y="60" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = enforce_view_journey_columns(page)
+        by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
+        self.assertEqual(by_id["sf"].get("parent"), "zone_external_saas")
+
+
+class LogicalRoutingAndIconTests(unittest.TestCase):
+    """Spacing / routing / icon-aspect rules that keep Logical readable."""
+
+    def _spine_page(self) -> str:
+        return _logical(
+            '<mxCell id="emp" value="Employees" style="rounded=1;" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="420" width="120" height="40" as="geometry"/></mxCell>'
+            '<mxCell id="okta" value="Okta (SAAS)" shape_type="saas_okta" style="rounded=1;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="760" y="90" width="140" height="50" as="geometry"/></mxCell>'
+            '<mxCell id="portal" value="HR Portal" style="rounded=1;" vertex="1" parent="1">'
+            '<mxGeometry x="560" y="300" width="100" height="60" as="geometry"/></mxCell>'
+        )
+
+    def test_spine_survives_pitch_and_overlap_fixers(self) -> None:
+        from app.adapters.outbound.diagram.architecture_docs import assign_logical_shape_types
+
+        fixed, _ = repair_xml(assign_logical_shape_types(self._spine_page()))
+        by_id = {c.get("id"): c for c in ET.fromstring(fixed).iter("mxCell") if c.get("id")}
+        boxes = []
+        for cid in ("emp", "okta", "portal"):
+            g = by_id[cid].find("mxGeometry")
+            boxes.append((float(g.get("x") or 0), float(g.get("width") or 0)))
+        boxes.sort()
+        for (x1, w1), (x2, _w2) in zip(boxes, boxes[1:]):
+            self.assertGreaterEqual(x2, x1 + w1, "spine icons must not overlap")
+            self.assertLess(x2 - (x1 + w1), 200.0, "spine gap must stay compact")
+
+    def test_saas_icons_are_square_and_keep_aspect(self) -> None:
+        from app.adapters.outbound.diagram.architecture_docs import assign_saas_shape_types
+
+        page = _logical(
+            '<mxCell id="wd" value="Workday (SAAS)" shape_type="saas_workday" style="rounded=1;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="240" height="40" as="geometry"/></mxCell>'
+        )
+        out = assign_saas_shape_types(page)
+        cell = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "wd")
+        geom = cell.find("mxGeometry")
+        self.assertEqual(geom.get("width"), geom.get("height"))
+        self.assertNotIn("imageAspect=0", cell.get("style") or "")
+
+    def test_edge_anchors_stay_on_the_shape(self) -> None:
+        """Parallel offsets must never push an anchor outside its own icon."""
+        page = _logical(
+            '<mxCell id="a" value="A" style="rounded=1;" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="100" width="68" height="68" as="geometry"/></mxCell>'
+            '<mxCell id="b" value="B" style="rounded=1;" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="220" width="68" height="68" as="geometry"/></mxCell>'
+            '<mxCell id="c" value="C" style="rounded=1;" vertex="1" parent="1">'
+            '<mxGeometry x="600" y="100" width="68" height="68" as="geometry"/></mxCell>'
+            '<mxCell id="d" value="D" style="rounded=1;" vertex="1" parent="1">'
+            '<mxGeometry x="600" y="220" width="68" height="68" as="geometry"/></mxCell>'
+            '<mxCell id="e1" value="Uses" style="html=1;" edge="1" parent="1" '
+            'source="a" target="c"><mxGeometry relative="1" as="geometry"/></mxCell>'
+            '<mxCell id="e2" value="Uses" style="html=1;" edge="1" parent="1" '
+            'source="b" target="d"><mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        out = fix_edge_anchors_from_geometry(page)
+        for cell in ET.fromstring(out).iter("mxCell"):
+            if cell.get("edge") != "1":
+                continue
+            kv = dict(
+                p.split("=", 1) for p in (cell.get("style") or "").split(";") if "=" in p
+            )
+            for key in ("exitDy", "entryDy"):
+                self.assertLessEqual(abs(float(kv.get(key, 0))), 34.0)
+
+    def test_blocked_edge_routes_around_intervening_icons(self) -> None:
+        """A connector must not run straight through a third box."""
+        page = _logical(
+            '<mxCell id="src" value="Src" style="rounded=1;" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="100" width="160" height="60" as="geometry"/></mxCell>'
+            '<mxCell id="mid" value="Mid" style="rounded=1;" vertex="1" parent="1">'
+            '<mxGeometry x="300" y="100" width="160" height="60" as="geometry"/></mxCell>'
+            '<mxCell id="dst" value="Dst" style="rounded=1;" vertex="1" parent="1">'
+            '<mxGeometry x="560" y="100" width="160" height="60" as="geometry"/></mxCell>'
+            '<mxCell id="e1" value="Invokes" style="html=1;" edge="1" parent="1" '
+            'source="src" target="dst"><mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        out = fix_edge_anchors_from_geometry(page)
+        edge = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "e1")
+        pts = [
+            (float(p.get("x") or 0), float(p.get("y") or 0))
+            for p in edge.iter("mxPoint")
+            if p.get("as") is None
+        ]
+        self.assertTrue(pts, "blocked edge should get routing waypoints")
+        # Every waypoint clears the intervening box (300..460 x, 100..160 y).
+        for px, py in pts:
+            self.assertFalse(
+                290 < px < 470 and 90 < py < 170,
+                f"waypoint {(px, py)} sits on the intervening icon",
+            )
+
+    def test_domain_columns_leave_a_label_corridor(self) -> None:
+        page = _logical(
+            '<mxCell id="domain_core" value="Core" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="200" y="60" width="240" height="140" as="geometry"/></mxCell>'
+            '<mxCell id="a1" value="App" style="rounded=1;" vertex="1" parent="domain_core">'
+            '<mxGeometry x="20" y="50" width="160" height="60" as="geometry"/></mxCell>'
+            '<mxCell id="domain_data" value="Data" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="500" y="60" width="240" height="140" as="geometry"/></mxCell>'
+            '<mxCell id="d1" value="Store" style="rounded=1;" vertex="1" parent="domain_data">'
+            '<mxGeometry x="20" y="50" width="160" height="60" as="geometry"/></mxCell>'
+        )
+        out = enforce_view_journey_columns(page)
+        by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
+        core = by_id["domain_core"].find("mxGeometry")
+        data = by_id["domain_data"].find("mxGeometry")
+        gap = float(data.get("x")) - (float(core.get("x")) + float(core.get("width")))
+        self.assertGreaterEqual(gap, 80.0, "domains need a corridor for labelled edges")
 
 
 class NetworkBadgeRemountTests(unittest.TestCase):

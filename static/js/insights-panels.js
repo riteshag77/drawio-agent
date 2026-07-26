@@ -137,7 +137,7 @@ function renderCostDonut(catTotals, grandTotal) {
 }
 
 function displayCostEstimate(costData) {
-    if (typeof switchInsightsTab === 'function') switchInsightsTab('network');
+    if (typeof switchInsightsTab === 'function') switchInsightsTab('cost');
     if (!costData) return;
     const panel = document.getElementById('cost-panel');
     const body = document.getElementById('cost-panel-body');
@@ -586,7 +586,7 @@ function toggleWellArchitectedPanel() {
         panel.classList.add('active');
         if (body) body.innerHTML = '<div class="waf-empty">Generate a diagram to see Well-Architected review</div>';
         if (badge) { badge.textContent = '--'; badge.className = 'waf-overall-badge'; }
-        if (typeof switchInsightsTab === 'function') switchInsightsTab('network');
+        if (typeof switchInsightsTab === 'function') switchInsightsTab('waf');
     } else {
         panel.classList.remove('active');
         if (body) body.innerHTML = '';
@@ -700,7 +700,7 @@ function applyInsightFixes(items) {
 }
 
 function displayWellArchitected(wafData) {
-    if (typeof switchInsightsTab === 'function') switchInsightsTab('network');
+    if (typeof switchInsightsTab === 'function') switchInsightsTab('waf');
     if (!wafData) return;
     console.log('WAF data received', wafData.overall_status, wafData.pillars?.length, 'pillars');
     var panel = document.getElementById('well-architected-panel');
@@ -806,7 +806,7 @@ function toggleCompliancePanel() {
     if (document.getElementById('compliance-toggle').checked) {
         panel.classList.add('active');
         if (body) body.innerHTML = '<div class="compliance-empty">Generate a diagram to see compliance assessment results</div>';
-        if (typeof switchInsightsTab === 'function') switchInsightsTab('network');
+        if (typeof switchInsightsTab === 'function') switchInsightsTab('waf');
     } else {
         panel.classList.remove('active');
         if (body) body.innerHTML = '';
@@ -825,7 +825,7 @@ function hideCompliancePanel() {
 }
 
 function displayCompliance(compData) {
-    if (typeof switchInsightsTab === 'function') switchInsightsTab('network');
+    if (typeof switchInsightsTab === 'function') switchInsightsTab('waf');
     if (!compData || !compData.frameworks) return;
     var panel = document.getElementById('compliance-panel');
     var tabs = document.getElementById('compliance-tabs');

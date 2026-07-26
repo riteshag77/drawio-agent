@@ -1182,14 +1182,27 @@ async def run_xml_pipeline(
                 else:
                     diagrams = []
                 if len(diagrams) <= 1:
-                    try:
-                        preview_url, routed_xml = await create_diagram(
-                            local_xml, routing="libavoid", logger=logger,
-                        )
-                    except DrawioMcpError as exc:
+                    single_name = ""
+                    if diagrams:
+                        single_name = diagrams[0].get("name") or ""
+                    _LOCAL_ROUTED_PAGES = {"Logical", "Security", "Data flow"}
+                    if single_name in _LOCAL_ROUTED_PAGES:
                         if logger:
-                            logger.log("mcp", f"Libavoid skipped: {exc}", level="warning")
+                            logger.log(
+                                "mcp",
+                                f"Libavoid skipped for {single_name} — local router owns edges",
+                                level="info",
+                            )
                         routed_xml = None
+                    else:
+                        try:
+                            preview_url, routed_xml = await create_diagram(
+                                local_xml, routing="libavoid", logger=logger,
+                            )
+                        except DrawioMcpError as exc:
+                            if logger:
+                                logger.log("mcp", f"Libavoid skipped: {exc}", level="warning")
+                            routed_xml = None
                     if routed_xml:
                         if routed_xml.lower().count("<mxfile") > 1:
                             if logger:
@@ -1219,9 +1232,12 @@ async def run_xml_pipeline(
                                 local_xml = pre_routing_xml
                 else:
                     # Route each page alone to avoid duplicate cell-id collisions across tabs.
+                    # Focused views (Logical / Security / Data flow) use the local
+                    # obstacle-aware router — libavoid re-routing fights those waypoints.
+                    _LOCAL_ROUTED_PAGES = {"Logical", "Security", "Data flow"}
                     for diag in diagrams:
                         name = diag.get("name") or "Page"
-                        if name in {"ADR Notes", "RAID"}:
+                        if name in {"ADR Notes", "RAID"} or name in _LOCAL_ROUTED_PAGES:
                             inner = "".join(ET.tostring(c, encoding="unicode") for c in list(diag))
                             routed_pages.append((name, ensure_diagram_document(inner, name)))
                             continue
