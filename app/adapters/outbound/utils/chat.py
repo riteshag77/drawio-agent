@@ -41,25 +41,49 @@ def normalize_suggestion(text: str) -> str:
     return " ".join((text or "").strip().lower().split())
 
 
+def _suggestion_text(item: Any) -> str:
+    if item is None:
+        return ""
+    if isinstance(item, str):
+        return item
+    if isinstance(item, dict):
+        return str(item.get("text") or item.get("suggestion") or "")
+    return str(getattr(item, "text", "") or "")
+
+
 def filter_applied_suggestions(
-    suggestions: list[str] | None,
-    applied: list[str] | None,
-) -> list[str]:
-    if not suggestions:
+    suggestions: list[Any] | None,
+    applied: list[Any] | None,
+) -> list[dict[str, str]]:
+    """Drop already-applied items; return JSON-ready {text, category} dicts."""
+    from app.domain.entities.xml_diagram import normalize_suggestions
+
+    normalized = normalize_suggestions(suggestions)
+    if not normalized:
         return []
-    if not applied:
-        return list(suggestions)
-    applied_norm = {normalize_suggestion(item) for item in applied}
-    return [item for item in suggestions if normalize_suggestion(item) not in applied_norm]
+    applied_norm = {
+        normalize_suggestion(_suggestion_text(item))
+        for item in (applied or [])
+        if _suggestion_text(item)
+    }
+    out: list[dict[str, str]] = []
+    for item in normalized:
+        if normalize_suggestion(item.text) in applied_norm:
+            continue
+        out.append({"text": item.text, "category": item.category})
+    return out
 
 
-def build_applied_suggestions_block(applied: list[str] | None) -> str:
+def build_applied_suggestions_block(applied: list[Any] | None) -> str:
     if not applied:
         return ""
     lines = [
         "Already implemented suggestions (do NOT repeat these in `suggestions`; propose new improvements only):"
     ]
-    lines.extend(f"- {item}" for item in applied)
+    for item in applied:
+        text = _suggestion_text(item)
+        if text:
+            lines.append(f"- {text}")
     return "\n".join(lines)
 
 
@@ -68,8 +92,12 @@ def build_suggestions_instruction_block(include_suggestions: bool) -> str:
     if include_suggestions:
         return (
             "## Suggestions (REQUIRED)\n"
-            "Populate `suggestions` with exactly 2–3 specific, actionable architecture improvements "
-            "(e.g. services to add, security hardening, resilience, cost). "
+            "Populate `suggestions` with exactly 2–3 objects, each with:\n"
+            "- `text`: specific, actionable architecture improvement "
+            "(e.g. services to add, security hardening, resilience, cost)\n"
+            "- `category`: one of `network`, `logical`, `security`, `data_flow`, `general` "
+            "— where the change should apply (match a selected diagram view when possible; "
+            "use `general` for cross-cutting cost/ops ideas)\n"
             "Never leave `suggestions` empty on this turn."
         )
     return (

@@ -117,11 +117,13 @@ def _assemble_prompt_parts(
     custom_system_message: str,
     three_d: bool,
     user_hint: str,
+    primary_view: str = "network",
 ) -> tuple[str, str]:
     """Return ``(stable_prefix, volatile_suffix)``.
 
-    ``stable_prefix`` = CORE + platform packs — byte-identical across requests for
-    a given platform/model, so it is the natural prompt-cache prefix.
+    ``stable_prefix`` = CORE + primary view pack + platform packs — byte-identical
+    across requests for a given platform/model/primary_view, so it is the natural
+    prompt-cache prefix.
     ``volatile_suffix`` = the user-hint-filtered reference catalog + any custom
     instructions — these vary per request and must sit *after* the cache
     breakpoint so they never invalidate the cached prefix.
@@ -130,6 +132,9 @@ def _assemble_prompt_parts(
     platform_key = (platform or "aws").strip().lower()
     if platform_key not in _ICON_PLATFORMS:
         platform_key = "aws"
+    view_key = (primary_view or "network").strip().lower()
+    if view_key not in ("logical", "network", "security", "data_flow"):
+        view_key = "network"
 
     stable: list[str] = []
     volatile: list[str] = []
@@ -143,7 +148,26 @@ def _assemble_prompt_parts(
                 volatile.append(_filter_catalog(content, user_hint))
     else:
         stable.append(_load_prompt("core.txt"))
-        stable.append(_load_prompt("network.txt"))
+        # Primary view pack (Network nesting, or Logical/Security/Data flow lens)
+        if view_key != "network":
+            # Non-network primary shares view craft (cards, differentiation)
+            try:
+                common = _load_prompt("views/common.txt")
+                if common:
+                    stable.append(common)
+            except FileNotFoundError:
+                pass
+        try:
+            view_pack = _load_prompt(f"views/{view_key}.txt")
+            if view_pack:
+                stable.append(view_pack)
+        except FileNotFoundError:
+            if view_key == "network":
+                # Legacy path fallback during migration
+                try:
+                    stable.append(_load_prompt("network.txt"))
+                except FileNotFoundError:
+                    pass
         stable.append(_load_prompt(f"classify/{platform_key}.txt"))
         stable.append(_load_prompt(f"icons/{platform_key}.txt"))
         for ref in _get_reference_files(platform_key, three_d=False):
@@ -178,11 +202,13 @@ def get_xml_gen_system_prompt(
     custom_system_message: str = "",
     three_d: bool = False,
     user_hint: str = "",
+    primary_view: str = "network",
 ) -> str:
-    """Assemble CORE + platform pack (+ optional 3D overlay) as one plain string."""
+    """Assemble CORE + primary view pack + platform packs as one plain string."""
     stable, volatile = _assemble_prompt_parts(
         model_id, provider=provider, platform=platform,
         custom_system_message=custom_system_message, three_d=three_d, user_hint=user_hint,
+        primary_view=primary_view,
     )
     prompt = f"{stable}\n\n{volatile}" if volatile else stable
     _warn_if_over_budget(prompt)
@@ -197,6 +223,7 @@ def get_xml_gen_system_prompt_marked(
     custom_system_message: str = "",
     three_d: bool = False,
     user_hint: str = "",
+    primary_view: str = "network",
 ) -> str:
     """Same assembly, with a ``CACHE_BREAKPOINT`` sentinel between the stable
     prefix and the volatile suffix. The LLM adapter splits on the sentinel to
@@ -204,6 +231,7 @@ def get_xml_gen_system_prompt_marked(
     stable, volatile = _assemble_prompt_parts(
         model_id, provider=provider, platform=platform,
         custom_system_message=custom_system_message, three_d=three_d, user_hint=user_hint,
+        primary_view=primary_view,
     )
     _warn_if_over_budget(f"{stable}\n\n{volatile}" if volatile else stable)
     # Marker sits at the end of the stable prefix even when the suffix is empty,

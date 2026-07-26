@@ -37,10 +37,17 @@ def test_3d_skips_aws4_icon_pack():
 
 
 def test_network_pack_loaded_for_primary():
-    prompt = get_xml_gen_system_prompt(platform="aws")
+    prompt = get_xml_gen_system_prompt(platform="aws", primary_view="network")
     assert "Canonical Container Hierarchy" in prompt
     assert "Cross-Cutting Groups" in prompt
     assert "xml_gen_network" not in prompt  # content loaded, not path/filename
+
+
+def test_logical_primary_skips_network_hierarchy():
+    prompt = get_xml_gen_system_prompt(platform="aws", primary_view="logical")
+    assert "Canonical Container Hierarchy" not in prompt
+    assert "Bounded Contexts" in prompt or "business capabilities" in prompt.lower()
+    assert "Service Classification — AWS" in prompt
 
 
 def test_core_excludes_network_hierarchy():

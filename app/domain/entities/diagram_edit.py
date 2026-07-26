@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.domain.entities.xml_diagram import DiagramSuggestion, normalize_suggestion_item
 
 
 class DiagramEditOp(BaseModel):
@@ -31,10 +33,19 @@ class DiagramEditPlan(BaseModel):
     )
     ops: List[DiagramEditOp] = Field(default_factory=list)
     assistant_message: str = Field(default="Updated diagram.", description="Brief chat summary")
-    suggestions: List[str] = Field(
+    suggestions: List[DiagramSuggestion] = Field(
         default_factory=list,
         description=(
-            "2–3 concrete follow-up improvements when suggestions are requested; "
+            "2–3 concrete follow-up improvements (text + category) when suggestions are requested; "
             "otherwise an empty list"
         ),
     )
+
+    @field_validator("suggestions", mode="before")
+    @classmethod
+    def _coerce_suggestions(cls, value):
+        if not value:
+            return []
+        if not isinstance(value, list):
+            return []
+        return [s for s in (normalize_suggestion_item(v) for v in value) if s is not None]

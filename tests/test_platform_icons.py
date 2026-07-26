@@ -60,7 +60,7 @@ class PlatformPromptTests(unittest.TestCase):
         # "multi's icon overhead".
         shared = (
             ESTIMATE_PROMPT_TOKENS(_load_prompt("core.txt"))
-            + ESTIMATE_PROMPT_TOKENS(_load_prompt("network.txt"))
+            + ESTIMATE_PROMPT_TOKENS(_load_prompt("views/network.txt"))
         )
         overhead = ESTIMATE_PROMPT_TOKENS(prompt) - shared
         self.assertLess(overhead, 2000, f"multi platform overhead ~{overhead} tokens exceeds budget")

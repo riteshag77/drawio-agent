@@ -53,7 +53,7 @@ app/
 
 This split is deliberate — don't blur it:
 - **LLM** owns structure: parent/child nesting, geometry, container/group styles, edges, and a leaf's `shape_type` + grey placeholder style. It does **not** invent icon stencils (`resIcon=`, `mxgraph.gcp2`, Azure SVG paths).
-- **Prompt packs** (`config/xml_gen/`: `core.txt` + `network.txt` + `classify/` + `icons/` + `views/` + `docs/`) own layout/classification rules, kept token-efficient by splitting shared CORE rules from Network hierarchy and platform-specific icon packs.
+- **Prompt packs** (`config/xml_gen/`: `core.txt` + `views/` including `network.txt` + `classify/` + `icons/` + `docs/`) own layout/classification rules, kept token-efficient by splitting shared CORE rules from Network hierarchy and platform-specific icon packs.
 - **Draw.io MCP** (`drawio_mcp_client.py`) owns resolving official leaf icon styles at runtime via `search_shapes`, merged into (not overwriting) the LLM's leaf style. MCP misses leave the placeholder and log `mcp_miss` rather than half-overwriting a style.
 - `DIAGRAM_RENDERER` env/request setting: `auto`/`mcp` (resolve + optional libavoid routing) vs `local` (skip MCP, offline, placeholders stay unless the LLM invented a stencil).
 - Style resolution is cached (`diagram/style_cache.py`, SQLite at `data/mcp_style_cache.sqlite3`) — after changing MCP pick logic or prompts, set `DRAWIO_STYLE_CACHE_RESET=true` once (then back to `false`) or delete the cache file.

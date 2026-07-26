@@ -550,9 +550,9 @@ class FitContainersToChildrenTests(unittest.TestCase):
         out = fit_containers_to_children(xml)
         tree = ET.fromstring(out)
         _, _, w, h = self._geom(tree, "vpc")
-        # child right=102, bottom=126 → + pad 12
-        self.assertGreaterEqual(w, 102 + 12)
-        self.assertGreaterEqual(h, 126 + 12)
+        # child right=102, bottom=126 → + pad 24
+        self.assertGreaterEqual(w, 102 + 24)
+        self.assertGreaterEqual(h, 126 + 24)
         # leaf geometry unchanged
         self.assertEqual(self._geom(tree, "svc"), (24.0, 48.0, 78.0, 78.0))
 
@@ -574,9 +574,9 @@ class FitContainersToChildrenTests(unittest.TestCase):
         out = fit_containers_to_children(xml)
         tree = ET.fromstring(out)
         _, _, w, h = self._geom(tree, "subnet")
-        # bottom = 48+78+28 label band = 154; + pad 12 → 166
-        self.assertGreaterEqual(h, 154 + 12)
-        self.assertGreaterEqual(w, 24 + 78 + 12)
+        # bottom = 48+78+28 label band = 154; + pad 24 → 178
+        self.assertGreaterEqual(h, 154 + 24)
+        self.assertGreaterEqual(w, 24 + 78 + 24)
 
     def test_nested_containers_bottom_up(self) -> None:
         xml = (
@@ -599,13 +599,45 @@ class FitContainersToChildrenTests(unittest.TestCase):
         tree = ET.fromstring(out)
         _, _, iw, ih = self._geom(tree, "inner")
         _, _, ow, oh = self._geom(tree, "outer")
-        self.assertGreaterEqual(iw, 24 + 78 + 12)
-        self.assertGreaterEqual(ih, 48 + 78 + 28 + 12)
+        self.assertGreaterEqual(iw, 24 + 78 + 24)
+        self.assertGreaterEqual(ih, 48 + 78 + 28 + 24)
         # outer must wrap resized inner + padding
-        self.assertGreaterEqual(ow, 24 + iw + 12)
-        self.assertGreaterEqual(oh, 48 + ih + 12)
+        self.assertGreaterEqual(ow, 24 + iw + 24)
+        self.assertGreaterEqual(oh, 48 + ih + 24)
 
-    def test_edges_and_non_containers_unchanged(self) -> None:
+    def test_multipage_fits_non_first_root(self) -> None:
+        """Network page (2nd diagram) must still shrink-wrap after Logical page 1."""
+        xml = (
+            '<mxfile host="app.diagrams.net">'
+            '<diagram name="Logical" id="d0"><mxGraphModel><root>'
+            '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            '<mxCell id="cap" value="Orders" style="rounded=1;" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="120" height="60" as="geometry"/>'
+            "</mxCell>"
+            "</root></mxGraphModel></diagram>"
+            '<diagram name="Network" id="d1"><mxGraphModel><root>'
+            '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            '<mxCell id="vpc" value="VPC" style="rounded=1;container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="100" height="80" as="geometry"/>'
+            "</mxCell>"
+            '<mxCell id="svc" value="ECS" style="rounded=0;" vertex="1" parent="vpc">'
+            '<mxGeometry x="24" y="48" width="78" height="78" as="geometry"/>'
+            "</mxCell>"
+            "</root></mxGraphModel></diagram>"
+            "</mxfile>"
+        )
+        out = fit_containers_to_children(xml)
+        tree = ET.fromstring(out)
+        diagrams = list(tree.findall("diagram"))
+        self.assertEqual(len(diagrams), 2)
+        net_root = diagrams[1].find(".//root")
+        assert net_root is not None
+        vpc = next(c for c in net_root.iter("mxCell") if c.get("id") == "vpc")
+        g = vpc.find("mxGeometry")
+        assert g is not None
+        self.assertGreaterEqual(float(g.get("width") or 0), 102 + 24)
+        self.assertGreaterEqual(float(g.get("height") or 0), 126 + 24)
+
         xml = (
             '<mxfile host="app.diagrams.net"><diagram name="A" id="d1">'
             "<mxGraphModel><root>"

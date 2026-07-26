@@ -137,7 +137,7 @@ function renderCostDonut(catTotals, grandTotal) {
 }
 
 function displayCostEstimate(costData) {
-    if (typeof switchInsightsTab === 'function') switchInsightsTab('cost');
+    if (typeof switchInsightsTab === 'function') switchInsightsTab('network');
     if (!costData) return;
     const panel = document.getElementById('cost-panel');
     const body = document.getElementById('cost-panel-body');
@@ -408,8 +408,27 @@ function displaySuggestions(suggestions) {
     var selectAllCb = document.getElementById('suggestions-select-all');
     if (!panel || !wrap || !body) return;
 
+    function coerceItem(s) {
+        if (typeof normalizeSuggestionItem === 'function') {
+            return normalizeSuggestionItem(s);
+        }
+        if (s == null) return null;
+        if (typeof s === 'string') {
+            var t = s.trim();
+            return t ? { text: t, category: 'general' } : null;
+        }
+        if (typeof s === 'object') {
+            var text = String(s.text || s.suggestion || '').trim();
+            if (!text) return null;
+            var cat = String(s.category || 'general').toLowerCase();
+            return { text: text, category: cat };
+        }
+        return null;
+    }
+
     panel.classList.add('active');
-    var list = Array.isArray(suggestions) ? suggestions.filter(Boolean) : [];
+    var raw = Array.isArray(suggestions) ? suggestions : [];
+    var list = raw.map(coerceItem).filter(Boolean);
     wrap._suggestions = list.slice();
 
     if (!list.length) {
@@ -425,40 +444,84 @@ function displaySuggestions(suggestions) {
         return;
     }
 
+    var categoryOrder = ['network', 'logical', 'security', 'data_flow', 'general'];
+    var categoryLabels = {
+        network: 'Applies to Network page',
+        logical: 'Applies to Logical page',
+        security: 'Applies to Security page',
+        data_flow: 'Applies to Data flow page',
+        general: 'Applies generally',
+    };
+    var byCat = {};
+    list.forEach(function (item, idx) {
+        var cat = (item.category || 'general').toLowerCase();
+        if (categoryOrder.indexOf(cat) < 0) cat = 'general';
+        if (!byCat[cat]) byCat[cat] = [];
+        byCat[cat].push({ item: item, idx: idx });
+    });
+
     body.innerHTML = '';
-    list.forEach(function (s, idx) {
-        var alreadyApplied = typeof isSuggestionApplied === 'function' && isSuggestionApplied(s);
-        var label = document.createElement('label');
-        label.className = 'chat-suggestion-item' + (alreadyApplied ? ' is-applied' : '');
-        label.dataset.suggestionText = s;
+    categoryOrder.forEach(function (cat) {
+        var group = byCat[cat];
+        if (!group || !group.length) return;
+        var section = document.createElement('div');
+        section.className = 'suggestions-group';
+        section.dataset.category = cat;
 
-        var cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.className = 'suggestion-checkbox item-checkbox';
-        cb.dataset.index = String(idx);
-        cb.disabled = alreadyApplied;
+        var header = document.createElement('div');
+        header.className = 'suggestions-group-header';
+        header.textContent = categoryLabels[cat] || cat;
+        section.appendChild(header);
 
-        var span = document.createElement('span');
-        span.textContent = s;
+        group.forEach(function (entry) {
+            var s = entry.item;
+            var idx = entry.idx;
+            var alreadyApplied = typeof isSuggestionApplied === 'function' && isSuggestionApplied(s);
+            var label = document.createElement('label');
+            label.className = 'chat-suggestion-item' + (alreadyApplied ? ' is-applied' : '');
+            label.dataset.suggestionText = s.text;
+            label.dataset.category = cat;
 
-        var badge = document.createElement('span');
-        badge.className = 'suggestion-applied-badge';
-        badge.textContent = 'Applied';
-        badge.hidden = !alreadyApplied;
+            var cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.className = 'suggestion-checkbox item-checkbox';
+            cb.dataset.index = String(idx);
+            cb.disabled = alreadyApplied;
 
-        cb.addEventListener('change', function () {
-            var pending = body.querySelectorAll('.item-checkbox:not(:disabled)');
-            var checked = body.querySelectorAll('.item-checkbox:not(:disabled):checked');
-            if (selectAllCb) {
-                selectAllCb.checked = pending.length > 0 && checked.length === pending.length;
-                selectAllCb.indeterminate = checked.length > 0 && checked.length < pending.length;
-            }
+            var main = document.createElement('span');
+            main.className = 'suggestion-main';
+
+            var chip = document.createElement('span');
+            chip.className = 'suggestion-category-chip';
+            chip.textContent = cat === 'data_flow' ? 'Data flow' : (cat.charAt(0).toUpperCase() + cat.slice(1));
+
+            var textSpan = document.createElement('span');
+            textSpan.className = 'suggestion-text';
+            textSpan.textContent = s.text;
+
+            main.appendChild(chip);
+            main.appendChild(textSpan);
+
+            var badge = document.createElement('span');
+            badge.className = 'suggestion-applied-badge';
+            badge.textContent = 'Applied';
+            badge.hidden = !alreadyApplied;
+
+            cb.addEventListener('change', function () {
+                var pending = body.querySelectorAll('.item-checkbox:not(:disabled)');
+                var checked = body.querySelectorAll('.item-checkbox:not(:disabled):checked');
+                if (selectAllCb) {
+                    selectAllCb.checked = pending.length > 0 && checked.length === pending.length;
+                    selectAllCb.indeterminate = checked.length > 0 && checked.length < pending.length;
+                }
+            });
+
+            label.appendChild(cb);
+            label.appendChild(main);
+            label.appendChild(badge);
+            section.appendChild(label);
         });
-
-        label.appendChild(cb);
-        label.appendChild(span);
-        label.appendChild(badge);
-        body.appendChild(label);
+        body.appendChild(section);
     });
 
     if (selectAllRow) selectAllRow.hidden = false;
@@ -523,7 +586,7 @@ function toggleWellArchitectedPanel() {
         panel.classList.add('active');
         if (body) body.innerHTML = '<div class="waf-empty">Generate a diagram to see Well-Architected review</div>';
         if (badge) { badge.textContent = '--'; badge.className = 'waf-overall-badge'; }
-        if (typeof switchInsightsTab === 'function') switchInsightsTab('waf-compliance');
+        if (typeof switchInsightsTab === 'function') switchInsightsTab('network');
     } else {
         panel.classList.remove('active');
         if (body) body.innerHTML = '';
@@ -637,7 +700,7 @@ function applyInsightFixes(items) {
 }
 
 function displayWellArchitected(wafData) {
-    if (typeof switchInsightsTab === 'function') switchInsightsTab('waf-compliance');
+    if (typeof switchInsightsTab === 'function') switchInsightsTab('network');
     if (!wafData) return;
     console.log('WAF data received', wafData.overall_status, wafData.pillars?.length, 'pillars');
     var panel = document.getElementById('well-architected-panel');
@@ -743,7 +806,7 @@ function toggleCompliancePanel() {
     if (document.getElementById('compliance-toggle').checked) {
         panel.classList.add('active');
         if (body) body.innerHTML = '<div class="compliance-empty">Generate a diagram to see compliance assessment results</div>';
-        if (typeof switchInsightsTab === 'function') switchInsightsTab('waf-compliance');
+        if (typeof switchInsightsTab === 'function') switchInsightsTab('network');
     } else {
         panel.classList.remove('active');
         if (body) body.innerHTML = '';
@@ -762,7 +825,7 @@ function hideCompliancePanel() {
 }
 
 function displayCompliance(compData) {
-    if (typeof switchInsightsTab === 'function') switchInsightsTab('waf-compliance');
+    if (typeof switchInsightsTab === 'function') switchInsightsTab('network');
     if (!compData || !compData.frameworks) return;
     var panel = document.getElementById('compliance-panel');
     var tabs = document.getElementById('compliance-tabs');

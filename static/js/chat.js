@@ -71,20 +71,46 @@ function setTyping(active) {
 }
 
 function normalizeSuggestion(text) {
-    return (text || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    return suggestionText(text).trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function suggestionText(item) {
+    if (item == null) return '';
+    if (typeof item === 'string') return item;
+    if (typeof item === 'object') return String(item.text || item.suggestion || '');
+    return String(item);
+}
+
+function suggestionCategory(item) {
+    if (item && typeof item === 'object' && item.category) {
+        return String(item.category).toLowerCase();
+    }
+    return 'general';
+}
+
+function normalizeSuggestionItem(item) {
+    var text = suggestionText(item).trim();
+    if (!text) return null;
+    return { text: text, category: suggestionCategory(item) || 'general' };
 }
 
 function registerAppliedSuggestions(texts) {
-    (texts || []).forEach(text => {
-        const normalized = normalizeSuggestion(text);
-        const exists = appliedSuggestionTexts.some(item => normalizeSuggestion(item) === normalized);
-        if (!exists) appliedSuggestionTexts.push(text);
+    (texts || []).forEach(function (text) {
+        var item = normalizeSuggestionItem(text);
+        if (!item) return;
+        var normalized = normalizeSuggestion(item.text);
+        var exists = appliedSuggestionTexts.some(function (existing) {
+            return normalizeSuggestion(existing) === normalized;
+        });
+        if (!exists) appliedSuggestionTexts.push(item.text);
     });
 }
 
 function isSuggestionApplied(text) {
-    const normalized = normalizeSuggestion(text);
-    return appliedSuggestionTexts.some(item => normalizeSuggestion(item) === normalized);
+    var normalized = normalizeSuggestion(text);
+    return appliedSuggestionTexts.some(function (item) {
+        return normalizeSuggestion(item) === normalized;
+    });
 }
 
 function parseImplementedSuggestions(text) {
@@ -173,9 +199,14 @@ function appendChatBubble(role, content) {
 
 function implementSuggestions(suggestions, suggWrap) {
     if (!suggestions || suggestions.length === 0) return;
-    registerAppliedSuggestions(suggestions);
-    markSuggestionWrapApplied(suggWrap || document.getElementById('suggestions-wrap'), suggestions);
-    const msg = 'Implement these suggestions:\n' + suggestions.map((s, i) => `${i + 1}. ${s}`).join('\n');
+    var items = suggestions.map(normalizeSuggestionItem).filter(Boolean);
+    if (!items.length) return;
+    registerAppliedSuggestions(items);
+    markSuggestionWrapApplied(suggWrap || document.getElementById('suggestions-wrap'), items.map(function (i) { return i.text; }));
+    const msg = 'Implement these suggestions:\n' + items.map(function (s, i) {
+        var cat = s.category && s.category !== 'general' ? ' [' + s.category + ']' : '';
+        return (i + 1) + '. ' + s.text + cat;
+    }).join('\n');
     document.getElementById('chat-input').value = msg;
     autoResizeChatInput();
     sendMessage();

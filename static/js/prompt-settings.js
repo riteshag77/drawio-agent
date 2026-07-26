@@ -45,17 +45,64 @@ function onDiagramViewChange() {
             showToast('At least one diagram view is required — Network kept on', 'info');
         }
     }
+    updateNetworkInsightsVisibility();
     savePromptSettings();
 }
 
+function networkViewSelected() {
+    const net = document.querySelector('.diagram-view-cb[value="network"]');
+    return !!(net && net.checked);
+}
+
+function updateNetworkInsightsVisibility() {
+    const sub = document.getElementById('network-insights-sub');
+    const show = networkViewSelected();
+    if (sub) {
+        if (show) {
+            sub.hidden = false;
+            sub.removeAttribute('hidden');
+            // Keep WAF/Compliance expanded when Network is on so it is discoverable
+            if (!sub.classList.contains('is-open')) {
+                sub.classList.add('is-open');
+                const toggle = sub.querySelector(':scope > .drawer-group-toggle');
+                const body = sub.querySelector(':scope > .drawer-group-body');
+                if (toggle) toggle.setAttribute('aria-expanded', 'true');
+                if (body) body.removeAttribute('hidden');
+            }
+        } else {
+            sub.hidden = true;
+            sub.setAttribute('hidden', '');
+        }
+    }
+    if (!show) {
+        const cost = document.getElementById('cost-estimate-toggle');
+        const waf = document.getElementById('well-architected-toggle');
+        const comp = document.getElementById('compliance-toggle');
+        if (cost && cost.checked) {
+            cost.checked = false;
+            if (typeof toggleCostPanelPreview === 'function') toggleCostPanelPreview();
+        }
+        if (waf && waf.checked) {
+            waf.checked = false;
+            if (typeof toggleWellArchitectedPanel === 'function') toggleWellArchitectedPanel();
+        }
+        if (comp && comp.checked) {
+            comp.checked = false;
+            if (typeof toggleCompliancePanel === 'function') toggleCompliancePanel();
+        }
+        updateComplianceFrameworksVisibility();
+    }
+}
+
 function getPromptSettings() {
+    const networkOn = networkViewSelected();
     return {
         custom_system_message: document.getElementById('custom-system-message').value.slice(0, 5000),
         vlm_validation: false,
         validation_provider: 'auto',
-        cost_estimate: document.getElementById('cost-estimate-toggle').checked,
-        well_architected: document.getElementById('well-architected-toggle').checked,
-        compliance: document.getElementById('compliance-toggle').checked,
+        cost_estimate: networkOn && document.getElementById('cost-estimate-toggle').checked,
+        well_architected: networkOn && document.getElementById('well-architected-toggle').checked,
+        compliance: networkOn && document.getElementById('compliance-toggle').checked,
         compliance_frameworks: getSelectedComplianceFrameworks(),
         libavoid: document.getElementById('libavoid-toggle')
             ? document.getElementById('libavoid-toggle').checked
@@ -151,7 +198,7 @@ function toggleCostPanelPreview() {
         panel.classList.add('active');
         body.innerHTML = '<div class="cost-empty">Generate a diagram to see cost estimates</div>';
         if (total) total.textContent = 'A$--';
-        if (typeof switchInsightsTab === 'function') switchInsightsTab('cost');
+        if (typeof switchInsightsTab === 'function') switchInsightsTab('network');
     } else {
         panel.classList.remove('active');
         body.innerHTML = '';
@@ -218,6 +265,7 @@ function initPromptSettings() {
     document.querySelectorAll('.compliance-fw-cb').forEach(function (cb) {
         cb.addEventListener('change', saveComplianceFrameworkSelection);
     });
+    updateNetworkInsightsVisibility();
     updateValidationProviderVisibility();
     updateComplianceFrameworksVisibility();
     toggleCostPanelPreview();

@@ -164,6 +164,7 @@ def generate_xml_diagram(
     image_replicate: bool = False,
     animated_connectors: bool = False,
     include_suggestions: bool = False,
+    primary_view: str = "network",
     *,
     llm: LlmPort | None = None,
 ) -> XmlDiagram:
@@ -216,6 +217,7 @@ def generate_xml_diagram(
         custom_system_message=custom_system_message,
         three_d=three_d,
         user_hint=hint,
+        primary_view=primary_view,
     )
     human_content = _build_human_parts(
         user_request=user_request,

@@ -10,9 +10,18 @@ function closeSettings() {
 }
 
 function toggleDrawerGroup(toggleBtn) {
-    const group = toggleBtn?.closest('.drawer-group');
+    // Prefer the drawer-group that owns this toggle as a direct child, so nested
+    // groups (e.g. WAF under Network) do not collapse their parent section.
+    let group = null;
+    if (toggleBtn && toggleBtn.parentElement && toggleBtn.parentElement.classList.contains('drawer-group')) {
+        group = toggleBtn.parentElement;
+    } else {
+        group = toggleBtn?.closest('.drawer-group');
+    }
     if (!group) return;
-    const body = group.querySelector('.drawer-group-body');
+    const body = Array.from(group.children).find(
+        (el) => el.classList && el.classList.contains('drawer-group-body')
+    ) || group.querySelector(':scope > .drawer-group-body');
     const open = !group.classList.contains('is-open');
     group.classList.toggle('is-open', open);
     toggleBtn.setAttribute('aria-expanded', open ? 'true' : 'false');

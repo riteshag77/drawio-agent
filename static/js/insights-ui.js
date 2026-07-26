@@ -109,7 +109,7 @@ function updateContextChip() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    switchInsightsTab('cost');
+    switchInsightsTab('network');
     switchMobilePane('chat');
     updateContextChip();
     const provider = document.getElementById('provider-select');

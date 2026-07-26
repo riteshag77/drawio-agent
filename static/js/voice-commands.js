@@ -168,7 +168,7 @@ function voiceApplyInsightAction(mode, source) {
             }
         }
         if (typeof refreshUnifiedInsightControls === 'function') refreshUnifiedInsightControls();
-        if (typeof switchInsightsTab === 'function') switchInsightsTab('waf-compliance');
+        if (typeof switchInsightsTab === 'function') switchInsightsTab('network');
         return null;
     }
     let items = pending;
@@ -178,7 +178,7 @@ function voiceApplyInsightAction(mode, source) {
             return 'Select at least one ' + label + ' finding first (say “select all ' + label.toLowerCase() + '”).';
         }
     }
-    if (typeof switchInsightsTab === 'function') switchInsightsTab('waf-compliance');
+    if (typeof switchInsightsTab === 'function') switchInsightsTab('network');
     if (typeof markInsightItemsApplied === 'function') markInsightItemsApplied(items);
     if (typeof applyInsightFixes === 'function') applyInsightFixes(items);
     return null;
@@ -828,7 +828,7 @@ function initVoiceCommands() {
         label: 'Insights: Cost',
         phrases: ['show cost tab', 'cost tab', 'insights cost', 'switch to cost'],
         run: () => {
-            switchInsightsTab('cost');
+            switchInsightsTab('network');
             return 'Cost tab';
         },
     });
@@ -843,14 +843,14 @@ function initVoiceCommands() {
     });
     registerVoiceCommand({
         id: 'insights-waf',
-        label: 'Insights: WAF & Compliance',
+        label: 'Insights: Network',
         phrases: [
             'show waf tab', 'waf tab', 'compliance tab', 'insights waf',
             'switch to waf', 'switch to compliance', 'waf and compliance',
         ],
         run: () => {
-            switchInsightsTab('waf-compliance');
-            return 'WAF & Compliance tab';
+            switchInsightsTab('network');
+            return 'Network insights tab';
         },
     });
     registerVoiceCommand({

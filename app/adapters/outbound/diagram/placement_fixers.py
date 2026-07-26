@@ -228,11 +228,19 @@ def resolve_misplaced_connectivity_hubs(xml: str) -> str:
         )
         if edge is not None:
             eg = _cell_geometry(edge) or (40.0, 40.0, 200.0, 120.0)
+            hub_geo = _cell_geometry(hub) or (0.0, 0.0, 78.0, 78.0)
             rel_x = eg[0] + eg[2] + 40.0
             rel_y = eg[1]
+            # Keep hub inside Cloud bounds when possible
+            cg = _cell_geometry(cloud)
+            if cg is not None:
+                max_x = max(40.0, cg[2] - hub_geo[2] - 24.0)
+                max_y = max(48.0, cg[3] - hub_geo[3] - 24.0)
+                rel_x = min(rel_x, max_x)
+                rel_y = min(max(48.0, rel_y), max_y)
         else:
             rel_x = max(40.0, abs_x - cloud_abs[0])
-            rel_y = max(40.0, abs_y - cloud_abs[1])
+            rel_y = max(48.0, abs_y - cloud_abs[1])
         _set_parent_relative(hub, cloud, by_id, x=rel_x, y=rel_y)
         changed = True
 
@@ -263,15 +271,15 @@ def resolve_misplaced_edge_services(xml: str) -> str:
         cloud = _find_ancestor(leaf, by_id, _is_cloud_container)
         if cloud is None:
             cloud = clouds[0]
-        if _find_ancestor(leaf, by_id, _is_edge_layer_container):
+        if _find_ancestor(leaf, by_id, _is_edge_layer_container) is not None:
             continue
         # Already cloud-level sibling of edge (not under vpc) — leave
         parent = by_id.get(leaf.get("parent") or "")
         if parent is not None and parent.get("id") == cloud.get("id"):
             continue
-        if not _find_ancestor(leaf, by_id, _is_vpc_container) and not _find_ancestor(
+        if _find_ancestor(leaf, by_id, _is_vpc_container) is None and _find_ancestor(
             leaf, by_id, _is_subnet_container
-        ):
+        ) is None:
             if parent is not None and _is_cross_cutting_group_cell(parent):
                 pass  # hoist out of Security etc.
             else:
@@ -282,7 +290,7 @@ def resolve_misplaced_edge_services(xml: str) -> str:
             None,
         )
         if edge is None:
-            # Create a minimal Edge layer under cloud
+            # Create a minimal Edge layer under cloud, beside Region when present
             edge_id = "edge_layer_auto"
             n = 1
             while edge_id in by_id:
@@ -293,14 +301,28 @@ def resolve_misplaced_edge_services(xml: str) -> str:
             edge.set("value", "Edge / Global Layer")
             edge.set(
                 "style",
-                "rounded=0;whiteSpace=wrap;html=1;fillColor=#E8F0FE;strokeColor=#4285F4;"
-                "verticalAlign=top;fontStyle=1;container=1;collapsible=0;",
+                "rounded=1;arcSize=2;whiteSpace=wrap;html=1;fillColor=#E8F0FE;strokeColor=#4285F4;"
+                "verticalAlign=top;align=left;spacingLeft=12;spacingTop=8;fontStyle=1;"
+                "container=1;collapsible=0;dropTarget=1;",
             )
             edge.set("vertex", "1")
             edge.set("parent", cloud.get("id") or "1")
+            # Place beside the widest region-like sibling, with padding
+            siblings = [
+                c for c in cells
+                if c.get("parent") == cloud.get("id") and _is_container_cell(c)
+            ]
+            place_x, place_y = 40.0, 48.0
+            if siblings:
+                rightmost = max(
+                    (_cell_geometry(s) or (40.0, 48.0, 200.0, 120.0) for s in siblings),
+                    key=lambda g: g[0] + g[2],
+                )
+                place_x = rightmost[0] + rightmost[2] + 40.0
+                place_y = rightmost[1]
             geom = ET.SubElement(edge, "mxGeometry")
-            geom.set("x", "40")
-            geom.set("y", "40")
+            geom.set("x", str(int(place_x)))
+            geom.set("y", str(int(place_y)))
             geom.set("width", "320")
             geom.set("height", "160")
             geom.set("as", "geometry")
@@ -309,8 +331,11 @@ def resolve_misplaced_edge_services(xml: str) -> str:
             cells.append(edge)
             changed = True
 
-        kids = [c for c in cells if c.get("parent") == edge.get("id") and c.get("vertex") == "1"]
-        x = 20.0 + len(kids) * 100.0
+        kids = [
+            c for c in cells
+            if c.get("parent") == edge.get("id") and c.get("vertex") == "1" and c.get("edge") != "1"
+        ]
+        x = 24.0 + len(kids) * 100.0
         y = 48.0
         _set_parent_relative(leaf, edge, by_id, x=x, y=y)
         changed = True
@@ -350,12 +375,15 @@ def resolve_misplaced_load_balancers(xml: str) -> str:
             c for c in cells
             if c.get("parent") == vpc.get("id") and _is_zone_container(c)
         ]
+        lb_geo = _cell_geometry(lb) or (0.0, 0.0, 78.0, 78.0)
+        lb_h = lb_geo[3]
         if zones:
             zg = _cell_geometry(zones[0]) or (40.0, 80.0, 400.0, 200.0)
             rel_x = zg[0]
-            rel_y = max(40.0, zg[1] - 100.0)
+            # Sit clearly above the zone top with title-band clearance — never into it
+            rel_y = max(48.0, zg[1] - lb_h - 24.0)
         else:
-            rel_x, rel_y = 40.0, 40.0
+            rel_x, rel_y = 40.0, 48.0
         _set_parent_relative(lb, vpc, by_id, x=rel_x, y=rel_y)
         changed = True
 

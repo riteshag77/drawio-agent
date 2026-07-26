@@ -71,7 +71,7 @@ _DEFAULT_CONTAINER_SIZE = (160.0, 120.0)
 # so overlap detection accounts for the label, not just the icon box.
 _LABEL_BAND_HEIGHT = 28.0
 
-# Cross-cutting group containers (config/xml_gen/network.txt "Cross-Cutting
+# Cross-cutting group containers (config/xml_gen/views/network.txt "Cross-Cutting
 # Groups — NO EDGES"): matched by the container's first label word, mirroring
 # the short-form naming already used in this app's fixtures/tests ("Security",
 # "Monitoring", ...) and the longer "Security Group" form from the container-

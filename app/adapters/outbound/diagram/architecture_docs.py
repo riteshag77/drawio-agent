@@ -24,6 +24,7 @@ _VIEW_PAGE_NAMES = VIEW_PAGE_NAMES  # backward-compatible alias
 
 _VIEW_PACK_FILES = {
     "logical": "views/logical.txt",
+    "network": "views/network.txt",
     "security": "views/security.txt",
     "data_flow": "views/data_flow.txt",
 }

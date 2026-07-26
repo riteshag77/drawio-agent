@@ -874,8 +874,8 @@ def apply_mcp_styles(xml: str, style_overrides: dict[str, str]) -> str:
 
 
 # Container shrink-wrap after MCP icon merge (label band under bottom-labeled leaves).
-_FIT_PAD_X = 12.0
-_FIT_PAD_BOTTOM = 12.0
+_FIT_PAD_X = 24.0
+_FIT_PAD_BOTTOM = 24.0
 _FIT_LABEL_BAND = 28.0
 _FIT_MIN_W = 120.0
 _FIT_MIN_H = 80.0
@@ -1127,33 +1127,8 @@ def _separate_sibling_containers(
     return changed
 
 
-def fit_containers_to_children(xml: str) -> str:
-    """Grow containers to fit children, then keep sibling containers from overlapping.
-
-    Processes deepest containers first. Does not move children between parents or
-    change leaf sizes/styles — only container width/height, sibling x/y when
-    needed for gaps, and ``arcSize=2`` on all architecture containers.
-    """
-    if not (xml or "").strip() or "<mxCell" not in xml:
-        return xml
-
-    trimmed = xml.strip()
-    is_mxfile = "<mxfile" in trimmed
-    parse_src = trimmed
-    if not is_mxfile and "<root>" not in trimmed:
-        parse_src = f"<root>{trimmed}</root>"
-
-    try:
-        tree = ET.fromstring(parse_src)
-    except ET.ParseError:
-        return xml
-
-    root = _find_diagram_root(tree) if is_mxfile else tree
-    if root is None:
-        root = tree.find("root")
-    if root is None:
-        return xml
-
+def _fit_root(root: ET.Element) -> bool:
+    """Fit/separate/normalize containers inside one diagram <root>. Returns if changed."""
     cells = [c for c in root.findall("mxCell") if c.get("id")]
     by_id = {c.get("id"): c for c in cells}
     children: dict[str, list[ET.Element]] = {}
@@ -1170,7 +1145,6 @@ def fit_containers_to_children(xml: str) -> str:
     containers.sort(key=lambda c: _cell_depth(c.get("id") or "", parent_map), reverse=True)
 
     changed = _fit_one_pass(containers, children)
-    # After grow, zones may invade supporting groups — push siblings apart, then re-fit.
     for _ in range(3):
         moved = _separate_sibling_containers(children)
         if not moved:
@@ -1180,15 +1154,59 @@ def fit_containers_to_children(xml: str) -> str:
 
     if _normalize_container_arc_size(cells):
         changed = True
-
     if _soften_overview_panel_corners(cells):
         changed = True
+    return changed
+
+
+def fit_containers_to_children(xml: str) -> str:
+    """Grow containers to fit children, then keep sibling containers from overlapping.
+
+    Processes deepest containers first. Does not move children between parents or
+    change leaf sizes/styles — only container width/height, sibling x/y when
+    needed for gaps, and ``arcSize=2`` on all architecture containers.
+
+    Multipage mxfiles: applies to **every** ``<root>`` (same as ``apply_mcp_styles``),
+    so Network is not skipped when Logical is page 1.
+    """
+    if not (xml or "").strip() or "<mxCell" not in xml:
+        return xml
+
+    trimmed = xml.strip()
+    is_mxfile = "<mxfile" in trimmed
+    parse_src = trimmed
+    if not is_mxfile and "<root>" not in trimmed:
+        parse_src = f"<root>{trimmed}</root>"
+
+    try:
+        tree = ET.fromstring(parse_src)
+    except ET.ParseError:
+        return xml
+
+    roots: list[ET.Element] = []
+    if is_mxfile:
+        roots = [r for r in tree.iter("root")]
+        if not roots:
+            found = tree.find("root")
+            if found is not None:
+                roots = [found]
+    else:
+        roots = [tree]
+
+    if not roots:
+        return xml
+
+    changed = False
+    for root in roots:
+        if _fit_root(root):
+            changed = True
 
     if not changed:
         return xml
 
     if is_mxfile:
         return ET.tostring(tree, encoding="unicode")
+    root = roots[0]
     if "<root>" in trimmed:
         return ET.tostring(root, encoding="unicode")
     return "".join(ET.tostring(c, encoding="unicode") for c in root.findall("mxCell"))

@@ -722,6 +722,7 @@ async def run_xml_pipeline(
         image_replicate=image_replicate,
         animated_connectors=animated_connectors,
         include_suggestions=include_suggestions,
+        primary_view=primary_view,
     )
     if 'vertex="1"' not in (xml_diagram.xml or ""):
         # A successful call with no diagram content (empty/near-empty xml) is not
@@ -756,6 +757,7 @@ async def run_xml_pipeline(
             image_replicate=image_replicate,
             animated_connectors=animated_connectors,
             include_suggestions=include_suggestions,
+            primary_view=primary_view,
             retry_hint=(
                 "Your previous response was cut off or malformed before the diagram XML "
                 "was complete — every mxCell must be fully written with its geometry, "
@@ -946,7 +948,7 @@ async def run_xml_pipeline(
         return rows
 
     async def _run_cost() -> dict | None:
-        if not (cost_estimate and primary_xml_snapshot):
+        if not (cost_estimate and "network" in views and primary_xml_snapshot):
             return None
         data = await asyncio.to_thread(estimate_monthly_cost, primary_xml_snapshot, platform_key)
         if logger:
@@ -960,7 +962,8 @@ async def run_xml_pipeline(
         return data
 
     async def _run_waf() -> dict | None:
-        if not (well_architected and primary_xml_snapshot):
+        # WAF only applies when a Network page was requested
+        if not (well_architected and "network" in views and primary_xml_snapshot):
             return None
         data = await asyncio.to_thread(assess_well_architected, primary_xml_snapshot, platform_key)
         if logger:
@@ -974,7 +977,7 @@ async def run_xml_pipeline(
         return data
 
     async def _run_compliance() -> dict | None:
-        if not (compliance and primary_xml_snapshot):
+        if not (compliance and "network" in views and primary_xml_snapshot):
             return None
         await _emit(on_progress, "compliance", "Assessing compliance…")
         data = await asyncio.to_thread(
