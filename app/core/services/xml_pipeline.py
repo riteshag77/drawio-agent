@@ -62,6 +62,7 @@ from app.adapters.outbound.diagram.view_conformance import (
     score_view,
 )
 from app.adapters.outbound.diagram.view_fixers import apply_view_fixers, ensure_gap_nodes
+from app.adapters.outbound.llm.llm_client import is_quota_or_rate_limit_error
 from app.core.ports.llm import get_llm
 from app.core.services.agent import generate_xml_diagram
 
@@ -199,7 +200,8 @@ def _run_gap_analysis(
             return result
     except Exception as exc:
         if logger:
-            logger.log("gap", f"Gap analysis LLM failed: {exc}", level="warning")
+            details = {"quota_exceeded": True, "feature": "Gap analysis"} if is_quota_or_rate_limit_error(exc) else None
+            logger.log("gap", f"Gap analysis LLM failed: {exc}", level="warning", details=details)
     return _fallback_gap_analysis(human_prompt)
 
 
@@ -224,7 +226,8 @@ def _generate_adr_list(
             return list(pack.adrs)
     except Exception as exc:
         if logger:
-            logger.log("docs", f"ADR LLM failed: {exc}", level="warning")
+            details = {"quota_exceeded": True, "feature": "ADR notes"} if is_quota_or_rate_limit_error(exc) else None
+            logger.log("docs", f"ADR LLM failed: {exc}", level="warning", details=details)
     return _fallback_adrs()
 
 
@@ -249,7 +252,8 @@ def _generate_raid_list(
             return list(pack.raid)
     except Exception as exc:
         if logger:
-            logger.log("docs", f"RAID LLM failed: {exc}", level="warning")
+            details = {"quota_exceeded": True, "feature": "RAID register"} if is_quota_or_rate_limit_error(exc) else None
+            logger.log("docs", f"RAID LLM failed: {exc}", level="warning", details=details)
     return _fallback_raid()
 
 
@@ -653,6 +657,31 @@ def _summarize_llm_usage(logger: Any) -> dict[str, Any] | None:
     }
 
 
+def _collect_degraded_features(logger: Any) -> list[dict[str, str]]:
+    """Surface every parallel branch (views/ADR/RAID/compliance/gap analysis/
+    icon resolution) that silently fell back to a deterministic default
+    because of a provider quota/rate-limit error, so the UI can show one
+    clear banner instead of the user having to notice a missing panel or dig
+    through logs — previously only RAID's fallback carried a message a human
+    would actually read; every other branch degraded invisibly.
+    """
+    entries = getattr(logger, "entries", None) if logger else None
+    if not entries:
+        return []
+    seen: set[str] = set()
+    out: list[dict[str, str]] = []
+    for entry in entries:
+        details = getattr(entry, "details", None) or {}
+        if not details.get("quota_exceeded"):
+            continue
+        feature = details.get("feature") or entry.step
+        if feature in seen:
+            continue
+        seen.add(feature)
+        out.append({"feature": feature, "message": entry.message})
+    return out
+
+
 def _build_response(
     status: str = "success",
     *,
@@ -680,6 +709,7 @@ def _build_response(
         "compliance": compliance,
         "llm_usage": _summarize_llm_usage(logger),
         "logs": logger.to_list() if logger else [],
+        "degraded_features": _collect_degraded_features(logger),
     }
 
 
@@ -1162,7 +1192,22 @@ async def run_xml_pipeline(
                     if isinstance(raw, asyncio.TimeoutError)
                     else str(raw)
                 )
-                logger.log(label, f"{kind} branch failed: {detail}", level="warning")
+                # Every parallel branch (not just RAID) can silently fall back
+                # to a placeholder/deterministic default when the provider
+                # quota is exhausted mid-session — tag it the same way as the
+                # internal gap/ADR/RAID/compliance catches so one banner can
+                # cover all of them instead of only the ones checked by hand.
+                feature_name = {
+                    "view": "Additional view generation", "adr": "ADR notes",
+                    "raid": "RAID register", "cost": "Cost estimate",
+                    "waf": "Well-Architected review", "compliance": "Compliance assessment",
+                    "mcp_primary": "Icon resolution",
+                }.get(kind, kind)
+                details = (
+                    {"quota_exceeded": True, "feature": feature_name}
+                    if is_quota_or_rate_limit_error(raw) else None
+                )
+                logger.log(label, f"{kind} branch failed: {detail}", level="warning", details=details)
             continue
         if kind == "view":
             vk, page_xml = raw

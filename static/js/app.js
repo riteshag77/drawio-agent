@@ -350,6 +350,19 @@ async function sendMessage(options = {}) {
             edit_mode: !!data.edit_mode,
         });
 
+        // Any parallel branch (views/ADR/RAID/compliance/gap analysis/icon
+        // resolution) that fell back to a deterministic default because the
+        // LLM provider's quota/rate limit was hit gets one clear banner here
+        // — previously this was invisible unless you noticed a missing panel
+        // or read the raw pipeline logs.
+        try {
+            if (Array.isArray(data.degraded_features) && data.degraded_features.length) {
+                const names = data.degraded_features.map((d) => d.feature).join(', ');
+                showToast(`Provider quota/rate limit hit — used fallback for: ${names}`, 'warning', 6500);
+                appendVerboseLog('quota', `Degraded (provider quota/rate limit): ${names}`, 'warn', data.degraded_features);
+            }
+        } catch (e) { console.error('Degraded-features banner error', e); }
+
         currentXml = data.xml || '';
         previousXml = xmlForRequest;
         previousArchitecture = currentArchitecture;

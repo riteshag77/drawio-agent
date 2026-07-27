@@ -42,6 +42,36 @@ def _is_transient(exc: Exception) -> bool:
     return status in _TRANSIENT_STATUS_CODES
 
 
+_QUOTA_ERROR_MARKERS = (
+    "resource_exhausted", "rate limit", "quota exceeded", "quota_exceeded",
+    "too many requests", "429",
+)
+
+
+def is_quota_or_rate_limit_error(exc: BaseException) -> bool:
+    """True when ``exc`` (raised by ``call_llm``, or its ``ValueError`` wrapper
+    after retries are exhausted) is a provider quota / rate-limit failure.
+
+    Checked two ways: the explicit-status-code path ``_is_transient`` already
+    uses for retries, and a text fallback over the exception (and its
+    ``__cause__`` — ``call_llm``'s final ``raise ValueError(...) from last_exc``
+    chains the original error there) — some provider SDKs (e.g. google-genai's
+    ``RESOURCE_EXHAUSTED``) don't set a plain ``.status_code`` attribute, only
+    embed the status in the error text/body.
+    """
+    if _is_transient(exc):
+        status = getattr(exc, "status_code", None) or getattr(
+            getattr(exc, "response", None), "status_code", None,
+        )
+        if status == 429:
+            return True
+    text = str(exc).lower()
+    cause = exc.__cause__
+    if cause is not None:
+        text += " " + str(cause).lower()
+    return any(marker in text for marker in _QUOTA_ERROR_MARKERS)
+
+
 def _truncate(text: str, max_chars: int = 5000) -> str:
     return text if len(text) <= max_chars else text[:max_chars] + f"... (truncated, {len(text)} total chars)"
 

@@ -2823,6 +2823,7 @@
 .app-toast-success { background: #15803d; }
 .app-toast-error { background: #b91c1c; }
 .app-toast-info { background: #1d4ed8; }
+.app-toast-warning { background: #b45309; }
 .app-toast[hidden] { display: none !important; }
 
 /* ── Context chip + versions ───────────────────────────── */
