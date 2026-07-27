@@ -67,6 +67,14 @@ class ChatRequest(BaseModel):
     raid_register: bool = False
     save_captures: bool = False
     interview_answers: dict[str, str] | None = None
+    session_id: str | None = Field(
+        default=None,
+        max_length=128,
+        description=(
+            "Client-supplied conversation id. When present, each successful generation is "
+            "appended as a new version under this id and is retrievable via /history."
+        ),
+    )
 
 
 class ParseUrlRequest(BaseModel):

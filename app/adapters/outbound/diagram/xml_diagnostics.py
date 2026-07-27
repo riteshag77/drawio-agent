@@ -34,21 +34,26 @@ from app.adapters.outbound.diagram.xml_tools import (
 
 _RESERVED_IDS = {"0", "1"}
 
-_LEAF_GRID_PITCH_X = 200.0
-_LEAF_GRID_PITCH_Y = 130.0
-_LEAF_GRID_MAX_COLS = 4
-_LEAF_MIN_GAP = 20.0
-_LEAF_GRID_MAX_ROWS = 50
+# Geometry constants live in geometry_spec so the IR compiler (which produces
+# geometry) and this module (which validates it) cannot drift apart. Aliased to
+# the historical private names to keep the rest of this file untouched.
+from app.adapters.outbound.diagram import geometry_spec as _geo
+
+_LEAF_GRID_PITCH_X = _geo.DATA_CANONICAL_PITCH
+_LEAF_GRID_PITCH_Y = _geo.ROW_PITCH_Y
+_LEAF_GRID_MAX_COLS = _geo.LEAF_GRID_MAX_COLS
+_LEAF_MIN_GAP = _geo.LEAF_MIN_GAP
+_LEAF_GRID_MAX_ROWS = _geo.LEAF_GRID_MAX_ROWS
 
 # Rows are clustered by top-y proximity within this tolerance (px).
-_ROW_TOL = 20.0
+_ROW_TOL = _geo.ROW_TOL
 
 # Canonical pitch ranges from core.txt's "Density tiers" table —
 # data-path subnets prefer 200, allowed 180-220 (widened slightly here to
 # avoid flagging legitimate edge-of-range layouts); supporting (cross-cutting)
 # groups allow a tighter 160-180.
-_DATA_PITCH_RANGE = (170.0, 230.0)
-_GROUP_PITCH_RANGE = (150.0, 190.0)
+_DATA_PITCH_RANGE = _geo.DATA_PITCH_RANGE
+_GROUP_PITCH_RANGE = _geo.GROUP_PITCH_RANGE
 # Canonical snap-to pitch when a fixer corrects a bad gap — _LEAF_GRID_PITCH_X
 # (200.0) is used for ordinary data-path rows; cross-cutting groups need
 # their own canonical value since 200 sits outside _GROUP_PITCH_RANGE (a bug
@@ -56,20 +61,20 @@ _GROUP_PITCH_RANGE = (150.0, 190.0)
 # to 200 unconditionally, which "fixed" an extreme outlier under a group
 # container into a new moderate-range violation). 170 sits inside both the
 # code's _GROUP_PITCH_RANGE and the prompt's documented 160-180.
-_GROUP_CANONICAL_PITCH = 170.0
+_GROUP_CANONICAL_PITCH = _geo.GROUP_CANONICAL_PITCH
 
 # Default geometry handed to a vertex missing <mxGeometry> entirely (see
 # ensure_valid_vertex_geometry) — 78x78 matches the canonical leaf icon size
 # documented in config/xml_gen/core.txt; the container default is safely
 # above xml_tools._FIT_MIN_W/_FIT_MIN_H (120.0/80.0) so fit_containers_to_
 # children never has to grow it from a degenerate starting size.
-_DEFAULT_LEAF_SIZE = (78.0, 78.0)
-_DEFAULT_CONTAINER_SIZE = (160.0, 120.0)
+_DEFAULT_LEAF_SIZE = _geo.DEFAULT_LEAF_SIZE
+_DEFAULT_CONTAINER_SIZE = _geo.DEFAULT_CONTAINER_SIZE
 
 # Under-icon label band height (px) added to a leaf's detection rect when its
 # style places the label below the icon — mirrors xml_tools._FIT_LABEL_BAND
 # so overlap detection accounts for the label, not just the icon box.
-_LABEL_BAND_HEIGHT = 28.0
+_LABEL_BAND_HEIGHT = _geo.LABEL_BAND_H
 
 # Cross-cutting group containers (config/xml_gen/views/network.txt "Cross-Cutting
 # Groups — NO EDGES"): matched by the container's first label word, mirroring

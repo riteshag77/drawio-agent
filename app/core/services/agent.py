@@ -4,18 +4,21 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from app.adapters.outbound.diagram.compiler import compile_network_ir
 from app.adapters.outbound.diagram.diagram_edits import apply_diagram_edits, looks_like_surgical_edit
 from app.adapters.outbound.llm.prompt_builders import build_chat_prompt
 from app.adapters.outbound.utils.chat import (
     build_applied_suggestions_block,
     build_suggestions_instruction_block,
 )
+from app.adapters.outbound.llm.prompts.ir import get_network_ir_system_prompt
 from app.adapters.outbound.llm.prompts.simple import MERMAID_SYSTEM_PROMPT
 from app.adapters.outbound.llm.prompts.system import get_xml_gen_system_prompt_marked
 from app.adapters.outbound.llm.providers import get_provider, normalize_provider_key
 from app.adapters.outbound.llm.response_parse import extract_mermaid
 from app.core.ports.llm import LlmPort, get_llm
 from app.domain.entities import DiagramEditPlan, MermaidDiagram, XmlDiagram
+from app.domain.ir import NetworkIR
 
 if TYPE_CHECKING:
     from app.core.logging import StepLogger
@@ -258,6 +261,172 @@ def generate_xml_diagram(
             "xml": result.xml,
         })
     return result
+
+
+#: How many corrective passes to spend on an IR that parsed but broke a semantic
+#: rule. One is usually enough: unlike "your XML was malformed", the feedback
+#: names the exact offending flow/field, so the model has something actionable.
+IR_MAX_CORRECTIVE_PASSES = 1
+
+
+def generate_network_ir(
+    user_request: str,
+    provider: str = "claude",
+    platform: str = "aws",
+    logger: "StepLogger | None" = None,
+    messages: list[dict[str, str]] | None = None,
+    custom_system_message: str = "",
+    applied_suggestions: list[str] | None = None,
+    context_text: str | None = None,
+    attachment_documents: list[dict] | None = None,
+    image_replicate: bool = False,
+    *,
+    llm: LlmPort | None = None,
+) -> NetworkIR:
+    """Ask the LLM for a NetworkIR and correct it until it satisfies its own rules.
+
+    Two validation layers run here, and the difference matters:
+
+    * **Pydantic** rejects structurally impossible output (bad id, empty subnet,
+      a style string in ``shape_type``). ``call_llm`` already retries these
+      internally with the JSON schema attached.
+    * **``semantic_errors()``** catches cross-field rules Pydantic cannot express
+      — chiefly a flow touching a cross-cutting group. Those are corrected here,
+      because the error message names the exact flow and can be handed straight
+      back to the model.
+    """
+    provider_key = normalize_provider_key(provider)
+    chat_messages = messages or [{"role": "user", "content": user_request}]
+    hint = user_request or (chat_messages[-1]["content"] if chat_messages else "")
+    _llm = llm or get_llm()
+    provider_spec = get_provider(provider_key)
+
+    system_prompt = get_network_ir_system_prompt(
+        model_id=provider_spec.default_model,
+        provider=provider_key,
+        platform=platform,
+        custom_system_message=custom_system_message,
+        user_hint=hint,
+    )
+
+    human_parts: list[str] = []
+    applied_block = build_applied_suggestions_block(applied_suggestions)
+    if applied_block:
+        human_parts.append(applied_block)
+    if image_replicate:
+        human_parts.append(_IMAGE_REPLICATE_HINT)
+    if context_text and _looks_like_iac(context_text):
+        human_parts.append(_IAC_HINT)
+    if len(chat_messages) > 1:
+        human_parts.append("Conversation so far:")
+        for msg in chat_messages[:-1]:
+            human_parts.append(f"{msg['role'].upper()}: {msg['content']}")
+    human_parts.append(f"Platform: {platform.upper()}")
+    if context_text:
+        human_parts.append(f"Document context:\n{context_text}")
+    human_parts.append(f"Request:\n{chat_messages[-1]['content']}")
+    human_content = "\n".join(human_parts)
+
+    if logger:
+        logger.log("prompt", "Prepared Network IR request", details={
+            "provider": provider_key, "platform": platform,
+        })
+
+    ir: NetworkIR = _llm(
+        system_prompt, human_content, provider_key, NetworkIR, logger, attachment_documents,
+    )
+
+    for attempt in range(IR_MAX_CORRECTIVE_PASSES):
+        errors = ir.semantic_errors()
+        if not errors:
+            break
+        if logger:
+            logger.log(
+                "ir", f"IR broke {len(errors)} rule(s) — asking for a correction",
+                level="warning", details={"errors": errors},
+            )
+        correction = (
+            "Your previous NetworkIR was structurally valid but broke these rules:\n"
+            + "\n".join(f"- {e}" for e in errors)
+            + "\n\nReturn a corrected NetworkIR. Keep everything else identical — "
+            "change only what is needed to fix the listed problems."
+        )
+        ir = _llm(
+            system_prompt, human_content + "\n\n" + correction,
+            provider_key, NetworkIR, logger, attachment_documents,
+        )
+
+    residual = ir.semantic_errors()
+    if residual:
+        # Dropping the offending flows is a deliberate last resort: the diagram is
+        # far more useful missing two edges than not rendering at all, and the
+        # cross-cutting no-edge rule is exactly the kind of violation that is safe
+        # to resolve by deletion.
+        forbidden = ir.no_edge_ids()
+        known = ir.all_ids()
+        kept = [
+            f for f in ir.flows
+            if f.source in known and f.target in known
+            and f.source != f.target
+            and f.source not in forbidden and f.target not in forbidden
+        ]
+        dropped = len(ir.flows) - len(kept)
+        ir.flows = kept
+        if logger:
+            logger.log(
+                "ir", f"Dropped {dropped} invalid flow(s) after correction passes",
+                level="warning", details={"errors": residual},
+            )
+
+    if logger:
+        logger.log("ir", "Network IR generated", level="success", details={
+            "leaves": len(ir.leaf_ids()),
+            "containers": len(ir.container_ids()),
+            "flows": len(ir.flows),
+            "actors": len(ir.external_actors),
+        })
+    return ir
+
+
+def generate_xml_diagram_from_ir(
+    user_request: str,
+    provider: str = "claude",
+    platform: str = "aws",
+    logger: "StepLogger | None" = None,
+    messages: list[dict[str, str]] | None = None,
+    custom_system_message: str = "",
+    applied_suggestions: list[str] | None = None,
+    context_text: str | None = None,
+    attachment_documents: list[dict] | None = None,
+    image_replicate: bool = False,
+    include_suggestions: bool = False,
+    *,
+    llm: LlmPort | None = None,
+) -> XmlDiagram:
+    """IR path: generate a NetworkIR, then compile it to draw.io XML.
+
+    Returns the same ``XmlDiagram`` the direct-XML path returns, so everything
+    downstream in the pipeline (validation, MCP icon resolution, cost/WAF/
+    compliance enrichment) is completely unaffected by which path produced it.
+    """
+    ir = generate_network_ir(
+        user_request, provider=provider, platform=platform, logger=logger,
+        messages=messages, custom_system_message=custom_system_message,
+        applied_suggestions=applied_suggestions, context_text=context_text,
+        attachment_documents=attachment_documents, image_replicate=image_replicate,
+        llm=llm,
+    )
+    xml = compile_network_ir(ir)
+    if logger:
+        logger.log("ir_compile", "Compiled IR to draw.io XML", level="success", details={
+            "xml_chars": len(xml), "xml": xml,
+        })
+    return XmlDiagram(
+        xml=xml,
+        assistant_message=f"Generated {ir.title or 'architecture'} diagram.",
+        suggestions=[],
+        step_markers=[],
+    )
 
 
 def generate_mermaid_diagram(

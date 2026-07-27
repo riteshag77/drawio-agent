@@ -50,7 +50,10 @@ def _ensure_db() -> Path | None:
         if _db_ready and path.is_file():
             return path
         path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(path) as conn:
+        # `with sqlite3.connect(...)` commits but does not close — close
+        # explicitly so the db file isn't left locked (matters on Windows).
+        conn = sqlite3.connect(path)
+        try:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS mcp_styles (
@@ -62,6 +65,8 @@ def _ensure_db() -> Path | None:
                 """
             )
             conn.commit()
+        finally:
+            conn.close()
         _db_ready = True
         return path
 

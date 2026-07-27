@@ -67,6 +67,20 @@ HOST=0.0.0.0
 PORT=8000
 APP_VERSION=1.0.0
 
+# Generation path: IR + compiler vs direct XML
+DIAGRAM_IR_ENABLED=false
+DIAGRAM_IR_VIEWS=network
+
+# Diagram history (versioning / restore)
+DIAGRAM_HISTORY_ENABLED=true
+DIAGRAM_HISTORY_PATH=data/diagram_history.sqlite3
+DIAGRAM_HISTORY_MAX_VERSIONS=50
+
+# Resilience
+PROVIDER_FALLBACK_ORDER=          # e.g. gemini,openai — empty disables failover
+RATE_LIMIT_PER_MINUTE=0           # per-client generation cap; 0 disables
+TRUST_PROXY_HEADERS=false         # honour X-Forwarded-For for client identity
+
 # Diagram: auto | mcp | local
 DIAGRAM_RENDERER=auto
 DRAWIO_MCP_URL=https://mcp.draw.io/mcp
@@ -92,6 +106,70 @@ DRAWIO_STYLE_CACHE_RESET=false
 - **`LOG_RETENTION_DAYS`** — how many rotated daily log files to keep before the oldest is deleted (default `14`).
 - **`XML_REPAIR_MAX_ATTEMPTS`** — max corrective LLM repair passes when deterministic repair leaves structural errors unresolved (default `1`). Bounded so a diagram whose errors the model can't actually fix doesn't loop through repeated LLM calls burning API budget; raise it only if you want extra attempts on a flaky provider.
 - **`APP_VERSION`** — exposed on `/health` (default `1.0.0`).
+
+## IR generation path (`DIAGRAM_IR_ENABLED`)
+
+An alternative to having the LLM write draw.io XML directly. The model instead
+emits a **NetworkIR** (`app/domain/ir/network.py`) — a small, closed, Pydantic-
+validated structure of containers, leaves and flows — and a deterministic
+compiler (`app/adapters/outbound/diagram/compiler/`) renders the mxCells.
+
+| Concern | Direct-XML path | IR path |
+| --- | --- | --- |
+| Geometry, padding, pitch, container fit | LLM, guided by prompt prose | Compiler (`geometry_spec.py`) |
+| Styles, `arcSize`, group colours | LLM | Compiler (`compiler/theme.py`) |
+| Parent wiring / nesting | LLM `parent=` attributes | Structural — nesting is the IR's shape |
+| "No edges on cross-cutting groups" | Prompt rule, repaired after the fact | `NetworkIR.semantic_errors()` rejects it |
+| Icon stencils | MCP (unchanged) | MCP (unchanged) |
+| System prompt size | ~9.3k tokens | ~2.1k tokens (77% smaller) |
+
+Everything downstream — validation, MCP icon resolution, libavoid, cost/WAF/
+compliance enrichment, the `guarantee_loadable_xml` circuit breaker — is
+identical for both paths; the IR path simply hands the same `XmlDiagram` to it.
+
+- **Scope**: only the primary Network view, and only for fresh generations.
+  Edit mode (`current_xml` present) and 3D fall through to direct XML, since the
+  IR cannot express "preserve these exact ids and coordinates".
+- **Failure behaviour**: any error in the IR path logs a warning and falls back
+  to direct XML. It can never turn a working request into a failed one.
+- **Observability**: responses carry `generation_path` (`ir` | `direct_xml`),
+  distinct from `renderer_used` (`mcp` | `local`, which is about icons).
+- Enable with `DIAGRAM_IR_ENABLED=true`; `DIAGRAM_IR_VIEWS` limits which primary
+  views use it (default `network`, the only one currently supported).
+
+## Diagram history (`/history`)
+
+Every successful generation is versioned per session when the request carries a
+`session_id`. Backed by SQLite (`DIAGRAM_HISTORY_PATH`), pruned to
+`DIAGRAM_HISTORY_MAX_VERSIONS` per session. Writes are best-effort — a history
+failure never affects the diagram response.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /history/sessions` | Sessions with stored versions, newest activity first |
+| `GET /history/sessions/{id}` | Version metadata for a session (no XML payloads) |
+| `GET /history/versions/{id}` | One version including full XML, for restore |
+| `DELETE /history/sessions/{id}` | Remove a session's history |
+
+Distinct from `CAPTURES_DIR` (opt-in full request+response debug capture).
+
+## Resilience
+
+- **`PROVIDER_FALLBACK_ORDER`** — comma-separated provider keys tried in order
+  when the primary fails. Applied at the `LlmPort` boundary, so every LLM call
+  (primary generation, focused views, ADR/RAID, gap analysis) inherits it.
+  Fails over only on vendor-attributable errors — quota/429, transient 5xx,
+  missing API key — never on schema-validation failures, which every provider
+  would fail identically. Empty (default) preserves current behaviour exactly.
+- **`RATE_LIMIT_PER_MINUTE`** — per-client cap on `/chat`, `/chat/stream`,
+  `/generate`, `/download`. Distinct from `MAX_CONCURRENT_LLM`, which caps total
+  in-flight LLM calls process-wide but provides no fairness between clients.
+  Sliding window held in memory; with multiple workers each process enforces its
+  own share. Health/readiness/static/history stay reachable when throttled.
+  Clients are keyed by `X-API-Key` when present, else client IP.
+- **`TRUST_PROXY_HEADERS`** — when true, `X-Forwarded-For` identifies the client
+  for rate limiting. Leave false unless the app is genuinely behind a trusted
+  proxy: an untrusted client can otherwise forge the header and bypass limits.
 
 ## `/ready` and `/health` endpoints
 

@@ -11,6 +11,13 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response, Streamin
 from app.adapters.inbound.web.schemas import ChatRequest, ParseUrlRequest, PromptRequest
 from app.adapters.outbound.capture_store import list_captures, load_capture, save_capture
 from app.adapters.outbound.config.env_config import get_config
+from app.adapters.outbound.history_store import (
+    delete_session,
+    get_version,
+    list_sessions,
+    list_versions,
+    save_version,
+)
 from app.adapters.outbound.llm.concurrency import run_llm_sync
 from app.adapters.outbound.utils.documents import MAX_ATTACHMENT_BYTES, extract_document
 from app.adapters.outbound.utils.web import fetch_url_content
@@ -266,7 +273,33 @@ async def _run_chat(body: ChatRequest, logger: StepLogger, *, on_progress=None) 
 
     if body.save_captures:
         await asyncio.to_thread(save_capture, body.model_dump(), response)
+    await _record_history(body, response, last_user)
     return response
+
+
+async def _record_history(body: ChatRequest, response: dict[str, Any], prompt: str) -> None:
+    """Append this generation to the session's version history.
+
+    Best-effort by design — the store swallows its own errors and we ignore the
+    result. A history write must never turn a delivered diagram into a failure.
+    """
+    if not body.session_id or not response.get("xml") or response.get("status") != "success":
+        return
+    await asyncio.to_thread(
+        save_version,
+        session_id=body.session_id,
+        xml=response["xml"],
+        prompt=prompt,
+        title=(response.get("assistant_message") or "")[:120],
+        platform=(body.platform or "").lower(),
+        provider=(body.provider or "").lower(),
+        generation_path=response.get("generation_path") or "",
+        renderer_used=response.get("renderer_used") or "",
+        meta={
+            "diagram_views": body.diagram_views or [],
+            "llm_usage": response.get("llm_usage"),
+        },
+    )
 
 
 @router.post("/chat")
@@ -381,6 +414,34 @@ async def get_capture(capture_id: str):
     if record is None:
         raise HTTPException(status_code=404, detail="Capture not found")
     return record
+
+
+@router.get("/history/sessions")
+async def history_sessions(limit: int = 50):
+    """Every session that has stored versions, most recently updated first."""
+    return {"sessions": await asyncio.to_thread(list_sessions, limit)}
+
+
+@router.get("/history/sessions/{session_id}")
+async def history_session_versions(session_id: str, limit: int = 50):
+    """Version metadata for one session, newest first. XML payloads are omitted."""
+    versions = await asyncio.to_thread(list_versions, session_id, limit)
+    return {"session_id": session_id, "versions": [v.summary() for v in versions]}
+
+
+@router.get("/history/versions/{version_id}")
+async def history_version(version_id: str):
+    """One stored version including its full XML — used to restore a diagram."""
+    record = await asyncio.to_thread(get_version, version_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Version not found")
+    return record.full()
+
+
+@router.delete("/history/sessions/{session_id}")
+async def history_delete_session(session_id: str):
+    deleted = await asyncio.to_thread(delete_session, session_id)
+    return {"session_id": session_id, "deleted": deleted}
 
 
 @router.post("/download")

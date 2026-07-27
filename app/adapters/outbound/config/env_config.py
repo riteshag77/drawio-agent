@@ -218,6 +218,57 @@ class EnvConfigAdapter:
         return max(0, self.get_int("XML_REPAIR_MAX_ATTEMPTS", 0))
 
     @property
+    def diagram_ir_enabled(self) -> bool:
+        """When true, the Network view is generated via the IR + compiler path.
+
+        The LLM emits a validated NetworkIR (app/domain/ir) and a deterministic
+        compiler renders the draw.io XML, instead of the model writing mxCells
+        directly. Geometry, styles and parent wiring become code rather than
+        prompt instructions, so structural defects are impossible by
+        construction rather than repaired afterwards.
+
+        Off by default: the direct-XML path remains the fallback, and any
+        failure in the IR path degrades to it rather than failing the request.
+        Only the Network view is supported — other views always use direct XML.
+        """
+        return self.get_bool("DIAGRAM_IR_ENABLED", False)
+
+    @property
+    def diagram_ir_views(self) -> list[str]:
+        """Which primary views use the IR path when ``diagram_ir_enabled``."""
+        return [v.lower() for v in self.get_list("DIAGRAM_IR_VIEWS", ["network"])]
+
+    @property
+    def history_enabled(self) -> bool:
+        """When true, persist each successful generation for later recall/versioning."""
+        return self.get_bool("DIAGRAM_HISTORY_ENABLED", True)
+
+    @property
+    def history_db_path(self) -> str:
+        """SQLite path for diagram history. Empty disables persistence."""
+        return self.get("DIAGRAM_HISTORY_PATH", "data/diagram_history.sqlite3")
+
+    @property
+    def history_max_versions_per_session(self) -> int:
+        """Cap on retained versions per session — oldest pruned beyond this."""
+        return max(1, self.get_int("DIAGRAM_HISTORY_MAX_VERSIONS", 50))
+
+    @property
+    def rate_limit_per_minute(self) -> int:
+        """Max diagram-generation requests per client per minute. 0 disables."""
+        return max(0, self.get_int("RATE_LIMIT_PER_MINUTE", 0))
+
+    @property
+    def provider_fallback_order(self) -> list[str]:
+        """Provider keys to try, in order, when the primary provider fails.
+
+        Empty (the default) preserves today's behaviour exactly: a failed
+        provider call propagates. Set e.g. ``claude,gemini`` to survive a
+        single-vendor outage or quota exhaustion.
+        """
+        return [p.lower() for p in self.get_list("PROVIDER_FALLBACK_ORDER", [])]
+
+    @property
     def gap_analysis_enabled(self) -> bool:
         """When true, run the pre-generation architecture gap-analysis LLM pass.
 

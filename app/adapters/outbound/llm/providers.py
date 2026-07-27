@@ -206,9 +206,18 @@ def default_provider_key() -> str:
     return "gemini" if os.environ.get("GOOGLE_API_KEY") else "openai"
 
 
+class MissingApiKeyError(ValueError):
+    """A provider was selected but its API key env var is unset.
+
+    Subclasses ValueError so existing ``except ValueError`` handlers are
+    unaffected; the distinct type lets the fallback layer tell "this vendor is
+    not configured" apart from "this vendor rejected the request".
+    """
+
+
 def require_api_key(spec: ProviderSpec) -> None:
     if spec.api_key_env and not os.getenv(spec.api_key_env):
-        raise ValueError(f"{spec.api_key_env} environment variable is not set.")
+        raise MissingApiKeyError(f"{spec.api_key_env} environment variable is not set.")
 
 
 def resolve_gateway_base_url(spec: ProviderSpec) -> str:

@@ -64,10 +64,28 @@ from app.adapters.outbound.diagram.view_conformance import (
 from app.adapters.outbound.diagram.view_fixers import apply_view_fixers, ensure_gap_nodes
 from app.adapters.outbound.llm.llm_client import is_quota_or_rate_limit_error
 from app.core.ports.llm import get_llm
-from app.core.services.agent import generate_xml_diagram
+from app.core.services.agent import generate_xml_diagram, generate_xml_diagram_from_ir
 
 _SERVICE_INVENTORY_LIMIT = 36
 _REQUEST_TRUNCATE_DOCS = 600
+
+
+def _should_use_ir_path(primary_view: str, current_xml: str | None, three_d: bool) -> bool:
+    """Whether this request is eligible for the IR + compiler generation path.
+
+    Deliberately narrow. The IR describes an architecture from scratch, so it
+    cannot express "keep every id and coordinate in the diagram I already have"
+    (edit mode) and has no isometric vocabulary (3D). Both fall through to the
+    direct-XML path, which handles them today.
+    """
+    cfg = get_config()
+    if not cfg.diagram_ir_enabled:
+        return False
+    if three_d:
+        return False
+    if current_xml and len(current_xml) > 200:
+        return False
+    return (primary_view or "network").lower() in cfg.diagram_ir_views
 
 
 def _was_successful_surgical_edit(logger: Any) -> bool:
@@ -694,6 +712,7 @@ def _build_response(
     cost_estimate: dict | None = None,
     well_architected: dict | None = None,
     compliance: dict | None = None,
+    generation_path: str = "direct_xml",
 ) -> dict[str, Any]:
     """Build the standard API response dict."""
     return {
@@ -703,6 +722,10 @@ def _build_response(
         "suggestions": suggestions or [],
         "assistant_message": assistant_message,
         "renderer_used": renderer_used,
+        # "ir" when the diagram was compiled from a validated NetworkIR, else
+        # "direct_xml". Distinct from renderer_used (mcp/local), which describes
+        # icon resolution, not how the structure itself was produced.
+        "generation_path": generation_path,
         "mcp_preview_url": mcp_preview_url,
         "cost_estimate": cost_estimate,
         "well_architected": well_architected,
@@ -839,15 +862,43 @@ async def run_xml_pipeline(
     ) if p]
     enriched_context = "\n\n".join(context_parts) if context_parts else None
 
-    xml_diagram = await run_llm_sync(
-        generate_xml_diagram, human_prompt, provider_key, platform_key, logger, messages,
-        custom_system_message, applied_suggestions, three_d, enriched_context, attachment_documents,
-        current_xml=current_xml,
-        image_replicate=image_replicate,
-        animated_connectors=animated_connectors,
-        include_suggestions=include_suggestions,
-        primary_view=primary_view,
-    )
+    xml_diagram = None
+    used_ir_path = False
+    if _should_use_ir_path(primary_view, current_xml, three_d):
+        await _emit(on_progress, "ir", "Generating validated architecture model…")
+        try:
+            xml_diagram = await run_llm_sync(
+                generate_xml_diagram_from_ir, human_prompt, provider_key, platform_key, logger,
+                messages, custom_system_message, applied_suggestions, enriched_context,
+                attachment_documents,
+                image_replicate=image_replicate,
+                include_suggestions=include_suggestions,
+            )
+            used_ir_path = True
+            await _emit(on_progress, "ir", "Architecture model compiled")
+        except Exception as exc:
+            # The IR path is an optimisation, never a new failure mode: anything
+            # it cannot handle falls through to the direct-XML path that has
+            # always served this request.
+            if logger:
+                logger.log(
+                    "ir",
+                    f"IR path failed ({exc}) — falling back to direct XML generation",
+                    level="warning",
+                )
+            await _emit(on_progress, "ir", "Falling back to direct XML generation…")
+            xml_diagram = None
+
+    if xml_diagram is None:
+        xml_diagram = await run_llm_sync(
+            generate_xml_diagram, human_prompt, provider_key, platform_key, logger, messages,
+            custom_system_message, applied_suggestions, three_d, enriched_context, attachment_documents,
+            current_xml=current_xml,
+            image_replicate=image_replicate,
+            animated_connectors=animated_connectors,
+            include_suggestions=include_suggestions,
+            primary_view=primary_view,
+        )
     if 'vertex="1"' not in (xml_diagram.xml or ""):
         # A successful call with no diagram content (empty/near-empty xml) is not
         # a partial success — nothing downstream should validate/repair/enrich
@@ -1532,6 +1583,7 @@ async def run_xml_pipeline(
             cost_estimate=cost_data,
             well_architected=waf_data,
             compliance=compliance_data,
+            generation_path="ir" if used_ir_path else "direct_xml",
         )
 
     logger.log(
@@ -1551,4 +1603,5 @@ async def run_xml_pipeline(
         cost_estimate=cost_data,
         well_architected=waf_data,
         compliance=compliance_data,
+        generation_path="ir" if used_ir_path else "direct_xml",
     )

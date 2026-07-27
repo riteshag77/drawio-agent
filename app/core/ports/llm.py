@@ -30,6 +30,11 @@ class LlmPort(Protocol):
 
 
 def get_llm() -> LlmPort:
-    """Return the default LLM adapter (lazy import — keeps adapters out of core import path)."""
-    from app.adapters.outbound.llm.llm_client import call_llm  # noqa: PLC0415
-    return call_llm  # type: ignore[return-value]
+    """Return the default LLM adapter (lazy import — keeps adapters out of core import path).
+
+    Wrapped in cross-provider failover. With ``PROVIDER_FALLBACK_ORDER`` unset
+    (the default) this is a pass-through to ``call_llm`` — the chain is just the
+    requested provider — so behaviour is unchanged unless failover is configured.
+    """
+    from app.adapters.outbound.llm.fallback import call_llm_with_fallback  # noqa: PLC0415
+    return call_llm_with_fallback  # type: ignore[return-value]

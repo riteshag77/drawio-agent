@@ -30,13 +30,16 @@ Hexagonal/ports-and-adapters layout:
 ```
 app/
   domain/entities/        # plain dataclasses/pydantic models (XmlDiagram, Mermaid) — no I/O
+  domain/ir/              # diagram intermediate representation (NetworkIR) — pure, self-validating
   core/services/          # use cases: agent.py (LLM calls), xml_pipeline.py (orchestration), intent.py
-  adapters/inbound/web/   # FastAPI routes.py + pydantic request/response schemas.py
+  adapters/inbound/web/   # FastAPI routes.py + schemas.py + rate_limit.py
   adapters/outbound/      # everything that talks to the outside world:
-    llm/                  # provider registry, langchain client wrapper, prompt builders
+    llm/                  # provider registry, langchain client wrapper, prompt builders, fallback.py
     diagram/              # draw.io XML validation/repair/MCP client
+      compiler/           # IR → draw.io XML (deterministic; owns geometry + styles)
+      geometry_spec.py    # canonical spacing constants — shared by compiler AND diagnostics
     utils/                # documents.py (attachment extraction), web.py, chat.py
-    cost_estimator.py, well_architected.py, compliance.py
+    cost_estimator.py, well_architected.py, compliance.py, history_store.py
 ```
 
 ### Request flow (`POST /chat`, `/chat/stream`)
@@ -48,6 +51,29 @@ app/
    - `xml_diagnostics.diagnose_xml` / `repair_xml` → deterministic checks (dangling edges, duplicate ids, overlaps, missing labels, parent cycles, geometry) with auto-fixers only — **no LLM repair** for format/structure.
    - In parallel (`asyncio.gather`): cost estimate, Well-Architected assessment, compliance assessment, and MCP icon resolution (`drawio_mcp_client.resolve_shape_styles` merges official icon styles into the LLM's placeholder leaves, preserving label attributes — see the LLM/MCP/prompt-pack ownership split below).
 3. Response includes `xml`, `renderer_used` (`mcp` or `local`), `llm_usage` (token/cost accounting distinct from the depicted architecture's estimated cloud spend), and `logs`.
+
+### Two generation paths (`DIAGRAM_IR_ENABLED`)
+
+There are now two ways the primary page gets produced. Know which one you're touching:
+
+- **Direct XML** (default): the LLM writes mxCells itself, then ~5k lines of deterministic
+  repair (`xml_diagnostics.py`, `placement_fixers.py`, `xml_tools.py`) correct what it got
+  wrong. Handles every view, edit mode, and 3D.
+- **IR + compiler** (`DIAGRAM_IR_ENABLED=true`, Network view only, fresh generations only):
+  the LLM emits a Pydantic-validated `NetworkIR` (`app/domain/ir/`) and
+  `adapters/outbound/diagram/compiler/` deterministically renders the XML. Geometry, styles
+  and parent wiring become code, so the repair layer has nothing to fix.
+
+Rules of thumb when editing:
+- A **layout/spacing** rule for the IR path is a constant in `geometry_spec.py`, not prompt
+  prose. That module is the single source of truth — `xml_diagnostics.py` imports the same
+  constants, which is what keeps compiler output diagnostically clean by construction.
+- A **structural invariant** (nesting, "no edges on cross-cutting groups", no empty subnets)
+  belongs in the IR types or `NetworkIR.semantic_errors()`, not in a prompt paragraph.
+- The IR path must never introduce a new failure mode: `xml_pipeline._should_use_ir_path`
+  gates eligibility and any exception falls back to direct XML.
+- Responses carry `generation_path` (`ir` | `direct_xml`) — distinct from `renderer_used`
+  (`mcp` | `local`), which is about icon resolution only.
 
 ### LLM/MCP/prompt ownership split (important when touching diagram generation)
 

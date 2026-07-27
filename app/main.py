@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from app.adapters.inbound.web.rate_limit import RateLimitMiddleware
 from app.adapters.inbound.web.routes import router
 from app.adapters.outbound.config.env_config import get_config
 from app.adapters.outbound.llm import providers as providers_module
@@ -96,6 +97,9 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     application.add_middleware(BodySizeLimitMiddleware)
+    # Rate limit sits inside the API-key gate so an unauthorized flood is
+    # rejected on the cheaper check first and never consumes a client's quota.
+    application.add_middleware(RateLimitMiddleware)
     application.add_middleware(ApiKeyMiddleware)
 
     @application.middleware("http")
