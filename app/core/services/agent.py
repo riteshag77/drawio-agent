@@ -4,21 +4,21 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from app.adapters.outbound.diagram.compiler import compile_network_ir
+from app.adapters.outbound.diagram.compiler import compile_corridor_ir, compile_network_ir
 from app.adapters.outbound.diagram.diagram_edits import apply_diagram_edits, looks_like_surgical_edit
 from app.adapters.outbound.llm.prompt_builders import build_chat_prompt
 from app.adapters.outbound.utils.chat import (
     build_applied_suggestions_block,
     build_suggestions_instruction_block,
 )
-from app.adapters.outbound.llm.prompts.ir import get_network_ir_system_prompt
+from app.adapters.outbound.llm.prompts.ir import get_corridor_ir_system_prompt, get_network_ir_system_prompt
 from app.adapters.outbound.llm.prompts.simple import MERMAID_SYSTEM_PROMPT
 from app.adapters.outbound.llm.prompts.system import get_xml_gen_system_prompt_marked
 from app.adapters.outbound.llm.providers import get_provider, normalize_provider_key
 from app.adapters.outbound.llm.response_parse import extract_mermaid
 from app.core.ports.llm import LlmPort, get_llm
 from app.domain.entities import DiagramEditPlan, MermaidDiagram, XmlDiagram
-from app.domain.ir import NetworkIR
+from app.domain.ir import IR_TYPES_BY_VIEW, NetworkIR
 
 if TYPE_CHECKING:
     from app.core.logging import StepLogger
@@ -268,6 +268,155 @@ def generate_xml_diagram(
 #: names the exact offending flow/field, so the model has something actionable.
 IR_MAX_CORRECTIVE_PASSES = 1
 
+#: view -> (page name, IR type, compiler) — the single dispatch table every
+#: view-agnostic IR call site reads from. Adding a future view means adding one
+#: row here, not a new if/elif chain at each call site.
+_IR_PAGE_NAMES: dict[str, str] = {
+    "network": "Network", "logical": "Logical",
+    "security": "Security", "data_flow": "Data flow",
+}
+
+
+def _prepare_ir_call(
+    *,
+    user_request: str,
+    provider: str,
+    messages: list[dict[str, str]] | None,
+    llm: LlmPort | None,
+):
+    """Setup boilerplate shared by ``generate_network_ir`` and ``generate_corridor_ir``.
+
+    Both stay separate public functions (each is patched independently in
+    tests, and their signatures genuinely differ — one takes a ``view``, one
+    doesn't), but the five lines resolving provider/messages/hint/llm/spec
+    were identical in both, so that part lives here once.
+    """
+    provider_key = normalize_provider_key(provider)
+    chat_messages = messages or [{"role": "user", "content": user_request}]
+    hint = user_request or (chat_messages[-1]["content"] if chat_messages else "")
+    _llm = llm or get_llm()
+    provider_spec = get_provider(provider_key)
+    return provider_key, chat_messages, hint, _llm, provider_spec
+
+
+def _build_ir_human_content(
+    *,
+    view: str,
+    platform: str,
+    chat_messages: list[dict[str, str]],
+    applied_suggestions: list[str] | None,
+    context_text: str | None,
+    image_replicate: bool,
+) -> str:
+    """Human message shared by every IR generator — view-agnostic by design."""
+    parts: list[str] = []
+    applied_block = build_applied_suggestions_block(applied_suggestions)
+    if applied_block:
+        parts.append(applied_block)
+    if image_replicate:
+        parts.append(_IMAGE_REPLICATE_HINT)
+    if context_text and _looks_like_iac(context_text):
+        parts.append(_IAC_HINT)
+    if len(chat_messages) > 1:
+        parts.append("Conversation so far:")
+        for msg in chat_messages[:-1]:
+            parts.append(f"{msg['role'].upper()}: {msg['content']}")
+    parts.append(f"Platform: {platform.upper()}")
+    if context_text:
+        parts.append(f"Document context:\n{context_text}")
+    parts.append(f"Request:\n{chat_messages[-1]['content']}")
+    return "\n".join(parts)
+
+
+def _generate_ir_with_corrections(
+    *,
+    ir_type: type,
+    system_prompt: str,
+    human_content: str,
+    provider_key: str,
+    logger: "StepLogger | None",
+    attachment_documents: list[dict] | None,
+    llm: LlmPort,
+    view_label: str,
+):
+    """Ask the LLM for an IR and correct it until it satisfies its own rules.
+
+    Shared by Network and every corridor view — the two validation layers this
+    loop bridges are identical regardless of shape:
+
+    * **Pydantic** rejects structurally impossible output (bad id, empty
+      corridor, a style string in ``shape_type``, an unrecognized corridor
+      vocabulary). ``call_llm`` already retries these internally with the JSON
+      schema attached.
+    * **``semantic_errors()``** catches cross-field rules Pydantic cannot
+      express — chiefly a flow referencing an unknown id or (for Network) one
+      touching a cross-cutting group. Those are corrected here, because the
+      error message names the exact offending flow and can be handed straight
+      back to the model.
+    """
+    ir = llm(system_prompt, human_content, provider_key, ir_type, logger, attachment_documents)
+
+    for _attempt in range(IR_MAX_CORRECTIVE_PASSES):
+        errors = ir.semantic_errors()
+        if not errors:
+            break
+        if logger:
+            logger.log(
+                "ir", f"{view_label} IR broke {len(errors)} rule(s) — asking for a correction",
+                level="warning", details={"errors": errors},
+            )
+        correction = (
+            f"Your previous {ir_type.__name__} was structurally valid but broke these rules:\n"
+            + "\n".join(f"- {e}" for e in errors)
+            + f"\n\nReturn a corrected {ir_type.__name__}. Keep everything else identical — "
+            "change only what is needed to fix the listed problems."
+        )
+        ir = llm(
+            system_prompt, human_content + "\n\n" + correction,
+            provider_key, ir_type, logger, attachment_documents,
+        )
+
+    residual = ir.semantic_errors()
+    if residual:
+        _drop_invalid_flows(ir, residual, logger, view_label)
+
+    if logger:
+        logger.log("ir", f"{view_label} IR generated", level="success", details={
+            "leaves": len(ir.leaf_ids()),
+            "flows": len(ir.flows),
+            "actors": len(ir.external_actors),
+        })
+    return ir
+
+
+def _drop_invalid_flows(ir, residual_errors: list[str], logger: "StepLogger | None", view_label: str) -> None:
+    """Last-resort residual cleanup: drop flows that never satisfied validation.
+
+    Applies to every IR type, Network included — dangling references and
+    self-loops are universal error classes every ``semantic_errors()``
+    implementation can produce. Network additionally forbids flows touching a
+    cross-cutting group (``no_edge_ids``); corridor views have no such
+    concept, so that check is a no-op for them via ``getattr``'s default.
+    The diagram is far more useful missing a couple of edges than not
+    rendering at all, and deletion is the one residual-error class that is
+    always safe to resolve this way.
+    """
+    known = ir.all_ids()
+    forbidden = ir.no_edge_ids() if hasattr(ir, "no_edge_ids") else set()
+    kept = [
+        f for f in ir.flows
+        if f.source in known and f.target in known
+        and f.source != f.target
+        and f.source not in forbidden and f.target not in forbidden
+    ]
+    dropped = len(ir.flows) - len(kept)
+    ir.flows = kept
+    if dropped and logger:
+        logger.log(
+            "ir", f"Dropped {dropped} invalid flow(s) from {view_label} after correction passes",
+            level="warning", details={"errors": residual_errors},
+        )
+
 
 def generate_network_ir(
     user_request: str,
@@ -283,23 +432,10 @@ def generate_network_ir(
     *,
     llm: LlmPort | None = None,
 ) -> NetworkIR:
-    """Ask the LLM for a NetworkIR and correct it until it satisfies its own rules.
-
-    Two validation layers run here, and the difference matters:
-
-    * **Pydantic** rejects structurally impossible output (bad id, empty subnet,
-      a style string in ``shape_type``). ``call_llm`` already retries these
-      internally with the JSON schema attached.
-    * **``semantic_errors()``** catches cross-field rules Pydantic cannot express
-      — chiefly a flow touching a cross-cutting group. Those are corrected here,
-      because the error message names the exact flow and can be handed straight
-      back to the model.
-    """
-    provider_key = normalize_provider_key(provider)
-    chat_messages = messages or [{"role": "user", "content": user_request}]
-    hint = user_request or (chat_messages[-1]["content"] if chat_messages else "")
-    _llm = llm or get_llm()
-    provider_spec = get_provider(provider_key)
+    """Ask the LLM for a NetworkIR and correct it until it satisfies its own rules."""
+    provider_key, chat_messages, hint, _llm, provider_spec = _prepare_ir_call(
+        user_request=user_request, provider=provider, messages=messages, llm=llm,
+    )
 
     system_prompt = get_network_ir_system_prompt(
         model_id=provider_spec.default_model,
@@ -308,87 +444,78 @@ def generate_network_ir(
         custom_system_message=custom_system_message,
         user_hint=hint,
     )
-
-    human_parts: list[str] = []
-    applied_block = build_applied_suggestions_block(applied_suggestions)
-    if applied_block:
-        human_parts.append(applied_block)
-    if image_replicate:
-        human_parts.append(_IMAGE_REPLICATE_HINT)
-    if context_text and _looks_like_iac(context_text):
-        human_parts.append(_IAC_HINT)
-    if len(chat_messages) > 1:
-        human_parts.append("Conversation so far:")
-        for msg in chat_messages[:-1]:
-            human_parts.append(f"{msg['role'].upper()}: {msg['content']}")
-    human_parts.append(f"Platform: {platform.upper()}")
-    if context_text:
-        human_parts.append(f"Document context:\n{context_text}")
-    human_parts.append(f"Request:\n{chat_messages[-1]['content']}")
-    human_content = "\n".join(human_parts)
-
+    human_content = _build_ir_human_content(
+        view="network", platform=platform, chat_messages=chat_messages,
+        applied_suggestions=applied_suggestions, context_text=context_text,
+        image_replicate=image_replicate,
+    )
     if logger:
         logger.log("prompt", "Prepared Network IR request", details={
             "provider": provider_key, "platform": platform,
         })
-
-    ir: NetworkIR = _llm(
-        system_prompt, human_content, provider_key, NetworkIR, logger, attachment_documents,
+    return _generate_ir_with_corrections(
+        ir_type=NetworkIR, system_prompt=system_prompt, human_content=human_content,
+        provider_key=provider_key, logger=logger, attachment_documents=attachment_documents,
+        llm=_llm, view_label="Network",
     )
 
-    for attempt in range(IR_MAX_CORRECTIVE_PASSES):
-        errors = ir.semantic_errors()
-        if not errors:
-            break
-        if logger:
-            logger.log(
-                "ir", f"IR broke {len(errors)} rule(s) — asking for a correction",
-                level="warning", details={"errors": errors},
-            )
-        correction = (
-            "Your previous NetworkIR was structurally valid but broke these rules:\n"
-            + "\n".join(f"- {e}" for e in errors)
-            + "\n\nReturn a corrected NetworkIR. Keep everything else identical — "
-            "change only what is needed to fix the listed problems."
-        )
-        ir = _llm(
-            system_prompt, human_content + "\n\n" + correction,
-            provider_key, NetworkIR, logger, attachment_documents,
-        )
 
-    residual = ir.semantic_errors()
-    if residual:
-        # Dropping the offending flows is a deliberate last resort: the diagram is
-        # far more useful missing two edges than not rendering at all, and the
-        # cross-cutting no-edge rule is exactly the kind of violation that is safe
-        # to resolve by deletion.
-        forbidden = ir.no_edge_ids()
-        known = ir.all_ids()
-        kept = [
-            f for f in ir.flows
-            if f.source in known and f.target in known
-            and f.source != f.target
-            and f.source not in forbidden and f.target not in forbidden
-        ]
-        dropped = len(ir.flows) - len(kept)
-        ir.flows = kept
-        if logger:
-            logger.log(
-                "ir", f"Dropped {dropped} invalid flow(s) after correction passes",
-                level="warning", details={"errors": residual},
-            )
+def generate_corridor_ir(
+    view: str,
+    user_request: str,
+    provider: str = "claude",
+    platform: str = "aws",
+    logger: "StepLogger | None" = None,
+    messages: list[dict[str, str]] | None = None,
+    custom_system_message: str = "",
+    applied_suggestions: list[str] | None = None,
+    context_text: str | None = None,
+    attachment_documents: list[dict] | None = None,
+    image_replicate: bool = False,
+    *,
+    llm: LlmPort | None = None,
+):
+    """Ask the LLM for a CorridorIR (Logical / Security / Data-flow).
 
+    The Network-shaped twin of this function is ``generate_network_ir`` —
+    both are thin wrappers around ``_generate_ir_with_corrections``; only the
+    IR type and prompt assembly differ.
+    """
+    view_key = (view or "").strip().lower()
+    ir_type = IR_TYPES_BY_VIEW.get(view_key)
+    if ir_type is None or view_key == "network":
+        raise ValueError(f"generate_corridor_ir: not a corridor view: {view!r}")
+
+    provider_key, chat_messages, hint, _llm, provider_spec = _prepare_ir_call(
+        user_request=user_request, provider=provider, messages=messages, llm=llm,
+    )
+
+    system_prompt = get_corridor_ir_system_prompt(
+        view_key,
+        model_id=provider_spec.default_model,
+        provider=provider_key,
+        platform=platform,
+        custom_system_message=custom_system_message,
+        user_hint=hint,
+    )
+    human_content = _build_ir_human_content(
+        view=view_key, platform=platform, chat_messages=chat_messages,
+        applied_suggestions=applied_suggestions, context_text=context_text,
+        image_replicate=image_replicate,
+    )
     if logger:
-        logger.log("ir", "Network IR generated", level="success", details={
-            "leaves": len(ir.leaf_ids()),
-            "containers": len(ir.container_ids()),
-            "flows": len(ir.flows),
-            "actors": len(ir.external_actors),
+        logger.log("prompt", f"Prepared {_IR_PAGE_NAMES[view_key]} IR request", details={
+            "provider": provider_key, "platform": platform,
         })
-    return ir
+    return _generate_ir_with_corrections(
+        ir_type=ir_type, system_prompt=system_prompt, human_content=human_content,
+        provider_key=provider_key, logger=logger, attachment_documents=attachment_documents,
+        llm=_llm, view_label=_IR_PAGE_NAMES[view_key],
+    )
 
 
 def generate_xml_diagram_from_ir(
+    view: str,
     user_request: str,
     provider: str = "claude",
     platform: str = "aws",
@@ -403,27 +530,34 @@ def generate_xml_diagram_from_ir(
     *,
     llm: LlmPort | None = None,
 ) -> XmlDiagram:
-    """IR path: generate a NetworkIR, then compile it to draw.io XML.
+    """IR path for any view: generate its IR, then compile it to draw.io XML.
 
     Returns the same ``XmlDiagram`` the direct-XML path returns, so everything
     downstream in the pipeline (validation, MCP icon resolution, cost/WAF/
-    compliance enrichment) is completely unaffected by which path produced it.
+    compliance enrichment) is completely unaffected by which path — or which
+    view — produced it.
     """
-    ir = generate_network_ir(
-        user_request, provider=provider, platform=platform, logger=logger,
-        messages=messages, custom_system_message=custom_system_message,
-        applied_suggestions=applied_suggestions, context_text=context_text,
-        attachment_documents=attachment_documents, image_replicate=image_replicate,
-        llm=llm,
+    view_key = (view or "network").strip().lower()
+    kwargs = dict(
+        provider=provider, platform=platform, logger=logger, messages=messages,
+        custom_system_message=custom_system_message, applied_suggestions=applied_suggestions,
+        context_text=context_text, attachment_documents=attachment_documents,
+        image_replicate=image_replicate, llm=llm,
     )
-    xml = compile_network_ir(ir)
+    if view_key == "network":
+        ir = generate_network_ir(user_request, **kwargs)
+        xml = compile_network_ir(ir)
+    else:
+        ir = generate_corridor_ir(view_key, user_request, **kwargs)
+        xml = compile_corridor_ir(ir, page_name=_IR_PAGE_NAMES[view_key])
+
     if logger:
-        logger.log("ir_compile", "Compiled IR to draw.io XML", level="success", details={
+        logger.log("ir_compile", f"Compiled {_IR_PAGE_NAMES[view_key]} IR to draw.io XML", level="success", details={
             "xml_chars": len(xml), "xml": xml,
         })
     return XmlDiagram(
         xml=xml,
-        assistant_message=f"Generated {ir.title or 'architecture'} diagram.",
+        assistant_message=f"Generated {ir.title or _IR_PAGE_NAMES[view_key]} diagram.",
         suggestions=[],
         step_markers=[],
     )

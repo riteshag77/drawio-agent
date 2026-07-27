@@ -30,7 +30,7 @@ Hexagonal/ports-and-adapters layout:
 ```
 app/
   domain/entities/        # plain dataclasses/pydantic models (XmlDiagram, Mermaid) — no I/O
-  domain/ir/              # diagram intermediate representation (NetworkIR) — pure, self-validating
+  domain/ir/              # diagram IR — NetworkIR + shared CorridorIR (Logical/Security/Data flow), pure, self-validating
   core/services/          # use cases: agent.py (LLM calls), xml_pipeline.py (orchestration), intent.py
   adapters/inbound/web/   # FastAPI routes.py + schemas.py + rate_limit.py
   adapters/outbound/      # everything that talks to the outside world:
@@ -52,28 +52,56 @@ app/
    - In parallel (`asyncio.gather`): cost estimate, Well-Architected assessment, compliance assessment, and MCP icon resolution (`drawio_mcp_client.resolve_shape_styles` merges official icon styles into the LLM's placeholder leaves, preserving label attributes — see the LLM/MCP/prompt-pack ownership split below).
 3. Response includes `xml`, `renderer_used` (`mcp` or `local`), `llm_usage` (token/cost accounting distinct from the depicted architecture's estimated cloud spend), and `logs`.
 
-### Two generation paths (`DIAGRAM_IR_ENABLED`)
+### Two generation paths (`DIAGRAM_IR_ENABLED`), all four views
 
-There are now two ways the primary page gets produced. Know which one you're touching:
+There are now two ways any page (primary *or* a secondary/extra view) gets produced.
+Know which one you're touching:
 
 - **Direct XML** (default): the LLM writes mxCells itself, then ~5k lines of deterministic
   repair (`xml_diagnostics.py`, `placement_fixers.py`, `xml_tools.py`) correct what it got
   wrong. Handles every view, edit mode, and 3D.
-- **IR + compiler** (`DIAGRAM_IR_ENABLED=true`, Network view only, fresh generations only):
-  the LLM emits a Pydantic-validated `NetworkIR` (`app/domain/ir/`) and
-  `adapters/outbound/diagram/compiler/` deterministically renders the XML. Geometry, styles
-  and parent wiring become code, so the repair layer has nothing to fix.
+- **IR + compiler** (`DIAGRAM_IR_ENABLED=true`, `DIAGRAM_IR_VIEWS` opts in per view, fresh
+  generations only): the LLM emits a Pydantic-validated IR and
+  `adapters/outbound/diagram/compiler/` deterministically renders the XML.
+  - **Network** (`NetworkIR`, strict container nesting) — geometry/styles/parent-wiring become
+    code, so the repair layer has nothing to fix. This is a *correctness* fix: before this path
+    existed, LLM geometry mistakes were load-bearing and shipped to users.
+  - **Logical / Security / Data flow** (`LogicalIR`/`SecurityIR`/`DataFlowIR`, all sharing
+    `CorridorIR` in `domain/ir/corridor.py`) — a same-rank row of corridors + optional shelves.
+    These three already had a real deterministic layout engine
+    (`logical_layout.apply_layered_corridor_layout`, invoked unconditionally by `repair_xml`
+    for these page names) that discarded whatever geometry the LLM wrote — so the IR here is a
+    *waste and grouping-correctness* fix, not a geometry-correctness one: it stops the prompt
+    from teaching pixel arithmetic nobody reads, and turns "leaf in the wrong domain/zone/phase"
+    or "flow into a forbidden zone" into a structural validation error instead of a self-check
+    item an LLM can skip.
 
 Rules of thumb when editing:
-- A **layout/spacing** rule for the IR path is a constant in `geometry_spec.py`, not prompt
-  prose. That module is the single source of truth — `xml_diagnostics.py` imports the same
-  constants, which is what keeps compiler output diagnostically clean by construction.
-- A **structural invariant** (nesting, "no edges on cross-cutting groups", no empty subnets)
-  belongs in the IR types or `NetworkIR.semantic_errors()`, not in a prompt paragraph.
-- The IR path must never introduce a new failure mode: `xml_pipeline._should_use_ir_path`
-  gates eligibility and any exception falls back to direct XML.
-- Responses carry `generation_path` (`ir` | `direct_xml`) — distinct from `renderer_used`
-  (`mcp` | `local`), which is about icon resolution only.
+- A **layout/spacing** rule for the Network IR path is a constant in `geometry_spec.py`, not
+  prompt prose. That module is the single source of truth — `xml_diagnostics.py` imports the
+  same constants, which is what keeps compiler output diagnostically clean by construction.
+  The corridor views' compiler also reads it, but their geometry is a formality either way
+  (see above) — it's shared for consistency, not because it's load-bearing there.
+- A **structural invariant** (nesting, "no edges on cross-cutting groups", no empty
+  subnets/corridors, corridor id vocabulary, shelf anchoring) belongs in the IR types or a
+  `semantic_errors()` override, not in a prompt paragraph. `CorridorIR` in `corridor.py` is the
+  one place shared across Logical/Security/Data-flow — extend it there, not per-view, when the
+  rule is genuinely common to all three (see its module docstring for what already is).
+- Every view-agnostic call site reads from `domain.ir.IR_TYPES_BY_VIEW` (view → IR type) or
+  `agent._IR_PAGE_NAMES` (view → page name) rather than an if/elif chain — add a row there for
+  a new view, not a new branch at each call site.
+- The IR path must never introduce a new failure mode, for *either* role a view can play: the
+  primary page (`xml_pipeline._should_use_ir_path` gates eligibility) and a secondary/extra page
+  in the multi-view fan-out (`xml_pipeline._run_view`, same eligibility check, own try/except).
+  Both fall back to direct XML on any exception.
+- An extra view generated via IR skips `VIEW_REPAIR_MAX_PASSES`'s LLM repair loop entirely —
+  see `_run_view`'s `effective_repair_passes`.
+- Responses carry `generation_path` (`ir` | `direct_xml`) for the *primary* page — distinct from
+  `renderer_used` (`mcp` | `local`), which is about icon resolution only.
+- **Known gap, not a regression**: Data-flow's `phase_consume`+`phase_saas` double-shelf-under-
+  `phase_store` case can collide in the shared layout engine (pre-existing, pinned as a
+  regression test in `test_corridor_compiler.py` rather than blind-patched) — see
+  `docs/ENV_AND_MCP.md`'s IR section for the full writeup before touching `logical_layout.py`.
 
 ### LLM/MCP/prompt ownership split (important when touching diagram generation)
 

@@ -77,6 +77,27 @@ class Leaf(Identified):
         return value
 
 
+ActorKind = Literal["users", "saas_ingress", "saas_egress", "on_prem"]
+
+
+class ExternalActor(Identified):
+    """Anything outside the architecture's own boundary — never nested inside it.
+
+    Shared by every view: Network's Users/SaaS-left-of-Cloud, Logical's
+    Persona/IdP spine actors, Security's and Data-flow's equivalents are all the
+    same shape. Keeping this one type (rather than one per view) is what makes
+    "external actors can never end up nested inside a container" a single
+    guarantee instead of four near-identical ones.
+
+    ``kind`` drives placement side in every compiler: ingress (what is hit
+    first — a user, an identity provider) renders left; egress (what the
+    architecture calls out to) renders right.
+    """
+
+    kind: ActorKind
+    label: str
+
+
 class Flow(IRModel):
     """A directed request/data-path edge between two leaf ids."""
 
@@ -98,15 +119,58 @@ class Flow(IRModel):
 
 
 class DiagramIR(IRModel):
-    """Common surface every view IR implements, so the pipeline can stay view-agnostic."""
+    """Common surface every view IR implements, so the pipeline can stay view-agnostic.
+
+    ``external_actors``/``flows`` live here rather than on each view IR: every
+    view has exactly this shape for them (a flat list of actors, a flat list of
+    edges between ids), so declaring them per-subclass was pure duplication —
+    found by comparing ``NetworkIR`` against ``CorridorIR`` once both existed.
+    """
 
     view: ViewKind
     platform: str = Field(default="aws", description="aws | gcp | azure | multi")
     title: str = Field(default="Architecture", description="Page title")
+    external_actors: list[ExternalActor] = Field(default_factory=list)
+    flows: list[Flow] = Field(default_factory=list)
 
     def leaf_ids(self) -> set[str]:  # pragma: no cover - overridden
         raise NotImplementedError
 
+    def structural_ids(self) -> set[str]:  # pragma: no cover - overridden
+        """Every non-leaf, non-actor id: containers for Network, corridors for the rest."""
+        raise NotImplementedError
+
+    def all_ids(self) -> set[str]:
+        """Every id that can legally appear as a flow endpoint.
+
+        One formula for every view — leaves, structural containers, and
+        external actors — rather than each subclass reassembling the same
+        three-way union.
+        """
+        return self.leaf_ids() | self.structural_ids() | {a.id for a in self.external_actors}
+
+    def _base_flow_errors(self) -> list[str]:
+        """The two flow-validity checks every view needs identically.
+
+        Subclasses with additional rules (Network's cross-cutting-group edges)
+        start their ``semantic_errors()`` from this list and append their own
+        — one implementation of "does this edge even make sense" instead of
+        one per view.
+        """
+        errors: list[str] = []
+        known = self.all_ids()
+        for flow in self.flows:
+            if flow.source not in known:
+                errors.append(f"flow source {flow.source!r} is not a known cell id")
+            if flow.target not in known:
+                errors.append(f"flow target {flow.target!r} is not a known cell id")
+            if flow.source == flow.target:
+                errors.append(f"flow {flow.source!r} -> itself is not meaningful")
+        return errors
+
     def semantic_errors(self) -> list[str]:  # pragma: no cover - overridden
         """View-specific rules that Pydantic field validation cannot express."""
         raise NotImplementedError
+
+    def is_valid(self) -> bool:
+        return not self.semantic_errors()

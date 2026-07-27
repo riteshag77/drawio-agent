@@ -22,11 +22,25 @@ from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 
-from app.domain.ir.base import DiagramIR, Flow, Identified, IRModel, Leaf
+from app.domain.ir.base import ActorKind, DiagramIR, ExternalActor, Identified, Leaf
+
+__all__ = [
+    "ActorKind",  # re-exported for backward compatibility — canonical home is base.py
+    "AvailabilityZone",
+    "CloudBoundary",
+    "CrossCuttingGroup",
+    "EdgeLayer",
+    "ExternalActor",  # re-exported — canonical home is base.py, shared by every view
+    "GroupKind",
+    "NetworkIR",
+    "Region",
+    "Subnet",
+    "SubnetTier",
+    "Vpc",
+]
 
 SubnetTier = Literal["public", "app", "data"]
 GroupKind = Literal["security", "monitoring", "integration", "management"]
-ActorKind = Literal["users", "saas_ingress", "saas_egress", "on_prem"]
 
 # Tier render order, top to bottom. Public faces the internet, data sits deepest.
 TIER_ORDER: tuple[SubnetTier, ...] = ("public", "app", "data")
@@ -115,23 +129,9 @@ class CloudBoundary(Identified):
     )
 
 
-class ExternalActor(Identified):
-    """Anything outside the cloud boundary. Always rendered at the root layer.
-
-    ``kind`` drives which side of the Cloud box it lands on, encoding
-    network.txt's call-path rule: ingress (what the user hits first) on the
-    left, egress (what the app calls out to) on the right.
-    """
-
-    kind: ActorKind
-    label: str
-
-
 class NetworkIR(DiagramIR):
     view: Literal["network"] = "network"
     cloud: CloudBoundary
-    external_actors: list[ExternalActor] = Field(default_factory=list)
-    flows: list[Flow] = Field(default_factory=list)
 
     # ── id collection ──────────────────────────────────────────────────
 
@@ -152,7 +152,7 @@ class NetworkIR(DiagramIR):
             yield from self.cloud.edge_layer.leaves
         yield from self.cloud.connectivity_hubs
 
-    def container_ids(self) -> set[str]:
+    def structural_ids(self) -> set[str]:
         ids = {self.cloud.id}
         for region in self.cloud.regions:
             ids.add(region.id)
@@ -165,8 +165,9 @@ class NetworkIR(DiagramIR):
             ids.add(self.cloud.edge_layer.id)
         return ids
 
-    def all_ids(self) -> set[str]:
-        return self.leaf_ids() | self.container_ids() | {a.id for a in self.external_actors}
+    #: Pre-existing name kept for readability/back-compat at call sites —
+    #: ``structural_ids`` is the one ``DiagramIR.all_ids()`` actually calls.
+    container_ids = structural_ids
 
     def no_edge_ids(self) -> set[str]:
         """Cross-cutting group containers and their members — flows must not touch these."""
@@ -212,18 +213,15 @@ class NetworkIR(DiagramIR):
         Returned (not raised) so the generation loop can feed precise, field-level
         feedback back to the model on a retry — "flow x->y touches the security
         group" is a far more actionable correction than "your XML was malformed".
+
+        Starts from ``DiagramIR._base_flow_errors()`` (dangling refs, self-loops
+        — identical for every view) and adds Network's own rules on top.
         """
-        errors: list[str] = []
+        errors = self._base_flow_errors()
         known = self.all_ids()
         forbidden = self.no_edge_ids()
 
         for flow in self.flows:
-            if flow.source not in known:
-                errors.append(f"flow source {flow.source!r} is not a known cell id")
-            if flow.target not in known:
-                errors.append(f"flow target {flow.target!r} is not a known cell id")
-            if flow.source == flow.target:
-                errors.append(f"flow {flow.source!r} -> itself is not meaningful")
             if flow.source in forbidden or flow.target in forbidden:
                 errors.append(
                     f"flow {flow.source!r} -> {flow.target!r} touches a cross-cutting "
@@ -245,6 +243,3 @@ class NetworkIR(DiagramIR):
                                 "data tiers should be reached through the app tier"
                             )
         return errors
-
-    def is_valid(self) -> bool:
-        return not self.semantic_errors()

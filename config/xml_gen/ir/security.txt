@@ -1,0 +1,77 @@
+# Security / trust architecture view — judgment content
+
+Page name: **Security**. Role: Principal Security/Trust Architect (25+ years,
+enterprise estate) briefing risk owners on protections and trust boundaries —
+including third-party/partner risk, not just the consumer perimeter. 60-second
+trust briefing: public surface → perimeter → identity → partner/B2B → private
+→ restricted → detect / external SaaS. Microservice soup or VPC wallpaper → fail.
+
+## Corridor vocabulary (fixed ids)
+
+Main row, ordered left→right by trust level — use whichever apply, omit the
+rest: `zone_public`, `zone_dmz`, `zone_identity`, `zone_partner`,
+`zone_private`, `zone_restricted`, `zone_detect`.
+
+Anchored shelf: `zone_external_saas` — anchored under `zone_restricted`
+(SaaS vendors typically process/receive the organisation's sensitive data).
+
+## `zone_partner` vs `zone_external_saas` — do not conflate
+
+- `zone_external_saas` = SaaS products **the organisation subscribes to and
+  consumes** (Salesforce, Workday, Guidewire, Okta-as-IdP) — the org is the
+  customer.
+- `zone_partner` = **other organisations** integrating over B2B (brokers,
+  agencies, resellers, distributors, suppliers, reinsurers, marketplace
+  counterparties) — contractual, often mutual-auth (mTLS/API keys), with its
+  own federation trust distinct from the org's workforce IdP.
+
+## Leaf vocabulary
+
+Keep cloud `shape_type` (`aws_*`/`gcp_*`/`azure_*`) on inventory services:
+IdP/IAM, WAF/API GW/public ALB/Shield, KMS/secrets/ACM, bastion/private
+access, private app, sensitive-data boundary, detect tools.
+
+External IdP/enterprise SaaS (Okta, Salesforce, Workday, Guidewire, …):
+`shape_type=saas_<vendor>` — place in `zone_external_saas`, `zone_public`, or
+`zone_identity` as a trust peer, **never** as a private-app child.
+
+Business partners (brokers, agencies, resellers, distributors, suppliers,
+reinsurers, marketplace counterparties): plain generic partner-org leaves
+(not cloud `shape_type`) plus a dedicated **Partner API Gateway** leaf, all
+inside `zone_partner` — **never** as private-app children, **never** merged
+into `zone_external_saas`.
+
+## Required companions
+
+**When a private app + enterprise SaaS both appear:**
+1. Secrets Manager (or Key Vault) leaf inside `zone_private`. Flow app →
+   secrets, labeled `Fetches Credentials (TLS)`.
+2. `zone_detect` with GuardDuty (or equivalent) + CloudWatch/Monitor. Dashed
+   flow private app → detect, labeled `Logs & Telemetry`.
+
+**When business partners are in inventory:**
+1. Partner API Gateway inside `zone_partner` — the single ingress/egress
+   point for partner traffic, distinct from the consumer WAF/ALB.
+2. Flow partner leaf → gateway, labeled `Partner API (mTLS)`.
+3. Flow gateway → `zone_identity` (federation broker), labeled
+   `B2B Federation` — partners authenticate via their own federated identity,
+   not the workforce IdP.
+4. Flow gateway → the **specific** private-zone service it's scoped to
+   (never the whole zone by implication), labeled `Scoped Partner API`.
+
+## Allowed edges
+
+`AuthN`, `AuthZ`, `TLS`, `mTLS`, `inspect`, `perimeter cross`, `private path`,
+`issues token`, `Fetches Credentials (TLS)`, `Logs & Telemetry` (dashed),
+`Partner API (mTLS)`, `B2B Federation`, `Scoped Partner API`.
+
+**Forbidden:** Orders/Catalog/Checkout/UI soup, Kafka-as-hero, DB
+table/CRUD labels, full AZ/subnet wallpaper (that's Network's lens), SaaS
+leaves inside `zone_private`, partner leaves inside `zone_private` or
+`zone_external_saas`, any leaf as a direct child of `parent="1"` that isn't
+an external actor.
+
+## Density
+
+8–12 when supported; 5–7 when thin — never invent fake controls except the
+required companions above when their trigger conditions are met.

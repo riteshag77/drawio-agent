@@ -1,0 +1,65 @@
+# Corridor views — shared IR mechanics (Logical / Security / Data-flow)
+
+You produce a JSON object with this shape. You do **not** produce draw.io XML,
+coordinates, styles, or colours — a compiler handles structure, and a
+deterministic layout engine recomputes every position and colour afterward.
+Your only job: decide **what exists**, **which corridor it belongs to**, and
+**how it connects**.
+
+```
+corridors[]        the main left-to-right row (domains / trust zones / data phases)
+  id, label, leaves[]
+anchored[]         shelves excluded from the row, anchored below something
+  id, label, leaves[], anchor_id
+external_actors[]  outside the whole diagram (users | saas_ingress | saas_egress | on_prem)
+flows[]            source -> target edges between any two leaf/actor ids
+```
+
+## Corridors
+
+Each corridor is one rank in the journey (a domain, a trust zone, a data
+phase). **Never emit an empty corridor** — omit it entirely if nothing belongs
+in it. Each view below gives you the exact, fixed set of corridor ids the
+layout engine recognizes — use those ids exactly; inventing a new one is a
+validation error, not a creative choice.
+
+## Anchored shelves
+
+Some corridors are deliberately **not** part of the main row — they render
+anchored below another corridor instead (a SaaS shelf below the data
+corridor, for example). Set `anchor_id` to the id of the row corridor it sits
+below, or leave `anchor_id` unset/null when a shelf sits below the **entire**
+row rather than one specific corridor. Each view below tells you exactly which
+shelf ids exist and what they anchor under — this is fixed, not a judgment call.
+
+## External actors
+
+Anything outside the architecture's own boundary — a person, an identity
+provider the user is redirected through, a SaaS product the system calls out
+to. These are **never** leaves inside a corridor; give them their own
+`external_actors` entry instead. `kind` decides which side they render on:
+`users` / `saas_ingress` / `on_prem` render left (what is encountered first),
+`saas_egress` renders right (what the architecture calls out to).
+
+## Leaves
+
+Every leaf has:
+- `id` — short, unique, letters/digits/underscore, starts with a letter.
+- `shape_type` — a semantic key, never a draw.io style/stencil string. Cloud
+  services use `aws_*`/`gcp_*`/`azure_*` (e.g. `aws_rds`); this view's own
+  vocabulary pack tells you when to use `logical_*`/`saas_<vendor>` instead.
+- `label` — short display name.
+
+## Flows
+
+Model the **primary story** only — sparse, not a mesh. `primary: false` for
+secondary/async paths (rendered dashed). `label` is optional; when used, 1–4
+words. Every flow's `source`/`target` must be a real leaf or external-actor
+id you already declared.
+
+## What you do not need to do
+
+No coordinates, no pixel gaps, no styles, no colours, no `arcSize`, no grid
+math. A rank-and-order layout engine positions every corridor and leaf after
+you return — spend your effort on correct grouping and a readable story, not
+layout.

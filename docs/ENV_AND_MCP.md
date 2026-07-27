@@ -109,33 +109,81 @@ DRAWIO_STYLE_CACHE_RESET=false
 
 ## IR generation path (`DIAGRAM_IR_ENABLED`)
 
-An alternative to having the LLM write draw.io XML directly. The model instead
-emits a **NetworkIR** (`app/domain/ir/network.py`) — a small, closed, Pydantic-
-validated structure of containers, leaves and flows — and a deterministic
-compiler (`app/adapters/outbound/diagram/compiler/`) renders the mxCells.
+An alternative to having the LLM write draw.io XML directly, for **all four**
+views (Network, Logical, Security, Data flow). The model instead emits a
+small, closed, Pydantic-validated IR (`app/domain/ir/`) — never coordinates,
+styles, or colours — and a deterministic compiler
+(`app/adapters/outbound/diagram/compiler/`) renders the mxCells.
 
-| Concern | Direct-XML path | IR path |
-| --- | --- | --- |
-| Geometry, padding, pitch, container fit | LLM, guided by prompt prose | Compiler (`geometry_spec.py`) |
-| Styles, `arcSize`, group colours | LLM | Compiler (`compiler/theme.py`) |
-| Parent wiring / nesting | LLM `parent=` attributes | Structural — nesting is the IR's shape |
-| "No edges on cross-cutting groups" | Prompt rule, repaired after the fact | `NetworkIR.semantic_errors()` rejects it |
-| Icon stencils | MCP (unchanged) | MCP (unchanged) |
-| System prompt size | ~9.3k tokens | ~2.1k tokens (77% smaller) |
+The IR shape differs by view, because the underlying layout problem does:
 
-Everything downstream — validation, MCP icon resolution, libavoid, cost/WAF/
-compliance enrichment, the `guarantee_loadable_xml` circuit breaker — is
-identical for both paths; the IR path simply hands the same `XmlDiagram` to it.
+| View | IR type | Shape | What already handled geometry |
+| --- | --- | --- | --- |
+| Network | `NetworkIR` | strict container nesting (Cloud→Region→VPC→AZ→Subnet) | nothing — geometry was previously the LLM's job and load-bearing |
+| Logical / Security / Data flow | `LogicalIR` / `SecurityIR` / `DataFlowIR`, sharing `CorridorIR` | a same-rank row of corridors + optional shelves anchored below | `logical_layout.py`'s rank-and-order layout engine, called unconditionally by `repair_xml` for these three page names — it already discarded whatever geometry the LLM wrote |
 
-- **Scope**: only the primary Network view, and only for fresh generations.
-  Edit mode (`current_xml` present) and 3D fall through to direct XML, since the
-  IR cannot express "preserve these exact ids and coordinates".
-- **Failure behaviour**: any error in the IR path logs a warning and falls back
-  to direct XML. It can never turn a working request into a failed one.
-- **Observability**: responses carry `generation_path` (`ir` | `direct_xml`),
-  distinct from `renderer_used` (`mcp` | `local`, which is about icons).
-- Enable with `DIAGRAM_IR_ENABLED=true`; `DIAGRAM_IR_VIEWS` limits which primary
-  views use it (default `network`, the only one currently supported).
+That distinction matters: Network's IR exists to eliminate a *correctness*
+risk (bad geometry shipping to users). The corridor views' IR exists to
+eliminate *waste* (prompt tokens teaching pixel arithmetic a downstream engine
+was always going to throw away) and to make *grouping* mistakes (a leaf in the
+wrong domain/zone/phase, a flow into a zone it must never reach) structural
+validation errors instead of self-check items an LLM can skip.
+
+Shared building blocks (the DRY payoff of splitting compiler concerns into
+small modules rather than one per view):
+
+| Concern | Shared in |
+| --- | --- |
+| `Leaf`, `Flow`, `ExternalActor` | `domain/ir/base.py` |
+| Corridor/shelf shape, id-vocabulary validation | `domain/ir/corridor.py` |
+| Geometry constants (pitch, padding, gaps) | `diagram/geometry_spec.py` — read by **both** the compiler and `xml_diagnostics`, so they can't drift apart |
+| mxCell emission | `diagram/compiler/emit.py` |
+| Styles | `diagram/compiler/theme.py` |
+| LLM-call + corrective-retry loop | `core/services/agent.py`'s `_generate_ir_with_corrections` — one implementation, used by `generate_network_ir` and `generate_corridor_ir` |
+| view → IR type dispatch | `domain/ir.IR_TYPES_BY_VIEW` |
+
+Everything downstream of generation — validation, MCP icon resolution,
+libavoid, cost/WAF/compliance enrichment, the `guarantee_loadable_xml` circuit
+breaker, and (for the corridor views) the existing layout/scoring/repair
+pipeline — is identical regardless of which path produced the page; the IR
+path just hands the same `XmlDiagram` to it.
+
+- **Scope**: fresh generations only. Edit mode (`current_xml` present) and 3D
+  fall through to direct XML for every view — the IR cannot express "preserve
+  these exact ids and coordinates" or isometric projection.
+- **Both roles**: a view generated via IR whether it's the *primary* page or a
+  *secondary* (extra) page in a multi-view request — same eligibility check,
+  same generator, same fallback contract in both call sites.
+- **Failure behaviour**: any error in the IR path (primary or extra-view) logs
+  a warning and falls back to direct XML for that page. It can never turn a
+  working request into a failed one.
+- **No wasted repair passes**: an extra view generated via IR skips the
+  LLM repair-pass loop (`VIEW_REPAIR_MAX_PASSES`) entirely — the invariants
+  `score_view` checks are already guaranteed by IR validation, so a low score
+  there would mean a scoring rule needs attention, not the diagram.
+- **Observability**: responses carry `generation_path` (`ir` | `direct_xml`)
+  for the primary page, distinct from `renderer_used` (`mcp` | `local`, which
+  is about icon resolution only).
+- Enable with `DIAGRAM_IR_ENABLED=true`; `DIAGRAM_IR_VIEWS` (comma-separated)
+  picks which views use it, e.g. `DIAGRAM_IR_VIEWS=network,logical,security,data_flow`.
+  Default is `network` only — the three corridor views are opt-in until you've
+  run them against real traffic.
+
+**Known pre-existing gap in the shared layout engine** (found while building
+this, not introduced by it): when Data-flow's `phase_consume` *and*
+`phase_saas` are both present (both legitimately anchor under `phase_store`,
+stacked), `logical_layout.apply_layered_corridor_layout` can land them at
+identical coordinates when combined with SaaS-leaf hoisting — confirmed by
+isolating the layout function (stacks correctly alone) versus the full
+`enforce_view_journey_columns` pipeline (collides). Separately, `phase_control`
+(meant to anchor below the *whole* row) has no such placement mode in the
+engine at all — it falls into the main ranked row instead. Both predate this
+IR work and affect the direct-XML path too (just rarely triggered, since free-
+form LLM geometry seldom hits the exact structural conditions needed). Left
+unfixed deliberately — pinned as a regression test
+(`test_corridor_compiler.py::test_data_flow_double_shelf_has_a_known_preexisting_layout_engine_gap`)
+rather than patched blind; a fix belongs in its own reviewed change against
+`logical_layout.py`/`placement_fixers.py`.
 
 ## Diagram history (`/history`)
 

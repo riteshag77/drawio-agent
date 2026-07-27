@@ -21,12 +21,16 @@ Layout order mirrors the canonical hierarchy in
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from app.adapters.outbound.diagram import geometry_spec as geo
 from app.adapters.outbound.diagram.compiler import theme
 from app.adapters.outbound.diagram.compiler.emit import CellWriter
-from app.domain.ir.base import Leaf
+from app.adapters.outbound.diagram.compiler.shared import (
+    Box as _Box,
+    CompilerError,
+    emit_external_actors,
+    emit_flows,
+    emit_leaf_grid,
+)
 from app.domain.ir.network import (
     AvailabilityZone,
     CrossCuttingGroup,
@@ -34,18 +38,6 @@ from app.domain.ir.network import (
     Subnet,
     Vpc,
 )
-
-
-class CompilerError(ValueError):
-    """Raised when an IR cannot be compiled. Should be unreachable for a validated IR."""
-
-
-@dataclass
-class _Box:
-    """A laid-out container's outer size, before it is positioned in its parent."""
-
-    width: float
-    height: float
 
 
 def compile_network_ir(ir: NetworkIR, *, page_name: str = "Network") -> str:
@@ -71,41 +63,22 @@ class _NetworkCompiler:
     def run(self) -> str:
         cloud = self.ir.cloud
         cloud_box = self._emit_cloud(cloud_x=geo.CLOUD_ORIGIN_X, cloud_y=geo.CLOUD_ORIGIN_Y)
-        self._emit_actors(cloud_box)
-        self._emit_flows()
+        emit_external_actors(
+            self.w, self.ir.external_actors,
+            left_x=geo.CLOUD_ORIGIN_X - geo.ACTOR_GAP_X - geo.LEAF_W,
+            right_x=geo.CLOUD_ORIGIN_X + cloud_box.width + geo.ACTOR_GAP_X,
+            top_y=geo.CLOUD_ORIGIN_Y + geo.TITLE_PAD,
+        )
+        emit_flows(self.w, self.ir.flows)
 
         page_w = geo.CLOUD_ORIGIN_X + cloud_box.width + 400
         page_h = geo.CLOUD_ORIGIN_Y + cloud_box.height + 120
         return self.w.to_xml(page_width=page_w, page_height=page_h)
 
-    # ── leaf grids ─────────────────────────────────────────────────────
-
-    def _emit_leaf_grid(self, leaves: list[Leaf], parent_id: str, *, is_group: bool) -> _Box:
-        """Grid ``leaves`` inside ``parent_id`` and return the parent's required outer size."""
-        content_w, content_h, cols, _rows = geo.grid_size(len(leaves), is_group=is_group)
-        pitch = geo.pitch_for(is_group)
-        for index, leaf in enumerate(leaves):
-            col, row = index % cols, index // cols
-            self.w.vertex(
-                id=leaf.id,
-                label=leaf.label,
-                style=theme.leaf_style(),
-                x=geo.PAD + col * pitch,
-                y=geo.TITLE_PAD + row * geo.ROW_PITCH_Y,
-                w=geo.LEAF_W,
-                h=geo.LEAF_H,
-                parent=parent_id,
-                shape_type=leaf.shape_type,
-            )
-        return _Box(
-            width=content_w + geo.PAD * 2,
-            height=geo.TITLE_PAD + content_h + geo.PAD,
-        )
-
     # ── containers, bottom-up ──────────────────────────────────────────
 
     def _emit_subnet(self, subnet: Subnet, parent_id: str, x: float, y: float) -> _Box:
-        box = self._emit_leaf_grid(subnet.leaves, subnet.id, is_group=False)
+        box = emit_leaf_grid(self.w, subnet.leaves, subnet.id, is_group=False)
         self.w.vertex(
             id=subnet.id,
             label=f"{subnet.tier.title()} Subnet",
@@ -136,7 +109,7 @@ class _NetworkCompiler:
         return zone_box
 
     def _emit_group(self, group: CrossCuttingGroup, parent_id: str, x: float, y: float) -> _Box:
-        box = self._emit_leaf_grid(group.leaves, group.id, is_group=True)
+        box = emit_leaf_grid(self.w, group.leaves, group.id, is_group=True)
         self.w.vertex(
             id=group.id,
             label=f"{group.kind.title()} Group",
@@ -221,7 +194,7 @@ class _NetworkCompiler:
 
         # Edge/global layer: inside Cloud, below the regions.
         if cloud.edge_layer:
-            box = self._emit_leaf_grid(cloud.edge_layer.leaves, cloud.edge_layer.id, is_group=False)
+            box = emit_leaf_grid(self.w, cloud.edge_layer.leaves, cloud.edge_layer.id, is_group=False)
             self.w.vertex(
                 id=cloud.edge_layer.id,
                 label=cloud.edge_layer.label,
@@ -262,35 +235,3 @@ class _NetworkCompiler:
             parent="1",
         )
         return cloud_box
-
-    # ── root layer ─────────────────────────────────────────────────────
-
-    def _emit_actors(self, cloud_box: _Box) -> None:
-        """Place external actors by call path: ingress left of Cloud, egress right."""
-        left = [a for a in self.ir.external_actors if a.kind in ("users", "saas_ingress", "on_prem")]
-        right = [a for a in self.ir.external_actors if a.kind == "saas_egress"]
-
-        left_x = geo.CLOUD_ORIGIN_X - geo.ACTOR_GAP_X - geo.LEAF_W
-        right_x = geo.CLOUD_ORIGIN_X + cloud_box.width + geo.ACTOR_GAP_X
-
-        for column, x in ((left, left_x), (right, right_x)):
-            y = geo.CLOUD_ORIGIN_Y + geo.TITLE_PAD
-            for actor in column:
-                self.w.vertex(
-                    id=actor.id,
-                    label=actor.label,
-                    style=theme.actor_style(),
-                    x=x, y=y, w=geo.LEAF_W, h=geo.LEAF_H,
-                    parent="1",
-                )
-                y += geo.LEAF_H + geo.LABEL_BAND_H + geo.ACTOR_GAP_Y
-
-    def _emit_flows(self) -> None:
-        for index, flow in enumerate(self.ir.flows):
-            self.w.edge(
-                id=f"flow_{index}",
-                source=flow.source,
-                target=flow.target,
-                label=flow.label,
-                style=theme.flow_style(primary=flow.primary, labelled=bool(flow.label)),
-            )

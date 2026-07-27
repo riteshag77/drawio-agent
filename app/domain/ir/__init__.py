@@ -13,13 +13,15 @@ responsibility; the model only decides *what* exists and *how it connects*.
 Pure domain: no I/O, no draw.io vocabulary, no rendering concerns.
 """
 
-from app.domain.ir.base import DiagramIR, Flow, Leaf, ViewKind
+from app.domain.ir.base import ActorKind, DiagramIR, ExternalActor, Flow, Leaf, ViewKind
+from app.domain.ir.corridor import AnchoredCorridor, Corridor, CorridorIR
+from app.domain.ir.data_flow import DataFlowIR
+from app.domain.ir.logical import LogicalIR
 from app.domain.ir.network import (
     AvailabilityZone,
     CloudBoundary,
     CrossCuttingGroup,
     EdgeLayer,
-    ExternalActor,
     GroupKind,
     NetworkIR,
     Region,
@@ -27,21 +29,39 @@ from app.domain.ir.network import (
     SubnetTier,
     Vpc,
 )
+from app.domain.ir.security import SecurityIR
 
 __all__ = [
+    "ActorKind",
+    "AnchoredCorridor",
     "AvailabilityZone",
     "CloudBoundary",
+    "Corridor",
+    "CorridorIR",
     "CrossCuttingGroup",
+    "DataFlowIR",
     "DiagramIR",
     "EdgeLayer",
     "ExternalActor",
     "Flow",
     "GroupKind",
     "Leaf",
+    "LogicalIR",
     "NetworkIR",
     "Region",
+    "SecurityIR",
     "Subnet",
     "SubnetTier",
     "ViewKind",
     "Vpc",
 ]
+
+#: Maps a primary-view key to its IR type — the single dispatch table every
+#: generic (view-agnostic) call site should read from, instead of an if/elif
+#: chain repeated at each call site.
+IR_TYPES_BY_VIEW: dict[str, type[DiagramIR]] = {
+    "network": NetworkIR,
+    "logical": LogicalIR,
+    "security": SecurityIR,
+    "data_flow": DataFlowIR,
+}

@@ -107,6 +107,31 @@ def edge_layer_style() -> str:
     )
 
 
+def corridor_style() -> str:
+    """Generic domain/zone/phase container style.
+
+    Fill/stroke/font colour are irrelevant here: ``placement_fixers.
+    normalize_corridor_colors`` unconditionally overwrites those three keys
+    for every ``domain_``/``zone_``/``phase_`` container to its view's
+    canonical Section-colors value regardless of what the compiler emits —
+    confirmed in that function's own docstring ("Authoritative: overwrites
+    existing fill/stroke/font color keys rather than filling gaps"). Only the
+    non-colour parts of this style (``arcSize``, ``container=1``) are ours to
+    get right.
+    """
+    return _titled("#6B7280", dashed=False)
+
+
+def shelf_style() -> str:
+    """Anchored-shelf container style (SaaS/consume/control shelves).
+
+    Same colour-is-discarded rule as ``corridor_style`` — dashed is the only
+    part that survives normalization, used here to visually distinguish a
+    shelf from a main-row corridor before that overwrite runs.
+    """
+    return _titled("#6B7280", dashed=True)
+
+
 def leaf_style() -> str:
     """Grey placeholder awaiting MCP icon resolution.
 

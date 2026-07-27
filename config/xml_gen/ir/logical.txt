@@ -1,0 +1,65 @@
+# Logical architecture view — judgment content
+
+Page name: **Logical**. Role: Principal Application/Solution Architect briefing
+eng leads on **what the system does** and **how capabilities depend** — not
+infrastructure. 60-second design-authority brief. If this reads like a VPC map
+or trust-zone diagram → fail.
+
+## Corridor vocabulary (fixed ids)
+
+Main row — use whichever apply, omit the rest:
+`domain_experience` (channels/portals), `domain_core` or `domain_commerce`
+(capabilities/APIs), `domain_data` (data stores), `domain_platform` (shared
+platform/observability capabilities).
+
+Anchored shelf: `domain_saas` — external SaaS products, anchored under
+`domain_data`. **Required** when 2+ egress SaaS products appear.
+
+## Journey spine (external actors)
+
+When auth or external SaaS appears: `Persona` (kind=users) → `Identity SaaS`
+(kind=saas_ingress, e.g. Okta) → the Portal/Application **leaf inside
+domain_experience**. Never start the story at a data store or IdP alone.
+
+## Leaf vocabulary
+
+Personas/actors, channels/portals/applications, capabilities (business verbs —
+not infra), BFF/API as interface, generic data stores (**"Customer data
+store" — never product names like Postgres/Aurora**), cache capability (see
+below), shared platform capabilities. Use `shape_type=logical_*` placeholders
+for all of these — the server assigns icons. **Never** emit cloud
+`shape_type` (`aws_*`/`gcp_*`/`azure_*`).
+
+External SaaS products: each its own leaf labeled `{Product} (SAAS)` (e.g.
+`Okta (SAAS)`, `Workday (SAAS)`), `shape_type=saas_<vendor>` when known, else
+`logical_saas`. Never invent cloud stencils for these.
+
+## Required: cache-aside companion
+
+When egress SaaS + an app/portal + a datastore are **all** present, add
+graceful-degradation for SaaS outages (not density padding):
+1. A cache leaf inside `domain_core` (e.g. `Profile cache` / `Session cache`).
+2. Flow app/portal → cache, labeled `Check Cache (Profiles)`.
+3. Flow app/portal → egress SaaS, labeled `Cache Miss: Fetches via API`
+   (never a bare `Calls API` when a cache leaf exists).
+
+## Allowed edges (every flow labeled)
+
+`Uses`, `Authenticates via`, `Invokes`, `Calls API`, `Relies on`,
+`Reads/Writes via API`, `Redirects to`, `Check Cache (Profiles)`,
+`Cache Miss: Fetches via API`. Never TLS/WAF/JSON-payload-tour vocabulary —
+that belongs to Security/Data-flow.
+
+Canonical auth journey: `Persona → Okta (SAAS)` (`Authenticates via`) →
+`Portal/Application` (`Redirects to`) → capability. Canonical data journey:
+`capability → Customer data store` (`Reads/Writes via API`).
+
+**Forbidden:** data store ↔ IdP edges; every-to-every mesh; bare `Calls API`
+to egress SaaS when a cache leaf is present; trust-zone vocabulary
+(zone_public/DMZ/etc. — that's Security's lens); infrastructure products
+(WAF/ALB/VPC/subnet/NAT — also Security's or Network's lens).
+
+## Density
+
+8–12 leaves when inventory supports it; 5–7 when thin. Never invent domains
+or capabilities to pad.

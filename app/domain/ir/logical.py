@@ -1,0 +1,41 @@
+"""Logical (capability/dependency) view IR.
+
+Structural rules lifted from ``config/xml_gen/views/logical.txt``'s prose:
+domain vocabulary is fixed (the layout engine finds domains by exact id, not
+label), `domain_saas` is a shelf anchored under `domain_data` rather than a
+peer column, and external actors (Persona, IdP) never end up nested inside a
+domain because they have their own list. Judgment calls — which capability
+goes in which domain, the cache-aside companion pattern — stay in
+``config/xml_gen/ir/logical.txt`` and are not re-litigated here.
+"""
+
+from __future__ import annotations
+
+from typing import ClassVar, Literal
+
+from pydantic import model_validator
+
+from app.domain.ir.corridor import CorridorIR
+
+_ROW_IDS = frozenset({"domain_experience", "domain_core", "domain_commerce", "domain_data", "domain_platform"})
+_SHELF_ID = "domain_saas"
+
+
+class LogicalIR(CorridorIR):
+    view: Literal["logical"] = "logical"
+    id_prefix: ClassVar[str] = "domain_"
+
+    @model_validator(mode="after")
+    def _check_domain_vocabulary(self) -> "LogicalIR":
+        for corridor in self.corridors:
+            if corridor.id not in _ROW_IDS:
+                raise ValueError(
+                    f"domain id {corridor.id!r} is not one of {sorted(_ROW_IDS)} — the layout "
+                    "engine only recognizes these exact domain ids"
+                )
+        for shelf in self.anchored:
+            if shelf.id != _SHELF_ID:
+                raise ValueError(f"anchored corridor id {shelf.id!r} must be {_SHELF_ID!r} in Logical")
+            if shelf.anchor_id != "domain_data":
+                raise ValueError(f"{_SHELF_ID!r} must anchor under 'domain_data' (got {shelf.anchor_id!r})")
+        return self

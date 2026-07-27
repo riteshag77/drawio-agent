@@ -463,6 +463,37 @@ def _finalize_view_page_xml(
     return xml
 
 
+def _generate_ir_view_page(
+    *,
+    human_prompt: str,
+    platform_key: str,
+    primary_xml: str,
+    provider_key: str,
+    view: str,
+    logger: Any,
+) -> str | None:
+    """IR path for a *secondary* (extra) view page — the fan-out's counterpart
+    to the primary-page IR path in ``run_xml_pipeline``.
+
+    Reuses ``agent.generate_xml_diagram_from_ir`` (the exact same generic
+    dispatcher the primary page uses) rather than a bespoke extra-view IR
+    call — a view's IR generation works identically whether that view happens
+    to be primary or secondary this request, and duplicating it per role
+    would be the one thing this whole effort is supposed to avoid. Runs the
+    same ``_finalize_view_page_xml`` normalization (gap injection, SaaS shape
+    stamping, overview panel) as the direct-XML extra-view path so downstream
+    handling is identical regardless of which path produced the page.
+    """
+    diagram = generate_xml_diagram_from_ir(
+        view, human_prompt, provider_key, platform_key, logger, None,
+    )
+    title = VIEW_PAGE_NAMES.get(view, view)
+    return _finalize_view_page_xml(
+        diagram.xml, title, diagram.step_markers, logger,
+        primary_xml=primary_xml, view=view, human_prompt=human_prompt or "",
+    )
+
+
 def _generate_single_view_page(
     *,
     human_prompt: str,
@@ -868,7 +899,7 @@ async def run_xml_pipeline(
         await _emit(on_progress, "ir", "Generating validated architecture model…")
         try:
             xml_diagram = await run_llm_sync(
-                generate_xml_diagram_from_ir, human_prompt, provider_key, platform_key, logger,
+                generate_xml_diagram_from_ir, primary_view, human_prompt, provider_key, platform_key, logger,
                 messages, custom_system_message, applied_suggestions, enriched_context,
                 attachment_documents,
                 image_replicate=image_replicate,
@@ -1029,16 +1060,46 @@ async def run_xml_pipeline(
         min_score = cfg.view_quality_min_score
         repair_passes = cfg.view_repair_max_passes
         await _emit(on_progress, "views", f"Generating {title} view…")
-        page_xml = await run_llm_sync(
-            _generate_single_view_page,
-            human_prompt=human_prompt,
-            platform_key=platform_key,
-            primary_xml=primary_xml_snapshot,
-            provider_key=view_provider,
-            view=view_key,
-            logger=logger,
-            gap_block=gap_context_block,
-        )
+
+        page_xml: str | None = None
+        used_ir = False
+        # Same eligibility/fallback contract as the primary page's IR path
+        # (_should_use_ir_path with no current_xml/three_d — extra views are
+        # never generated for edits, that's already gated by `surgical` above,
+        # and 3D has no multi-view fan-out at all): try IR first, and any
+        # failure degrades to the direct-XML generator rather than the request.
+        if _should_use_ir_path(view_key, None, False):
+            try:
+                page_xml = await run_llm_sync(
+                    _generate_ir_view_page,
+                    human_prompt=human_prompt,
+                    platform_key=platform_key,
+                    primary_xml=primary_xml_snapshot,
+                    provider_key=view_provider,
+                    view=view_key,
+                    logger=logger,
+                )
+                used_ir = page_xml is not None
+            except Exception as exc:
+                if logger:
+                    logger.log(
+                        "views",
+                        f"{title} IR path failed ({exc}) — falling back to direct XML generation",
+                        level="warning",
+                    )
+                page_xml = None
+
+        if page_xml is None:
+            page_xml = await run_llm_sync(
+                _generate_single_view_page,
+                human_prompt=human_prompt,
+                platform_key=platform_key,
+                primary_xml=primary_xml_snapshot,
+                provider_key=view_provider,
+                view=view_key,
+                logger=logger,
+                gap_block=gap_context_block,
+            )
         if not page_xml:
             if logger:
                 logger.log(
@@ -1067,7 +1128,13 @@ async def run_xml_pipeline(
         await _emit(on_progress, "views", f"{title} scored {scored.score}")
 
         best_xml, best_score = page_xml, scored
-        for _ in range(repair_passes):
+        # IR-compiled pages don't get LLM repair passes: the invariants
+        # score_view checks (right leaf -> right corridor, valid vocabulary)
+        # are already guaranteed by the IR's own validation, so a low score
+        # here would mean a *scoring* rule needs attention, not the diagram —
+        # spending an LLM repair call on it would not fix anything.
+        effective_repair_passes = 0 if used_ir else repair_passes
+        for _ in range(effective_repair_passes):
             if best_score.score >= min_score:
                 break
             await _emit(
