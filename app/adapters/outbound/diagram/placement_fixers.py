@@ -458,9 +458,11 @@ def _logical_obstacle_rects(
     cells: list[ET.Element],
     by_id: dict[str, ET.Element],
     skip_ids: set[str],
+    page_w: float = 0.0,
+    page_h: float = 0.0,
 ) -> list[tuple[float, float, float, float]]:
     """Absolute leaf boxes (incl. under-icon label band) an edge must not cross."""
-    from app.adapters.outbound.diagram.xml_diagnostics import _band_height
+    from app.adapters.outbound.diagram.xml_diagnostics import _band_height, _is_canvas_background_cell
 
     rects: list[tuple[float, float, float, float]] = []
     for cell in cells:
@@ -470,6 +472,13 @@ def _logical_obstacle_rects(
         if cell.get("vertex") != "1" or cell.get("edge") == "1" or _is_container_cell(cell):
             continue
         if cid in {"overview_panel", "legend_box"} or cid.startswith("step_badge_"):
+            continue
+        # Found via real-capture replay: without this, the full-page
+        # background rect (e.g. a 3586x1400 opaque backdrop) is treated as a
+        # single giant obstacle, forcing every detour band computation
+        # (_route_candidates) to the extreme edge of the whole canvas instead
+        # of a sane local detour.
+        if _is_canvas_background_cell(cell, page_w, page_h):
             continue
         geo = _cell_geometry(cell)
         if geo is None:
@@ -529,15 +538,42 @@ def _route_candidates(
     ex, ey = end
     out: list[list[tuple[float, float]]] = []
     if axis == "h":
-        if abs(sy - ey) < 1.0:
+        # Only offer the trivial straight line when it's actually clear — if it's
+        # blocked, letting it into the candidate pool lets it win ties against
+        # every detour below (it's evaluated first, and _path_blocked_count's
+        # coarse "1 blocked segment" often ties with a detour that's ALSO
+        # partially blocked), which is how an edge ends up drawn straight
+        # through the center of an icon instead of jogging around it.
+        if abs(sy - ey) < 1.0 and not _segment_blocked(start, end, obstacles, _LOGICAL_ROUTE_CLEARANCE):
             out.append([start, end])
+        # Same-row hop (source/target level, e.g. two icons in one corridor
+        # with a third sitting between them): a mid-shift jog is a zero-height
+        # no-op at this y, so it can never dodge anything on this row — the
+        # only way over/under a same-row neighbor is an actual vertical
+        # offset, tried at increasing distances before the whole-corridor
+        # under-band detour below (which computes its band from every
+        # obstacle/frame in the x-span and can land far outside the visible
+        # area for a wide row, crossing even more unrelated shapes).
+        if abs(sy - ey) < 1.0:
+            for dy in (60.0, -60.0, 96.0, -96.0, 140.0, -140.0):
+                jy = sy + dy
+                out.append([start, (sx, jy), (ex, jy), end])
         mid = (sx + ex) / 2.0 + mid_shift
         for shift in (0.0, 40.0, -40.0, 80.0, -80.0):
             mx = mid + shift
             out.append([start, (mx, sy), (mx, ey), end])
+        # Y-proximity window on top of the existing X-range filter: without
+        # it, any container that merely shares the edge's X-span — however
+        # far away vertically (a whole other zone/row) — drags top/bottom to
+        # its own extreme, pushing the detour band far outside the visible
+        # area (found via real-capture replay: a same-row cross-zone edge on
+        # a wide Security page computed a band at y=1444 on a ~600px-tall
+        # canvas, crossing straight through unrelated shapes near that band).
+        y_window = 320.0
         span = [
             r for r in obstacles + frames
             if min(sx, ex) - 40 < r[0] + r[2] and r[0] < max(sx, ex) + 40
+            and min(sy, ey) - y_window < r[1] + r[3] and r[1] < max(sy, ey) + y_window
         ]
         top = min((r[1] for r in span), default=min(sy, ey))
         bottom = max((r[1] + r[3] for r in span), default=max(sy, ey))
@@ -551,15 +587,23 @@ def _route_candidates(
                 (ex - 24.0, band_y), (ex - 24.0, ey), end,
             ])
     else:
-        if abs(sx - ex) < 1.0:
+        if abs(sx - ex) < 1.0 and not _segment_blocked(start, end, obstacles, _LOGICAL_ROUTE_CLEARANCE):
             out.append([start, end])
+        # Mirrors the "h" branch's same-column fix above.
+        if abs(sx - ex) < 1.0:
+            for dx in (60.0, -60.0, 96.0, -96.0, 140.0, -140.0):
+                jx = sx + dx
+                out.append([start, (jx, sy), (jx, ey), end])
         mid = (sy + ey) / 2.0 + mid_shift
         for shift in (0.0, 40.0, -40.0, 80.0, -80.0):
             my = mid + shift
             out.append([start, (sx, my), (ex, my), end])
+        # X-proximity window — mirrors the "h" branch's fix above.
+        x_window = 320.0
         span = [
             r for r in obstacles + frames
             if min(sy, ey) - 40 < r[1] + r[3] and r[1] < max(sy, ey) + 40
+            and min(sx, ex) - x_window < r[0] + r[2] and r[0] < max(sx, ex) + x_window
         ]
         left = min((r[0] for r in span), default=min(sx, ex))
         right = max((r[0] + r[2] for r in span), default=max(sx, ex))
@@ -852,6 +896,9 @@ def fix_edge_anchors_from_geometry(xml: str) -> str:
     if parsed is None:
         return xml
     tree, root, is_mxfile, trimmed = parsed
+    from app.adapters.outbound.diagram.xml_diagnostics import _page_size
+
+    page_w, page_h = _page_size(tree)
     cells = [c for c in root.findall("mxCell") if c.get("id")]
     by_id = {c.get("id"): c for c in cells if c.get("id")}
     page = _diagram_page_name(tree).lower()
@@ -1004,7 +1051,7 @@ def fix_edge_anchors_from_geometry(xml: str) -> str:
             if not meta:
                 continue
             obstacles = _logical_obstacle_rects(
-                cells, by_id, {edge.get("source") or "", edge.get("target") or ""}
+                cells, by_id, {edge.get("source") or "", edge.get("target") or ""}, page_w, page_h
             )
             if _route_logical_edge(
                 edge, meta, obstacles, band_offsets.get(eid, (0.0, 0.0)), frames

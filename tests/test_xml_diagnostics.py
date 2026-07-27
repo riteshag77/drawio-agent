@@ -241,6 +241,31 @@ class ResolveLeafOverlapsTests(unittest.TestCase):
         self.assertEqual(out, xml)
 
 
+class ExternalActorLabelRecognitionTests(unittest.TestCase):
+    """Regression for a real bug found via data/captures replay: 'Employees'
+    (a very common actor label for internal-user diagrams) wasn't recognized,
+    so it never got containerized (Fix 2c) and sat bare next to the corridor,
+    where edges into the corridor's leading icon routinely clipped it."""
+
+    def test_employees_label_is_recognized_as_an_actor(self) -> None:
+        from app.adapters.outbound.diagram.xml_diagnostics import _is_external_actor_cell
+
+        cell = ET.fromstring('<mxCell id="e" value="Employees" vertex="1"/>')
+        self.assertTrue(_is_external_actor_cell(cell))
+
+    def test_admin_label_is_recognized_as_an_actor(self) -> None:
+        from app.adapters.outbound.diagram.xml_diagnostics import _is_external_actor_cell
+
+        cell = ET.fromstring('<mxCell id="a" value="Admin" vertex="1"/>')
+        self.assertTrue(_is_external_actor_cell(cell))
+
+    def test_unrelated_service_label_is_not_an_actor(self) -> None:
+        from app.adapters.outbound.diagram.xml_diagnostics import _is_external_actor_cell
+
+        cell = ET.fromstring('<mxCell id="s" value="Employee Directory Service" vertex="1"/>')
+        self.assertFalse(_is_external_actor_cell(cell))
+
+
 class ResolveMisplacedActorsTests(unittest.TestCase):
     def test_actor_nested_in_cloud_is_reparented_to_root(self) -> None:
         xml = _wrap(

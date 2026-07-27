@@ -976,6 +976,10 @@ _ACTOR_EXACT_LABELS = {
     "external users", "end user", "customer", "customers",
     "on-prem", "on-premises", "on premises", "iot", "iot device", "corporate dc",
     "corporate data center", "data center",
+    # Found via real-capture replay: without these, a bare "Employees"/
+    # "Employee" actor icon (a very common label for internal-user diagrams)
+    "employees", "employee", "staff", "admin", "admins", "administrator",
+    "administrators", "internal users",
 }
 
 
@@ -2059,6 +2063,13 @@ def _validate_edges(
         if cell.get("vertex") != "1" or _is_container_cell(cell):
             continue
         if (cell.get("id") or "") in {_OVERVIEW_PANEL_ID, _LEGEND_ID}:
+            continue
+        if _is_step_badge_cell(cell):
+            # Badges are stuck onto an anchor cell's corner (reposition_step_
+            # badges), not routed around — the edge router deliberately
+            # excludes them from its own obstacle list too
+            # (_logical_obstacle_rects), so flagging a "collision" here would
+            # just be re-litigating a design choice, not catching a real bug.
             continue
         # Full-page background rects (found via real-capture replay: id "2",
         # "bg", "bg_fill", "bg_rect") trivially "contain" every edge's path —
