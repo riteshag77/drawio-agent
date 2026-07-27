@@ -354,10 +354,7 @@ class ViewPackQualityTests(unittest.TestCase):
 
 class ViewEnrichmentFixerTests(unittest.TestCase):
     def test_inject_shape_types_from_capability_labels(self) -> None:
-        from app.adapters.outbound.diagram.architecture_docs import (
-            ensure_view_detail_cards,
-            inject_shape_types_from_primary,
-        )
+        from app.adapters.outbound.diagram.architecture_docs import inject_shape_types_from_primary
 
         primary = _wrap(
             '<mxCell id="waf" value="WAF" shape_type="aws_waf" vertex="1" parent="1">'
@@ -388,20 +385,6 @@ class ViewEnrichmentFixerTests(unittest.TestCase):
         self.assertEqual(by_id["dist"].get("shape_type"), "aws_application_load_balancer")
         self.assertEqual(by_id["app"].get("shape_type"), "aws_ec2")
         self.assertNotIn("shape=ellipse", by_id["shield"].get("style") or "")
-
-        # Detail cards deprecated — ensure_view_detail_cards strips leftovers
-        with_note = out.replace(
-            "</root>",
-            '<mxCell id="note_experience" value="old card" vertex="1" parent="1">'
-            '<mxGeometry x="40" y="400" width="200" height="80" as="geometry"/></mxCell></root>',
-            1,
-        )
-        stripped = ensure_view_detail_cards(
-            with_note, view="logical", primary_xml=primary, request_text="HA web app",
-        )
-        ids = {c.get("id") for c in ET.fromstring(stripped).iter("mxCell")}
-        self.assertNotIn("note_experience", ids)
-        self.assertIn("shield", ids)
 
     def test_logical_assigns_mcp_shape_types(self) -> None:
         from app.adapters.outbound.diagram.architecture_docs import assign_logical_shape_types

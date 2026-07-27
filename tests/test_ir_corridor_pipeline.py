@@ -52,6 +52,9 @@ class PrimaryCorridorViewTests(unittest.TestCase):
         cells = {c.get("id") for c in ET.fromstring(result["xml"]).iter("mxCell")}
         self.assertIn("domain_core", cells)
         self.assertIn("workday", cells)
+        # Gap A (Fix 3): IR compilers never emit overview_panel themselves —
+        # the primary-page flow must inject one, same as every other page.
+        self.assertIn("overview_panel", cells)
 
     def test_security_as_primary_view_needs_no_repair(self) -> None:
         ir = realistic_security_ir()

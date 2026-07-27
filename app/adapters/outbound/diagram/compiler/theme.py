@@ -154,7 +154,7 @@ def actor_style() -> str:
 
 
 def flow_style(*, primary: bool, labelled: bool) -> str:
-    style = "edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;jettySize=auto;orthogonalLoop=1;"
+    style = "edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;jettySize=auto;orthogonalLoop=1;"
     if primary:
         style += "strokeWidth=2;strokeColor=#232F3E;"
     else:

@@ -140,12 +140,21 @@ class DataFlowVocabularyTests(unittest.TestCase):
             ],
             anchored=[
                 AnchoredCorridor(id="phase_consume", label="Consume", anchor_id="phase_store", leaves=[_leaf("dash")]),
-                AnchoredCorridor(id="phase_saas", label="SaaS", anchor_id="phase_store", leaves=[_leaf("sf")]),
+                AnchoredCorridor(id="phase_saas_producer", label="SaaS Producers", anchor_id="phase_store", leaves=[_leaf("sf")]),
+                AnchoredCorridor(id="phase_saas_consumer", label="SaaS Consumers", anchor_id="phase_store", leaves=[_leaf("stripe")]),
                 AnchoredCorridor(id="phase_control", label="Control", anchor_id=None, leaves=[_leaf("glue")]),
             ],
         )
         self.assertEqual(ir.semantic_errors(), [])
-        self.assertEqual(len(ir.anchored), 3)
+        self.assertEqual(len(ir.anchored), 4)
+
+    def test_old_undifferentiated_saas_id_rejected(self) -> None:
+        """The pre-split bare 'phase_saas' id is no longer valid vocabulary."""
+        with self.assertRaises(ValidationError):
+            DataFlowIR(
+                corridors=[Corridor(id="phase_store", label="Store", leaves=[_leaf("db")])],
+                anchored=[AnchoredCorridor(id="phase_saas", label="SaaS", anchor_id="phase_store", leaves=[_leaf("sf")])],
+            )
 
     def test_invented_phase_id_rejected(self) -> None:
         with self.assertRaises(ValidationError):

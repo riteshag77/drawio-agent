@@ -90,6 +90,11 @@ _CROSS_CUTTING_KEYWORDS = {"security", "monitoring", "integration", "management"
 _OVERVIEW_PANEL_ID = "overview_panel"
 _OVERVIEW_PANEL_GAP = 40.0
 _OVERVIEW_PANEL_MARGIN = 24.0
+# Documented panel width range (config/xml_gen/core.txt) — Gap B (Fix 3):
+# ensure_overview_panel_position previously read width once and never
+# corrected it, unlike height, which is always recomputed from content.
+_OVERVIEW_PANEL_MIN_W = 400.0
+_OVERVIEW_PANEL_MAX_W = 640.0
 
 # Stable id the prompt requires for the edge-style legend box (same
 # load-bearing-id pattern as the Overview Panel) — lets ensure_legend_position
@@ -1622,6 +1627,18 @@ def ensure_overview_panel_position(xml: str) -> str:
             geom_el.set("height", str(ph))
             changed = True
 
+    # Gap B (Fix 3): width was read once above and never reassigned — an LLM
+    # emitting a panel outside the documented ~400-640px range previously
+    # sailed through uncorrected. Same shrink-or-grow philosophy as the
+    # height correction just above, and as Fix 2's container sizing.
+    clamped_w = min(max(pw, _OVERVIEW_PANEL_MIN_W), _OVERVIEW_PANEL_MAX_W)
+    if abs(clamped_w - pw) > 0.5:
+        pw = clamped_w
+        geom_el = panel.find("mxGeometry")
+        if geom_el is not None:
+            geom_el.set("width", str(pw))
+            changed = True
+
     if other_geoms:
         content_max_x = max(g[0] + g[2] for g in other_geoms)
         content_min_y = min(g[1] for g in other_geoms)
@@ -1932,6 +1949,255 @@ def reposition_step_badges(xml: str) -> str:
     if not changed:
         return xml
     return _serialize_docroot(tree, root, is_mxfile, trimmed)
+
+
+def _validate_container_bounds(cells: list[ET.Element], by_id: dict[str, ET.Element]) -> list[str]:
+    """No child's box may exceed its parent container's bounds (relative coords)."""
+    issues: list[str] = []
+    for cell in cells:
+        pid = cell.get("parent")
+        if not pid or pid in _RESERVED_IDS:
+            continue
+        parent = by_id.get(pid)
+        if parent is None or not _is_container_cell(parent):
+            continue
+        cgeo, pgeo = _cell_geometry(cell), _cell_geometry(parent)
+        if cgeo is None or pgeo is None:
+            continue
+        if not _rect_contained((cgeo[0], cgeo[1], cgeo[2], cgeo[3]), (0.0, 0.0, pgeo[2], pgeo[3]), tol=4.0):
+            issues.append(
+                f"layout: {cell.get('id')!r} exceeds parent {pid!r}'s bounds"
+            )
+    return issues
+
+
+def _validate_sibling_container_overlaps(cells: list[ET.Element]) -> list[str]:
+    """No two sibling (same-parent) containers may overlap."""
+    issues: list[str] = []
+    by_parent: dict[str, list[ET.Element]] = {}
+    for cell in cells:
+        if not _is_container_cell(cell):
+            continue
+        pid = cell.get("parent")
+        if not pid:
+            continue
+        by_parent.setdefault(pid, []).append(cell)
+    for siblings in by_parent.values():
+        geo_by = {c: _cell_geometry(c) for c in siblings}
+        for i in range(len(siblings)):
+            gi = geo_by.get(siblings[i])
+            if gi is None:
+                continue
+            for j in range(i + 1, len(siblings)):
+                gj = geo_by.get(siblings[j])
+                if gj is None:
+                    continue
+                if _rects_overlap(gi, gj):
+                    issues.append(
+                        f"layout: sibling containers {siblings[i].get('id')!r} and "
+                        f"{siblings[j].get('id')!r} overlap"
+                    )
+    return issues
+
+
+def _validate_tier_heights(cells: list[ET.Element], by_id: dict[str, ET.Element], page_name: str) -> list[str]:
+    """Within a tier — the main L->R row, and separately the stack of shelves
+    anchored below it — heights should differ by at most one icon-row.
+
+    Rows and shelves are deliberately two separate tiers, not one group by id
+    prefix: a shelf anchors *below* the row by design (`_anchor_shelf_under`)
+    and is expected to differ in height from the row it hangs off of.
+
+    Flags only — the row-band-uniformity pass already normalizes the main row;
+    a residual difference here signals something upstream went wrong, not
+    something this check should silently paper over.
+    """
+    if page_name not in {"logical", "security", "data flow", "data_flow"}:
+        return []
+    from app.adapters.outbound.diagram.logical_layout import ICON_SPACING
+    from app.adapters.outbound.diagram.placement_fixers import _is_anchored_shelf
+
+    tolerance = _geo.LEAF_H + ICON_SPACING
+    prefix = {"logical": "domain_", "security": "zone_", "data flow": "phase_", "data_flow": "phase_"}[page_name]
+    top_level = [
+        c for c in cells
+        if _is_container_cell(c) and c.get("parent") == "1"
+        and (c.get("id") or "").lower().startswith(prefix)
+        and (c.get("id") or "") not in {_OVERVIEW_PANEL_ID, _LEGEND_ID}
+    ]
+    row = [c for c in top_level if not _is_anchored_shelf(page_name, c)]
+    shelves = [c for c in top_level if _is_anchored_shelf(page_name, c)]
+
+    issues: list[str] = []
+    for tier_name, members in (("row", row), ("shelf", shelves)):
+        heights = [(c, g[3]) for c in members if (g := _cell_geometry(c)) is not None]
+        if len(heights) < 2:
+            continue
+        max_h = max(h for _c, h in heights)
+        min_h = min(h for _c, h in heights)
+        if max_h - min_h > tolerance:
+            issues.append(
+                f"layout: {tier_name} tier height spread {max_h - min_h:.0f}px exceeds "
+                f"{tolerance:.0f}px among {[c.get('id') for c, _h in heights]}"
+            )
+    return issues
+
+
+def _validate_edges(
+    cells: list[ET.Element], by_id: dict[str, ET.Element], page_w: float, page_h: float,
+) -> list[str]:
+    """Edge path sanity — non-endpoint collisions, anchor/position agreement,
+    excess waypoint bends, and near-duplicate parallel segments (Fix 2e, edge
+    requirement #7)."""
+    issues: list[str] = []
+    edges = [c for c in cells if c.get("edge") == "1"]
+    if not edges:
+        return issues
+
+    leaf_boxes: list[tuple[str, tuple[float, float, float, float]]] = []
+    for cell in cells:
+        if cell.get("vertex") != "1" or _is_container_cell(cell):
+            continue
+        if (cell.get("id") or "") in {_OVERVIEW_PANEL_ID, _LEGEND_ID}:
+            continue
+        # Full-page background rects (found via real-capture replay: id "2",
+        # "bg", "bg_fill", "bg_rect") trivially "contain" every edge's path —
+        # not a real non-endpoint collision, just canvas backdrop.
+        if _is_canvas_background_cell(cell, page_w, page_h):
+            continue
+        cgeo = _cell_geometry(cell)
+        if cgeo is None:
+            continue
+        ax, ay = absolute_position(cell, by_id)
+        leaf_boxes.append((cell.get("id") or "", (ax, ay, cgeo[2], cgeo[3])))
+
+    polylines: dict[str, list[tuple[float, float]]] = {}
+    for edge in edges:
+        eid = edge.get("id") or ""
+        line = _edge_polyline(edge, by_id)
+        if line and len(line) >= 2:
+            polylines[eid] = line
+
+    for edge in edges:
+        eid = edge.get("id") or ""
+        line = polylines.get(eid)
+        if line is None:
+            continue
+        src_id, tgt_id = edge.get("source"), edge.get("target")
+
+        # Waypoint bend count.
+        if len(line) - 2 > 2:
+            issues.append(f"layout: edge {eid!r} has {len(line) - 2} waypoint bends (>2)")
+
+        # Non-endpoint node collisions (±5px tolerance), skipping the edge's own endpoints.
+        for leaf_id, box in leaf_boxes:
+            if leaf_id in (src_id, tgt_id):
+                continue
+            padded = (box[0] - 5.0, box[1] - 5.0, box[2] + 10.0, box[3] + 10.0)
+            for p1, p2 in zip(line, line[1:]):
+                seg_box = (
+                    min(p1[0], p2[0]), min(p1[1], p2[1]),
+                    abs(p2[0] - p1[0]) or 1.0, abs(p2[1] - p1[1]) or 1.0,
+                )
+                if _rects_overlap(seg_box, padded):
+                    issues.append(f"layout: edge {eid!r} passes through non-endpoint node {leaf_id!r}")
+                    break
+            else:
+                continue
+            break
+
+        # Anchor agreement: exitX/entryX should match the actual dominant-axis
+        # direction between source and target centers (same rule
+        # fix_edge_anchors_from_geometry itself applies when it sets anchors).
+        if src_id in by_id and tgt_id in by_id:
+            sgeo, tgeo = _cell_geometry(by_id[src_id]), _cell_geometry(by_id[tgt_id])
+            if sgeo is not None and tgeo is not None:
+                sx, sy = absolute_position(by_id[src_id], by_id)
+                tx, ty = absolute_position(by_id[tgt_id], by_id)
+                dx = (tx + tgeo[2] / 2) - (sx + sgeo[2] / 2)
+                dy = (ty + tgeo[3] / 2) - (sy + sgeo[3] / 2)
+                style = edge.get("style") or ""
+                exit_x = _edge_anchor_num(style, "exitX", 0.5)
+                exit_y = _edge_anchor_num(style, "exitY", 0.5)
+                if abs(dx) >= abs(dy):
+                    expected_exit_x = 1.0 if dx >= 0 else 0.0
+                    if abs(exit_x - expected_exit_x) > 0.01:
+                        issues.append(f"layout: edge {eid!r} exitX anchor disagrees with actual source/target position")
+                else:
+                    expected_exit_y = 1.0 if dy >= 0 else 0.0
+                    if abs(exit_y - expected_exit_y) > 0.01:
+                        issues.append(f"layout: edge {eid!r} exitY anchor disagrees with actual source/target position")
+
+    # Near-duplicate parallel segments: two edges sharing >50% overlap of
+    # either one's length on an axis-aligned collinear segment should share a
+    # routing lane instead of running independently.
+    edge_ids = list(polylines)
+    for i in range(len(edge_ids)):
+        segs_i = list(zip(polylines[edge_ids[i]], polylines[edge_ids[i]][1:]))
+        for j in range(i + 1, len(edge_ids)):
+            segs_j = list(zip(polylines[edge_ids[j]], polylines[edge_ids[j]][1:]))
+            for a1, a2 in segs_i:
+                for b1, b2 in segs_j:
+                    overlap = _collinear_overlap_ratio(a1, a2, b1, b2)
+                    if overlap > 0.5:
+                        issues.append(
+                            f"layout: edges {edge_ids[i]!r} and {edge_ids[j]!r} overlap "
+                            f"{overlap:.0%} of a segment — consider a shared routing lane"
+                        )
+    return issues
+
+
+def _collinear_overlap_ratio(
+    a1: tuple[float, float], a2: tuple[float, float],
+    b1: tuple[float, float], b2: tuple[float, float],
+) -> float:
+    """Fraction of the shorter axis-aligned segment covered by the longer one,
+    when both are collinear (same horizontal or vertical line); 0 otherwise."""
+    a_horiz = abs(a1[1] - a2[1]) < 1.0
+    b_horiz = abs(b1[1] - b2[1]) < 1.0
+    if a_horiz != b_horiz:
+        return 0.0
+    if a_horiz:
+        if abs(a1[1] - b1[1]) > 1.0:
+            return 0.0
+        a_lo, a_hi = sorted((a1[0], a2[0]))
+        b_lo, b_hi = sorted((b1[0], b2[0]))
+    else:
+        if abs(a1[0] - b1[0]) > 1.0:
+            return 0.0
+        a_lo, a_hi = sorted((a1[1], a2[1]))
+        b_lo, b_hi = sorted((b1[1], b2[1]))
+    overlap = max(0.0, min(a_hi, b_hi) - max(a_lo, b_lo))
+    if overlap <= 0.0:
+        return 0.0
+    shorter = min(a_hi - a_lo, b_hi - b_lo)
+    return overlap / shorter if shorter > 0 else 0.0
+
+
+def validate_layout(xml: str) -> list[str]:
+    """Informational, best-effort layout/edge-routing validation pass (Fix 2e).
+
+    Not wired into ``diagnose_xml``'s errors/warnings (those gate repair
+    behavior) — this runs *after* ``repair_xml`` as a separate, purely
+    observational check, logged for visibility rather than acted on. Never
+    raises; returns an empty list for anything unparseable or clean.
+    """
+    parsed = _parse_docroot(xml)
+    if parsed is None:
+        return []
+    tree, root, _is_mxfile, _trimmed = parsed
+    from app.adapters.outbound.diagram.placement_fixers import _diagram_page_name
+
+    page_name = _diagram_page_name(tree).lower()
+    page_w, page_h = _page_size(tree)
+    cells = [c for c in root.findall("mxCell") if c.get("id")]
+    by_id = {c.get("id"): c for c in cells if c.get("id")}
+    issues: list[str] = []
+    issues.extend(_validate_container_bounds(cells, by_id))
+    issues.extend(_validate_sibling_container_overlaps(cells))
+    issues.extend(_validate_tier_heights(cells, by_id, page_name))
+    issues.extend(_validate_edges(cells, by_id, page_w, page_h))
+    return issues
 
 
 def repair_xml(xml: str) -> tuple[str, XmlDiagnostics]:

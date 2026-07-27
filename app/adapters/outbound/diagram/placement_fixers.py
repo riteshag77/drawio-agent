@@ -419,20 +419,19 @@ _SAAS_LANE_GAP = 40.0
 _SAAS_ICON = 78.0
 _SAAS_PITCH_X = 100.0
 _SAAS_PITCH_Y = 110.0
-# Logical domain apps: Network-style service grid (max 4 across, then next row).
-# Pitch leaves a gutter wide enough for a labelled connector between columns.
-_LOGICAL_APP_MAX_COLS = 4
-_LOGICAL_APP_PITCH_X = 220.0
-_LOGICAL_APP_PITCH_Y = 150.0
-_LOGICAL_APP_BASE_X = 28.0
-_LOGICAL_APP_BASE_Y = 56.0
-# Corridor between Logical domain containers — labelled edges live in here.
-_LOGICAL_DOMAIN_GAP = 110.0
+# Logical domain app grid / corridor gap: uses logical_layout.py's canonical
+# CONTAINER_PADDING_X/CONTAINER_LABEL_HEIGHT/ICON_SPACING/INTER_CONTAINER_GAP
+# now (imported where needed) — the old locally-duplicated _LOGICAL_APP_*/
+# _LOGICAL_DOMAIN_GAP constants (pitch 220/150 vs the canonical set's
+# ICON_SPACING-derived pitch, and a separately-tracked 110 for the gap) were
+# retired so this file has exactly one source of truth for corridor/shelf
+# sizing, matching logical_layout.py's own single-source-of-truth block.
 # Spine icon gap: enough horizontal run for "Authenticates via" without
 # painting the label over the persona / IdP icons.
 _LOGICAL_SPINE_GAP = 120.0
-# Obstacle clearance used by the Logical edge router.
-_LOGICAL_ROUTE_CLEARANCE = 16.0
+# Obstacle clearance used by the Logical edge router — 20px minimum per the
+# user's edge-routing requirements (Fix 2d).
+_LOGICAL_ROUTE_CLEARANCE = 20.0
 _LOGICAL_ROUTE_BAND = 44.0
 # Edges only count as "parallel" when they run in the same lane of the canvas.
 _CORRIDOR_LANE_PX = 140.0
@@ -1035,8 +1034,19 @@ def fix_edge_anchors_from_geometry(xml: str) -> str:
 
 
 def _is_saas_leaf_cell(cell: ET.Element) -> bool:
-    """True for curated enterprise SaaS product leaves (not PrivateLink endpoints)."""
+    """True for curated enterprise SaaS product leaves (not PrivateLink endpoints).
+
+    Excludes the Overview Panel / legend by id — found via real-capture replay
+    (Fix plan's final verification step): an LLM occasionally emits
+    ``overview_panel`` with a stray leftover ``shape_type="saas_*"`` attribute
+    (a copy-paste artifact from a nearby SaaS leaf, not a real classification
+    choice), which without this guard gets reparented into a SaaS shelf and
+    balloons it — the panel's own text-block geometry (hundreds of px) reads
+    as a single oversized "icon" to the grid-sizing math.
+    """
     if cell.get("vertex") != "1" or cell.get("edge") == "1" or _is_container_cell(cell):
+        return False
+    if (cell.get("id") or "") in {"overview_panel", "legend_box"}:
         return False
     st = _shape(cell)
     if st.startswith("saas_"):
@@ -1064,11 +1074,17 @@ def _is_mega_saas_container(cell: ET.Element) -> bool:
     cid = (cell.get("id") or "").lower()
     if cid.startswith("domain_"):
         return False
-    # Security External SaaS Zone is the correct home for SaaS leaves — not a
-    # Network-style mega box that should be emptied onto the canvas root.
+    # Security External SaaS Zone, and Data-flow's producer/consumer shelves,
+    # are the correct homes for SaaS leaves — not a Network-style mega box
+    # that should be emptied onto the canvas root. Found while verifying the
+    # producer/consumer split (Fix 1): this "saas" in cid catch-all predated
+    # those two ids and, unpatched, would hoist every leaf right back out of
+    # them the moment they were created — undoing the split it never knew about.
     if cid.startswith("zone_external_saas") or (
         cid.startswith("zone_") and "external saas" in label
     ):
+        return False
+    if cid.startswith(("phase_saas_producer", "phase_saas_consumer")):
         return False
     if "saas" in cid and "domain" not in cid:
         return True
@@ -1570,23 +1586,17 @@ def _phase_corridor_key(cell: ET.Element) -> tuple[int, str]:
     return (1, label)
 
 
-def _logical_grid_cols(count: int) -> int:
-    """Columns for a domain's app grid — balanced, never more than 4.
-
-    A hard 4-wide row makes a single domain ~900px, so three domains no longer
-    fit on screen at a readable zoom. Keeping the grid roughly square packs the
-    same apps into a compact block while still honouring the max-4 cap.
-    """
-    if count <= 3:
-        return max(1, count)
-    return min(_LOGICAL_APP_MAX_COLS, math.ceil(math.sqrt(count)))
-
-
 def _grid_logical_domain_apps(domain: ET.Element, cells: list[ET.Element]) -> bool:
     """Lay out non-SaaS leaves in a domain as a balanced grid, max 4 across.
 
     Mirrors Network's service-grid rule. ``domain_saas`` stays vertical via
-    ``_sort_saas_children_in_shelf`` and is skipped here.
+    ``_sort_saas_children_in_shelf`` and is skipped here. Position/size math
+    is the same canonical ``grid_fill``/``resize_container_to_grid`` every
+    other corridor container uses (``logical_layout.py``) — this function
+    keeps its own simpler stable-sort algorithm (no rank/barycenter ordering,
+    unlike ``_layout_tiles_in_container``) since it runs as the thin-page
+    fallback path, not the primary one, but there is no longer a second,
+    independently-tuned set of pitch/padding constants behind it.
     """
     did = (domain.get("id") or "").lower()
     if did.startswith("domain_saas") or "saas" in did:
@@ -1608,13 +1618,28 @@ def _grid_logical_domain_apps(domain: ET.Element, cells: list[ET.Element]) -> bo
         (_cell_geometry(c) or (0, 0, 0, 0))[0],
         c.get("id") or "",
     ))
+    from app.adapters.outbound.diagram.logical_layout import (
+        CONTAINER_LABEL_HEIGHT,
+        CONTAINER_PADDING_X,
+        grid_cols,
+        resize_container_to_grid,
+    )
+    from app.adapters.outbound.diagram import geometry_spec as geo
+
     changed = False
-    cols_n = _logical_grid_cols(len(kids))
+    cols_n = grid_cols(len(kids))
+    # Canonical pitch (matches logical_layout._ICON_PITCH_X/Y) — not
+    # ICON_SPACING + LEAF_W, since resolve_pitch_outliers/
+    # resolve_moderate_pitch_deviations would just snap that back to this
+    # value downstream anyway. Positioning here must already agree with the
+    # canonical pitch, not merely converge to it after a repair pass.
+    pitch_x = geo.DATA_CANONICAL_PITCH
+    pitch_y = geo.ROW_PITCH_Y
     for i, kid in enumerate(kids):
         col = i % cols_n
         row = i // cols_n
-        x = _LOGICAL_APP_BASE_X + col * _LOGICAL_APP_PITCH_X
-        y = _LOGICAL_APP_BASE_Y + row * _LOGICAL_APP_PITCH_Y
+        x = CONTAINER_PADDING_X + col * pitch_x
+        y = CONTAINER_LABEL_HEIGHT + row * pitch_y
         geom = kid.find("mxGeometry")
         if geom is None:
             continue
@@ -1627,36 +1652,31 @@ def _grid_logical_domain_apps(domain: ET.Element, cells: list[ET.Element]) -> bo
             geom.set("x", str(x))
             geom.set("y", str(y))
             changed = True
-    # Grow domain so wrapped rows are not clipped.
-    if kids:
-        rows = (len(kids) - 1) // cols_n + 1
-        cols = min(len(kids), cols_n)
-        needed_w = _LOGICAL_APP_BASE_X + cols * _LOGICAL_APP_PITCH_X + 20.0
-        needed_h = _LOGICAL_APP_BASE_Y + rows * _LOGICAL_APP_PITCH_Y + 24.0
-        shelf_geo = domain.find("mxGeometry")
-        if shelf_geo is not None:
-            try:
-                cur_w = float(shelf_geo.get("width") or 0)
-                cur_h = float(shelf_geo.get("height") or 0)
-            except ValueError:
-                cur_w, cur_h = 0.0, 0.0
-            if cur_w < needed_w:
-                shelf_geo.set("width", str(needed_w))
-                changed = True
-            if cur_h < needed_h:
-                shelf_geo.set("height", str(needed_h))
-                changed = True
+    shelf_geo = domain.find("mxGeometry")
+    if shelf_geo is not None and resize_container_to_grid(shelf_geo, len(kids)):
+        changed = True
     return changed
 
 
-def _sort_saas_children_in_shelf(
-    shelf: ET.Element,
-    cells: list[ET.Element],
-    *,
-    vertical: bool = True,
-) -> bool:
-    """Stack SaaS leaves in a shelf. Logical uses a vertical column (clearer edges)."""
+def _sort_saas_children_in_shelf(shelf: ET.Element, cells: list[ET.Element], *, vertical: bool = True) -> bool:
+    """Grid-fill SaaS leaves in a shelf (wrap at grid_cols(), not one sparse column).
+
+    ``vertical`` is accepted for call-site compatibility but no longer changes
+    behavior — every call site always passed ``True``, and a forced single
+    column regardless of leaf count was the direct cause of a shelf rendering
+    far larger than its content (a 5-icon shelf needing 5 stacked rows instead
+    of a compact 2-3 column grid). Sizing goes through the same canonical
+    ``resize_container_to_grid`` every other corridor/shelf container uses —
+    bidirectional (shrinks an oversized box too), not the old grow-only check.
+    """
     from app.adapters.outbound.diagram.architecture_docs import saas_journey_sort_key
+    from app.adapters.outbound.diagram.logical_layout import (
+        CONTAINER_LABEL_HEIGHT,
+        CONTAINER_PADDING_X,
+        grid_cols,
+        resize_container_to_grid,
+    )
+    from app.adapters.outbound.diagram import geometry_spec as geo
 
     sid = shelf.get("id") or ""
     kids = [c for c in cells if c.get("parent") == sid and _is_saas_leaf_cell(c)]
@@ -1664,14 +1684,20 @@ def _sort_saas_children_in_shelf(
         return False
     kids.sort(key=lambda c: saas_journey_sort_key(_shape(c), _plain_label(c)))
     changed = False
-    base_x, base_y = 24.0, 48.0
+    cols_n = grid_cols(len(kids))
+    # Canonical pitch (geo.DATA_CANONICAL_PITCH/ROW_PITCH_Y) — same value
+    # resize_container_to_grid sizes the shelf box for below, and the same
+    # value xml_diagnostics's pitch-snap fixers enforce for every other leaf
+    # grid in the app, so this shelf's positions are never overwritten by a
+    # downstream pass expecting a different pitch (see logical_layout.py's
+    # _ICON_PITCH_X/Y comment for why 118px — ICON_SPACING + LEAF_W — was
+    # dropped in favor of this).
+    pitch_x = geo.DATA_CANONICAL_PITCH
+    pitch_y = geo.ROW_PITCH_Y
     for i, kid in enumerate(kids):
-        if vertical:
-            x = base_x
-            y = base_y + i * _SAAS_PITCH_Y
-        else:
-            x = base_x + (i % 4) * _SAAS_PITCH_X
-            y = base_y + (i // 4) * _SAAS_PITCH_Y
+        col, row = i % cols_n, i // cols_n
+        x = CONTAINER_PADDING_X + col * pitch_x
+        y = CONTAINER_LABEL_HEIGHT + row * pitch_y
         geom = kid.find("mxGeometry")
         if geom is None:
             continue
@@ -1684,25 +1710,9 @@ def _sort_saas_children_in_shelf(
             geom.set("x", str(x))
             geom.set("y", str(y))
             changed = True
-    # Grow shelf height so the vertical stack is not clipped.
-    if vertical and kids:
-        needed_h = base_y + len(kids) * _SAAS_PITCH_Y + 24.0
-        shelf_geo = shelf.find("mxGeometry")
-        if shelf_geo is not None:
-            try:
-                cur_h = float(shelf_geo.get("height") or 0)
-            except ValueError:
-                cur_h = 0.0
-            if cur_h < needed_h:
-                shelf_geo.set("height", str(needed_h))
-                # Keep a readable width for one icon column + labels
-                try:
-                    cur_w = float(shelf_geo.get("width") or 0)
-                except ValueError:
-                    cur_w = 0.0
-                if cur_w < 160.0:
-                    shelf_geo.set("width", "180")
-                changed = True
+    shelf_geo = shelf.find("mxGeometry")
+    if shelf_geo is not None and resize_container_to_grid(shelf_geo, len(kids)):
+        changed = True
     return changed
 
 
@@ -1966,21 +1976,51 @@ def _synthesize_corridors(
     return created
 
 
+_SAAS_PRODUCER_SHELF_ID = "phase_saas_producer"
+_SAAS_CONSUMER_SHELF_ID = "phase_saas_consumer"
+
+
+def _classify_data_flow_saas_direction(
+    leaf: ET.Element,
+    edges: list[tuple[str, str]],
+    inbound_target_ids: set[str],
+    outbound_source_ids: set[str],
+) -> str:
+    """producer = feeds data INTO the pipeline; consumer = pipeline sends data OUT to it.
+
+    Edge direction decides first, the same edges-before-defaults order
+    ``resolve_saas_network_side`` uses for Network's ingress/egress axis (a
+    different question — this doesn't reuse that function, only mirrors its
+    pattern): an edge from the SaaS leaf into ingest/process means the vendor
+    is a source (producer); an edge from process/store out to the SaaS leaf
+    means the pipeline calls out to it (consumer). No edges → fall back to
+    ``saas_default_data_flow_direction``'s vendor-role table.
+    """
+    leaf_id = leaf.get("id") or ""
+    for source_id, target_id in edges:
+        if source_id == leaf_id and target_id in inbound_target_ids:
+            return "producer"
+        if target_id == leaf_id and source_id in outbound_source_ids:
+            return "consumer"
+    from app.adapters.outbound.diagram.architecture_docs import saas_default_data_flow_direction
+    return saas_default_data_flow_direction(_shape(leaf), _plain_label(leaf))
+
+
 def _consolidate_data_flow_saas_shelf(
     root: ET.Element,
     cells: list[ET.Element],
     by_id: dict[str, ET.Element],
-) -> ET.Element | None:
-    """Pull SaaS producer/consumer leaves out of every other phase and into a
-    dedicated, vertically-stacked ``phase_saas`` shelf (mirrors Logical's
-    ``domain_saas``), instead of leaving them "in-phase" mixed with cloud-native
-    leaves. Catches SaaS leaves under **any** other ``phase_*`` container (not
-    just ingest/process/store) — a SaaS leaf the LLM parented under
-    ``phase_consume`` (e.g. treating an app as both "source" and "consumer" of
-    the same SaaS vendor) previously survived untouched, leaving the same
-    vendor split across two shelves instead of consolidated into one. Returns
-    the (possibly newly-created) shelf container, or ``None`` if there was no
-    SaaS content to consolidate.
+) -> list[ET.Element]:
+    """Pull SaaS producer/consumer leaves out of every other phase and into
+    dedicated, vertically-stacked ``phase_saas_producer``/``phase_saas_consumer``
+    shelves (mirrors Logical's ``domain_saas``), instead of leaving them
+    "in-phase" mixed with cloud-native leaves. Catches SaaS leaves under
+    **any** other ``phase_*`` container (not just ingest/process/store) — a
+    SaaS leaf the LLM parented under ``phase_consume`` previously survived
+    untouched. Each leaf is classified by direction (see
+    ``_classify_data_flow_saas_direction``) and reparented into the matching
+    shelf. Returns the list of newly-created shelf containers (possibly
+    empty even when leaves were reparented, if both shelves already existed).
     """
     saas_leaves = [
         c for c in cells
@@ -1988,32 +2028,45 @@ def _consolidate_data_flow_saas_shelf(
         and (c.get("parent") == "1" or (
             by_id.get(c.get("parent") or "") is not None
             and (by_id[c.get("parent")].get("id") or "").lower().startswith("phase_")
-            and (by_id[c.get("parent")].get("id") or "") != "phase_saas"
+            and not (by_id[c.get("parent")].get("id") or "").lower().startswith("phase_saas")
         ))
     ]
     if not saas_leaves:
-        return None
+        return []
 
-    shelf = by_id.get("phase_saas")
-    if shelf is None:
-        shelf = ET.Element("mxCell")
-        shelf.set("id", "phase_saas")
-        shelf.set("value", "External SaaS")
-        shelf.set("style", _corridor_style_for("data flow", "phase_saas"))
-        shelf.set("vertex", "1")
-        shelf.set("parent", "1")
-        geom = ET.SubElement(shelf, "mxGeometry")
-        geom.set("x", "160")
-        geom.set("y", "140")
-        geom.set("width", "180")
-        geom.set("height", "200")
-        geom.set("as", "geometry")
-        root.append(shelf)
-        by_id["phase_saas"] = shelf
+    from app.adapters.outbound.diagram.logical_layout import build_edge_pairs
 
+    def _phase_id_of(cell: ET.Element) -> str:
+        parent = by_id.get(cell.get("parent") or "")
+        return (parent.get("id") or "").lower() if parent is not None else ""
+
+    edges = build_edge_pairs(cells)
+    inbound_target_ids = {c.get("id") or "" for c in cells if _phase_id_of(c) in {"phase_ingest", "phase_process"}}
+    outbound_source_ids = {c.get("id") or "" for c in cells if _phase_id_of(c) in {"phase_process", "phase_store"}}
+
+    created: list[ET.Element] = []
     for leaf in saas_leaves:
-        leaf.set("parent", "phase_saas")
-    return shelf
+        direction = _classify_data_flow_saas_direction(leaf, edges, inbound_target_ids, outbound_source_ids)
+        shelf_id = _SAAS_PRODUCER_SHELF_ID if direction == "producer" else _SAAS_CONSUMER_SHELF_ID
+        shelf = by_id.get(shelf_id)
+        if shelf is None:
+            shelf = ET.Element("mxCell")
+            shelf.set("id", shelf_id)
+            shelf.set("value", "SaaS Producers" if direction == "producer" else "SaaS Consumers")
+            shelf.set("style", _corridor_style_for("data flow", shelf_id))
+            shelf.set("vertex", "1")
+            shelf.set("parent", "1")
+            geom = ET.SubElement(shelf, "mxGeometry")
+            geom.set("x", "160")
+            geom.set("y", "140")
+            geom.set("width", "180")
+            geom.set("height", "200")
+            geom.set("as", "geometry")
+            root.append(shelf)
+            by_id[shelf_id] = shelf
+            created.append(shelf)
+        leaf.set("parent", shelf_id)
+    return created
 
 
 _SECURITY_CANONICAL_ZONE_RULES: tuple[tuple[tuple[str, ...], str, str], ...] = (
@@ -2170,9 +2223,12 @@ def enforce_view_journey_columns(xml: str) -> str:
         tree, root, is_mxfile, trimmed = parsed
 
     from app.adapters.outbound.diagram.logical_layout import (
+        INTER_CONTAINER_GAP,
         _is_data_flow_shelf,
         _is_external_saas_zone,
         _is_restricted_zone,
+        _is_saas_domain,
+        _is_saas_phase,
         _is_store_phase,
         apply_layered_corridor_layout,
     )
@@ -2248,14 +2304,16 @@ def enforce_view_journey_columns(xml: str) -> str:
         # in-phase mixed with cloud-native leaves. Refresh by_id first — cells
         # may have been reparented/synthesized just above.
         by_id = {c.get("id"): c for c in cells if c.get("id")}
-        saas_shelf = _consolidate_data_flow_saas_shelf(root, cells, by_id)
-        if saas_shelf is not None:
+        saas_shelves = _consolidate_data_flow_saas_shelf(root, cells, by_id)
+        if saas_shelves:
             cells = [c for c in root.findall("mxCell") if c.get("id")]
-            if not any((c.get("id") or "") == "phase_saas" for c in corridors):
-                corridors.append(saas_shelf)
+            existing_ids = {(c.get("id") or "") for c in corridors}
+            for shelf in saas_shelves:
+                if (shelf.get("id") or "") not in existing_ids:
+                    corridors.append(shelf)
             changed = True
 
-    gap = _LOGICAL_DOMAIN_GAP if page_name in {"logical", "security", "data flow", "data_flow"} else 40.0
+    gap = INTER_CONTAINER_GAP if page_name in {"logical", "security", "data flow", "data_flow"} else 40.0
     if is_data_flow_page:
         shelf_kwargs = {"shelf_filter": _is_data_flow_shelf, "shelf_anchor_filter": _is_store_phase}
     elif page_name == "security":
@@ -2277,9 +2335,18 @@ def enforce_view_journey_columns(xml: str) -> str:
         changed = True
         cells = [c for c in root.findall("mxCell") if c.get("id")]
         # Re-stack SaaS children vertically after the shelf was re-anchored.
+        # Every view's SaaS shelf needs this, not just Logical's domain_saas —
+        # _layout_tiles_in_container deliberately skips SaaS shelves' children
+        # (they stay vertical, handled here instead), so without this restack
+        # a shelf that just moved keeps stale child geometry from its old
+        # position, which fit_containers_to_children then reads as "content
+        # extent" and balloons the shelf box around (a real, previously
+        # Data-flow/Security-only bug — Logical was the only view this ever
+        # ran for). Only matches genuinely SaaS-only shelf ids — deliberately
+        # excludes phase_consume, which _is_data_flow_shelf also matches but
+        # which uses the normal tile grid, not a vertical SaaS stack.
         for cell in cells:
-            cid = (cell.get("id") or "").lower()
-            if cid.startswith("domain_saas") or (cid.startswith("domain_") and "saas" in cid):
+            if _is_saas_domain(cell) or _is_saas_phase(cell) or _is_external_saas_zone(cell):
                 if _sort_saas_children_in_shelf(cell, cells, vertical=True):
                     changed = True
     else:
@@ -2445,6 +2512,8 @@ def enforce_corridor_gap_consistency(xml: str) -> str:
     if not row and not shelves:
         return xml
 
+    from app.adapters.outbound.diagram.logical_layout import INTER_CONTAINER_GAP
+
     row.sort(key=lambda c: (_cell_geometry(c) or (0.0, 0.0, 0.0, 0.0))[0])
     changed = False
     if len(row) >= 2:
@@ -2456,7 +2525,7 @@ def enforce_corridor_gap_consistency(xml: str) -> str:
                 geom = cell.find("mxGeometry")
                 if geo is None or geom is None:
                     continue
-                target_x = cursor + _LOGICAL_DOMAIN_GAP
+                target_x = cursor + INTER_CONTAINER_GAP
                 if abs(geo[0] - target_x) > 1.0:
                     geom.set("x", str(target_x))
                     changed = True
@@ -2467,14 +2536,22 @@ def enforce_corridor_gap_consistency(xml: str) -> str:
     # selection (domain_data / phase_store rank highest among non-shelf keys).
     # Fixes both axes: a prior version only corrected x, leaving a shelf whose
     # anchor grew/shrank in height (fit_containers_to_children) drifting far
-    # below SHELF_GAP (found via live-generation review: domain_saas ended up
-    # ~200px below domain_data's bottom instead of the intended 110px).
+    # below INTER_CONTAINER_GAP (found via live-generation review: domain_saas
+    # ended up ~200px below domain_data's bottom instead of the intended 110px).
     if shelves and row:
-        from app.adapters.outbound.diagram.logical_layout import SHELF_GAP
-
         anchor_geo = _cell_geometry(row[-1])
         if anchor_geo is not None:
-            target_y = anchor_geo[1] + anchor_geo[3] + SHELF_GAP
+            # Stack with a running cursor rather than assigning every shelf the
+            # same target_y — Data-flow can have >1 shelf under the same anchor
+            # (phase_consume + phase_saas_producer + phase_saas_consumer), and
+            # the previous single-target_y version collapsed all of them onto
+            # identical coordinates (a real, previously undetected bug: this
+            # function was written assuming at most one shelf per view, true
+            # for Logical's lone domain_saas but never true for Data-flow).
+            # `shelves` preserves document order, which is the compiler's
+            # emission order — the same ordering contract _anchor_shelf_under
+            # already relies on for its own stacking cursor.
+            cursor_y = anchor_geo[1] + anchor_geo[3] + INTER_CONTAINER_GAP
             for shelf in shelves:
                 shelf_geom = shelf.find("mxGeometry")
                 shelf_geo = _cell_geometry(shelf)
@@ -2483,42 +2560,120 @@ def enforce_corridor_gap_consistency(xml: str) -> str:
                 if abs(shelf_geo[0] - anchor_geo[0]) > 1.0:
                     shelf_geom.set("x", str(anchor_geo[0]))
                     changed = True
-                if abs(shelf_geo[1] - target_y) > 1.0:
-                    shelf_geom.set("y", str(target_y))
+                if abs(shelf_geo[1] - cursor_y) > 1.0:
+                    shelf_geom.set("y", str(cursor_y))
                     changed = True
+                cursor_y += shelf_geo[3] + INTER_CONTAINER_GAP
 
     # Security/Data-flow have no journey-spine mechanism (Logical's is Logical-only),
-    # so an external actor the LLM placed at an arbitrary x can end up hundreds of
+    # so external actors the LLM placed at an arbitrary x can end up hundreds of
     # pixels from the first corridor once the row above shifts right (found via
     # live-generation review: Employees at x=20, zone_dmz pushed out to x=510).
-    # Keep actors compact and just left of the leftmost row corridor.
+    # Wrap them in a lightweight band container (Fix 2c) instead of leaving each
+    # a bare parent="1" child at an independent y-offset — still parent="1"
+    # itself (a peer of the main row, not logically inside the architecture,
+    # same "never nested inside" semantic the old bare-actor placement had),
+    # but grid-sized/aligned like every other container via
+    # resize_container_to_grid so it stops floating at an arbitrary baseline.
+    # Scoped to Security/Data-flow only — Logical's actor placement is a
+    # structurally different spine mechanism (_layout_logical_journey_spine),
+    # and Network is deferred per the overall plan; bolting this on either
+    # risks breaking a distinct, working mechanism for a non-goal of this pass.
     if row and page_name in {"security", "data flow", "data_flow"}:
-        from app.adapters.outbound.diagram.xml_diagnostics import _is_external_actor_cell
-
-        actors = [
-            c for c in cells
-            if _is_external_actor_cell(c) and c.get("parent") == "1"
-        ]
-        leftmost_geo = _cell_geometry(row[0])
-        if actors and leftmost_geo is not None:
-            actor_gap = 60.0
-            for i, actor in enumerate(actors):
-                a_geom = actor.find("mxGeometry")
-                a_geo = _cell_geometry(actor)
-                if a_geom is None or a_geo is None:
-                    continue
-                target_ax = max(20.0, leftmost_geo[0] - a_geo[2] - actor_gap)
-                target_ay = leftmost_geo[1] + i * 110.0
-                if abs(a_geo[0] - target_ax) > 1.0:
-                    a_geom.set("x", str(target_ax))
-                    changed = True
-                if abs(a_geo[1] - target_ay) > 1.0:
-                    a_geom.set("y", str(target_ay))
-                    changed = True
+        by_id = {c.get("id"): c for c in cells if c.get("id")}
+        changed = _containerize_corridor_actors(root, cells, by_id, row, page_name) or changed
 
     if not changed:
         return xml
     return _serialize_docroot(tree, root, is_mxfile, trimmed)
+
+
+_ACTORS_BAND_ID = "actors_left"
+
+
+def _containerize_corridor_actors(
+    root: ET.Element,
+    cells: list[ET.Element],
+    by_id: dict[str, ET.Element],
+    row: list[ET.Element],
+    page_name: str,
+) -> bool:
+    """Wrap bare parent="1" external actors in a single grid-sized band
+    container, just left of the leftmost row corridor (Fix 2c)."""
+    from app.adapters.outbound.diagram.logical_layout import (
+        CONTAINER_LABEL_HEIGHT,
+        CONTAINER_PADDING_X,
+        INTER_CONTAINER_GAP,
+        resize_container_to_grid,
+    )
+    from app.adapters.outbound.diagram import geometry_spec as geo
+    from app.adapters.outbound.diagram.xml_diagnostics import _is_external_actor_cell
+
+    band = by_id.get(_ACTORS_BAND_ID)
+    actors = [
+        c for c in cells
+        if _is_external_actor_cell(c)
+        and (c.get("parent") == "1" or c.get("parent") == _ACTORS_BAND_ID)
+    ]
+    if not actors:
+        return False
+    leftmost_geo = _cell_geometry(row[0])
+    if leftmost_geo is None:
+        return False
+
+    changed = False
+    if band is None:
+        band = ET.Element("mxCell")
+        band.set("id", _ACTORS_BAND_ID)
+        band.set("value", "External Actors")
+        band.set("style", _corridor_style_for(page_name, _ACTORS_BAND_ID))
+        band.set("vertex", "1")
+        band.set("parent", "1")
+        geom = ET.SubElement(band, "mxGeometry")
+        geom.set("x", "20")
+        geom.set("y", str(leftmost_geo[1]))
+        geom.set("width", "160")
+        geom.set("height", "120")
+        geom.set("as", "geometry")
+        root.append(band)
+        by_id[_ACTORS_BAND_ID] = band
+        cells.append(band)
+        changed = True
+
+    pitch_y = geo.ROW_PITCH_Y
+    for i, actor in enumerate(actors):
+        if actor.get("parent") != _ACTORS_BAND_ID:
+            actor.set("parent", _ACTORS_BAND_ID)
+            changed = True
+        a_geom = actor.find("mxGeometry")
+        if a_geom is None:
+            continue
+        target_ax = CONTAINER_PADDING_X
+        target_ay = CONTAINER_LABEL_HEIGHT + i * pitch_y
+        try:
+            cur_ax = float(a_geom.get("x") or 0)
+            cur_ay = float(a_geom.get("y") or 0)
+        except ValueError:
+            cur_ax, cur_ay = 0.0, 0.0
+        if abs(cur_ax - target_ax) > 0.5 or abs(cur_ay - target_ay) > 0.5:
+            a_geom.set("x", str(target_ax))
+            a_geom.set("y", str(target_ay))
+            changed = True
+
+    band_geom = band.find("mxGeometry")
+    if band_geom is not None and resize_container_to_grid(band_geom, len(actors), cols=1):
+        changed = True
+    band_geo = _cell_geometry(band)
+    if band_geom is not None and band_geo is not None:
+        target_bx = max(20.0, leftmost_geo[0] - band_geo[2] - INTER_CONTAINER_GAP)
+        target_by = leftmost_geo[1]
+        if abs(band_geo[0] - target_bx) > 1.0:
+            band_geom.set("x", str(target_bx))
+            changed = True
+        if abs(band_geo[1] - target_by) > 1.0:
+            band_geom.set("y", str(target_by))
+            changed = True
+    return changed
 
 
 def _is_logical_actor_cell(cell: ET.Element) -> bool:

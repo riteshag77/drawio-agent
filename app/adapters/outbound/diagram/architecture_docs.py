@@ -20,8 +20,6 @@ VIEW_PAGE_NAMES = {
     "security": "Security",
     "data_flow": "Data flow",
 }
-_VIEW_PAGE_NAMES = VIEW_PAGE_NAMES  # backward-compatible alias
-
 _VIEW_PACK_FILES = {
     "logical": "views/logical.txt",
     "network": "views/network.txt",
@@ -30,7 +28,6 @@ _VIEW_PACK_FILES = {
 }
 _DOCS_PACK_FILE = "docs/adr_raid.txt"
 _GAP_ANALYSIS_PACK_FILE = "gap_analysis.txt"
-_VIEW_COMMON_FILE = "views/common.txt"  # removed — lenses are self-contained; kept for API compat
 _CORE_PACK_FILE = "core.txt"
 _CONFIG_DIR = EnvConfigAdapter.base_dir() / "config" / "xml_gen"
 _MAX_ADRS = 15  # soft safety against runaway model dumps
@@ -166,11 +163,6 @@ def load_gap_analysis_prompt_pack() -> str:
     )
 
 
-def load_view_common_pack() -> str:
-    """Deprecated: shared views/common.txt removed. Lenses are self-contained."""
-    return ""
-
-
 def load_view_prompt_pack(view: str) -> str:
     filename = _VIEW_PACK_FILES.get(view)
     if not filename:
@@ -192,16 +184,6 @@ class SingleViewPage(BaseModel):
             "mxCell id already present in this page's xml (same contract as Network)."
         ),
     )
-
-
-# Kept for backward-compatible imports in tests / older call sites.
-class ExtraViewPage(BaseModel):
-    view: str
-    xml: str = Field(description="Complete mxfile or mxGraphModel for this view page only")
-
-
-class ExtraViewsPack(BaseModel):
-    pages: list[ExtraViewPage] = Field(default_factory=list)
 
 
 _SINGLE_VIEW_SYSTEM_PREFIX = """You are producing ONE product-grade architecture briefing page as draw.io XML.
@@ -804,28 +786,6 @@ def build_single_view_human(
     )
 
 
-def build_extra_views_human(
-    *,
-    human_prompt: str,
-    platform: str,
-    primary_xml_summary: list[str],
-    extra_views: list[str],
-) -> str:
-    """Deprecated batch helper — prefer build_single_view_human per view."""
-    titles = ", ".join(VIEW_PAGE_NAMES[v] for v in extra_views if v in VIEW_PAGE_NAMES)
-    return (
-        f"Platform: {platform}\n"
-        f"Original request (truncate ok): {human_prompt[:_REQUEST_TRUNCATE_VIEW]}\n"
-        f"Services already in Network diagram: "
-        f"{', '.join(primary_xml_summary[:_SERVICE_INVENTORY_LIMIT]) or '(none)'}\n"
-        f"Produce pages for: {titles}\n"
-        "Return one ExtraViewPage per requested view with complete XML."
-    )
-
-
-_EXTRA_VIEW_SYSTEM = _SINGLE_VIEW_SYSTEM_PREFIX  # backward-compatible alias
-
-
 class RequiredAddition(BaseModel):
     """One architecturally-necessary component the brief omitted."""
 
@@ -1203,6 +1163,22 @@ _SAAS_DEFAULT_SIDE: dict[str, str] = {
     "other": "egress",
 }
 
+# Default Data-flow shelf when edges don't decide the direction.
+# producer = a system of record feeding data INTO the pipeline (identity/
+# experience/workforce/industry vendors are typically sources the pipeline
+# ingests from). consumer = a system the pipeline sends data OUT to
+# (payment/credit processors are called with a request; collab tools receive
+# notifications) — the pipeline is the one initiating those calls.
+_SAAS_DEFAULT_DIRECTION: dict[str, str] = {
+    "identity": "producer",
+    "experience": "producer",
+    "workforce": "producer",
+    "industry": "producer",
+    "payments": "consumer",
+    "collab": "consumer",
+    "other": "consumer",
+}
+
 _SAAS_GENERIC_NEEDLES = (
     "saas", "third party", "third-party", "external idp", "auth0", "auth 0",
     "entra id", "cognito", "twilio", "sendgrid", "shopify",
@@ -1238,6 +1214,20 @@ def saas_default_network_side(shape_type: str | None, label: str = "") -> str:
     """ingress = left of Cloud (user path); egress = right (Cloud calls SaaS)."""
     role = saas_journey_role(shape_type, label)
     return _SAAS_DEFAULT_SIDE.get(role, "egress")
+
+
+def saas_default_data_flow_direction(shape_type: str | None, label: str = "") -> str:
+    """producer = feeds data into the pipeline; consumer = pipeline sends data out to it.
+
+    Same vendor-role table as ``saas_journey_role``/``saas_default_network_side``
+    (Network's ingress/egress axis) but answering a different question — a
+    vendor can legitimately default to opposite answers on the two axes (e.g.
+    Okta defaults to Network-ingress *and* Data-flow-producer; both are true
+    independently). Used only as a fallback when no edge tells us the real
+    direction — see ``resolve_data_flow_saas_direction``.
+    """
+    role = saas_journey_role(shape_type, label)
+    return _SAAS_DEFAULT_DIRECTION.get(role, "consumer")
 
 
 def resolve_saas_network_side(
@@ -1563,11 +1553,6 @@ def assign_logical_shape_types(page_xml: str) -> str:
 
 
 # Backward-compatible alias.
-def apply_logical_generic_stencils(page_xml: str) -> str:
-    """Assign logical_* shape_types for MCP (builtins on miss)."""
-    return assign_logical_shape_types(page_xml)
-
-
 # Capability / alias phrases → needles matched against inventory labels.
 _SHAPE_ALIAS_NEEDLES: list[tuple[tuple[str, ...], tuple[str, ...]]] = [
     (("route 53", "route53", "dns routing", "dns"), ("route 53", "route53", "dns")),
@@ -1793,160 +1778,6 @@ def inject_shape_types_from_primary(page_xml: str, primary_xml: str) -> str:
 
 
 
-def _detail_card_html(title: str, bullets: list[str]) -> str:
-    parts = [
-        f'&lt;div style=&quot;font-size:12px;font-weight:bold;&quot;&gt;{_esc(title)}&lt;/div&gt;'
-    ]
-    for b in bullets:
-        parts.append(f"&lt;div&gt;• {_esc(b)}&lt;/div&gt;")
-    return "".join(parts)
-
-
-def _service_names_by_tier(primary_xml: str) -> dict[str, list[str]]:
-    entries = _primary_shape_entries(primary_xml)
-    parsed = _iter_diagram_root(primary_xml)
-    by_tier: dict[str, list[str]] = {}
-    if parsed is None:
-        return by_tier
-    _, root = parsed
-    for cell in root.findall("mxCell"):
-        if cell.get("vertex") != "1" or cell.get("edge") == "1":
-            continue
-        label = _plain_cell_label(cell.get("value") or "")
-        cid = cell.get("id") or ""
-        if _is_inventory_noise_label(label, cid):
-            continue
-        st = cell.get("shape_type") or ""
-        tier = _infer_service_tier(label, st, "")
-        by_tier.setdefault(tier, []).append(label)
-    # ensure we have something from entries
-    if not by_tier and entries:
-        for _, st, lab in entries:
-            by_tier.setdefault(_infer_service_tier(lab, st, ""), []).append(lab)
-    return by_tier
-
-
-def _build_view_detail_specs(
-    view: str,
-    primary_xml: str,
-    request_text: str,
-) -> list[tuple[str, str, list[str]]]:
-    """Return (card_id, title, bullets) for auto-injected section cards."""
-    tiers = _service_names_by_tier(primary_xml)
-    edge = tiers.get("edge", [])
-    app = tiers.get("app", [])
-    data = tiers.get("data", [])
-    obs = tiers.get("observability", []) or tiers.get("other", [])
-    req = (request_text or "").lower()
-
-    def join(names: list[str], fallback: str) -> str:
-        return ", ".join(names[:4]) if names else fallback
-
-    if view == "logical":
-        return [
-            ("note_experience", "Experience domain", [
-                "Channels & personas that consume the product",
-                "Frontend / BFF capabilities — no VPC or WAF here",
-                f"Hands off via API to: {join(app, 'application capabilities')}",
-                "Dependency style: Calls API / Relies on — not TLS or JSON payload labels",
-            ]),
-            ("note_core", "Core business domain", [
-                f"Primary capabilities: {join(app, 'application services')}",
-                "Owns business rules; invokes other domains via API contracts",
-                f"Persists via generic data stores (icons from: {join(data, 'inventory data services')})",
-                "Expand into multiple capability nodes when the request is rich (8–12 on page)",
-            ]),
-            ("note_data_cap", "Data capabilities (logical)", [
-                "Label as generic Data Stores (Customer store, Session store) — not engine brand names",
-                f"Inventory backing for icons: {join(data, 'data services')}",
-                "Dependencies: Relies on / Reads-Writes via API from core domain",
-                "No subnet or encryption storytelling on this page",
-            ]),
-            ("note_shared", "Shared / platform domain", [
-                f"Cross-cutting capabilities when present: {join(obs, 'platform services')}",
-                "Keep shared services out of core domain boxes",
-                "No request-path edges into pure monitoring on Logical",
-                "Bounded context boundaries must stay visible",
-            ]),
-        ]
-    if view == "security":
-        return [
-            ("ctrl_public", "Public Internet / Untrusted", [
-                "Anyone on the internet starts here — no standing trust",
-                "Private apps and sensitive data must not live in this zone",
-                "All entry should cross the perimeter next",
-                "Residual risk: anything exposed here is easy to probe",
-            ]),
-            ("ctrl_dmz", "DMZ / Perimeter", [
-                f"Edge protections present: {join(edge, 'web filter / public gateway / CDN')}",
-                "Traffic is checked and filtered before it goes further",
-                "Only this zone should be directly internet-reachable",
-                "Crossings use protected paths (TLS / inspect / login check on edges)",
-            ]),
-            ("ctrl_private", "Private application zone", [
-                f"Private apps sit here (collapsed): {join(app, 'application tier')}",
-                "Only allowed paths from the perimeter reach this zone",
-                "Keep admin and break-glass paths off the public internet",
-                "Residual risk: a weak perimeter path still reaches apps",
-            ]),
-            ("ctrl_restricted", "Highly restricted / sensitive", [
-                f"Sensitive data boundary: {join(data, 'data stores')}",
-                "Apps reach data on a private path — not from the internet",
-                "Keys and secrets vaults only when inventory/request supports them",
-                "Residual risk: over-broad app access into this zone",
-            ]),
-            ("ctrl_detect", "Detect & respond", [
-                f"Watching for abuse: {join(obs, 'monitoring / security tools')}",
-                "Complements the perimeter — does not replace it",
-                "Place as a shelf below trust zones with a clear gap",
-                "Residual risk: alerts without someone to act",
-            ]),
-        ]
-    return [
-        ("note_ingest", "Ingestion / producers", [
-            f"Data enters from: {join((app[:2] or edge[:1]), 'apps / partners / jobs')}",
-            "Say what arrives (orders, files, events) in plain words",
-            "Arrows name the payload — not security inspect essays",
-            "Skip UI screens and login sequences on this page",
-        ]),
-        ("note_process", "Processing", [
-            f"Processing step: {join(app, 'application / stream processors')}",
-            "Data is cleaned, enriched, or routed before it is saved",
-            "Solid arrows = sync; dashed = async — keep labels readable",
-            "Main data path stays on this corridor",
-        ]),
-        ("note_store", "Storage", [
-            f"Where data lives: {join(data, 'cache / database / object store')}",
-            "Name the store from inventory when known",
-            "Mark personal data [PII] vs non-personal when the request implies it",
-            "Note retention or residency only when already implied",
-        ]),
-        ("note_consume", "Consumers / analytics", [
-            "Who reads the data next (apps, reports, batch jobs)",
-            "Batch / cold path sits below the live path when present",
-            "Every arrow still names what data moves",
-            "Orchestration schedules sit on a dashed control shelf if present",
-        ]),
-    ]
-
-
-def ensure_view_detail_cards(
-    page_xml: str,
-    *,
-    view: str,
-    primary_xml: str = "",
-    request_text: str = "",
-    min_cards: int = 4,
-) -> str:
-    """Deprecated no-op: prose cards removed — Overview + badges own the story.
-
-    Strips any leftover note_*/ctrl_* cells for backward-compatible call sites.
-    """
-    del primary_xml, request_text, min_cards  # unused
-    from app.adapters.outbound.diagram.view_fixers import strip_detail_cards
-    return strip_detail_cards(page_xml, view=view)
-
-
 def page_has_overview_panel(xml: str) -> bool:
     try:
         tree = ET.fromstring(ensure_diagram_document(xml or "", "Page"))
@@ -2115,77 +1946,3 @@ def merge_mxfile_pages(pages: list[tuple[str, str]]) -> str:
     return "\n".join(parts)
 
 
-def page_names_in_mxfile(xml: str) -> list[str]:
-    try:
-        tree = ET.fromstring(ensure_diagram_document(xml, "Architecture"))
-    except ET.ParseError:
-        return []
-    if tree.tag != "mxfile":
-        return ["Architecture"]
-    return [d.get("name") or "Page" for d in tree.findall("diagram")]
-
-
-def apply_repair_per_view_page(xml: str, repair_fn) -> str:
-    """Run a repair callable on each diagram page; skip ADR/RAID doc pages."""
-    trimmed = (xml or "").strip()
-    if "<mxfile" not in trimmed:
-        return repair_fn(trimmed)
-    try:
-        tree = ET.fromstring(trimmed)
-    except ET.ParseError:
-        return repair_fn(trimmed)
-    if tree.tag != "mxfile":
-        return repair_fn(trimmed)
-
-    skip = {"adr notes", "raid"}
-    changed = False
-    for diag in list(tree.findall("diagram")):
-        name = (diag.get("name") or "").strip().lower()
-        if name in skip:
-            continue
-        model_xml = "".join(ET.tostring(c, encoding="unicode") for c in list(diag))
-        if not model_xml.strip() and (diag.text or "").strip():
-            model_xml = diag.text.strip()
-        wrapped = wrap_with_mxfile(model_xml, diag.get("name") or "Page")
-        repaired = repair_fn(wrapped)
-        try:
-            rtree = ET.fromstring(ensure_diagram_document(repaired, diag.get("name") or "Page"))
-        except ET.ParseError:
-            continue
-        new_diag = rtree.find("diagram") if rtree.tag == "mxfile" else None
-        if new_diag is None:
-            continue
-        diag.clear()
-        for k, v in new_diag.attrib.items():
-            diag.set(k, v)
-        diag.extend(list(new_diag))
-        changed = True
-    if not changed:
-        return trimmed
-    return ET.tostring(tree, encoding="unicode")
-
-
-def summarize_services_from_xml(xml: str, limit: int = 40) -> list[str]:
-    """Collect leaf labels for ADR/RAID prompting."""
-    labels: list[str] = []
-    try:
-        tree = ET.fromstring(ensure_diagram_document(xml, "Architecture"))
-    except ET.ParseError:
-        return labels
-    for cell in tree.iter("mxCell"):
-        if cell.get("vertex") != "1" or cell.get("edge") == "1":
-            continue
-        style = cell.get("style") or ""
-        if "container=1" in style or cell.get("id") in {"overview_panel", "legend_box"}:
-            continue
-        value = (cell.get("value") or "").strip()
-        if not value or value.lower() in {"service", "icon", "node", "group"}:
-            continue
-        # strip simple HTML
-        plain = re.sub(r"<[^>]+>", " ", value)
-        plain = html.unescape(plain).strip()
-        if plain and plain not in labels:
-            labels.append(plain)
-        if len(labels) >= limit:
-            break
-    return labels

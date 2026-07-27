@@ -165,10 +165,6 @@ class NetworkIR(DiagramIR):
             ids.add(self.cloud.edge_layer.id)
         return ids
 
-    #: Pre-existing name kept for readability/back-compat at call sites —
-    #: ``structural_ids`` is the one ``DiagramIR.all_ids()`` actually calls.
-    container_ids = structural_ids
-
     def no_edge_ids(self) -> set[str]:
         """Cross-cutting group containers and their members — flows must not touch these."""
         ids: set[str] = set()

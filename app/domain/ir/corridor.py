@@ -99,10 +99,6 @@ class CorridorIR(DiagramIR):
     def structural_ids(self) -> set[str]:
         return {c.id for c in self.all_corridors()}
 
-    #: Pre-existing name kept for readability/back-compat at call sites —
-    #: ``structural_ids`` is the one ``DiagramIR.all_ids()`` actually calls.
-    corridor_ids = structural_ids
-
     # ── validation ─────────────────────────────────────────────────────
 
     @model_validator(mode="after")

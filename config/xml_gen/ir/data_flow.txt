@@ -10,12 +10,22 @@ known. WAF/login tours or capability org charts → fail.
 Main row, left→right by data-journey order — use whichever apply, omit the
 rest: `phase_ingest`, `phase_process`, `phase_store`.
 
-Anchored shelves (both anchor under `phase_store`, stacking one below the
-other when both are present):
+Anchored shelves (all three anchor under `phase_store`, stacking in the order
+listed when more than one is present):
 - `phase_consume` — downstream readers (dashboards, reports).
-- `phase_saas` — **required** when any enterprise SaaS producer/consumer is
-  in inventory; a dedicated shelf, distinct from the cloud-native phases.
-  Never place a SaaS leaf inside `phase_ingest`/`phase_process`/`phase_store`.
+- `phase_saas_producer` — enterprise SaaS systems that feed data **into** the
+  pipeline (a system of record the pipeline ingests from, e.g. Salesforce
+  pushing lead records, Workday pushing employee records).
+- `phase_saas_consumer` — enterprise SaaS systems the pipeline sends data
+  **out to** (the pipeline is the caller, e.g. a payment processor, a
+  notification/collab tool receiving an event).
+  Required — at least one of the two — when any enterprise SaaS
+  producer/consumer is in inventory; both are dedicated shelves, distinct
+  from the cloud-native phases. Never place a SaaS leaf inside
+  `phase_ingest`/`phase_process`/`phase_store`. Decide per leaf which shelf
+  it belongs in the same way you decide which of `phase_ingest`/
+  `phase_process`/`phase_store` a leaf belongs to — this is your call, not a
+  heuristic applied after the fact.
 
 Anchored shelf below the **whole row** (leave `anchor_id` unset): `phase_control`
 — optional, for schema registry / catalog / schedules when in inventory.
@@ -27,7 +37,9 @@ Keep cloud `shape_type` on named producers/consumers/stores/brokers/ETL/
 cache/replicas from inventory.
 
 Enterprise SaaS producers/consumers (Salesforce, Workday, Guidewire, Stripe,
-…): `shape_type=saas_<vendor>` — place in `phase_saas` only.
+…): `shape_type=saas_<vendor>` — place in `phase_saas_producer` or
+`phase_saas_consumer` per its data direction, never in the cloud-native
+phases.
 
 ## Required companions
 

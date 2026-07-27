@@ -707,6 +707,47 @@ class EnsureOverviewPanelPositionTests(unittest.TestCase):
         model = ET.fromstring(out).find(".//mxGraphModel")
         self.assertGreater(float(model.get("pageHeight")), 1400.0)
 
+    def test_clamps_oversized_panel_width(self) -> None:
+        """Gap B (Fix 3): width was never corrected before — only height was."""
+        xml = _wrap(
+            '<mxCell id="cloud" value="AWS Cloud" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="200" y="100" width="600" height="400" as="geometry"/></mxCell>'
+            '<mxCell id="overview_panel" value="&lt;div&gt;Title&lt;/div&gt;&lt;div&gt;1. Step.&lt;/div&gt;" '
+            'style="rounded=1;html=1;" vertex="1" parent="1">'
+            '<mxGeometry x="840" y="100" width="1400" height="160" as="geometry"/></mxCell>'
+        )
+        out = ensure_overview_panel_position(xml)
+        panel = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "overview_panel")
+        w = float(panel.find("mxGeometry").get("width"))
+        self.assertLessEqual(w, 640.0)
+
+    def test_clamps_undersized_panel_width(self) -> None:
+        xml = _wrap(
+            '<mxCell id="cloud" value="AWS Cloud" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="200" y="100" width="600" height="400" as="geometry"/></mxCell>'
+            '<mxCell id="overview_panel" value="&lt;div&gt;Title&lt;/div&gt;&lt;div&gt;1. Step.&lt;/div&gt;" '
+            'style="rounded=1;html=1;" vertex="1" parent="1">'
+            '<mxGeometry x="840" y="100" width="120" height="160" as="geometry"/></mxCell>'
+        )
+        out = ensure_overview_panel_position(xml)
+        panel = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "overview_panel")
+        w = float(panel.find("mxGeometry").get("width"))
+        self.assertGreaterEqual(w, 400.0)
+
+    def test_in_range_panel_width_is_a_noop(self) -> None:
+        """Idempotency matters — repair_xml may re-run this fixer."""
+        xml = _wrap(
+            '<mxCell id="cloud" value="AWS Cloud" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="200" y="100" width="600" height="400" as="geometry"/></mxCell>'
+            '<mxCell id="overview_panel" value="&lt;div&gt;Title&lt;/div&gt;&lt;div&gt;1. Step.&lt;/div&gt;" '
+            'style="rounded=1;html=1;" vertex="1" parent="1">'
+            '<mxGeometry x="840" y="100" width="500" height="160" as="geometry"/></mxCell>'
+        )
+        out = ensure_overview_panel_position(xml)
+        panel = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "overview_panel")
+        w = float(panel.find("mxGeometry").get("width"))
+        self.assertEqual(w, 500.0)
+
 
 class EnsureOverviewPanelParentRootTests(unittest.TestCase):
     """Regression for a defect found via live-generation review (Part 6): a Security

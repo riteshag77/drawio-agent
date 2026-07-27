@@ -13,20 +13,116 @@ from typing import Callable
 
 import xml.etree.ElementTree as ET
 
+from app.adapters.outbound.diagram import geometry_spec as geo
 from app.adapters.outbound.diagram.xml_diagnostics import (
     _cell_geometry,
     _is_container_cell,
 )
 
 
-# Pitch reused by placement_fixers for Logical; kept here so layout is self-contained.
-APP_PITCH_X = 220.0
-APP_PITCH_Y = 150.0
-APP_BASE_X = 28.0
-APP_BASE_Y = 56.0
+# Canonical constants for the corridor/shelf layout engine (Logical / Security /
+# Data-flow). Single source of truth — was previously three independent,
+# grow-only sizing formulas with three different pitch values (APP_PITCH_Y=150,
+# a hardcoded 110 in _anchor_shelf_under, _SAAS_PITCH_Y=110 in
+# placement_fixers.py) that never agreed with each other, which is the root
+# cause an oversized/inconsistent box (e.g. a 3-icon shelf rendering far
+# larger than its content) was possible in the first place. Deliberately
+# separate from geometry_spec.py's own constants (icon SIZE is shared — see
+# the geo.LEAF_W/LEAF_H reuse below — but PADDING/PITCH is not: that module
+# governs the Network IR compiler's load-bearing geometry, this one governs a
+# downstream rank-and-order engine that always overwrites whatever geometry it
+# receives, a genuinely different concern).
+CONTAINER_PADDING_X = 24.0
+CONTAINER_PADDING_Y = 24.0
+CONTAINER_LABEL_HEIGHT = 30.0
+#: Gap BETWEEN icon boxes, not a left-edge-to-left-edge pitch. Kept as a
+#: named constant (matches the padding/gap set this engine was given), but it
+#: is NOT what actually drives icon-to-icon pitch below — see _ICON_PITCH_X.
+ICON_SPACING = 40.0
+INTER_CONTAINER_GAP = 110.0
+#: Floor so a container never shrinks below room for its own title band —
+#: mirrors xml_tools._FIT_MIN_W/_FIT_MIN_H's role for the general-container
+#: fitter, kept as a separate constant since these are independent systems.
+CONTAINER_MIN_W = 120.0
+CONTAINER_MIN_H = 80.0
+
+#: Pitch deliberately equals geometry_spec's own canonical leaf-grid pitch
+#: (200 horizontal / 130 vertical row spacing), NOT ICON_SPACING + LEAF_W
+#: (118px). xml_diagnostics.py's resolve_pitch_outliers/
+#: resolve_moderate_pitch_deviations run unconditionally, for every
+#: container in every view (shared with Network), and snap any pitch outside
+#: DATA_PITCH_RANGE (170-230) back to DATA_CANONICAL_PITCH (200) — so a
+#: bespoke 118px pitch here would just get overwritten downstream anyway,
+#: leaving this module's own sizing (which ran first, at 118px) out of sync
+#: with what the page actually renders at (200px), which is what produced an
+#: oversized/inconsistent shelf box in practice. Matching the canonical pitch
+#: here means this module's sizing and the downstream fixers agree by
+#: construction — confirmed with the user rather than silently decided.
+_ICON_PITCH_X = geo.DATA_CANONICAL_PITCH
+_ICON_PITCH_Y = geo.ROW_PITCH_Y
+
+#: Max icons per row before wrapping — unrelated to the padding/pitch
+#: consolidation above (no duplicate elsewhere), stays under its own name.
 APP_MAX_COLS = 4
-DOMAIN_GAP = 110.0
-SHELF_GAP = 110.0
+
+#: ``SHELF_GAP`` name kept — still imported by ``placement_fixers.py``'s
+#: corridor-gap-consistency fixer; same value as ``INTER_CONTAINER_GAP``.
+SHELF_GAP = INTER_CONTAINER_GAP
+
+
+def grid_fill(count: int, *, cols: int | None = None) -> tuple[int, int, float, float]:
+    """(cols, rows, content_width, content_height) for `count` icons at the
+    canonical ICON_SPACING/icon-size pitch, wrapping at grid_cols(count) columns
+    unless `cols` is given explicitly. One formula, used everywhere a
+    container needs to size itself around a grid of children — replaces the
+    three independent grid/stacking formulas this module and placement_fixers.py
+    used to have."""
+    if count <= 0:
+        return 0, 0, 0.0, 0.0
+    n_cols = cols if cols is not None else grid_cols(count)
+    n_cols = max(1, n_cols)
+    n_rows = (count - 1) // n_cols + 1
+    used_cols = min(count, n_cols)
+    content_w = (used_cols - 1) * _ICON_PITCH_X + geo.LEAF_W
+    content_h = (n_rows - 1) * _ICON_PITCH_Y + geo.LEAF_H
+    return n_cols, n_rows, content_w, content_h
+
+
+def resize_container_to_grid(
+    geom: ET.Element,
+    count: int,
+    *,
+    cols: int | None = None,
+    min_w: float = CONTAINER_MIN_W,
+    min_h: float = CONTAINER_MIN_H,
+) -> bool:
+    """The one place a container/shelf box is sized from its child count.
+
+    Bidirectional — shrinks an oversized box back down to what its `count`
+    children actually need, grows an undersized one — unlike the grow-only
+    checks (`if cur < needed: set(...)`) this replaces, which could never
+    correct a box a *different* sizing pass had already made too large.
+
+    `cols` forces a specific column count instead of `grid_cols(count)`'s
+    squarish default — e.g. `cols=1` for a narrow single-column actor band,
+    where wrapping into a square grid would defeat the point of a band.
+    """
+    _cols, _rows, content_w, content_h = grid_fill(count, cols=cols)
+    needed_w = max(min_w, content_w + CONTAINER_PADDING_X * 2)
+    needed_h = max(min_h, content_h + CONTAINER_LABEL_HEIGHT + CONTAINER_PADDING_Y)
+    try:
+        cur_w = float(geom.get("width") or 0)
+        cur_h = float(geom.get("height") or 0)
+    except ValueError:
+        cur_w, cur_h = 0.0, 0.0
+    changed = False
+    if abs(needed_w - cur_w) > 1.0:
+        geom.set("width", str(needed_w))
+        changed = True
+    if abs(needed_h - cur_h) > 1.0:
+        geom.set("height", str(needed_h))
+        changed = True
+    return changed
 
 
 def build_edge_pairs(cells: list[ET.Element]) -> list[tuple[str, str]]:
@@ -347,9 +443,7 @@ def apply_layered_corridor_layout(
     keyword_key: Callable[[ET.Element], tuple],
     start_x: float = 160.0,
     start_y: float = 140.0,
-    gap: float = DOMAIN_GAP,
-    pitch_x: float = APP_PITCH_X,
-    pitch_y: float = APP_PITCH_Y,
+    gap: float = INTER_CONTAINER_GAP,
     mark_layout: bool = True,
     shelf_filter: Callable[[ET.Element], bool] = _is_saas_domain,
     shelf_anchor_filter: Callable[[ET.Element], bool] = _is_data_domain,
@@ -421,10 +515,7 @@ def apply_layered_corridor_layout(
         if abs(geo[0] - x) > 1.0:
             geom.set("x", str(x))
             changed = True
-        if _layout_tiles_in_container(
-            cell, cells, edges, leaf_filter,
-            pitch_x=pitch_x, pitch_y=pitch_y, mark_layout=mark_layout,
-        ):
+        if _layout_tiles_in_container(cell, cells, edges, leaf_filter, mark_layout=mark_layout):
             changed = True
             geo = _cell_geometry(cell) or geo
         x += geo[2] + gap
@@ -451,9 +542,10 @@ def apply_layered_corridor_layout(
                 changed = True
 
     # Anchor shelf corridors under their target (or rightmost ranked corridor).
-    # Multiple shelves (e.g. Data-flow's phase_consume + phase_saas, both under
-    # phase_store) stack one below the other via a running cursor, rather than
-    # all landing at the same y under the same anchor and overlapping.
+    # Multiple shelves (e.g. Data-flow's phase_consume + phase_saas_producer +
+    # phase_saas_consumer, all under phase_store) stack one below the other via
+    # a running cursor, rather than all landing at the same y under the same
+    # anchor and overlapping.
     if saas_shelves:
         anchor = next((c for c in ranked if shelf_anchor_filter(c)), None)
         if anchor is None and ranked:
@@ -465,14 +557,11 @@ def apply_layered_corridor_layout(
             # Non-SaaS shelves (e.g. Data-flow's phase_consume) get the normal
             # tile grid, not the SaaS-specific vertical stack — SaaS shelves are
             # skipped inside _layout_tiles_in_container itself (_is_saas_domain).
-            if _layout_tiles_in_container(
-                shelf, cells, edges, leaf_filter,
-                pitch_x=pitch_x, pitch_y=pitch_y, mark_layout=mark_layout,
-            ):
+            if _layout_tiles_in_container(shelf, cells, edges, leaf_filter, mark_layout=mark_layout):
                 changed = True
             shelf_geo = _cell_geometry(shelf)
             if shelf_geo is not None:
-                cursor_y = shelf_geo[1] + shelf_geo[3] + SHELF_GAP
+                cursor_y = shelf_geo[1] + shelf_geo[3] + INTER_CONTAINER_GAP
 
     return changed
 
@@ -483,8 +572,6 @@ def _layout_tiles_in_container(
     all_edges: list[tuple[str, str]],
     leaf_filter: Callable[[ET.Element], bool],
     *,
-    pitch_x: float,
-    pitch_y: float,
     mark_layout: bool,
 ) -> bool:
     cid = container.get("id") or ""
@@ -527,8 +614,8 @@ def _layout_tiles_in_container(
     for i, kid in enumerate(kids):
         col = i % cols_n
         row = i // cols_n
-        tx = APP_BASE_X + col * pitch_x
-        ty = APP_BASE_Y + row * pitch_y
+        tx = CONTAINER_PADDING_X + col * _ICON_PITCH_X
+        ty = CONTAINER_LABEL_HEIGHT + row * _ICON_PITCH_Y
         geom = kid.find("mxGeometry")
         if geom is None:
             continue
@@ -545,23 +632,9 @@ def _layout_tiles_in_container(
             kid.set("layout", "1")
             changed = True
 
-    rows = (len(kids) - 1) // cols_n + 1
-    cols = min(len(kids), cols_n)
-    needed_w = APP_BASE_X + cols * pitch_x + 20.0
-    needed_h = APP_BASE_Y + rows * pitch_y + 24.0
     shelf_geo = container.find("mxGeometry")
-    if shelf_geo is not None:
-        try:
-            cur_w = float(shelf_geo.get("width") or 0)
-            cur_h = float(shelf_geo.get("height") or 0)
-        except ValueError:
-            cur_w, cur_h = 0.0, 0.0
-        if cur_w < needed_w:
-            shelf_geo.set("width", str(needed_w))
-            changed = True
-        if cur_h < needed_h:
-            shelf_geo.set("height", str(needed_h))
-            changed = True
+    if shelf_geo is not None and resize_container_to_grid(shelf_geo, len(kids)):
+        changed = True
     return changed
 
 
@@ -585,50 +658,32 @@ def _anchor_shelf_under(
     s_geom = shelf.find("mxGeometry")
     if a_geo is None or s_geom is None:
         return False
-    # Estimate height from SaaS children already present (caller may re-stack).
     kids = [
         c for c in cells
         if c.get("parent") == (shelf.get("id") or "")
         and c.get("vertex") == "1"
         and c.get("edge") != "1"
     ]
-    needed_h = max(
-        a_geo[3] * 0.5,
-        48.0 + max(1, len(kids)) * 110.0 + 24.0,
-    )
-    s_geo = _cell_geometry(shelf)
     tx = a_geo[0]
-    ty = y_override if y_override is not None else a_geo[1] + a_geo[3] + SHELF_GAP
-    # A vertical SaaS shelf (domain_saas / phase_saas / zone_external_saas) is a
-    # single icon column — never stretch it to the anchor's own width (e.g. a wide
-    # phase_store), which is what made the shelf read as an oversized empty box.
-    # Anchors like phase_consume (a tile grid) still align to the anchor's width.
-    shelf_id = (shelf.get("id") or "").lower()
-    is_vertical_saas_shelf = "saas" in shelf_id and (
-        shelf_id.startswith("domain_") or shelf_id.startswith("phase_")
-        or shelf_id.startswith("zone_")
-    )
-    if is_vertical_saas_shelf:
-        tw = max((s_geo[2] if s_geo else 180.0), 180.0)
-    else:
-        tw = max(a_geo[2], (s_geo[2] if s_geo else 180.0), 180.0)
+    ty = y_override if y_override is not None else a_geo[1] + a_geo[3] + INTER_CONTAINER_GAP
     changed = False
     try:
         cur_x = float(s_geom.get("x") or 0)
         cur_y = float(s_geom.get("y") or 0)
-        cur_w = float(s_geom.get("width") or 0)
-        cur_h = float(s_geom.get("height") or 0)
     except ValueError:
-        cur_x, cur_y, cur_w, cur_h = 0.0, 0.0, 0.0, 0.0
+        cur_x, cur_y = 0.0, 0.0
     if abs(cur_x - tx) > 1.0 or abs(cur_y - ty) > 1.0:
         s_geom.set("x", str(tx))
         s_geom.set("y", str(ty))
         changed = True
-    if cur_w < tw - 1.0:
-        s_geom.set("width", str(tw))
-        changed = True
-    if cur_h < needed_h - 1.0:
-        s_geom.set("height", str(needed_h))
+    # This is a provisional size — for a genuine SaaS shelf (domain_saas /
+    # phase_saas_* / zone_external_saas), the caller's subsequent
+    # _sort_saas_children_in_shelf pass grid-fills the children and resizes
+    # authoritatively via this same resize_container_to_grid function; for a
+    # non-SaaS shelf (phase_consume), _layout_tiles_in_container does the
+    # same immediately after this call returns in apply_layered_corridor_layout.
+    # No shelf-type branch needed here — one canonical resize either way.
+    if resize_container_to_grid(s_geom, len(kids)):
         changed = True
     if shelf.get("layout") != "1":
         shelf.set("layout", "1")

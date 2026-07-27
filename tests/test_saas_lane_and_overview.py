@@ -1096,10 +1096,16 @@ class SecondReviewRoundTests(unittest.TestCase):
         )
         out = enforce_corridor_gap_consistency(page)
         by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
-        actor_geo = by_id["employees"].find("mxGeometry")
+        # Fix 2c: the actor is now wrapped in a lightweight "actors_left" band
+        # container (still parent="1", peer of the main row) instead of being
+        # a bare, independently-positioned parent="1" leaf — so it's the
+        # band's absolute position, not the actor's own now-container-relative
+        # geometry, that must sit close to the pushed-out first zone.
+        self.assertEqual(by_id["employees"].get("parent"), "actors_left")
+        band_geo = by_id["actors_left"].find("mxGeometry")
         zone_geo = by_id["zone_dmz"].find("mxGeometry")
-        gap = float(zone_geo.get("x")) - (float(actor_geo.get("x")) + float(actor_geo.get("width")))
-        self.assertLess(gap, 100.0)
+        gap = float(zone_geo.get("x")) - (float(band_geo.get("x")) + float(band_geo.get("width")))
+        self.assertLess(gap, 150.0)
         self.assertGreater(gap, 0.0)
 
     def test_missing_adjacent_domain_edge_is_synthesized(self) -> None:
@@ -1144,7 +1150,10 @@ class SecondReviewRoundTests(unittest.TestCase):
         self.assertTrue(touches_registry)
 
     def test_saas_leaf_pulled_into_dedicated_vertical_shelf(self) -> None:
-        """9g: an in-phase SaaS leaf must move to phase_saas, anchored under phase_store."""
+        """9g: an in-phase SaaS leaf must move to a dedicated SaaS shelf, anchored
+        under phase_store — split by direction (Fix 1); Salesforce has no edges
+        here so falls back to its vendor-role default ('experience' -> producer,
+        see saas_default_data_flow_direction)."""
         page = _data_flow(
             '<mxCell id="phase_store" value="Store" style="container=1;" vertex="1" parent="1">'
             '<mxGeometry x="500" y="140" width="200" height="140" as="geometry"/></mxCell>'
@@ -1156,10 +1165,10 @@ class SecondReviewRoundTests(unittest.TestCase):
         )
         out = enforce_view_journey_columns(page)
         by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
-        self.assertIn("phase_saas", by_id)
-        self.assertEqual(by_id["salesforce"].get("parent"), "phase_saas")
+        self.assertIn("phase_saas_producer", by_id)
+        self.assertEqual(by_id["salesforce"].get("parent"), "phase_saas_producer")
         store_geo = by_id["phase_store"].find("mxGeometry")
-        saas_geo = by_id["phase_saas"].find("mxGeometry")
+        saas_geo = by_id["phase_saas_producer"].find("mxGeometry")
         self.assertAlmostEqual(float(store_geo.get("x")), float(saas_geo.get("x")), delta=1.0)
         self.assertGreater(
             float(saas_geo.get("y")),

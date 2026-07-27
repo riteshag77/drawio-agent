@@ -213,11 +213,6 @@ class EnvConfigAdapter:
         return self.get_bool("DRAWIO_STYLE_CACHE_RESET", False)
 
     @property
-    def xml_repair_max_attempts(self) -> int:
-        """Deprecated: LLM XML repair was removed. Kept for env compatibility; unused."""
-        return max(0, self.get_int("XML_REPAIR_MAX_ATTEMPTS", 0))
-
-    @property
     def diagram_ir_enabled(self) -> bool:
         """When true, the Network view is generated via the IR + compiler path.
 

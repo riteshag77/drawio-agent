@@ -11,6 +11,8 @@ from app.adapters.outbound.diagram.architecture_docs import (
     assign_saas_shape_types,
     ensure_saas_labels_on_logical,
     match_saas_shape_type,
+    saas_default_data_flow_direction,
+    saas_default_network_side,
     saas_journey_role,
 )
 from app.adapters.outbound.diagram.drawio_mcp_client import _builtin_style
@@ -80,6 +82,28 @@ class JourneyOrderTests(unittest.TestCase):
         self.assertGreaterEqual(sfs_x, cloud_x + cloud_w - 1)
         # Within egress band, experience before workforce
         self.assertLessEqual(sf_x, sfs_x)
+
+
+class CrossAxisIndependenceTests(unittest.TestCase):
+    """Network's ingress/egress axis and Data-flow's producer/consumer axis
+    are answering different questions about the same vendor and must not be
+    conflated — a vendor can legitimately default to opposite-sounding
+    answers on each axis independently (Fix 1)."""
+
+    def test_okta_is_network_ingress_and_data_flow_producer(self) -> None:
+        self.assertEqual(saas_default_network_side("saas_okta"), "ingress")
+        self.assertEqual(saas_default_data_flow_direction("saas_okta"), "producer")
+
+    def test_workday_is_network_egress_and_data_flow_producer(self) -> None:
+        """Same vendor, same underlying 'workforce' role, different axis —
+        the two functions must reach their answers independently, not by
+        reusing one boolean for both."""
+        self.assertEqual(saas_default_network_side("saas_workday"), "egress")
+        self.assertEqual(saas_default_data_flow_direction("saas_workday"), "producer")
+
+    def test_stripe_is_network_egress_and_data_flow_consumer(self) -> None:
+        self.assertEqual(saas_default_network_side("saas_stripe"), "egress")
+        self.assertEqual(saas_default_data_flow_direction("saas_stripe"), "consumer")
 
 
 if __name__ == "__main__":

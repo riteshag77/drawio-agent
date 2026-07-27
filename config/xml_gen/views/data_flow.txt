@@ -20,18 +20,19 @@ by data journey order:
 ```
 [phase_ingest]   [phase_process]   [phase_store]
    ↑ enters          ↑ transforms      ↑ persisted
-                                           ↓          ↘
-                                     [phase_consume]  [phase_saas]
-                                        ↑ read           ↑ SaaS producers/
-                                        downstream —     consumers — own
-                                        below Store,     vertical shelf,
-                                        same column       below Store too
+                                           ↓          ↘         ↘
+                              [phase_consume]  [phase_saas_producer]  [phase_saas_consumer]
+                                 ↑ read           ↑ SaaS feeding        ↑ SaaS the pipeline
+                                 downstream —     data IN — own        calls OUT to — own
+                                 below Store,     vertical shelf,      vertical shelf,
+                                 same column      below Store too      below Store too
 
- (ingest/process/store are siblings, each parent="1"; phase_consume AND
-  phase_saas are also parent="1" but both excluded from the L→R rank — the
-  engine anchors both under phase_store, stacked one above the other, since
-  Consume reads FROM Store and SaaS products commonly exchange data with
-  Store too; leaves inside each are parent=<phase-id>)
+ (ingest/process/store are siblings, each parent="1"; phase_consume,
+  phase_saas_producer AND phase_saas_consumer are also parent="1" but all
+  excluded from the L→R rank — the engine anchors all three under
+  phase_store, stacked one above the other, since Consume reads FROM Store
+  and SaaS products commonly exchange data with Store too; leaves inside
+  each are parent=<phase-id>)
 
 [phase_control]  ← optional dashed shelf, BELOW the data-plane row, parent="1"
    ↑ schema registry / catalog / schedules — never IdP/WAF
@@ -46,10 +47,15 @@ phases by this exact id, not by label):**
 - `phase_ingest`, `phase_process`, `phase_store`, `phase_consume` — emit **exactly** these
   ids for whichever phases apply (omit a phase entirely if nothing belongs in it; never
   emit an empty phase shell).
-- `phase_saas` (REQUIRED when any enterprise SaaS producer/consumer is in inventory) — a
-  **dedicated** shelf for SaaS products, distinct from the cloud-native phases. **Do not**
-  place a SaaS leaf inside `phase_ingest`/`phase_process`/`phase_store` — it always goes in
-  `phase_saas` instead.
+- `phase_saas_producer` / `phase_saas_consumer` (at least one REQUIRED when any enterprise
+  SaaS producer/consumer is in inventory) — dedicated shelves for SaaS products, split by
+  data direction, distinct from the cloud-native phases. **Do not** place a SaaS leaf inside
+  `phase_ingest`/`phase_process`/`phase_store` — it always goes in one of these two instead:
+  `phase_saas_producer` for a vendor that feeds data INTO the pipeline (a system of record
+  you ingest from — e.g. Salesforce/Workday pushing records), `phase_saas_consumer` for a
+  vendor the pipeline sends data OUT to (the pipeline is the caller — e.g. a payment
+  processor, a notification tool). Decide per leaf, the same way you decide which cloud-native
+  phase a leaf belongs to.
 - `phase_control` (optional) for the control-plane shelf when schema registry / catalog /
   schedules are in inventory.
 - A leaf's `parent` MUST be the phase id it logically belongs to.
@@ -64,8 +70,10 @@ phases by this exact id, not by label):**
 - `replica_1` → parent `phase_store`
 - `phase_consume` → parent `"1"`
 - `dashboard_1` → parent `phase_consume`
-- `phase_saas` → parent `"1"`
-- `salesforce_1` → parent `phase_saas`
+- `phase_saas_producer` → parent `"1"`
+- `salesforce_1` → parent `phase_saas_producer`
+- `phase_saas_consumer` → parent `"1"`
+- `stripe_1` → parent `phase_saas_consumer`
 - `phase_control` → parent `"1"`
 - `schema_registry_1` → parent `phase_control`
 
@@ -74,25 +82,25 @@ phases by this exact id, not by label):**
 leaf inside its phase after this call — your job is correct **grouping** (right leaf → right
 phase via `parent=`) and correct, labeled **edges**; emit reasonable placeholder geometry
 (e.g. phases roughly 260×200, leaves 78×78) but do not spend effort perfecting alignment,
-since it will be discarded and rebuilt. `phase_consume`'s and `phase_saas`'s anchor
-positions (both under `phase_store`) are also finalized by the engine — focus on getting the
-right leaves into each, not their coordinates.
+since it will be discarded and rebuilt. `phase_consume`'s and `phase_saas_producer`'s/
+`phase_saas_consumer`'s anchor positions (all under `phase_store`) are also finalized by the
+engine — focus on getting the right leaves into each, not their coordinates.
 
 ### Layout gaps (for placeholder geometry only — engine will finalize)
 - Horizontal gap between phase columns: **80–120px**
 - Phase top edges align (same y) — a shared data-plane band, not a staircase
-- `phase_consume` and `phase_saas` sit **below** `phase_store` (same column), stacked with a
-  clear vertical gap (≥70px) between each
+- `phase_consume`, `phase_saas_producer` and `phase_saas_consumer` sit **below** `phase_store`
+  (same column), stacked with a clear vertical gap (≥70px) between each
 - `phase_control` sits **below** the data-plane row with a clear vertical gap (≥70px)
 - Container padding: **20–28px** sides/bottom, **≥48px** top for the phase title band
 - Leaf grid inside a phase: same CORE pitch rules (max 4/row, 180–220px pitch) — except
-  `phase_saas`, which stacks its leaves **vertically** (one column), mirroring Logical's
-  `domain_saas` shelf.
+  `phase_saas_producer`/`phase_saas_consumer`, which stack their leaves **vertically** (one
+  column each), mirroring Logical's `domain_saas` shelf.
 
 ### Canvas (clean)
-- **Data plane** corridor **left → right**: `phase_ingest` → `phase_process` → `phase_store`, with `phase_consume` and `phase_saas` both anchored directly below `phase_store` (Consume reads *from* Store; SaaS is its own shelf, not a 4th peer column and not mixed into the cloud-native phases).
+- **Data plane** corridor **left → right**: `phase_ingest` → `phase_process` → `phase_store`, with `phase_consume`, `phase_saas_producer` and `phase_saas_consumer` all anchored directly below `phase_store` (Consume reads *from* Store; the two SaaS shelves are their own shelves, split by data direction, not peer columns and not mixed into the cloud-native phases).
 - **Control plane** optional dashed shelf (`phase_control`: schema registry, schedules, Glue catalog) when in inventory — never IdP/WAF.
-- SaaS producers/consumers go in `phase_saas`, vertically stacked, ordered top-to-bottom by journey role. Never parent leaves under `overview_panel`.
+- SaaS producers go in `phase_saas_producer`, SaaS consumers go in `phase_saas_consumer`, each vertically stacked. Never parent leaves under `overview_panel`.
 - **No** `note_*` / `ctrl_*` prose cards. Journey → Overview + `step_markers` badges on major hops.
 - Legend when needed: sync/async and `[PII]` / `[Non-PII]` / `[PCI]`.
 
@@ -106,7 +114,7 @@ These are **SaaS+store companions**, not density padding. Thin inventory without
 
 ### ALLOWED nodes
 Producers/consumers, named stores/brokers/ETL/cache/replicas from inventory, control-plane orchestration when present, plus the REQUIRED companions above when SaaS+store apply. Keep cloud `shape_type`.
-Enterprise SaaS producers/consumers (Salesforce, Workday, Guidewire, Stripe, …): use `shape_type=saas_<vendor>` when present — place in `phase_saas`, **never** in `phase_ingest`/`phase_process`/`phase_store`/`phase_control`.
+Enterprise SaaS producers/consumers (Salesforce, Workday, Guidewire, Stripe, …): use `shape_type=saas_<vendor>` when present — place in `phase_saas_producer` or `phase_saas_consumer` per data direction, **never** in `phase_ingest`/`phase_process`/`phase_store`/`phase_control`.
 
 ### ALLOWED edges (every edge labeled)
 `JSON:…`, `SQL:…`, `Event:…`, `Cache:…`, `Object:…`, `CDC:…`, `Batch:…` — add `[PII]` / `[Non-PII]` / `[PCI]` when request implies sensitivity (never invent PII). Keep each label **≤ 28 characters** when possible (short type + optional tag).
@@ -127,7 +135,7 @@ Do **not** invent brokers when SaaS+store are absent.
 8–12 when supported; 5–7 when thin — never invent brokers to pad **except** the REQUIRED SaaS+store companions above.
 
 ### Section colors
-Ingest/edge `#FFF2CC/#D6B656`; process/app `#DAE8FC/#6C8EBF`; data `#D5E8D4/#82B366`; events `#F5E1F5/#E7157B`; External SaaS shelf `#FFF2CC/#D6B656`. `arcSize=2`.
+Ingest/edge `#FFF2CC/#D6B656`; process/app `#DAE8FC/#6C8EBF`; data `#D5E8D4/#82B366`; events `#F5E1F5/#E7157B`; SaaS producer/consumer shelves `#FFF2CC/#D6B656`. `arcSize=2`.
 
 ### Overview (plain language) + badges
 Title: `Data journey — {system}`
@@ -141,7 +149,7 @@ Emit `step_markers` on major hops.
 2. Retry/DLQ edges dashed? Primary corridor still readable?
 3. Blank edges or labels over icons = fail. note/ctrl cards = fail.
 4. Every phase used has the exact `phase_*` id prefix required above, is `parent="1"`, and every leaf inside it has `parent=<phase-id>`? No phase nested inside another phase?
-5. Any enterprise SaaS leaf lives in `phase_saas` — **not** inside `phase_ingest`/`phase_process`/`phase_store`/`phase_control`?
+5. Any enterprise SaaS leaf lives in `phase_saas_producer` or `phase_saas_consumer` (per data direction) — **not** inside `phase_ingest`/`phase_process`/`phase_store`/`phase_control`?
 
 ### Quality bar
 Someone can retell the data journey from Overview alone. Blank edges or labels over icons = fail. note/ctrl cards = fail.

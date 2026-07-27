@@ -135,29 +135,28 @@ class DiagnosticsCleanlinessTests(unittest.TestCase):
         self.assertEqual(post.errors, [])
         self.assertEqual(post.warnings, [])
 
-    def test_data_flow_double_shelf_has_a_known_preexisting_layout_engine_gap(self) -> None:
-        """Documents a real, pre-existing bug in the shared layout engine — not this compiler.
+    def test_data_flow_double_shelf_stacks_cleanly(self) -> None:
+        """Regression test for a real, now-fixed bug in the shared layout engine.
 
-        When *both* phase_consume and phase_saas anchor under phase_store (a
+        When *both* phase_consume and a SaaS shelf anchor under phase_store (a
         structurally valid, prompt-documented case — see data_flow.txt: "the
         engine anchors both under phase_store, stacked one above the other"),
-        the compiled input is clean pre-repair, but the shared deterministic
-        layout engine (``logical_layout.apply_layered_corridor_layout`` via
-        ``placement_fixers.enforce_view_journey_columns``, invoked
-        unconditionally by ``xml_diagnostics.repair_xml`` for this page name)
-        can land both shelves at the *same* coordinates when SaaS-leaf
-        hoisting interacts with the stacking cursor — confirmed by isolating
-        ``apply_layered_corridor_layout`` alone (stacks correctly) versus the
-        full ``enforce_view_journey_columns`` pipeline (collides) during
-        investigation. This is pre-existing, latent in already-shipped code
-        (the direct-XML LLM path rarely produces the exact structural
-        conditions needed to trigger it reliably); the IR path merely makes
-        it deterministic to reproduce. Left unfixed deliberately — a targeted
-        fix belongs in its own reviewed change against
-        ``logical_layout.py``/``placement_fixers.py``, not bundled into this
-        compiler's test suite. This test exists so the gap is tracked, not
-        silently lost, and will start failing (prompting a welcome update)
-        once someone fixes the underlying engine.
+        two independent bugs in ``placement_fixers.py`` combined to collide
+        the two shelves onto identical coordinates:
+
+        1. The post-layout "re-stack SaaS children vertically" step in
+           ``enforce_view_journey_columns`` only matched Logical's
+           ``domain_saas`` id, never firing for Data-flow/Security shelves —
+           so a shelf's children kept stale geometry after the shelf itself
+           moved, which ``fit_containers_to_children`` then read as "content
+           extent" and ballooned the shelf box around.
+        2. ``enforce_corridor_gap_consistency``'s shelf-alignment loop assigned
+           *every* shelf the same single ``target_y`` with no stacking
+           cursor — it was written assuming at most one shelf per view, true
+           for Logical's lone ``domain_saas`` but never true for Data-flow's
+           two (now three) SaaS-adjacent shelves.
+
+        Both are fixed. This test asserts the correct, non-colliding outcome.
         """
         ir = DataFlowIR(
             corridors=[
@@ -167,24 +166,128 @@ class DiagnosticsCleanlinessTests(unittest.TestCase):
             anchored=[
                 AnchoredCorridor(id="phase_consume", label="Consume", anchor_id="phase_store",
                                   leaves=[_leaf("dash", "aws_quicksight", "Dashboard")]),
-                AnchoredCorridor(id="phase_saas", label="SaaS", anchor_id="phase_store",
+                AnchoredCorridor(id="phase_saas_producer", label="SaaS Producers", anchor_id="phase_store",
                                   leaves=[_leaf("sf", "saas_salesforce", "Salesforce")]),
             ],
             flows=[Flow(source="lambda1", target="db"), Flow(source="dash", target="db"), Flow(source="sf", target="db")],
         )
         xml = compile_corridor_ir(ir, page_name="Data flow")
         pre = diagnose_xml(xml)
-        self.assertEqual(pre.errors, [], "compiler's own pre-repair output should still be clean")
+        self.assertEqual(pre.errors, [])
         _repaired, post = repair_xml(xml)
-        # KNOWN GAP: this should be [] — see docstring above. Asserting the
-        # *current* (buggy) behavior, not the desired one, so a real fix shows
-        # up as a test failure demanding this assertion be tightened.
-        self.assertTrue(
-            any("visually contained within" in e for e in post.errors),
-            "expected the known phase_consume/phase_saas collision — if this "
-            "fails, the underlying layout engine bug may have been fixed; "
-            "tighten this assertion to assertEqual(post.errors, [])",
+        self.assertEqual(post.errors, [])
+        self.assertEqual(post.warnings, [])
+
+    def test_data_flow_triple_shelf_stacks_cleanly(self) -> None:
+        """phase_consume + phase_saas_producer + phase_saas_consumer, all under
+        phase_store simultaneously — the real shape the producer/consumer split
+        (Fix 1) produces whenever an architecture has both SaaS directions."""
+        ir = DataFlowIR(
+            corridors=[
+                Corridor(id="phase_ingest", label="Ingest", leaves=[_leaf("apigw", "aws_api_gateway", "API GW")]),
+                Corridor(id="phase_process", label="Process", leaves=[_leaf("lambda1", "aws_lambda", "Lambda")]),
+                Corridor(id="phase_store", label="Store", leaves=[_leaf("db", "aws_rds", "RDS")]),
+            ],
+            anchored=[
+                AnchoredCorridor(id="phase_consume", label="Consume", anchor_id="phase_store",
+                                  leaves=[_leaf("dash", "aws_quicksight", "Dashboard")]),
+                AnchoredCorridor(id="phase_saas_producer", label="SaaS Producers", anchor_id="phase_store",
+                                  leaves=[_leaf("sf", "saas_salesforce", "Salesforce")]),
+                AnchoredCorridor(id="phase_saas_consumer", label="SaaS Consumers", anchor_id="phase_store",
+                                  leaves=[_leaf("stripe", "saas_stripe", "Stripe")]),
+            ],
+            flows=[
+                Flow(source="apigw", target="lambda1"), Flow(source="lambda1", target="db"),
+                Flow(source="dash", target="db"), Flow(source="sf", target="apigw"),
+                Flow(source="db", target="stripe"),
+            ],
         )
+        xml = compile_corridor_ir(ir, page_name="Data flow")
+        pre = diagnose_xml(xml)
+        self.assertEqual(pre.errors, [])
+        _repaired, post = repair_xml(xml)
+        self.assertEqual(post.errors, [])
+        self.assertEqual(post.warnings, [])
+
+    def test_saas_shelf_renders_as_tight_evenly_packed_grid(self) -> None:
+        """Regression guard for the user's own reported defect and acceptance
+        criterion (Fix 2): a phase_saas-equivalent shelf with 3 icons used to
+        render as a 1182x890 box (Fix 2's plan cites this exact number) with
+        uncomputed placement. After the canonical grid_fill/
+        resize_container_to_grid sizing (Fix 2a/2b) it must be a compact,
+        evenly-packed grid instead."""
+        ir = DataFlowIR(
+            corridors=[Corridor(id="phase_store", label="Store", leaves=[_leaf("db", "aws_rds", "RDS")])],
+            anchored=[AnchoredCorridor(
+                id="phase_saas_producer", label="SaaS Producers", anchor_id="phase_store",
+                leaves=[
+                    _leaf("v0", "saas_vendor0", "Vendor 0"),
+                    _leaf("v1", "saas_vendor1", "Vendor 1"),
+                    _leaf("v2", "saas_vendor2", "Vendor 2"),
+                ],
+            )],
+            flows=[Flow(source="v0", target="db")],
+        )
+        xml = compile_corridor_ir(ir, page_name="Data flow")
+        repaired, post = repair_xml(xml)
+        self.assertEqual(post.errors, [])
+        self.assertEqual(post.warnings, [])
+        cells = {c.get("id"): c for c in ET.fromstring(repaired).iter("mxCell") if c.get("id")}
+        shelf_geo = cells["phase_saas_producer"].find("mxGeometry")
+        w = float(shelf_geo.get("width"))
+        h = float(shelf_geo.get("height"))
+        # Nowhere near the originally-reported 1182x890 for the same 3-icon shape.
+        self.assertLess(w, 700.0)
+        self.assertLess(h, 300.0)
+        # Every leaf is actually inside the shelf's bounds (no "uncomputed placement").
+        for leaf_id in ("v0", "v1", "v2"):
+            leaf_geo = cells[leaf_id].find("mxGeometry")
+            lx, ly = float(leaf_geo.get("x")), float(leaf_geo.get("y"))
+            lw, lh = float(leaf_geo.get("width")), float(leaf_geo.get("height"))
+            self.assertGreaterEqual(lx, 0)
+            self.assertGreaterEqual(ly, 0)
+            self.assertLessEqual(lx + lw, w)
+            self.assertLessEqual(ly + lh, h)
+
+    def test_five_icon_shelf_grid_fills_without_churn(self) -> None:
+        """A larger shelf (5 icons, wraps to 2 rows) must also stay a stable,
+        non-oversized grid — regression guard for the pitch-conflict bug found
+        during Fix 2b (icon positions at a bespoke pitch got silently
+        overridden downstream by xml_diagnostics's canonical-pitch snap,
+        producing a mismatched, oversized box)."""
+        ir = DataFlowIR(
+            corridors=[Corridor(id="phase_store", label="Store", leaves=[_leaf("db", "aws_rds", "RDS")])],
+            anchored=[AnchoredCorridor(
+                id="phase_saas_producer", label="SaaS Producers", anchor_id="phase_store",
+                leaves=[_leaf(f"v{i}", f"saas_vendor{i}", f"Vendor {i}") for i in range(5)],
+            )],
+            flows=[Flow(source="v0", target="db")],
+        )
+        xml = compile_corridor_ir(ir, page_name="Data flow")
+        repaired, post = repair_xml(xml)
+        self.assertEqual(post.errors, [])
+        self.assertEqual(post.warnings, [])
+        cells = {c.get("id"): c for c in ET.fromstring(repaired).iter("mxCell") if c.get("id")}
+        shelf_geo = cells["phase_saas_producer"].find("mxGeometry")
+        w, h = float(shelf_geo.get("width")), float(shelf_geo.get("height"))
+        for i in range(5):
+            leaf_geo = cells[f"v{i}"].find("mxGeometry")
+            lx, ly = float(leaf_geo.get("x")), float(leaf_geo.get("y"))
+            lw, lh = float(leaf_geo.get("width")), float(leaf_geo.get("height"))
+            self.assertLessEqual(lx + lw, w)
+            self.assertLessEqual(ly + lh, h)
+
+
+class EdgeStyleTests(unittest.TestCase):
+    """Fix 2d: the IR compiler's own edge style must match the direct-XML
+    path's uniform orthogonal-edge template (rounded=1), not rounded=0."""
+
+    def test_flows_are_rounded(self) -> None:
+        xml = compile_corridor_ir(realistic_security_ir(), page_name="Security")
+        edges = [c for c in ET.fromstring(xml).iter("mxCell") if c.get("edge") == "1"]
+        self.assertTrue(edges)
+        for edge in edges:
+            self.assertIn("rounded=1", edge.get("style") or "")
 
 
 class StructureTests(unittest.TestCase):
