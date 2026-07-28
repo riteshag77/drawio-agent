@@ -206,6 +206,35 @@ class StructureTests(unittest.TestCase):
                 self.assertIn(cell.get("target"), self.cells)
 
 
+class LeafAnnotationTests(unittest.TestCase):
+    """Part B (ADS uplift): Leaf.annotation renders as a '[Tag]' bracket suffix
+    on the label — same convention Data-flow edges already use for [PII]."""
+
+    def test_annotation_appends_bracket_tag_to_label(self) -> None:
+        ir = realistic_ir()
+        ir.cloud.regions[0].vpcs[0].zones[0].subnets[2].leaves[0] = Leaf(
+            id="rds1", shape_type="aws_rds", label="Orders DB", annotation="PII",
+        )
+        xml = compile_network_ir(ir)
+        cells = {c.get("id"): c for c in ET.fromstring(xml).iter("mxCell") if c.get("id")}
+        self.assertEqual(cells["rds1"].get("value"), "Orders DB [PII]")
+
+    def test_no_annotation_leaves_label_unchanged(self) -> None:
+        xml = compile_network_ir(realistic_ir())
+        cells = {c.get("id"): c for c in ET.fromstring(xml).iter("mxCell") if c.get("id")}
+        value = cells["rds1"].get("value") or ""
+        self.assertNotIn("[", value)
+
+    def test_gateway_annotation_renders(self) -> None:
+        ir = realistic_ir()
+        ir.cloud.regions[0].vpcs[0].gateway = Leaf(
+            id="alb", shape_type="aws_alb", label="ALB", annotation="Multi-AZ",
+        )
+        xml = compile_network_ir(ir)
+        cells = {c.get("id"): c for c in ET.fromstring(xml).iter("mxCell") if c.get("id")}
+        self.assertEqual(cells["alb"].get("value"), "ALB [Multi-AZ]")
+
+
 class GeometryTests(unittest.TestCase):
     def setUp(self) -> None:
         self.xml = compile_network_ir(realistic_ir())

@@ -31,6 +31,15 @@ class Box:
     height: float
 
 
+def leaf_label(leaf: Leaf) -> str:
+    """Render a leaf's label, appending its optional annotation as a bracket
+    suffix (``"RDS [PII]"``) — the same convention Data-flow edges already use
+    for ``[PII]`` tags, applied to leaves. Shared so every leaf-rendering call
+    site (the grid helper below, plus Network's gateway/connectivity-hub
+    singletons which bypass the grid) stays consistent."""
+    return f"{leaf.label} [{leaf.annotation}]" if leaf.annotation else leaf.label
+
+
 def emit_leaf_grid(writer: CellWriter, leaves: list[Leaf], parent_id: str, *, is_group: bool) -> Box:
     """Grid ``leaves`` inside ``parent_id`` and return the parent's required outer size.
 
@@ -45,7 +54,7 @@ def emit_leaf_grid(writer: CellWriter, leaves: list[Leaf], parent_id: str, *, is
         col, row = index % cols, index // cols
         writer.vertex(
             id=leaf.id,
-            label=leaf.label,
+            label=leaf_label(leaf),
             style=theme.leaf_style(),
             x=geo.PAD + col * pitch,
             y=geo.TITLE_PAD + row * geo.ROW_PITCH_Y,

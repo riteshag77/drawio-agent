@@ -49,6 +49,11 @@ Every leaf has:
   services use `aws_*`/`gcp_*`/`azure_*` (e.g. `aws_rds`); this view's own
   vocabulary pack tells you when to use `logical_*`/`saas_<vendor>` instead.
 - `label` — short display name.
+- `annotation` — optional short (2-3 word) contextual tag rendered as `"Label [Tag]"`
+  (e.g. `"Aurora [PII]"`, `"Order Service [Node.js]"`). Use sparingly — most leaves
+  need none; this view's own vocabulary pack lists what kind of tag fits its lens
+  (tech stack, encryption/control, data classification, hosting/environment). Never
+  a full sentence, never invented detail the request/inventory doesn't support.
 
 ## Flows
 

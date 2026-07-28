@@ -30,6 +30,7 @@ from app.adapters.outbound.diagram.compiler.shared import (
     emit_external_actors,
     emit_flows,
     emit_leaf_grid,
+    leaf_label,
 )
 from app.domain.ir.network import (
     AvailabilityZone,
@@ -135,7 +136,7 @@ class _NetworkCompiler:
             gw_x = zones_right + geo.ZONE_GAP_X * 2
             self.w.vertex(
                 id=vpc.gateway.id,
-                label=vpc.gateway.label,
+                label=leaf_label(vpc.gateway),
                 style=theme.leaf_style(),
                 x=gw_x, y=geo.TITLE_PAD,
                 w=geo.LEAF_W, h=geo.LEAF_H,
@@ -211,7 +212,7 @@ class _NetworkCompiler:
             for index, hub in enumerate(cloud.connectivity_hubs):
                 self.w.vertex(
                     id=hub.id,
-                    label=hub.label,
+                    label=leaf_label(hub),
                     style=theme.leaf_style(),
                     x=geo.PAD + index * pitch, y=cursor_y,
                     w=geo.LEAF_W, h=geo.LEAF_H,

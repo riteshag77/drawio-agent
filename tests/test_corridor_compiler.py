@@ -290,6 +290,26 @@ class EdgeStyleTests(unittest.TestCase):
             self.assertIn("rounded=1", edge.get("style") or "")
 
 
+class LeafAnnotationTests(unittest.TestCase):
+    """Part B (ADS uplift): Leaf.annotation renders as a '[Tag]' bracket suffix
+    on the label — shared by every view's compiler via emit_leaf_grid."""
+
+    def test_annotation_appends_bracket_tag_to_label(self) -> None:
+        ir = LogicalIR(
+            corridors=[Corridor(id="domain_data", label="Data", leaves=[
+                Leaf(id="store", shape_type="logical_datastore", label="Customer data store", annotation="PII"),
+            ])],
+        )
+        xml = compile_corridor_ir(ir, page_name="Logical")
+        cells = {c.get("id"): c for c in ET.fromstring(xml).iter("mxCell") if c.get("id")}
+        self.assertEqual(cells["store"].get("value"), "Customer data store [PII]")
+
+    def test_no_annotation_leaves_label_unchanged(self) -> None:
+        xml = compile_corridor_ir(realistic_logical_ir(), page_name="Logical")
+        cells = {c.get("id"): c for c in ET.fromstring(xml).iter("mxCell") if c.get("id")}
+        self.assertEqual(cells["store"].get("value"), "Customer data store")
+
+
 class StructureTests(unittest.TestCase):
     def setUp(self) -> None:
         self.xml = compile_corridor_ir(realistic_security_ir(), page_name="Security")

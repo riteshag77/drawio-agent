@@ -59,6 +59,15 @@ class Leaf(Identified):
         )
     )
     label: str = Field(description="Short human-readable name shown under the icon.")
+    annotation: str = Field(
+        default="",
+        description=(
+            "Optional short (2-3 word) contextual tag rendered as a bracket suffix on the "
+            "label, e.g. 'PII', 'KMS', 'Node.js' — the same convention Data-flow edges already "
+            "use for '[PII]' tags, applied to leaves. Use sparingly (most leaves need none); "
+            "never a full sentence."
+        ),
+    )
 
     @field_validator("shape_type")
     @classmethod

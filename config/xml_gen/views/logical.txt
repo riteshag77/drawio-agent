@@ -167,6 +167,12 @@ Emit `step_markers` on **persona / portal / domain** anchors — **never** on Sa
 Never parent leaves under `overview_panel`. Never put `shape=image` / `saas_*` on `overview_panel`.
 Red **Recommended gaps** may include cache / graceful degradation when SaaS egress lacks a cache.
 
+**Key facts block** (per `core.txt`): primary tech stack when the request/inventory implies one (e.g. "Node.js/ECS"), the architecture pattern in play (microservices / event-driven / monolith), and any vendor lock-in note worth flagging (e.g. heavy reliance on one SaaS vendor's proprietary API). Skip whatever the design doesn't actually support.
+
+## Leaf annotations (optional, sparing)
+
+A capability/domain leaf's label may carry a short bracket tag when it's materially informative: `"Label [Tag]"` (e.g. `"Order Service [Node.js]"`, `"Profile cache [Redis]"`). Covers tech-stack facts only where known from inventory — never invent a stack the request doesn't imply. Most leaves need none.
+
 ---
 
 ## Anti-Patterns — FORBIDDEN (Logical)

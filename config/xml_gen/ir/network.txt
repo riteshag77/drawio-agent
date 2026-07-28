@@ -95,6 +95,10 @@ Every leaf has:
   Never a draw.io style, stencil path, or `resIcon=` string — icon resolution
   happens later and is not your concern.
 - `label` — short display name ("RDS Postgres", "Orders API").
+- `annotation` — optional short (2-3 word) contextual tag rendered as `"Label [Tag]"`
+  (e.g. `"Primary DB [Multi-AZ]"`). Use sparingly — most leaves need none. Covers
+  hosting/environment facts (Multi-AZ, environment tier, notable scaling behavior)
+  when the request/design actually implies them.
 
 ## Completeness
 

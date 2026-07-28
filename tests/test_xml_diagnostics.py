@@ -668,6 +668,32 @@ class ApplyStepMarkersTests(unittest.TestCase):
 
 
 class EnsureOverviewPanelPositionTests(unittest.TestCase):
+    def test_key_facts_section_survives_step_count_cap(self) -> None:
+        """Part B (ADS uplift): a data-section="facts" block (the per-view Key
+        facts block) is excluded from the 6-step cap and kept verbatim, the
+        same way the existing Recommended-gaps section already is."""
+        steps = "".join(
+            f'&lt;div style=&quot;font-size:15px;&quot;&gt;{i}. Step {i} text here.&lt;/div&gt;'
+            for i in range(1, 7)
+        )
+        facts = (
+            '&lt;div data-section=&quot;facts&quot; style=&quot;font-size:13px;&quot;&gt;'
+            'Key facts: Encryption at rest via KMS.&lt;/div&gt;'
+        )
+        xml = _wrap(
+            '<mxCell id="cloud" value="AWS Cloud" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="200" y="100" width="600" height="400" as="geometry"/></mxCell>'
+            '<mxCell id="overview_panel" '
+            f'value="&lt;div style=&quot;font-size:22px;font-weight:bold;&quot;&gt;Title&lt;/div&gt;{steps}{facts}" '
+            'style="rounded=1;html=1;fillColor=#FFF8E1;strokeColor=#F5A623;" vertex="1" parent="1">'
+            '<mxGeometry x="840" y="100" width="400" height="50" as="geometry"/></mxCell>'
+        )
+        out = ensure_overview_panel_position(xml)
+        panel = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "overview_panel")
+        value = panel.get("value") or ""
+        self.assertIn("Key facts", value)
+        self.assertIn("Step 6 text here", value, "all 6 real steps must survive, not be crowded out by the facts block")
+
     def test_shrinks_oversized_panel_to_actual_text_content(self) -> None:
         xml = _wrap(
             '<mxCell id="cloud" value="AWS Cloud" style="container=1;" vertex="1" parent="1">'

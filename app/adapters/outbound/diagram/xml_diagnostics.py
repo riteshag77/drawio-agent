@@ -1313,7 +1313,7 @@ _DIV_BLOCK = re.compile(r"<div[^>]*>(.*?)</div>", re.IGNORECASE | re.DOTALL)
 _DIV_FULL = re.compile(r"<div[^>]*>.*?</div>", re.IGNORECASE | re.DOTALL)
 _TAG_STRIP = re.compile(r"<[^>]+>")
 _GAP_DIV_MARK = re.compile(
-    r'data-section\s*=\s*["\']gaps["\']|color:\s*#B85450',
+    r'data-section\s*=\s*["\'](?:gaps|facts)["\']|color:\s*#B85450',
     re.IGNORECASE,
 )
 
@@ -1322,7 +1322,9 @@ def _trim_overview_panel_value(value: str) -> str:
     """Keep title + up to ``_PANEL_MAX_STEPS`` short step divs; truncate long steps.
 
     Preserves a trailing Recommended-gaps section (red ``#B85450`` / data-section=gaps)
-    without rewriting its colour. Existing step styling stays the amber overview recipe.
+    and a Key-facts section (``data-section=facts``, Part B's per-view ADS context
+    block) without rewriting either's styling. Both are excluded from the step-count
+    cap the same way. Existing step styling stays the amber overview recipe.
 
     Returns **decoded** HTML suitable for ``Element.set("value", …)``. ElementTree
     escapes on serialize — pre-escaped ``&lt;div&gt;`` here double-escapes to

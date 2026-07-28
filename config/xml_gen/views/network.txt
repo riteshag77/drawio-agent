@@ -101,7 +101,16 @@ Place **four** separate groups side by side below the Zones, inside the VPC (`pa
 
 ## Network edge labels
 
-- Edge labels: **omit by default**. If used → 1–2 words only AND include `labelBackgroundColor=#F5F5F5;fontSize=11;fontColor=#333333` (e.g. HTTPS, async, read)
+- Edge labels: **omit by default**. If used → 1–2 words only AND include `labelBackgroundColor=#F5F5F5;fontSize=11;fontColor=#333333` (e.g. HTTPS, async, read). A short protocol/security tag (e.g. `HTTPS`, `gRPC`, `mTLS`) is fine when materially informative — still within the 1–2 word cap, still omit when it adds nothing beyond what's obvious.
+
+## Leaf annotations (optional, sparing)
+
+- A leaf's label may carry a short bracket tag when materially informative for THIS view's lens: `"Label [Tag]"` (e.g. `"Primary DB [Multi-AZ]"`, `"App Server [Auto-scaling]"`). Covers: hosting/environment facts — Multi-AZ, environment tier (Prod/Staging), notable scaling behavior.
+- Most leaves need none — only tag where it changes what a reader understands about that specific service. Never a full sentence; 1–3 words inside the brackets.
+
+## Overview Panel — Key facts (Network lens)
+
+Per `core.txt`'s Key facts block: cover, when the request/design implies them — hosting model (single-cloud/hybrid/multi-cloud), primary region(s)/AZ count, environment (prod/staging/dev), and the overall scaling approach (auto-scaling, multi-AZ). Skip any clause the design doesn't actually support.
 
 ## Network edge cases (brief)
 

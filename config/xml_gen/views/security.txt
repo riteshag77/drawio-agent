@@ -137,6 +137,11 @@ Footer OK: `Out of scope: business capabilities and data payloads (other tabs).`
 Red **Recommended gaps** only for missing controls (edge filter, login, keys vault, monitoring, partner gateway) — never as-built boxes.
 Emit `step_markers` on zone/control anchors.
 
+**Key facts block** (per `core.txt`): the AuthN/AuthZ model in one clause (e.g. "OIDC via Okta"), encryption approach at rest and in transit when implied (e.g. "TLS in transit, KMS at rest"), key management if a KMS/secrets leaf is present, and a compliance/regulatory posture reference only when the request names one (never invent a framework). Skip whatever the design doesn't actually support.
+
+### Leaf annotations (optional, sparing)
+A leaf's label may carry a short bracket tag when materially informative: `"Label [Tag]"` (e.g. `"Customer DB [KMS]"`, `"Login [MFA]"`). Covers encryption/control facts only where the design implies them. Most leaves need none — edges already carry `AuthN`/`TLS`/`mTLS` per the vocabulary above, so don't duplicate that onto leaves.
+
 ### Self-Check (must pass before return — Security)
 1. Enterprise SaaS (if any) lives in `zone_external_saas` / public / identity — **not** under private?
 2. Business partners (if any) live in `zone_partner` behind a Partner API Gateway — **not** under private, and **not** folded into `zone_external_saas`?
