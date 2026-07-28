@@ -57,6 +57,17 @@ class CellWriter:
             },
         )
 
+    def mark_layout_authoritative(self) -> None:
+        """Flag this page's geometry as already final (Security/Data-flow's
+        layered corridor compiler path) — ``xml_diagnostics.repair_xml``
+        checks this on the default-layer cell (``id="1"``) and skips its
+        corridor/shelf/leaf re-layout pass for pages carrying it, since that
+        pass exists to fix LLM-guessed geometry and this page has none."""
+        for cell in self._root:
+            if cell.get("id") == "1":
+                cell.set("layout", "ir")
+                return
+
     def edge(self, *, id: str, source: str, target: str, label: str, style: str) -> None:
         cell = ET.SubElement(
             self._root,

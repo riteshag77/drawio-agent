@@ -1132,6 +1132,12 @@ def resolve_misplaced_actors(xml: str) -> str:
     Actors claim the far-left column (x≈20) so the SaaS journey lane can sit
     between Users and Cloud without collision. Nested actors are hoisted with
     absolute coords then parked in that column.
+
+    Exempts the ``actors_left``/``actors_right`` band containers (Part A's
+    Fix 2c, also emitted directly by the corridor compiler's layered path) —
+    those are the deliberate "actor is grid-aligned inside its own band, still
+    a peer of the main row, not logically inside the architecture" case, not
+    a misplacement to undo.
     """
     parsed = _parse_docroot(xml)
     if parsed is None:
@@ -1141,7 +1147,12 @@ def resolve_misplaced_actors(xml: str) -> str:
     cells = [c for c in root.findall("mxCell") if c.get("id")]
     by_id = {c.get("id"): c for c in cells if c.get("id")}
 
-    misplaced = [c for c in cells if _is_external_actor_cell(c) and c.get("parent") not in (None, "1")]
+    _ACTOR_BAND_IDS = {"actors_left", "actors_right"}
+    misplaced = [
+        c for c in cells
+        if _is_external_actor_cell(c)
+        and c.get("parent") not in (None, "1", *_ACTOR_BAND_IDS)
+    ]
     root_actors = [c for c in cells if _is_external_actor_cell(c) and c.get("parent") == "1"]
     if not misplaced and not root_actors:
         return xml

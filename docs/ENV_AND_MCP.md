@@ -69,7 +69,7 @@ APP_VERSION=1.0.0
 
 # Generation path: IR + compiler vs direct XML
 DIAGRAM_IR_ENABLED=false
-DIAGRAM_IR_VIEWS=network
+DIAGRAM_IR_VIEWS=network,security,data_flow
 
 # Diagram history (versioning / restore)
 DIAGRAM_HISTORY_ENABLED=true
@@ -117,17 +117,27 @@ styles, or colours — and a deterministic compiler
 
 The IR shape differs by view, because the underlying layout problem does:
 
-| View | IR type | Shape | What already handled geometry |
+| View | IR type | Shape | Who computes final geometry |
 | --- | --- | --- | --- |
-| Network | `NetworkIR` | strict container nesting (Cloud→Region→VPC→AZ→Subnet) | nothing — geometry was previously the LLM's job and load-bearing |
-| Logical / Security / Data flow | `LogicalIR` / `SecurityIR` / `DataFlowIR`, sharing `CorridorIR` | a same-rank row of corridors + optional shelves anchored below | `logical_layout.py`'s rank-and-order layout engine, called unconditionally by `repair_xml` for these three page names — it already discarded whatever geometry the LLM wrote |
+| Network | `NetworkIR` | strict container nesting (Cloud→Region→VPC→AZ→Subnet) | the compiler itself (`compiler/network.py`) |
+| Security / Data flow | `SecurityIR` / `DataFlowIR`, sharing `CorridorIR` | a same-rank row of corridors + optional shelves anchored below | the compiler itself (`compiler/corridor.py`'s `run_layered` — `logical_layout.layout_corridor_ir` computes rank/order/grid-fill geometry directly from the IR's own typed graph, once, at compile time) |
+| Logical | `LogicalIR`, sharing `CorridorIR` | same shape as Security/Data-flow, plus a bespoke "journey spine" (Persona→IdP→Portal) that isn't part of the layered path yet | `logical_layout.py`'s XML-based `apply_layered_corridor_layout`, invoked unconditionally by `repair_xml` — geometry is compiled as a placeholder and discarded/recomputed downstream |
 
-That distinction matters: Network's IR exists to eliminate a *correctness*
-risk (bad geometry shipping to users). The corridor views' IR exists to
-eliminate *waste* (prompt tokens teaching pixel arithmetic a downstream engine
-was always going to throw away) and to make *grouping* mistakes (a leaf in the
-wrong domain/zone/phase, a flow into a zone it must never reach) structural
-validation errors instead of self-check items an LLM can skip.
+All four views' IR-compiled output is geometrically authoritative except
+Logical (still pending — see `compiler/corridor.py`'s `_LAYERED_VIEWS`
+docstring for why). For the three that are, `diagnose_xml` on raw compiler
+output — no repair pass at all — has zero errors and zero warnings, the same
+bar Network's compiler has always met
+(`tests/test_corridor_ir_layout.py`'s `NetworkParityTests`,
+`tests/test_network_compiler.py::test_realistic_diagram_has_no_diagnostics`).
+This used to not be true for the corridor views: `compiler/corridor.py`
+emitted structurally-correct placeholder geometry that a separate XML-based
+pass (`logical_layout.apply_layered_corridor_layout`, invoked unconditionally
+by `repair_xml`) recomputed from scratch, discarding whatever the compiler
+had produced — real, working code, but requiring the compiler's own typed
+graph to be re-derived by parsing the compiler's own XML output back into
+cells. Security/Data-flow no longer do this round trip; Logical still does,
+pending its journey-spine handling being ported the same way.
 
 Shared building blocks (the DRY payoff of splitting compiler concerns into
 small modules rather than one per view):
@@ -165,25 +175,30 @@ path just hands the same `XmlDiagram` to it.
   for the primary page, distinct from `renderer_used` (`mcp` | `local`, which
   is about icon resolution only).
 - Enable with `DIAGRAM_IR_ENABLED=true`; `DIAGRAM_IR_VIEWS` (comma-separated)
-  picks which views use it, e.g. `DIAGRAM_IR_VIEWS=network,logical,security,data_flow`.
-  Default is `network` only — the three corridor views are opt-in until you've
-  run them against real traffic.
+  picks which views use it, e.g. `DIAGRAM_IR_VIEWS=network,security,data_flow`
+  (the default) or add `logical` once its journey-spine handling is ported to
+  the layered path too. `DIAGRAM_IR_ENABLED` itself still defaults to
+  `false` — the IR path is opt-in as a whole regardless of which views are
+  listed.
 
-**Known pre-existing gap in the shared layout engine** (found while building
-this, not introduced by it): when Data-flow's `phase_consume` *and*
-`phase_saas` are both present (both legitimately anchor under `phase_store`,
-stacked), `logical_layout.apply_layered_corridor_layout` can land them at
-identical coordinates when combined with SaaS-leaf hoisting — confirmed by
-isolating the layout function (stacks correctly alone) versus the full
-`enforce_view_journey_columns` pipeline (collides). Separately, `phase_control`
-(meant to anchor below the *whole* row) has no such placement mode in the
-engine at all — it falls into the main ranked row instead. Both predate this
-IR work and affect the direct-XML path too (just rarely triggered, since free-
-form LLM geometry seldom hits the exact structural conditions needed). Left
-unfixed deliberately — pinned as a regression test
-(`test_corridor_compiler.py::test_data_flow_double_shelf_has_a_known_preexisting_layout_engine_gap`)
-rather than patched blind; a fix belongs in its own reviewed change against
-`logical_layout.py`/`placement_fixers.py`.
+**Two historical bugs, now fixed for the layered (Security/Data-flow) path**
+(previously documented here as known, deliberately-unfixed gaps in the shared
+direct-XML fixer chain): (1) two shelves anchored under the same corridor
+(e.g. Data-flow's `phase_consume` *and* `phase_saas_producer`/`phase_saas_
+consumer`, all under `phase_store`) used to be able to land at identical
+coordinates; `layout_corridor_ir` stacks multiple shelves under one anchor
+with a running cursor, so this can no longer happen on the layered path. (2)
+`phase_control` (meant to anchor below the *whole* row) used to have no such
+placement mode in the engine at all and fell into the main ranked row
+instead; `layout_corridor_ir` positions `anchor_id=None` shelves below the
+whole row, per `AnchoredCorridor`'s own documented contract. Both remain
+possible on the **direct-XML** path (still the default for Logical, and for
+Security/Data-flow when `DIAGRAM_IR_ENABLED=false`) since that path still
+runs the original `logical_layout.apply_layered_corridor_layout`/
+`enforce_view_journey_columns` machinery — see
+`test_corridor_compiler.py::test_data_flow_triple_shelf_stacks_cleanly` for
+the layered-path regression coverage and `tests/test_corridor_ir_layout.py`
+for the two fixes' dedicated tests.
 
 ## Diagram history (`/history`)
 

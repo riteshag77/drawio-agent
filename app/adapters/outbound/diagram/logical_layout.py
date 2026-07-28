@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
+from dataclasses import dataclass
 from typing import Callable
 
 import xml.etree.ElementTree as ET
@@ -18,6 +19,8 @@ from app.adapters.outbound.diagram.xml_diagnostics import (
     _cell_geometry,
     _is_container_cell,
 )
+from app.domain.ir.base import Leaf
+from app.domain.ir.corridor import CorridorIR
 
 
 # Canonical constants for the corridor/shelf layout engine (Logical / Security /
@@ -689,3 +692,187 @@ def _anchor_shelf_under(
         shelf.set("layout", "1")
         changed = True
     return changed
+
+
+# ── Typed-IR layout (compile-time, no XML round trip) ──────────────────────
+#
+# Everything below computes final geometry directly from a CorridorIR's own
+# typed graph, reusing the same rank/order/grid-fill primitives above.
+# apply_layered_corridor_layout (above) has to re-derive this graph by
+# parsing the compiler's own XML output back into cells — but the compiler
+# already had the graph as typed Python objects moments earlier. This is that
+# "use it once, at compile time" path; see compiler/corridor.py for the call
+# site and the module docstring on domain/ir/corridor.py for why geometry was
+# previously left to the post-hoc XML pass at all.
+
+_ROW_START_X = 160.0
+_ROW_START_Y = 140.0
+
+
+@dataclass(frozen=True)
+class Geo:
+    x: float
+    y: float
+    w: float
+    h: float
+
+
+# Mirrors _domain_corridor_key/_zone_corridor_key/_phase_corridor_key's
+# keyword-matching *outcomes*, but as an exact id lookup: every corridor id in
+# these three views is a fixed, Pydantic-validated vocabulary (see
+# domain/ir/{logical,security,data_flow}.py's `_ROW_IDS`), so there is no
+# fuzzy label/id blob to match against — the exact-id table below already IS
+# the classification for every id that can actually appear.
+_ROW_ORDER: dict[str, dict[str, int]] = {
+    "logical": {
+        "domain_experience": 0, "domain_core": 2, "domain_commerce": 2,
+        "domain_platform": 3, "domain_data": 4,
+    },
+    "security": {
+        "zone_public": 0, "zone_dmz": 1, "zone_identity": 2, "zone_partner": 3,
+        "zone_private": 4, "zone_restricted": 5, "zone_detect": 6,
+    },
+    "data_flow": {"phase_ingest": 0, "phase_process": 1, "phase_store": 2},
+}
+
+
+def _row_rank_key(view: str, corridor_id: str, label: str) -> tuple[int, str]:
+    return (_ROW_ORDER.get(view, {}).get(corridor_id, 99), label)
+
+
+def _tile_order(leaf_ids: list[str], local_edges: list[tuple[str, str]]) -> tuple[list[str], int]:
+    """Reading-order list of `leaf_ids` + the column count to wrap them at —
+    same rank/barycenter logic as _layout_tiles_in_container's grid branch.
+
+    No-edges fallback is declaration order (`leaf_ids` as given, i.e. the
+    IR's own `corridor.leaves` list order) rather than alphabetical — matches
+    the current XML-based pass's own fallback, which sorts by each leaf's
+    pre-layout placeholder position and is therefore stable to the
+    compiler's original emission order, not id text.
+    """
+    if local_edges and len(leaf_ids) > 1:
+        ranks = longest_path_ranks(leaf_ids, local_edges)
+        order = barycenter_order_best(ranks, local_edges)
+        max_rank = max(ranks.values(), default=0) + 1
+        cols_n = min(grid_cols(len(leaf_ids)), max(1, max_rank))
+        ordered = sorted(leaf_ids, key=lambda lid: (ranks.get(lid, 0), order.get(lid, 0), lid))
+    else:
+        ordered = list(leaf_ids)
+        cols_n = grid_cols(len(leaf_ids))
+    return ordered, cols_n
+
+
+def _place_leaves(
+    leaves: list[Leaf],
+    local_edges: list[tuple[str, str]],
+    geos: dict[str, Geo],
+) -> tuple[float, float]:
+    """Position `leaves` relative to their own (not-yet-placed) container —
+    mxCell child geometry is always parent-relative, so this needs no
+    knowledge of where the container itself ends up. Returns the container's
+    own (width, height), the same grid_fill/resize_container_to_grid math
+    Part A gave every corridor/shelf container."""
+    leaf_ids = [leaf.id for leaf in leaves]
+    ordered, cols_n = _tile_order(leaf_ids, local_edges)
+    for i, lid in enumerate(ordered):
+        col, row = i % cols_n, i // cols_n
+        geos[lid] = Geo(
+            x=CONTAINER_PADDING_X + col * _ICON_PITCH_X,
+            y=CONTAINER_LABEL_HEIGHT + row * _ICON_PITCH_Y,
+            w=geo.LEAF_W, h=geo.LEAF_H,
+        )
+    _cols, _rows, content_w, content_h = grid_fill(len(leaves))
+    width = max(CONTAINER_MIN_W, content_w + CONTAINER_PADDING_X * 2)
+    # + geo.LABEL_BAND_H: leaves render with verticalLabelPosition=bottom
+    # (theme.leaf_style()), so their rendered footprint is icon + a 28px
+    # label band beneath it — resize_container_to_grid's own formula doesn't
+    # include this (found via direct equivalence testing against the current
+    # pipeline: xml_tools.fit_containers_to_children's generic, style-aware
+    # sizing pass runs after enforce_view_journey_columns and always adds it
+    # back, so the *current* pipeline's real final height already has it —
+    # this port must match that final value, not the narrower intermediate
+    # one resize_container_to_grid alone produces).
+    height = max(CONTAINER_MIN_H, content_h + geo.LABEL_BAND_H + CONTAINER_LABEL_HEIGHT + CONTAINER_PADDING_Y)
+    return width, height
+
+
+def layout_corridor_ir(ir: CorridorIR) -> dict[str, Geo]:
+    """Compute final geometry for every corridor/shelf/leaf in `ir`. Returns
+    ``{id: Geo}`` — corridor/shelf entries are absolute (``parent="1"``),
+    leaf entries are relative to their own corridor/shelf (matching mxCell's
+    own parent-relative child-geometry convention). External actors/flows are
+    positioned separately by ``compiler/shared.py``, unrelated to this
+    ranking.
+    """
+    geos: dict[str, Geo] = {}
+
+    leaf_to_corridor: dict[str, str] = {
+        leaf.id: corridor.id for corridor in ir.corridors for leaf in corridor.leaves
+    }
+    row_ids = {c.id for c in ir.corridors}
+    seen_ce: set[tuple[str, str]] = set()
+    c_edges: list[tuple[str, str]] = []
+    for flow in ir.flows:
+        cs, ct = leaf_to_corridor.get(flow.source), leaf_to_corridor.get(flow.target)
+        if cs and ct and cs != ct and cs in row_ids and ct in row_ids:
+            pair = (cs, ct)
+            if pair not in seen_ce:
+                seen_ce.add(pair)
+                c_edges.append(pair)
+
+    row = list(ir.corridors)
+    if c_edges:
+        ranks = longest_path_ranks(list(row_ids), c_edges)
+        row.sort(key=lambda c: (
+            _row_rank_key(ir.view, c.id, c.label)[0],
+            ranks.get(c.id, 99),
+            _row_rank_key(ir.view, c.id, c.label)[1],
+        ))
+    else:
+        row.sort(key=lambda c: _row_rank_key(ir.view, c.id, c.label))
+
+    all_flows = [(f.source, f.target) for f in ir.flows]
+    row_sizes: dict[str, tuple[float, float]] = {}
+    for corridor in row:
+        leaf_ids = {leaf.id for leaf in corridor.leaves}
+        local_edges = [(s, t) for s, t in all_flows if s in leaf_ids and t in leaf_ids]
+        row_sizes[corridor.id] = _place_leaves(corridor.leaves, local_edges, geos)
+
+    # Uniform corridor band: every ranked corridor shares one top y and
+    # height (the tallest corridor's content) — same as
+    # apply_layered_corridor_layout, so the row reads as one aligned band.
+    band_h = max((h for _w, h in row_sizes.values()), default=0.0)
+    x = _ROW_START_X
+    for corridor in row:
+        width, _height = row_sizes[corridor.id]
+        geos[corridor.id] = Geo(x=x, y=_ROW_START_Y, w=width, h=band_h)
+        x += width + INTER_CONTAINER_GAP
+    row_right = x - INTER_CONTAINER_GAP if row else _ROW_START_X
+    row_bottom = _ROW_START_Y + band_h
+
+    # Shelves: anchored under one specific row corridor (stacked via a
+    # running cursor when more than one shares an anchor — Data-flow's
+    # phase_consume + phase_saas_producer + phase_saas_consumer all under
+    # phase_store), or — anchor_id is None — under the whole row's bottom
+    # instead of one column (Data-flow's phase_control). A running per-anchor
+    # cursor (keyed by anchor_id, None included) avoids collapsing multiple
+    # shelves onto identical coordinates — the exact bug Part A fixed in the
+    # XML-based fixer chain, ported here so it can't recur in the new path.
+    cursor_by_anchor: dict[str | None, float] = {}
+    for shelf in ir.anchored:
+        if shelf.anchor_id is not None:
+            anchor_geo = geos.get(shelf.anchor_id)
+            base_x = anchor_geo.x if anchor_geo is not None else row_right
+            default_top = (anchor_geo.y + anchor_geo.h if anchor_geo is not None else row_bottom) + INTER_CONTAINER_GAP
+        else:
+            base_x = _ROW_START_X
+            default_top = row_bottom + INTER_CONTAINER_GAP
+        base_top = cursor_by_anchor.get(shelf.anchor_id, default_top)
+
+        leaf_ids = {leaf.id for leaf in shelf.leaves}
+        local_edges = [(s, t) for s, t in all_flows if s in leaf_ids and t in leaf_ids]
+        width, height = _place_leaves(shelf.leaves, local_edges, geos)
+        geos[shelf.id] = Geo(x=base_x, y=base_top, w=width, h=height)
+        cursor_by_anchor[shelf.anchor_id] = base_top + height + INTER_CONTAINER_GAP
+
+    return geos

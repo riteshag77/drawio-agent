@@ -1,22 +1,25 @@
 """Compile a CorridorIR (Logical / Security / Data-flow) into draw.io XML.
 
-Unlike Network, geometry here is genuinely a formality: this repo already has a
-deterministic rank-and-order layout engine
-(``adapters/outbound/diagram/logical_layout.py``, invoked unconditionally for
-these three page names via
-``placement_fixers.enforce_view_journey_columns`` <- ``xml_diagnostics.repair_xml``)
-that recomputes every corridor's and leaf's x/y/width/height from the
-container graph, discarding whatever this compiler emits. That's confirmed by
-reading the call chain, not assumed — see the module docstring on
-``domain/ir/corridor.py``.
+**Security and Data-flow** (``_LAYERED_VIEWS`` below) are geometrically
+authoritative, the same way Network's compiler already is: ``layout_corridor_ir``
+(``adapters/outbound/diagram/logical_layout.py``) computes final corridor/
+shelf/leaf geometry directly from this IR's own typed graph, once, here — the
+XML-based ``apply_layered_corridor_layout``/``enforce_view_journey_columns``
+pass (invoked unconditionally by ``xml_diagnostics.repair_xml`` for these page
+names) is skipped for pages this compiler produced (see
+``xml_diagnostics.py``'s ``layout="ir"`` marker check), since it would
+otherwise re-derive the exact graph this compiler already had as typed Python
+objects moments earlier by parsing this module's own XML output back into
+cells. Verified equivalent to (and, in two documented, pre-existing-bug cases,
+more correct than) the old XML-based pass's output — see
+``tests/test_corridor_ir_layout.py``.
 
-So this compiler's only real job is emitting a *structurally* correct document
-(right nesting, right ids, valid edges) — the placeholder geometry only needs
-to be sane enough that diagnostics run cleanly on the rare path that inspects
-pre-repair output. It reuses the same ``geometry_spec``/``theme``/``emit``
-building blocks as the Network compiler rather than inventing its own — that
-sharing is the actual DRY payoff of splitting compiler concerns into small
-modules instead of one Network-shaped file.
+**Logical** is not yet on this path: ``domain_experience`` gets bespoke
+"journey spine" treatment (``placement_fixers._layout_logical_journey_spine``)
+that ``layout_corridor_ir`` does not implement — a structurally different,
+already-flagged-as-deferred piece of work (a journey spine, not a side band).
+Logical keeps the original placeholder-geometry-then-XML-repair path below
+until that's ported too.
 """
 
 from __future__ import annotations
@@ -30,6 +33,16 @@ from app.adapters.outbound.diagram.compiler.shared import (
     emit_external_actors,
     emit_flows,
     emit_leaf_grid,
+)
+from app.adapters.outbound.diagram.logical_layout import (
+    CONTAINER_LABEL_HEIGHT,
+    CONTAINER_MIN_H,
+    CONTAINER_MIN_W,
+    CONTAINER_PADDING_X,
+    CONTAINER_PADDING_Y,
+    INTER_CONTAINER_GAP,
+    grid_fill,
+    layout_corridor_ir,
 )
 from app.domain.ir.corridor import AnchoredCorridor, Corridor, CorridorIR
 
@@ -47,6 +60,10 @@ _ROW_ORIGIN_X = 300.0
 #: differ from Network's Cloud box, so this stays a local constant.
 _ACTOR_GAP_X = 80.0
 
+#: Views whose geometry `layout_corridor_ir` computes authoritatively — see
+#: the module docstring for why Logical isn't here yet.
+_LAYERED_VIEWS = frozenset({"security", "data_flow"})
+
 
 def compile_corridor_ir(ir: CorridorIR, *, page_name: str) -> str:
     """Render ``ir`` to a complete draw.io document.
@@ -57,6 +74,8 @@ def compile_corridor_ir(ir: CorridorIR, *, page_name: str) -> str:
     errors = ir.semantic_errors()
     if errors:
         raise CompilerError(f"cannot compile an invalid IR: {'; '.join(errors[:3])}")
+    if ir.view in _LAYERED_VIEWS:
+        return _CorridorCompiler(ir, page_name).run_layered()
     return _CorridorCompiler(ir, page_name).run()
 
 
@@ -64,6 +83,88 @@ class _CorridorCompiler:
     def __init__(self, ir: CorridorIR, page_name: str) -> None:
         self.ir = ir
         self.w = CellWriter(page_name)
+
+    def run_layered(self) -> str:
+        """Geometrically-authoritative path (Security / Data-flow) — every
+        coordinate comes from ``layout_corridor_ir``, computed once. No later
+        repair pass needs to (or does) touch this page's corridor/shelf/leaf
+        geometry; see ``xml_diagnostics.repair_xml``'s ``layout="ir"`` skip.
+        """
+        geos = layout_corridor_ir(self.ir)
+        all_corridors = [*self.ir.corridors, *self.ir.anchored]
+        for corridor in all_corridors:
+            cg = geos[corridor.id]
+            is_shelf = isinstance(corridor, AnchoredCorridor)
+            self.w.vertex(
+                id=corridor.id,
+                label=corridor.label,
+                style=theme.shelf_style() if is_shelf else theme.corridor_style(),
+                x=cg.x, y=cg.y, w=cg.w, h=cg.h,
+                parent="1",
+            )
+            for leaf in corridor.leaves:
+                lg = geos[leaf.id]
+                self.w.vertex(
+                    id=leaf.id,
+                    label=leaf.label if not leaf.annotation else f"{leaf.label} [{leaf.annotation}]",
+                    style=theme.leaf_style(),
+                    x=lg.x, y=lg.y, w=lg.w, h=lg.h,
+                    parent=corridor.id,
+                    shape_type=leaf.shape_type,
+                )
+        # This page's own layout is authoritative — mark it so repair_xml
+        # skips re-deriving/overwriting it (see xml_diagnostics.py).
+        self.w.mark_layout_authoritative()
+
+        row_ids = {c.id for c in self.ir.corridors}
+        row_left = min((g.x for cid, g in geos.items() if cid in row_ids), default=_ROW_ORIGIN_X)
+        row_right = max((g.x + g.w for cid, g in geos.items() if cid in row_ids), default=_ROW_ORIGIN_X)
+        content_bottom = max((g.y + g.h for cid, g in geos.items() if cid in {c.id for c in all_corridors}), default=_ROW_TOP_Y)
+
+        self._emit_actors(row_left=row_left, row_right=row_right, top_y=_ROW_TOP_Y)
+        emit_flows(self.w, self.ir.flows)
+
+        page_w = row_right + 400
+        page_h = content_bottom + 200
+        return self.w.to_xml(page_width=page_w, page_height=page_h)
+
+    def _emit_actors(self, *, row_left: float, row_right: float, top_y: float) -> None:
+        """Left actors (users/saas_ingress/on_prem) wrap in a grid-sized band
+        container just left of the leftmost row corridor, mirroring Part A's
+        Fix 2c (`placement_fixers._containerize_corridor_actors`) — needed
+        here too now that this path skips the fixer that used to do it. Right
+        actors (saas_egress) render as loose leaves, matching that same
+        fixer's scope (it never containerized the right side either).
+        """
+        left = [a for a in self.ir.external_actors if a.kind in ("users", "saas_ingress", "on_prem")]
+        right = [a for a in self.ir.external_actors if a.kind == "saas_egress"]
+
+        if left:
+            _cols, _rows, content_w, content_h = grid_fill(len(left), cols=1)
+            band_w = max(CONTAINER_MIN_W, content_w + CONTAINER_PADDING_X * 2)
+            # + geo.LABEL_BAND_H: actors render with verticalLabelPosition=
+            # bottom too (theme.actor_style()) — same reasoning as
+            # layout_corridor_ir's _place_leaves.
+            band_h = max(CONTAINER_MIN_H, content_h + geo.LABEL_BAND_H + CONTAINER_LABEL_HEIGHT + CONTAINER_PADDING_Y)
+            band_x = max(20.0, row_left - band_w - INTER_CONTAINER_GAP)
+            self.w.vertex(
+                id="actors_left", label="External Actors", style=theme.corridor_style(),
+                x=band_x, y=top_y, w=band_w, h=band_h, parent="1",
+            )
+            for i, actor in enumerate(left):
+                self.w.vertex(
+                    id=actor.id, label=actor.label, style=theme.actor_style(),
+                    x=CONTAINER_PADDING_X, y=CONTAINER_LABEL_HEIGHT + i * (geo.LEAF_H + geo.LABEL_BAND_H),
+                    w=geo.LEAF_W, h=geo.LEAF_H, parent="actors_left",
+                )
+
+        y = top_y
+        for actor in right:
+            self.w.vertex(
+                id=actor.id, label=actor.label, style=theme.actor_style(),
+                x=row_right + _ACTOR_GAP_X, y=y, w=geo.LEAF_W, h=geo.LEAF_H, parent="1",
+            )
+            y += geo.LEAF_H + geo.LABEL_BAND_H + geo.ACTOR_GAP_Y
 
     def run(self) -> str:
         row_x = _ROW_ORIGIN_X

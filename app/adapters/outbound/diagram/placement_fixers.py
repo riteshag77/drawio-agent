@@ -2262,6 +2262,19 @@ def enforce_view_journey_columns(xml: str) -> str:
     if page_name not in {"logical", "security", "data flow", "data_flow"}:
         return xml
 
+    # Security/Data-flow's IR compiler is geometrically authoritative
+    # (compiler/corridor.py's layered path, layout_corridor_ir) — it marks
+    # the page's default layer `layout="ir"` when it produced the geometry
+    # itself, and this whole function exists to fix LLM-guessed placement
+    # that page never had. Re-running it would at best waste work re-deriving
+    # a graph the compiler already had as typed objects, and at worst
+    # silently rewrite already-correct geometry to a different (not
+    # necessarily better) one. Logical isn't marked yet — its journey-spine
+    # handling isn't part of the new path — so it still runs this normally.
+    default_layer = next((c for c in root.findall("mxCell") if c.get("id") == "1"), None)
+    if default_layer is not None and default_layer.get("layout") == "ir":
+        return xml
+
     if page_name == "security":
         xml = hoist_security_saas_from_private_zones(xml)
         parsed = _parse_docroot(xml)
@@ -2541,6 +2554,18 @@ def enforce_corridor_gap_consistency(xml: str) -> str:
     tree, root, is_mxfile, trimmed = parsed
     page_name = _diagram_page_name(tree).lower()
     if page_name not in {"logical", "security", "data flow", "data_flow"}:
+        return xml
+
+    # Same skip as enforce_view_journey_columns, same reason: this function
+    # exists to re-flow gaps after a *width change* — the IR compiler's
+    # layered path (layout_corridor_ir) never leaves a stale width for a
+    # later pass to react to, and this function's own "always anchor under
+    # the rightmost ranked corridor" shelf realignment (below) actively
+    # disagrees with the IR's own validated anchor_id in some views (found
+    # while building the new path — see test_corridor_ir_layout.py) — running
+    # it would silently move an already-correct shelf to the wrong anchor.
+    default_layer = next((c for c in root.findall("mxCell") if c.get("id") == "1"), None)
+    if default_layer is not None and default_layer.get("layout") == "ir":
         return xml
 
     prefix = {
