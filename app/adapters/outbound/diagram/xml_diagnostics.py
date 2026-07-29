@@ -472,6 +472,24 @@ def diagnose_xml(xml: str) -> XmlDiagnostics:
                         f"parent {pid!r} is outside the {lo:g}-{hi:g}px range"
                     )
 
+    # Edge-box overlap (an edge's path crossing a node it doesn't connect to)
+    # and edge-edge overlap (near-duplicate parallel segments) — reuses
+    # _validate_edges (via the routed-polyline approximation, not the raw
+    # anchor-to-anchor line — see _edge_routed_polyline's docstring), promoted
+    # from validate_layout()'s observational-only output to real, countable
+    # warnings here. Best-effort like the pitch/overlap checks above: routing
+    # is a candidate search (_route_logical_edge), not a solver guaranteeing
+    # zero collisions, so a tightly-packed layout can still leave a residual
+    # — see test_edge_overlap_checks.py's documented Network sibling-occlusion
+    # case. Filtered to just these two issue kinds (dropping the waypoint-
+    # bend-count and anchor-agreement checks, a different, pre-existing
+    # concern this pass isn't scoped to).
+    for issue in _validate_edges(cells, ids, page_w, page_h):
+        is_edge_box = "passes through non-endpoint node" in issue
+        is_edge_edge = " overlap " in issue and "segment" in issue
+        if is_edge_box or is_edge_edge:
+            diag.warnings.append(issue)
+
     return diag
 
 
@@ -1080,6 +1098,107 @@ def _edge_polyline(
                 except ValueError:
                     pass
     return [start, *waypoints, end]
+
+
+def _expected_exit_entry_points(
+    sgeo: tuple[float, float, float, float], sx: float, sy: float,
+    tgeo: tuple[float, float, float, float], tx: float, ty: float,
+) -> tuple[tuple[float, float], tuple[float, float]]:
+    """Exit/entry face points ``orthogonalEdgeStyle`` would pick with no
+    explicit anchor set — same dominant-axis convention this module's own
+    anchor-agreement check and ``core.txt``'s "Edge anchors from placement"
+    table already use, so this doesn't invent a second rule."""
+    sw, sh = sgeo[2], sgeo[3]
+    tw, th = tgeo[2], tgeo[3]
+    dx = (tx + tw / 2) - (sx + sw / 2)
+    dy = (ty + th / 2) - (sy + sh / 2)
+    if abs(dx) >= abs(dy):
+        exit_pt = (sx + sw if dx >= 0 else sx, sy + sh / 2)
+        entry_pt = (tx if dx >= 0 else tx + tw, ty + th / 2)
+    else:
+        exit_pt = (sx + sw / 2, sy + sh if dy >= 0 else sy)
+        entry_pt = (tx + tw / 2, ty if dy >= 0 else ty + th)
+    return exit_pt, entry_pt
+
+
+def _edge_routed_polyline(
+    edge: ET.Element, by_id: dict[str, ET.Element],
+) -> list[tuple[float, float]] | None:
+    """Approximate the path ``orthogonalEdgeStyle`` actually renders — used
+    only by the box-collision and parallel-overlap checks below, which need
+    something closer to the real rendered route than a straight line.
+
+    ``_edge_polyline`` (used by the waypoint-bend-count and anchor-agreement
+    checks elsewhere in this module) connects exit/entry anchors with a
+    straight line when the edge has no explicit waypoints — accurate for
+    those two checks (they're about the *declared* anchors/waypoints, not the
+    rendered path), but wrong here: compiler-emitted edges
+    (``compiler/theme.py``'s ``flow_style()``) never set ``exitX``/``exitY``,
+    so that straight line runs center-to-center and can cross any box sitting
+    geometrically between two connected, correctly-placed nodes — a false
+    "edge passes through node" on diagrams that are already correct (found via
+    real compiler fixtures previously verified to have zero diagnostics).
+
+    When the edge has explicit waypoints, they're trusted as-is (someone —
+    the LLM or a repair pass — already routed this edge deliberately). When it
+    doesn't, this synthesizes the same single-bend "Z" jog orthogonalEdgeStyle
+    computes by default: exit/entry faces picked by dominant-axis (or the
+    style's own explicit exitX/exitY when a repair pass already set them),
+    joined by a perpendicular bend at their midpoint — collapses to a straight
+    line automatically when source and target are already aligned.
+    """
+    src_id, tgt_id = edge.get("source"), edge.get("target")
+    if not src_id or not tgt_id or src_id not in by_id or tgt_id not in by_id:
+        return None
+    src, tgt = by_id[src_id], by_id[tgt_id]
+    sgeo, tgeo = _cell_geometry(src), _cell_geometry(tgt)
+    if sgeo is None or tgeo is None:
+        return None
+    sx, sy = absolute_position(src, by_id)
+    tx, ty = absolute_position(tgt, by_id)
+
+    waypoints: list[tuple[float, float]] = []
+    geom = edge.find("mxGeometry")
+    if geom is not None:
+        for arr in geom.findall("Array"):
+            if arr.get("as") != "points":
+                continue
+            for pt in arr.findall("mxPoint"):
+                try:
+                    waypoints.append((float(pt.get("x") or 0), float(pt.get("y") or 0)))
+                except ValueError:
+                    pass
+
+    style = edge.get("style") or ""
+    has_explicit_exit = any(
+        part.strip().startswith(("exitX=", "exitY=")) for part in style.split(";")
+    )
+    has_explicit_entry = any(
+        part.strip().startswith(("entryX=", "entryY=")) for part in style.split(";")
+    )
+    if has_explicit_exit or has_explicit_entry or waypoints:
+        # A repair pass or the LLM already chose real anchors/a real route —
+        # trust it, same as _edge_polyline.
+        start = (
+            sx + sgeo[2] * _edge_anchor_num(style, "exitX", 0.5) + _edge_anchor_num(style, "exitDx", 0.0),
+            sy + sgeo[3] * _edge_anchor_num(style, "exitY", 0.5) + _edge_anchor_num(style, "exitDy", 0.0),
+        )
+        end = (
+            tx + tgeo[2] * _edge_anchor_num(style, "entryX", 0.5) + _edge_anchor_num(style, "entryDx", 0.0),
+            ty + tgeo[3] * _edge_anchor_num(style, "entryY", 0.5) + _edge_anchor_num(style, "entryDy", 0.0),
+        )
+        return [start, *waypoints, end]
+
+    start, end = _expected_exit_entry_points(sgeo, sx, sy, tgeo, tx, ty)
+    dx = (tx + tgeo[2] / 2) - (sx + sgeo[2] / 2)
+    dy = (ty + tgeo[3] / 2) - (sy + sgeo[3] / 2)
+    if abs(dx) >= abs(dy):
+        mid_x = (start[0] + end[0]) / 2
+        bend = [(mid_x, start[1]), (mid_x, end[1])]
+    else:
+        mid_y = (start[1] + end[1]) / 2
+        bend = [(start[0], mid_y), (end[0], mid_y)]
+    return [start, *bend, end]
 
 
 def _ccw(a: tuple[float, float], b: tuple[float, float], c: tuple[float, float]) -> bool:
@@ -2124,11 +2243,15 @@ def _validate_edges(
         leaf_boxes.append((cell.get("id") or "", (ax, ay, cgeo[2], cgeo[3])))
 
     polylines: dict[str, list[tuple[float, float]]] = {}
+    routed_polylines: dict[str, list[tuple[float, float]]] = {}
     for edge in edges:
         eid = edge.get("id") or ""
         line = _edge_polyline(edge, by_id)
         if line and len(line) >= 2:
             polylines[eid] = line
+        routed = _edge_routed_polyline(edge, by_id)
+        if routed and len(routed) >= 2:
+            routed_polylines[eid] = routed
 
     for edge in edges:
         eid = edge.get("id") or ""
@@ -2141,22 +2264,28 @@ def _validate_edges(
         if len(line) - 2 > 2:
             issues.append(f"layout: edge {eid!r} has {len(line) - 2} waypoint bends (>2)")
 
-        # Non-endpoint node collisions (±5px tolerance), skipping the edge's own endpoints.
-        for leaf_id, box in leaf_boxes:
-            if leaf_id in (src_id, tgt_id):
-                continue
-            padded = (box[0] - 5.0, box[1] - 5.0, box[2] + 10.0, box[3] + 10.0)
-            for p1, p2 in zip(line, line[1:]):
-                seg_box = (
-                    min(p1[0], p2[0]), min(p1[1], p2[1]),
-                    abs(p2[0] - p1[0]) or 1.0, abs(p2[1] - p1[1]) or 1.0,
-                )
-                if _rects_overlap(seg_box, padded):
-                    issues.append(f"layout: edge {eid!r} passes through non-endpoint node {leaf_id!r}")
-                    break
-            else:
-                continue
-            break
+        # Non-endpoint node collisions (±5px tolerance), skipping the edge's own
+        # endpoints. Uses the *routed* approximation (_edge_routed_polyline),
+        # not the raw anchor-to-anchor line above — a straight center-to-center
+        # line falsely "crosses" any box geometrically between two correctly
+        # placed, connected nodes (see that function's docstring).
+        routed_line = routed_polylines.get(eid)
+        if routed_line is not None:
+            for leaf_id, box in leaf_boxes:
+                if leaf_id in (src_id, tgt_id):
+                    continue
+                padded = (box[0] - 5.0, box[1] - 5.0, box[2] + 10.0, box[3] + 10.0)
+                for p1, p2 in zip(routed_line, routed_line[1:]):
+                    seg_box = (
+                        min(p1[0], p2[0]), min(p1[1], p2[1]),
+                        abs(p2[0] - p1[0]) or 1.0, abs(p2[1] - p1[1]) or 1.0,
+                    )
+                    if _rects_overlap(seg_box, padded):
+                        issues.append(f"layout: edge {eid!r} passes through non-endpoint node {leaf_id!r}")
+                        break
+                else:
+                    continue
+                break
 
         # Anchor agreement: exitX/entryX should match the actual dominant-axis
         # direction between source and target centers (same rule
@@ -2182,12 +2311,13 @@ def _validate_edges(
 
     # Near-duplicate parallel segments: two edges sharing >50% overlap of
     # either one's length on an axis-aligned collinear segment should share a
-    # routing lane instead of running independently.
-    edge_ids = list(polylines)
+    # routing lane instead of running independently. Uses the routed
+    # approximation too, for the same reason as the box-collision check above.
+    edge_ids = list(routed_polylines)
     for i in range(len(edge_ids)):
-        segs_i = list(zip(polylines[edge_ids[i]], polylines[edge_ids[i]][1:]))
+        segs_i = list(zip(routed_polylines[edge_ids[i]], routed_polylines[edge_ids[i]][1:]))
         for j in range(i + 1, len(edge_ids)):
-            segs_j = list(zip(polylines[edge_ids[j]], polylines[edge_ids[j]][1:]))
+            segs_j = list(zip(routed_polylines[edge_ids[j]], routed_polylines[edge_ids[j]][1:]))
             for a1, a2 in segs_i:
                 for b1, b2 in segs_j:
                     overlap = _collinear_overlap_ratio(a1, a2, b1, b2)

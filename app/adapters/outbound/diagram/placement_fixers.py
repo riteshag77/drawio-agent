@@ -926,6 +926,16 @@ def fix_edge_anchors_from_geometry(xml: str) -> str:
     by_id = {c.get("id"): c for c in cells if c.get("id")}
     page = _diagram_page_name(tree).lower()
     is_focused = page in {"logical", "security", "data flow", "data_flow"}
+    # Obstacle-avoiding routing (_route_logical_edge) is view-agnostic despite
+    # its name (_logical_obstacle_rects has no Logical-specific assumptions)
+    # — Network never got it because it was designed to rely entirely on
+    # libavoid (LIBAVOID_FOCUSED_VIEWS's docstring), leaving it with no local
+    # fallback for the `local` renderer / libavoid-disabled path, unlike the
+    # three focused views. Kept as its own flag rather than widening
+    # `is_focused` itself so Network's parallel-edge-offset pixel value and
+    # face-spread fractions (both keyed on `is_focused` below) are unaffected
+    # — only routing coverage changes.
+    enable_obstacle_routing = is_focused or page == "network"
     parallel_px = _LOGICAL_PARALLEL_EDGE_OFFSET_PX if is_focused else _PARALLEL_EDGE_OFFSET_PX
 
     edges = [c for c in cells if c.get("edge") == "1"]
@@ -1058,8 +1068,8 @@ def fix_edge_anchors_from_geometry(xml: str) -> str:
                 )
                 changed = True
 
-    # Focused views: route each connector around other icons instead of through them.
-    if is_focused:
+    # Route each connector around other icons instead of through them.
+    if enable_obstacle_routing:
         frames = [
             (*absolute_position(c, by_id), _cell_geometry(c)[2], _cell_geometry(c)[3])
             for c in cells

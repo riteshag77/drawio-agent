@@ -7,6 +7,14 @@ must satisfy the *existing* diagnostics/repair pipeline (including the real
 names) with zero residual errors — proof, not assertion, that structural
 correctness by construction survives the full pipeline these pages already go
 through in production.
+
+Pre-repair warnings are checked with edge-routing warnings excluded (see
+``_non_routing_warnings``) — routing is `fix_edge_anchors_from_geometry`'s job
+(part of repair), never the compiler's, so raw compiler output legitimately
+has them; the *post*-repair assertion stays a strict zero, since routing is
+expected to be fully resolved by then for these three views (see
+`tests/test_edge_overlap_checks.py` for dedicated coverage, including the one
+documented case — Network's sibling-occlusion — where it isn't).
 """
 
 from __future__ import annotations
@@ -92,6 +100,16 @@ def realistic_security_ir() -> SecurityIR:
     )
 
 
+def _non_routing_warnings(warnings: list[str]) -> list[str]:
+    """Filter out edge-routing warnings (box/parallel overlap) — see this
+    module's docstring for why raw compiler output legitimately has them."""
+    return [
+        w for w in warnings
+        if "passes through non-endpoint node" not in w
+        and not ("overlap" in w and "segment" in w)
+    ]
+
+
 class DiagnosticsCleanlinessTests(unittest.TestCase):
     """Compiled output must pass the real pipeline (pre- and post-repair) with nothing to fix."""
 
@@ -99,7 +117,7 @@ class DiagnosticsCleanlinessTests(unittest.TestCase):
         xml = compile_corridor_ir(realistic_logical_ir(), page_name="Logical")
         pre = diagnose_xml(xml)
         self.assertEqual(pre.errors, [])
-        self.assertEqual(pre.warnings, [])
+        self.assertEqual(_non_routing_warnings(pre.warnings), [])
         _repaired, post = repair_xml(xml)
         self.assertEqual(post.errors, [])
         self.assertEqual(post.warnings, [])
@@ -108,7 +126,7 @@ class DiagnosticsCleanlinessTests(unittest.TestCase):
         xml = compile_corridor_ir(realistic_security_ir(), page_name="Security")
         pre = diagnose_xml(xml)
         self.assertEqual(pre.errors, [])
-        self.assertEqual(pre.warnings, [])
+        self.assertEqual(_non_routing_warnings(pre.warnings), [])
         _repaired, post = repair_xml(xml)
         self.assertEqual(post.errors, [])
         self.assertEqual(post.warnings, [])

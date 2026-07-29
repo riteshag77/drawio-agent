@@ -173,16 +173,17 @@ Every **Create**-mode diagram gets one explanatory text box, in addition to (nev
 4. Children start below title band (y≥48)?
 5. No section has more than 4 icons on one row; wrap + pitch (180–220 main path / 160–180 shelves) respected?
 6. No two adjacent under-labels collide (pitch + short names)?
-7. Every labeled edge has `labelBackgroundColor=#F5F5F5`?
-8. New edges use exit/entry matching relative placement; no edge crosses an unrelated icon face?
-9. Edit mode did not reshuffle unrelated existing nodes (unless user asked to fix layout)?
-10. Page/background sized to content; no clipped labels at container edges?
-11. Every leaf/container has a non-empty, specific `value`?
-12. Parallel edges in a corridor offset 20px; row order minimizes crossings?
-13. Legend present only if solid + dashed both appear?
-14. Overview panel present (`id=overview_panel`), right of architecture, **4–6 short one-sentence steps max**, balanced size (~400–520px wide), amber style, title H1-scale, Lens line present (this view's exact audience text), steps ≥15px?
-15. Every `<`/`>`/`"` inside the overview panel's `value` attribute is entity-escaped (`&lt;`/`&gt;`/`&quot;`) — never a literal character that would break XML well-formedness?
-16. In Edit mode, is the Overview Panel's step list a complete rewrite matching the diagram *after* this edit (no stale steps for removed/changed services, no delta-only note appended to the old text)?
+7. No two sibling leaves' icon+under-label boxes overlap each other at all (not just labels — the full box, including the label band)?
+8. Every labeled edge has `labelBackgroundColor=#F5F5F5`?
+9. New edges use exit/entry matching relative placement; no edge crosses an unrelated icon face?
+10. Edit mode did not reshuffle unrelated existing nodes (unless user asked to fix layout)?
+11. Page/background sized to content; no clipped labels at container edges?
+12. Every leaf/container has a non-empty, specific `value`?
+13. Parallel edges in a corridor offset 20px; row order minimizes crossings?
+14. Legend present only if solid + dashed both appear?
+15. Overview panel present (`id=overview_panel`), right of architecture, **4–6 short one-sentence steps max**, balanced size (~400–520px wide), amber style, title H1-scale, Lens line present (this view's exact audience text), steps ≥15px?
+16. Every `<`/`>`/`"` inside the overview panel's `value` attribute is entity-escaped (`&lt;`/`&gt;`/`&quot;`) — never a literal character that would break XML well-formedness?
+17. In Edit mode, is the Overview Panel's step list a complete rewrite matching the diagram *after* this edit (no stale steps for removed/changed services, no delta-only note appended to the old text)?
 
 ## PNG Background
 
