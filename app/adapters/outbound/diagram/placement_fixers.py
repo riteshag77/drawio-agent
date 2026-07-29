@@ -675,7 +675,17 @@ def _route_logical_edge(
     offsets: tuple[float, float],
     frames: list[tuple[float, float, float, float]],
 ) -> bool:
-    """Pick the straightest orthogonal path that clears every other icon."""
+    """Pick the straightest orthogonal path that clears every other icon.
+
+    Tries the natural entry face (from relative source→target placement)
+    first. If that face is structurally blocked along its whole length — a
+    sibling sitting directly across it, so every waypoint candidate still
+    crosses something — falls back to entering the target from a
+    perpendicular face instead, e.g. top/bottom when the natural face was
+    left/right. Found via a real fixture (test_edge_overlap_checks.py's
+    KnownResidualTests) where a same-row sibling fully occluded the target's
+    right face; no waypoint jog at that fixed face could dodge it.
+    """
     kv = _style_map(edge.get("style") or "")
 
     def _num(key: str, default: float) -> float:
@@ -688,24 +698,48 @@ def _route_logical_edge(
         meta["sx"] + meta["sw"] * _num("exitX", 0.5) + _num("exitDx", 0.0),
         meta["sy"] + meta["sh"] * _num("exitY", 0.5) + _num("exitDy", 0.0),
     )
-    end = (
-        meta["tx"] + meta["tw"] * _num("entryX", 0.5) + _num("entryDx", 0.0),
-        meta["ty"] + meta["th"] * _num("entryY", 0.5) + _num("entryDy", 0.0),
-    )
     axis = meta["axis"]
-    candidates = _route_candidates(start, end, axis, obstacles, offsets, frames)
-    best: list[tuple[float, float]] | None = None
-    best_score = None
-    for points in candidates:
-        score = _path_blocked_count(points, obstacles, _LOGICAL_ROUTE_CLEARANCE)
-        if score == 0:
-            best = points
-            break
-        if best_score is None or score < best_score:
-            best, best_score = points, score
-    if best is None:
+
+    def _best_for_entry(entry_fx: float, entry_fy: float, route_axis: str):
+        end = (
+            meta["tx"] + meta["tw"] * entry_fx + _num("entryDx", 0.0),
+            meta["ty"] + meta["th"] * entry_fy + _num("entryDy", 0.0),
+        )
+        candidates = _route_candidates(start, end, route_axis, obstacles, offsets, frames)
+        best_points: list[tuple[float, float]] | None = None
+        best_score = None
+        for points in candidates:
+            score = _path_blocked_count(points, obstacles, _LOGICAL_ROUTE_CLEARANCE)
+            if score == 0:
+                return points, 0
+            if best_score is None or score < best_score:
+                best_points, best_score = points, score
+        return best_points, best_score
+
+    natural_fx, natural_fy = _num("entryX", 0.5), _num("entryY", 0.5)
+    best_points, best_score = _best_for_entry(natural_fx, natural_fy, axis)
+    best_face: tuple[str, str] | None = None
+
+    if best_score:
+        alt_faces = (
+            [("0.5", "0.0", "v"), ("0.5", "1.0", "v")] if axis == "h"
+            else [("0.0", "0.5", "h"), ("1.0", "0.5", "h")]
+        )
+        for fx_s, fy_s, alt_axis in alt_faces:
+            points, score = _best_for_entry(float(fx_s), float(fy_s), alt_axis)
+            if points is None:
+                continue
+            if best_score is None or score < best_score:
+                best_points, best_score, best_face = points, score, (fx_s, fy_s)
+            if score == 0:
+                break
+
+    if best_points is None:
         return False
-    interior = best[1:-1]
+    if best_face is not None:
+        style = edge.get("style") or ""
+        edge.set("style", _set_style_kv(style, {"entryX": best_face[0], "entryY": best_face[1]}))
+    interior = best_points[1:-1]
     _set_edge_waypoints(edge, interior)
     return True
 

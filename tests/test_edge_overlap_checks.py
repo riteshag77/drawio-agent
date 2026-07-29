@@ -19,8 +19,10 @@ to a straight line automatically when source/target are already aligned), and
 defers to explicit waypoints/anchors when a repair pass already routed the
 edge for real. Verified against every corridor/network compiler fixture in
 tests/test_corridor_compiler.py and tests/test_network_compiler.py: all
-false positives from the naive straight-line model are gone post-repair,
-except one genuine, documented residual (below).
+false positives from the naive straight-line model are gone post-repair.
+`_route_logical_edge`'s dynamic entry-face fallback (see
+DynamicEntryFaceResolvesResidualTests below) closed the one remaining
+genuine residual (a sibling fully occluding a fixed entry face).
 """
 
 from __future__ import annotations
@@ -133,34 +135,31 @@ class ObstacleRouterExtendedToNetworkTests(unittest.TestCase):
         self.assertTrue(has_waypoints, "expected fix_edge_anchors_from_geometry to route at least one Network edge")
 
 
-class KnownResidualTests(unittest.TestCase):
-    """Pinned, documented residual — not a regression. `_route_logical_edge`
-    is a best-effort candidate search over waypoints at a *fixed* entry face;
-    it does not try alternate entry faces when the natural one is
-    structurally blocked by a sibling. `test_network_compiler.py`'s own
-    `realistic_ir()` fixture (NAT gateways + app-tier services sharing a
-    subnet) reproduces exactly this: an edge entering `ecs1` from its right
-    face must cross `lambda1`, which sits directly between the subnet's right
-    edge and `ecs1`. Fixing this needs dynamic entry-face selection in the
-    router itself — a genuinely larger change, deliberately out of scope this
-    session. Pinned here (not asserted as "must be zero") so a future fix to
-    the router is a visible, deliberate change to this test, not a silent
-    behavior shift — and so this residual is never confused with the false
-    positives the routed-polyline fix above already eliminated.
+class DynamicEntryFaceResolvesResidualTests(unittest.TestCase):
+    """Formerly a pinned, documented residual: `_route_logical_edge` used to
+    search waypoints only at a *fixed* entry face, so when the natural face
+    was structurally blocked by a sibling along its whole length, no jog could
+    escape it. `test_network_compiler.py`'s own `realistic_ir()` fixture (NAT
+    gateways + app-tier services sharing a subnet) reproduced exactly this: an
+    edge entering `ecs1` from its right face had to cross `lambda1`, which sat
+    directly between the subnet's right edge and `ecs1`. Fixed by adding a
+    dynamic entry-face fallback to `_route_logical_edge` — when the natural
+    face's best candidate still has a blocked segment, it retries entering
+    from the perpendicular faces (top/bottom for a horizontal approach,
+    left/right for a vertical one) and keeps whichever face+path combination
+    fully clears. Kept as its own test (not merged into the general clean-fixture
+    assertions) so a future regression here is easy to trace back to this
+    exact scenario.
     """
 
-    def test_realistic_network_fixture_has_one_documented_residual(self) -> None:
+    def test_realistic_network_fixture_has_zero_box_overlaps(self) -> None:
         network_compiler_tests = importlib.import_module("tests.test_network_compiler")
         xml = compile_network_ir(network_compiler_tests.realistic_ir())
         repaired, post = repair_xml(xml)
         self.assertEqual(post.errors, [])
         diag = diagnose_xml(repaired)
         box_warnings = _box_overlap_warnings(diag.warnings)
-        self.assertEqual(
-            len(box_warnings), 1,
-            f"expected exactly the one known residual, got: {box_warnings}",
-        )
-        self.assertIn("lambda1", box_warnings[0])
+        self.assertEqual(box_warnings, [], f"expected the lambda1 residual to be resolved, got: {box_warnings}")
 
 
 if __name__ == "__main__":
