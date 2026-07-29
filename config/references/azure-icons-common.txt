@@ -19,6 +19,7 @@ Use image=img/lib/azure2/<Category>/<Icon>.svg — NEVER azure2.resourceIcon.
 | Networking/FrontDoors.svg | Front Door | azure_front_door |
 | Networking/DNSZones.svg | DNS | azure_dns |
 | Networking/VirtualNetworks.svg | Virtual Network | azure_virtual_network |
+| Networking/VirtualNetworkPeerings.svg | VNet Peering | azure_vnet_peering |
 | Networking/PublicIPAddresses.svg | Public IP | azure_public_ip |
 | Security/Firewall.svg | Azure Firewall | azure_firewall |
 

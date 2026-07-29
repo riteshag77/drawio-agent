@@ -102,10 +102,11 @@ Platform stroke colors: AWS `#ED7100`, GCP `#4285F4`, Azure `#0078D4`.
 
 - Every edge needs valid source + target cell ids
 - Cross-container edges: `parent="1"`
-- Solid = sync; dashed=1 = async
+- Solid = sync; dashed=1 = async; error/failure path = `strokeColor=#B85450;dashed=1` (red dashed) — use only for an explicit failure/fallback/DR flow, never for a normal async edge
 - Sparse path: connect along the primary story only — no every-to-every meshes
 - Edge labels: include `labelBackgroundColor=#F5F5F5;fontSize=11;fontColor=#333333` when a label is present
 - Never place edge label text on top of an icon; prefer mid-segment in the clear corridor between sections
+- Label position follows edge orientation: horizontal edge → `verticalAlign=bottom` (label sits above the line); vertical edge → `align=right` (label sits beside the line)
 - Avoid waypoints unless necessary; when used, keep them outside icon+label boxes and on the grid
 
 ### Edge anchors from placement (CRITICAL)
@@ -130,7 +131,7 @@ Every leaf and container MUST carry a non-empty, specific `value` — never blan
 
 - **Parallel-edge offset:** 2+ edges sharing a corridor (not just a shared face) → offset each by **20px** so lines never merge. Extends, doesn't replace, the 0.25/0.5/0.75 face-spread rule.
 - **Order to cut crossings:** order sibling icons in a row to roughly match their downstream target's left-to-right position — not alphabetical/arbitrary.
-- **Legend only if mixed edge styles:** solid **and** dashed both present → add one small legend (2-4 lines, e.g. `Solid = sync`, `Dashed = async`), `id="legend_box"`, `parent="1"`, same inside-top-left label style. Skip it when every edge is solid. Don't spend effort placing it — a deterministic fixer always moves it directly below the Overview Panel, so any position you give it is temporary; just give it the stable id and reasonable content.
+- **Legend only if mixed edge styles:** 2+ of {solid, dashed, red-dashed error path} present → add one small legend (2-4 lines, e.g. `Solid = sync`, `Dashed = async`, `Red dashed = error path`), `id="legend_box"`, `parent="1"`, same inside-top-left label style. Skip it when every edge uses the same style. Don't spend effort placing it — a deterministic fixer always moves it directly below the Overview Panel, so any position you give it is temporary; just give it the stable id and reasonable content.
 
 ## Overview Panel — RIGHT-HAND SIDE (REQUIRED)
 
@@ -180,7 +181,7 @@ Every **Create**-mode diagram gets one explanatory text box, in addition to (nev
 11. Page/background sized to content; no clipped labels at container edges?
 12. Every leaf/container has a non-empty, specific `value`?
 13. Parallel edges in a corridor offset 20px; row order minimizes crossings?
-14. Legend present only if solid + dashed both appear?
+14. Legend present only if 2+ of {solid, dashed, red-dashed error path} appear? Error/failure paths (if any) use `strokeColor=#B85450;dashed=1`, never for a normal async edge? Edge labels follow orientation (`verticalAlign=bottom` horizontal / `align=right` vertical)?
 15. Overview panel present (`id=overview_panel`), right of architecture, **4–6 short one-sentence steps max**, balanced size (~400–520px wide), amber style, title H1-scale, Lens line present (this view's exact audience text), steps ≥15px?
 16. Every `<`/`>`/`"` inside the overview panel's `value` attribute is entity-escaped (`&lt;`/`&gt;`/`&quot;`) — never a literal character that would break XML well-formedness?
 17. In Edit mode, is the Overview Panel's step list a complete rewrite matching the diagram *after* this edit (no stale steps for removed/changed services, no delta-only note appended to the old text)?

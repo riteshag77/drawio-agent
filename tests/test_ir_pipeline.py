@@ -14,10 +14,12 @@ import xml.etree.ElementTree as ET
 from unittest.mock import patch
 
 from app.adapters.outbound.config import env_config
+from app.adapters.outbound.diagram.compiler import compile_network_ir
+from app.adapters.outbound.diagram.xml_diagnostics import diagnose_xml
 from app.core.logging import StepLogger
 from app.core.services import xml_pipeline
 from app.domain.entities import XmlDiagram
-from tests.test_network_compiler import realistic_ir
+from tests.test_network_compiler import _non_routing_warnings, realistic_ir
 
 _FALLBACK_XML = (
     '<mxfile host="app.diagrams.net"><diagram name="Network" id="d1">'
@@ -92,19 +94,18 @@ class IrPathTests(unittest.TestCase):
         self.assertIn("rds1", cells)
 
     def test_ir_output_survives_the_pipeline_without_repairs(self) -> None:
-        """The repair stage should find nothing to fix in compiler output."""
+        """The repair stage should find no *geometry* issue to fix in compiler
+        output. Edge-routing warnings (box/parallel overlap) are excluded —
+        those are a repair-layer concern by design (fix_edge_anchors_from_geometry's
+        obstacle-avoiding router), never the compiler's job; see
+        tests/test_edge_overlap_checks.py for dedicated coverage."""
         ir = realistic_ir()
-        logger = StepLogger()
-        with _IrEnabled(), \
-                patch("app.core.services.agent.generate_network_ir", return_value=ir), \
-                patch.object(xml_pipeline, "resolve_shape_styles", side_effect=_no_styles):
-            _run(logger=logger)
-
-        repairs = [
-            e for e in logger.to_list()
-            if e.get("step") == "repair" and "Auto-fixed" in (e.get("message") or "")
-        ]
-        self.assertEqual(repairs, [], f"IR output needed repair: {repairs}")
+        pre_repair = diagnose_xml(compile_network_ir(ir))
+        self.assertEqual(pre_repair.errors, [], f"IR output needed repair: {pre_repair.errors}")
+        self.assertEqual(
+            _non_routing_warnings(pre_repair.warnings), [],
+            f"IR output needed repair: {pre_repair.warnings}",
+        )
 
     def test_ir_failure_falls_back_to_direct_xml(self) -> None:
         """A broken IR path must never turn a working request into an error."""

@@ -53,7 +53,7 @@ points=[[0,0],[0.25,0],[0.5,0],[0.75,0],[1,0],[1,0.25],[1,0.5],[1,0.75],[1,1],[0
 |-------|--------|-------------|-----------|
 | AWS Cloud | group_aws_cloud_alt | #232F3E | #232F3E |
 | AWS Account | group_account | #CD2264 | #CD2264 |
-| VPC | group_vpc | #8C4FFF | #8C4FFF |
+| VPC | group_vpc2 | #8C4FFF | #8C4FFF |
 | Private Subnet | group_private_subnet | #147EBA | #147EBA |
 | Public Subnet | group_public_subnet | #248814 | #248814 |
 | On-Premise | group_on_premise | #5A6C86 | #5A6C86 |

@@ -20,6 +20,7 @@ Use shape=mxgraph.gcp2.<suffix> (NEVER gcp2020).
 | cloud_armor | Cloud Armor | gcp_cloud_armor |
 | vpc | VPC | gcp_vpc |
 | cloud_nat | Cloud NAT | gcp_cloud_nat |
+| vpc_peering | VPC Network Peering | gcp_vpc_peering |
 
 ## Data & Storage
 | shape suffix | Display Name | shape_type |
@@ -38,6 +39,7 @@ Use shape=mxgraph.gcp2.<suffix> (NEVER gcp2020).
 | shape suffix | Display Name | shape_type |
 |-------------|-------------|------------|
 | identity_and_access_management | IAM | gcp_iam |
+| identity_platform | Identity Platform | gcp_identity_platform |
 | secret_manager | Secret Manager | gcp_secret_manager |
 | cloud_kms | Cloud KMS | gcp_cloud_kms |
 | cloud_monitoring | Cloud Monitoring | gcp_cloud_monitoring |

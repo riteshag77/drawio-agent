@@ -10,9 +10,11 @@ Database(#C925D1):    dynamodb rds aurora elasticache redshift dms
 Storage(#7AA116):     s3 efs ebs backup storage_gateway snowball
 Networking(#8C4FFF):  cloudfront route53 application_load_balancer network_load_balancer
                       vpc nat_gateway internet_gateway vpn_gateway privatelink endpoints
+                      peering
 Security/Monitoring(#DD344C): iam cognito kms secrets_manager waf shield directory_service
                       cloudwatch cloudtrail xray config guardduty kinesis athena glue emr
                       managed_streaming_for_kafka sagemaker bedrock comprehend rekognition translate
+                      single_sign_on
 
 Standalone shapes:    client(#232F3D) traditional_server(#232F3D) generic_firewall(#232F3D)
                       router(#232F3D) generic_database(#232F3D) mobile_client(#232F3D)

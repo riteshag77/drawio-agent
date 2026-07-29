@@ -18,10 +18,15 @@ import xml.etree.ElementTree as ET
 from unittest.mock import patch
 
 from app.adapters.outbound.diagram.compiler import compile_corridor_ir
+from app.adapters.outbound.diagram.xml_diagnostics import diagnose_xml
 from app.core.logging import StepLogger
 from app.core.services import xml_pipeline
 from app.domain.entities import XmlDiagram
-from tests.test_corridor_compiler import realistic_logical_ir, realistic_security_ir
+from tests.test_corridor_compiler import (
+    _non_routing_warnings,
+    realistic_logical_ir,
+    realistic_security_ir,
+)
 from tests.test_ir_pipeline import _FALLBACK_XML, _IrEnabled, _no_styles
 
 import unittest
@@ -57,18 +62,17 @@ class PrimaryCorridorViewTests(unittest.TestCase):
         self.assertIn("overview_panel", cells)
 
     def test_security_as_primary_view_needs_no_repair(self) -> None:
+        """No *geometry* issue should need fixing in compiler output. Edge-
+        routing warnings (box/parallel overlap) are excluded — a repair-layer
+        concern by design, never the compiler's job; see
+        tests/test_edge_overlap_checks.py for dedicated coverage."""
         ir = realistic_security_ir()
-        logger = StepLogger()
-        with _IrEnabled(views="security"), \
-                patch("app.core.services.agent.generate_corridor_ir", return_value=ir), \
-                patch.object(xml_pipeline, "resolve_shape_styles", side_effect=_no_styles):
-            _run(diagram_views=["security"], logger=logger)
-
-        repairs = [
-            e for e in logger.to_list()
-            if e.get("step") == "repair" and "Auto-fixed" in (e.get("message") or "")
-        ]
-        self.assertEqual(repairs, [], f"Security IR output needed repair: {repairs}")
+        pre_repair = diagnose_xml(compile_corridor_ir(ir, page_name="Security"))
+        self.assertEqual(pre_repair.errors, [], f"Security IR output needed repair: {pre_repair.errors}")
+        self.assertEqual(
+            _non_routing_warnings(pre_repair.warnings), [],
+            f"Security IR output needed repair: {pre_repair.warnings}",
+        )
 
     def test_corridor_ir_failure_falls_back_to_direct_xml(self) -> None:
         fallback = XmlDiagram(xml=_FALLBACK_XML, assistant_message="ok", suggestions=[], step_markers=[])
