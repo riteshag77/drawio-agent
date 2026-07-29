@@ -846,6 +846,21 @@ def resolve_leaf_overlaps(xml: str) -> str:
     if parsed is None:
         return xml
     tree, root, is_mxfile, trimmed = parsed
+
+    # The IR compiler (compiler/corridor.py, compiler/network.py) already
+    # grid-fills every container's leaves and places external actors with
+    # its own known-clear geometry — it marks the default layer layout="ir"
+    # when it did. This function's overlap detection compares raw
+    # mxGeometry x/y across cells that may sit in different parents'
+    # relative coordinate spaces, which is only safe for LLM-authored
+    # geometry this pass was built to repair; on IR output it can flag a
+    # false "overlap" between an external actor and an unrelated container's
+    # leaf and relocate the actor into the middle of the row (found while
+    # porting Logical — see test_corridor_ir_layout.py).
+    default_layer = next((c for c in root.findall("mxCell") if c.get("id") == "1"), None)
+    if default_layer is not None and default_layer.get("layout") == "ir":
+        return xml
+
     page_w, page_h = _page_size(tree)
 
     cells = [c for c in root.findall("mxCell") if c.get("id")]

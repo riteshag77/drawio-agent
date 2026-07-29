@@ -149,6 +149,56 @@ class LayeredCorridorTests(unittest.TestCase):
         self.assertLess(core_x, data_x, "producer domain must sit left of consumer")
 
 
+class TileSizingMatchesPlacementTests(unittest.TestCase):
+    """Regression: `_layout_tiles_in_container` computed leaf *placement*
+    columns (`cols_n`, capped by flow-derived rank depth) separately from
+    the shelf/container *resize* call (`resize_container_to_grid(shelf_geo,
+    len(kids))`, which recomputed its own, wider default column count) —
+    when they disagreed, leaves were placed into more rows than the
+    container was resized for, and rendered outside it. Reproduced with 6
+    leaves forming three independent 2-node flow chains, the same condition
+    that exposed the equivalent bug in the IR path's `_place_leaves`."""
+
+    def test_leaves_never_overflow_container_after_layout(self) -> None:
+        cells_xml = (
+            '<mxCell id="domain_experience" value="Experience" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="160" y="140" width="200" height="160" as="geometry"/></mxCell>'
+        )
+        for i in range(6):
+            cells_xml += (
+                f'<mxCell id="l{i}" value="L{i}" style="rounded=1;" vertex="1" parent="domain_experience">'
+                f'<mxGeometry x="24" y="30" width="78" height="78" as="geometry"/></mxCell>'
+            )
+        for s, t in (("l0", "l1"), ("l2", "l3"), ("l4", "l5")):
+            cells_xml += (
+                f'<mxCell id="e_{s}_{t}" edge="1" parent="1" source="{s}" target="{t}">'
+                '<mxGeometry relative="1" as="geometry"/></mxCell>'
+            )
+        page = _page("Logical", cells_xml)
+        tree = ET.fromstring(page)
+        root = tree.find(".//root")
+        assert root is not None
+        cells = [c for c in root.findall("mxCell") if c.get("id")]
+        corridors = [c for c in cells if (c.get("id") or "") == "domain_experience"]
+        apply_layered_corridor_layout(
+            cells,
+            corridors=corridors,
+            leaf_filter=lambda c: c.get("vertex") == "1" and c.get("edge") != "1"
+            and "container=1" not in (c.get("style") or ""),
+            keyword_key=lambda c: (0, c.get("id") or ""),
+        )
+        by_id = {c.get("id"): c for c in cells}
+        container_geo = by_id["domain_experience"].find("mxGeometry")
+        container_w = float(container_geo.get("width"))
+        container_h = float(container_geo.get("height"))
+        for i in range(6):
+            leaf_geo = by_id[f"l{i}"].find("mxGeometry")
+            x, y = float(leaf_geo.get("x")), float(leaf_geo.get("y"))
+            w, h = float(leaf_geo.get("width")), float(leaf_geo.get("height"))
+            self.assertLessEqual(x + w, container_w, f"l{i} right edge exceeds container width")
+            self.assertLessEqual(y + h, container_h, f"l{i} bottom edge exceeds container height")
+
+
 class FocusedViewRoutingTests(unittest.TestCase):
     def test_security_page_gets_obstacle_routing(self) -> None:
         page = _page(

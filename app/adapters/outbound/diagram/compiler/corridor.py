@@ -1,25 +1,34 @@
 """Compile a CorridorIR (Logical / Security / Data-flow) into draw.io XML.
 
-**Security and Data-flow** (``_LAYERED_VIEWS`` below) are geometrically
-authoritative, the same way Network's compiler already is: ``layout_corridor_ir``
-(``adapters/outbound/diagram/logical_layout.py``) computes final corridor/
-shelf/leaf geometry directly from this IR's own typed graph, once, here — the
-XML-based ``apply_layered_corridor_layout``/``enforce_view_journey_columns``
-pass (invoked unconditionally by ``xml_diagnostics.repair_xml`` for these page
-names) is skipped for pages this compiler produced (see
-``xml_diagnostics.py``'s ``layout="ir"`` marker check), since it would
-otherwise re-derive the exact graph this compiler already had as typed Python
-objects moments earlier by parsing this module's own XML output back into
-cells. Verified equivalent to (and, in two documented, pre-existing-bug cases,
-more correct than) the old XML-based pass's output — see
-``tests/test_corridor_ir_layout.py``.
+**Logical, Security and Data-flow** (``_LAYERED_VIEWS`` below) are
+geometrically authoritative, the same way Network's compiler already is:
+``layout_corridor_ir`` (``adapters/outbound/diagram/logical_layout.py``)
+computes final corridor/shelf/leaf geometry directly from this IR's own typed
+graph, once, here — the XML-based ``apply_layered_corridor_layout``/
+``enforce_view_journey_columns`` pass (invoked unconditionally by
+``xml_diagnostics.repair_xml`` for these page names) is skipped for pages this
+compiler produced (see ``xml_diagnostics.py``'s ``layout="ir"`` marker check),
+since it would otherwise re-derive the exact graph this compiler already had
+as typed Python objects moments earlier by parsing this module's own XML
+output back into cells. Verified equivalent to (and, in two documented,
+pre-existing-bug cases, more correct than) the old XML-based pass's output —
+see ``tests/test_corridor_ir_layout.py``.
 
-**Logical** is not yet on this path: ``domain_experience`` gets bespoke
-"journey spine" treatment (``placement_fixers._layout_logical_journey_spine``)
-that ``layout_corridor_ir`` does not implement — a structurally different,
-already-flagged-as-deferred piece of work (a journey spine, not a side band).
-Logical keeps the original placeholder-geometry-then-XML-repair path below
-until that's ported too.
+Logical's "journey spine" (Persona/IdP external actors flowing into a leaf
+inside ``domain_experience``) needs no special layout machinery of its own —
+it's exactly ``ExternalActor`` plus ``Flow``, which ``emit_external_actors``/
+``emit_flows`` already render generically. Note this is a deliberate
+*replacement* of the legacy convention, not a byte-for-byte port of it: the
+XML-repair-path's ``placement_fixers._layout_logical_journey_spine`` used to
+hoist the "Portal" leaf out of its domain container onto a compact spine row
+and shift the whole domain band right to make room — a cosmetic convention
+this compiler does not reproduce, since it leaves Portal correctly nested
+inside ``domain_experience`` and renders actors in their own band instead (see
+``tests/test_corridor_ir_layout.py``'s ``LogicalLayoutTests`` for the
+structural-correctness checks this is held to instead of exact-geometry
+equivalence). Those bespoke functions exist only to compensate for an LLM
+emitting ad hoc geometry on the direct-XML fallback path; they stay in place
+for that fallback but are unreachable once this compiler produces the page.
 """
 
 from __future__ import annotations
@@ -61,8 +70,8 @@ _ROW_ORIGIN_X = 300.0
 _ACTOR_GAP_X = 80.0
 
 #: Views whose geometry `layout_corridor_ir` computes authoritatively — see
-#: the module docstring for why Logical isn't here yet.
-_LAYERED_VIEWS = frozenset({"security", "data_flow"})
+#: the module docstring.
+_LAYERED_VIEWS = frozenset({"security", "data_flow", "logical"})
 
 
 def compile_corridor_ir(ir: CorridorIR, *, page_name: str) -> str:

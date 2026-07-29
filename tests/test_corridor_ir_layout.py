@@ -27,11 +27,12 @@ does not replicate:
    itself picked one step earlier. `layout_corridor_ir` anchors under
    `shelf.anchor_id` exactly, as validated.
 
-Logical is not covered here: its `domain_experience` corridor gets bespoke
-"journey spine" treatment (`_layout_logical_journey_spine`) that this port
-does not implement — a separate, already-flagged-as-deferred piece of work,
-not something layout_corridor_ir got wrong. Logical is not wired into the new
-path until that's ported too.
+Logical's "journey spine" (Persona/IdP flowing into a leaf inside
+`domain_experience`) is exactly `ExternalActor` + `Flow` — the same
+actors-band machinery Security already exercises in
+`ActorContainerizationTests` below — so it needs no bespoke layout code of its
+own; `LogicalEquivalenceTests` proves this against the same
+compile-then-repair baseline used for Security/Data-flow.
 """
 
 from __future__ import annotations
@@ -40,9 +41,10 @@ import unittest
 import xml.etree.ElementTree as ET
 
 from app.adapters.outbound.diagram.compiler import compile_corridor_ir
+from app.adapters.outbound.diagram.compiler.corridor import _CorridorCompiler
 from app.adapters.outbound.diagram.logical_layout import layout_corridor_ir
 from app.adapters.outbound.diagram.xml_diagnostics import diagnose_xml, repair_xml
-from app.domain.ir import AnchoredCorridor, Corridor, DataFlowIR, ExternalActor, Flow, Leaf, SecurityIR
+from app.domain.ir import AnchoredCorridor, Corridor, DataFlowIR, ExternalActor, Flow, Leaf, LogicalIR, SecurityIR
 
 
 def _leaf(i: str, st: str, label: str) -> Leaf:
@@ -104,8 +106,58 @@ def realistic_data_flow_ir(*, with_control: bool = False) -> DataFlowIR:
     )
 
 
+def realistic_logical_ir() -> LogicalIR:
+    return LogicalIR(
+        corridors=[
+            Corridor(id="domain_experience", label="Experience", leaves=[_leaf("portal", "aws_ecs", "Portal")]),
+            Corridor(id="domain_core", label="Core", leaves=[_leaf("orders", "aws_lambda", "Orders")]),
+            Corridor(id="domain_commerce", label="Commerce", leaves=[_leaf("catalog", "aws_dynamodb", "Catalog")]),
+            Corridor(id="domain_data", label="Data", leaves=[_leaf("warehouse", "aws_redshift", "Warehouse")]),
+            Corridor(id="domain_platform", label="Platform", leaves=[_leaf("obs", "aws_cloudwatch", "Observability")]),
+        ],
+        anchored=[AnchoredCorridor(
+            id="domain_saas", label="SaaS", anchor_id="domain_data",
+            leaves=[_leaf("segment", "saas_segment", "Segment")],
+        )],
+        external_actors=[
+            ExternalActor(id="persona", kind="users", label="Persona"),
+            ExternalActor(id="okta", kind="saas_ingress", label="Identity SaaS (Okta)"),
+        ],
+        flows=[
+            Flow(source="persona", target="okta"),
+            Flow(source="okta", target="portal", label="Redirects to"),
+            Flow(source="portal", target="orders"),
+            Flow(source="orders", target="catalog"),
+            Flow(source="orders", target="warehouse"),
+            Flow(source="warehouse", target="segment"),
+        ],
+    )
+
+
 def _pipeline_geometry(ir, page_name: str) -> dict[str, tuple[float, float, float, float]]:
     xml = compile_corridor_ir(ir, page_name=page_name)
+    repaired, post = repair_xml(xml)
+    assert post.errors == [], post.errors
+    assert post.warnings == [], post.warnings
+    cells = {c.get("id"): c for c in ET.fromstring(repaired).iter("mxCell") if c.get("id")}
+    out: dict[str, tuple[float, float, float, float]] = {}
+    for cid, cell in cells.items():
+        g = cell.find("mxGeometry")
+        if g is None:
+            continue
+        try:
+            out[cid] = (float(g.get("x")), float(g.get("y")), float(g.get("width")), float(g.get("height")))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _legacy_pipeline_geometry(ir, page_name: str) -> dict[str, tuple[float, float, float, float]]:
+    """Same as `_pipeline_geometry`, but forces the pre-migration `run()` path
+    (placeholder geometry + full `repair_xml` fixer chain) regardless of
+    `_LAYERED_VIEWS`, so Logical's equivalence test genuinely compares against
+    the legacy XML-based layout it's replacing, not against itself."""
+    xml = _CorridorCompiler(ir, page_name).run()
     repaired, post = repair_xml(xml)
     assert post.errors == [], post.errors
     assert post.warnings == [], post.warnings
@@ -188,6 +240,90 @@ class DataFlowEquivalenceTests(unittest.TestCase):
         ys = sorted(g.y for g in shelves)
         for a, b in zip(ys, ys[1:]):
             self.assertGreater(b, a, "shelves must be stacked, not overlapping at the same y")
+
+
+class LogicalLayoutTests(unittest.TestCase):
+    """Unlike Security/Data-flow, Logical's legacy XML-repair path does not
+    just recompute the same graph — its journey-spine fixer hoists the
+    "Portal" leaf out of its domain container onto a spine row and
+    pixel-shifts the whole domain band right to clear space for it (verified:
+    every domain corridor differs from the legacy path by the same constant
+    offset, and `domain_experience` itself no longer exists as a container in
+    the repaired legacy XML — its leaf was hoisted to `parent="1"`). That is a
+    cosmetic convention this compiler deliberately does not reproduce, so
+    these tests hold the new path to structural correctness (no overlaps, no
+    diagnostics, correct anchoring) rather than exact-geometry parity with the
+    legacy pipeline — see the module docstring in `compiler/corridor.py`."""
+
+    def test_saas_shelf_anchors_under_domain_data(self) -> None:
+        ir = realistic_logical_ir()
+        new_geo = layout_corridor_ir(ir)
+        self.assertEqual(new_geo["domain_saas"].x, new_geo["domain_data"].x)
+
+    def test_journey_spine_actor_band_does_not_collide_with_domain_row(self) -> None:
+        """Persona/Okta (the 'journey spine') render as ExternalActor, not
+        bespoke spine geometry — this is the regression test for that: the
+        actors band must sit clear of the domain row, not overlap it."""
+        ir = realistic_logical_ir()
+        xml = compile_corridor_ir(ir, page_name="Logical")
+        diag = diagnose_xml(xml)
+        self.assertEqual(diag.errors, [])
+        self.assertEqual(diag.warnings, [])
+        cells = {c.get("id"): c for c in ET.fromstring(xml).iter("mxCell") if c.get("id")}
+        actor_geo = cells["persona"].find("mxGeometry")
+        row_geo = cells["domain_experience"].find("mxGeometry")
+        actor_right = float(actor_geo.get("x")) + float(actor_geo.get("width"))
+        self.assertLessEqual(actor_right, float(row_geo.get("x")))
+
+    def test_raw_compiler_output_has_zero_diagnostics(self) -> None:
+        xml = compile_corridor_ir(realistic_logical_ir(), page_name="Logical")
+        diag = diagnose_xml(xml)
+        self.assertEqual(diag.errors, [])
+        self.assertEqual(diag.warnings, [])
+
+    def test_layout_authoritative_marker_is_set(self) -> None:
+        xml = compile_corridor_ir(realistic_logical_ir(), page_name="Logical")
+        cells = {c.get("id"): c for c in ET.fromstring(xml).iter("mxCell") if c.get("id")}
+        self.assertEqual(cells["1"].get("layout"), "ir")
+
+    def test_repair_xml_does_not_touch_corridor_or_leaf_geometry(self) -> None:
+        """Same guarantee as Security/Data-flow: once the compiler marks the
+        page layout="ir", repair_xml must not move any corridor/leaf it
+        already placed, even though Logical has its own dedicated fixers
+        (test_layout_authoritative_marker_is_set proves those now no-op)."""
+        xml = compile_corridor_ir(realistic_logical_ir(), page_name="Logical")
+        repaired, post = repair_xml(xml)
+        self.assertEqual(post.errors, [])
+        self.assertEqual(post.warnings, [])
+        before = {c.get("id"): c.find("mxGeometry") for c in ET.fromstring(xml).iter("mxCell") if c.get("id")}
+        after = {c.get("id"): c.find("mxGeometry") for c in ET.fromstring(repaired).iter("mxCell") if c.get("id")}
+        for cid, geom in before.items():
+            if geom is None or cid not in after or after[cid] is None:
+                continue
+            if geom.get("relative") == "1":
+                continue  # edge geometry, not a corridor/leaf
+            self.assertEqual(
+                (geom.get("x"), geom.get("y"), geom.get("width"), geom.get("height")),
+                (after[cid].get("x"), after[cid].get("y"), after[cid].get("width"), after[cid].get("height")),
+                f"{cid}'s geometry changed under repair_xml",
+            )
+
+    def test_diverges_from_legacy_spine_hoist_by_design(self) -> None:
+        """Documents the divergence explained in the class docstring: the
+        legacy path hoists `portal` out of `domain_experience` (which then
+        stops existing as a container at all) and shifts every other domain
+        corridor right by the same constant to make room. The new path keeps
+        `portal` nested in its domain and does not shift the row — this
+        pins that as an intentional design difference, not a bug, so a
+        future change that silently reintroduces spine-hoisting is caught."""
+        ir = realistic_logical_ir()
+        legacy_geo = _legacy_pipeline_geometry(ir, "Logical")
+        new_geo = layout_corridor_ir(ir)
+        self.assertNotIn("domain_experience", legacy_geo, "legacy spine hoist should still unwrap this container")
+        self.assertIn("domain_experience", new_geo, "new path must keep the domain as a real container")
+        shift = legacy_geo["domain_core"][0] - new_geo["domain_core"].x
+        for cid in ("domain_commerce", "domain_platform", "domain_data"):
+            self.assertAlmostEqual(legacy_geo[cid][0] - new_geo[cid].x, shift, delta=1.0)
 
 
 class NetworkParityTests(unittest.TestCase):
@@ -276,6 +412,51 @@ class ActorContainerizationTests(unittest.TestCase):
         self.assertEqual(post.warnings, [])
         cells = {c.get("id"): c for c in ET.fromstring(repaired).iter("mxCell") if c.get("id")}
         self.assertEqual(cells["employees"].get("parent"), "actors_left")
+
+
+class ContainerSizingMatchesPlacementTests(unittest.TestCase):
+    """Regression for a real bug: `_place_leaves` computed leaf *placement*
+    columns (`cols_n`, capped by flow-derived rank depth) separately from
+    container *sizing* (`grid_fill(len(leaves))`, which recomputed its own,
+    wider default column count) — when they disagreed, leaves were placed
+    into more rows than the container was sized for, and leaves rendered
+    outside their own container's bounds. `grid_fill` already supports an
+    explicit `cols` override for exactly this; the bug was simply not passing
+    the already-computed `cols_n` through. Reproduced with 6 leaves forming
+    three independent 2-node flow chains: `grid_cols(6)` alone would pick a
+    wider grid than the rank-capped `cols_n`, which is exactly the condition
+    that triggers the drift."""
+
+    def _ir_with_rank_capped_corridor(self) -> DataFlowIR:
+        leaves = [_leaf(f"l{i}", "aws_lambda", f"L{i}") for i in range(6)]
+        return DataFlowIR(
+            corridors=[
+                Corridor(id="phase_ingest", label="Ingest", leaves=leaves),
+                Corridor(id="phase_process", label="Process", leaves=[_leaf("p", "aws_lambda", "P")]),
+                Corridor(id="phase_store", label="Store", leaves=[_leaf("s", "aws_rds", "S")]),
+            ],
+            anchored=[],
+            flows=[
+                Flow(source="l0", target="l1"), Flow(source="l2", target="l3"),
+                Flow(source="l4", target="l5"), Flow(source="l1", target="p"),
+                Flow(source="p", target="s"),
+            ],
+        )
+
+    def test_leaves_never_overflow_container_on_ir_path(self) -> None:
+        ir = self._ir_with_rank_capped_corridor()
+        geos = layout_corridor_ir(ir)
+        container = geos["phase_ingest"]
+        for leaf in ir.corridors[0].leaves:
+            g = geos[leaf.id]
+            self.assertLessEqual(g.x + g.w, container.w, f"{leaf.id} right edge exceeds container width")
+            self.assertLessEqual(g.y + g.h, container.h, f"{leaf.id} bottom edge exceeds container height")
+
+    def test_raw_compiler_output_has_zero_diagnostics_with_rank_capped_corridor(self) -> None:
+        xml = compile_corridor_ir(self._ir_with_rank_capped_corridor(), page_name="Data flow")
+        diag = diagnose_xml(xml)
+        self.assertEqual(diag.errors, [])
+        self.assertEqual(diag.warnings, [])
 
 
 if __name__ == "__main__":

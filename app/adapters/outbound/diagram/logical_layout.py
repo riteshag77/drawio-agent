@@ -636,7 +636,7 @@ def _layout_tiles_in_container(
             changed = True
 
     shelf_geo = container.find("mxGeometry")
-    if shelf_geo is not None and resize_container_to_grid(shelf_geo, len(kids)):
+    if shelf_geo is not None and resize_container_to_grid(shelf_geo, len(kids), cols=cols_n):
         changed = True
     return changed
 
@@ -781,7 +781,7 @@ def _place_leaves(
             y=CONTAINER_LABEL_HEIGHT + row * _ICON_PITCH_Y,
             w=geo.LEAF_W, h=geo.LEAF_H,
         )
-    _cols, _rows, content_w, content_h = grid_fill(len(leaves))
+    _cols, _rows, content_w, content_h = grid_fill(len(leaves), cols=cols_n)
     width = max(CONTAINER_MIN_W, content_w + CONTAINER_PADDING_X * 2)
     # + geo.LABEL_BAND_H: leaves render with verticalLabelPosition=bottom
     # (theme.leaf_style()), so their rendered footprint is icon + a 28px

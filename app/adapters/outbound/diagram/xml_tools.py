@@ -1151,6 +1151,19 @@ def _fit_root(root: ET.Element) -> bool:
     """Fit/separate/normalize containers inside one diagram <root>. Returns if changed."""
     cells = [c for c in root.findall("mxCell") if c.get("id")]
     by_id = {c.get("id"): c for c in cells}
+
+    # The IR compiler (compiler/corridor.py, compiler/network.py) is
+    # geometrically authoritative for pages it produced — it sizes every
+    # container to its children itself and marks the default layer
+    # layout="ir". Re-fitting here would silently resize/reposition
+    # already-correct containers using this function's own, separate
+    # bounding-box computation (found while porting Logical: an
+    # ExternalActor band beside the row made this shift a container's y by
+    # 84px with zero warnings to show for it).
+    default_layer = by_id.get("1")
+    if default_layer is not None and default_layer.get("layout") == "ir":
+        return False
+
     children: dict[str, list[ET.Element]] = {}
     for cell in cells:
         if cell.get("edge") == "1" or cell.get("vertex") != "1":

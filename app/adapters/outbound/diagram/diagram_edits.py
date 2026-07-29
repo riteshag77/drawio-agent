@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import html
 import re
 import uuid
 import xml.etree.ElementTree as ET
@@ -56,9 +55,6 @@ def _ensure_geometry(cell: ET.Element, x: float, y: float, w: float = 78, h: flo
     geom.set("height", f"{h:.1f}")
     if cell.get("edge") == "1":
         geom.set("relative", "1")
-        for k in ("x", "y", "width", "height"):
-            if k in geom.attrib and cell.get("edge") == "1":
-                pass
 
 
 def apply_diagram_edits(xml: str, plan: DiagramEditPlan) -> str:

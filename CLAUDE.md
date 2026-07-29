@@ -57,11 +57,12 @@ app/
 There are now two ways any page (primary *or* a secondary/extra view) gets produced.
 Know which one you're touching:
 
-- **Direct XML** (default): the LLM writes mxCells itself, then ~5k lines of deterministic
+- **Direct XML** (fallback): the LLM writes mxCells itself, then ~5k lines of deterministic
   repair (`xml_diagnostics.py`, `placement_fixers.py`, `xml_tools.py`) correct what it got
-  wrong. Handles every view, edit mode, and 3D.
-- **IR + compiler** (`DIAGRAM_IR_ENABLED=true`, `DIAGRAM_IR_VIEWS` opts in per view, fresh
-  generations only): the LLM emits a Pydantic-validated IR and
+  wrong. Always used for edit mode and 3D; used for fresh generations only when the IR path
+  is disabled or throws (see below).
+- **IR + compiler** (default; `DIAGRAM_IR_ENABLED` gates it, `DIAGRAM_IR_VIEWS` opts in per
+  view, fresh generations only): the LLM emits a Pydantic-validated IR and
   `adapters/outbound/diagram/compiler/` deterministically renders the XML.
   - **Network** (`NetworkIR`, strict container nesting) — geometry/styles/parent-wiring become
     code, so the repair layer has nothing to fix. This is a *correctness* fix: before this path
@@ -98,10 +99,13 @@ Rules of thumb when editing:
   see `_run_view`'s `effective_repair_passes`.
 - Responses carry `generation_path` (`ir` | `direct_xml`) for the *primary* page — distinct from
   `renderer_used` (`mcp` | `local`), which is about icon resolution only.
-- **Known gap, not a regression**: Data-flow's `phase_consume`+`phase_saas` double-shelf-under-
-  `phase_store` case can collide in the shared layout engine (pre-existing, pinned as a
-  regression test in `test_corridor_compiler.py` rather than blind-patched) — see
-  `docs/ENV_AND_MCP.md`'s IR section for the full writeup before touching `logical_layout.py`.
+- **Fixed on the IR/layered path, still latent on the direct-XML fallback**: Data-flow's
+  `phase_consume`+`phase_saas_*` double-shelf-under-`phase_store` case used to collide in the
+  shared layout engine. `layout_corridor_ir`'s `cursor_by_anchor` stacking fixes this for every
+  view compiled via IR (the default); it can still reproduce on the direct-XML fallback, which
+  is why the old collision is pinned as a regression test in `test_corridor_compiler.py` rather
+  than blind-patched — see `docs/ENV_AND_MCP.md`'s IR section for the full writeup before
+  touching `logical_layout.py`.
 
 ### LLM/MCP/prompt ownership split (important when touching diagram generation)
 

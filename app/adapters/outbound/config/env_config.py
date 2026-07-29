@@ -222,29 +222,27 @@ class EnvConfigAdapter:
         prompt instructions, so structural defects are impossible by
         construction rather than repaired afterwards.
 
-        Off by default: the direct-XML path remains the fallback, and any
+        On by default: the direct-XML path remains the fallback, and any
         failure in the IR path degrades to it rather than failing the request.
-        Network, Security, and Data-flow are supported (see
-        ``diagram_ir_views``'s default) — Logical is not yet, since its
-        "journey spine" leaf handling isn't part of the compiler's
-        geometrically-authoritative layered path
-        (``compiler/corridor.py``'s ``_LAYERED_VIEWS``) and still needs the
-        direct-XML repair chain regardless of this flag.
+        Network, Security, Data-flow, and Logical are supported (see
+        ``diagram_ir_views``'s default).
         """
-        return self.get_bool("DIAGRAM_IR_ENABLED", False)
+        return self.get_bool("DIAGRAM_IR_ENABLED", True)
 
     @property
     def diagram_ir_views(self) -> list[str]:
         """Which primary views use the IR path when ``diagram_ir_enabled``.
 
-        Security and Data-flow compile through a geometrically-authoritative
-        layered path (``compiler/corridor.py``'s ``run_layered``) — the same
-        "geometry becomes code, nothing left for repair_xml to fix" property
-        Network's compiler already had, verified in
-        ``tests/test_corridor_ir_layout.py``'s Network-parity tests. Logical
-        stays off this list until its journey-spine handling is ported too.
+        Logical, Security, and Data-flow compile through a
+        geometrically-authoritative layered path (``compiler/corridor.py``'s
+        ``run_layered``) — the same "geometry becomes code, nothing left for
+        repair_xml to fix" property Network's compiler already had, verified
+        in ``tests/test_corridor_ir_layout.py``'s parity tests for all three.
         """
-        return [v.lower() for v in self.get_list("DIAGRAM_IR_VIEWS", ["network", "security", "data_flow"])]
+        return [
+            v.lower()
+            for v in self.get_list("DIAGRAM_IR_VIEWS", ["network", "security", "data_flow", "logical"])
+        ]
 
     @property
     def history_enabled(self) -> bool:
