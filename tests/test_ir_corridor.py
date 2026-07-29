@@ -49,6 +49,7 @@ class SharedCorridorTests(unittest.TestCase):
         ir = DataFlowIR(
             corridors=[Corridor(id="phase_ingest", label="Ingest", leaves=[_leaf("a")])],
             anchored=[AnchoredCorridor(id="phase_control", label="Control", anchor_id=None, leaves=[_leaf("b")])],
+            flows=[Flow(source="a", target="b")],
         )
         self.assertEqual(ir.semantic_errors(), [])
 
@@ -82,6 +83,7 @@ class LogicalVocabularyTests(unittest.TestCase):
                 Corridor(id="domain_data", label="Data", leaves=[_leaf("store")]),
             ],
             anchored=[AnchoredCorridor(id="domain_saas", label="SaaS", anchor_id="domain_data", leaves=[_leaf("wd")])],
+            flows=[Flow(source="portal", target="store")],
         )
         self.assertEqual(ir.semantic_errors(), [])
 
@@ -109,6 +111,7 @@ class SecurityVocabularyTests(unittest.TestCase):
                 Corridor(id="zone_restricted", label="Restricted", leaves=[_leaf("db")]),
             ],
             anchored=[AnchoredCorridor(id="zone_external_saas", label="SaaS", anchor_id="zone_restricted", leaves=[_leaf("wd")])],
+            flows=[Flow(source="dns", target="db")],
         )
         self.assertEqual(ir.semantic_errors(), [])
 
@@ -144,6 +147,7 @@ class DataFlowVocabularyTests(unittest.TestCase):
                 AnchoredCorridor(id="phase_saas_consumer", label="SaaS Consumers", anchor_id="phase_store", leaves=[_leaf("stripe")]),
                 AnchoredCorridor(id="phase_control", label="Control", anchor_id=None, leaves=[_leaf("glue")]),
             ],
+            flows=[Flow(source="apigw", target="db")],
         )
         self.assertEqual(ir.semantic_errors(), [])
         self.assertEqual(len(ir.anchored), 4)

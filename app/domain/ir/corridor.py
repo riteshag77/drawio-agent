@@ -135,10 +135,23 @@ class CorridorIR(DiagramIR):
     def semantic_errors(self) -> list[str]:
         """Cross-field rules common to every corridor view.
 
-        Just ``DiagramIR._base_flow_errors()`` — dangling refs and self-loops
-        are the only cross-field rule the three corridor views share (they
-        have no Network-style no-edge zones). Subclasses that need more
-        (none currently do) would extend this list rather than override it
-        outright, so the shared checks can never silently disappear.
+        Starts from ``DiagramIR._base_flow_errors()`` (dangling refs and
+        self-loops) and adds one rule specific to these three views: unlike
+        Network, which conveys relationships through container nesting,
+        Logical/Security/Data-flow have *no other way* to express a
+        relationship between components — ``flows`` is the whole point of
+        the view. ``flows`` defaults to an empty list, so Pydantic never
+        flags a diagram that omits every edge; a real capture showed the
+        model returning a fully-formed, schema-valid IR with no ``flows`` key
+        at all, which is exactly the failure mode this method exists to
+        catch. Subclasses that need more would extend this list rather than
+        override it outright, so the shared checks can never silently
+        disappear.
         """
-        return self._base_flow_errors()
+        errors = self._base_flow_errors()
+        if not self.flows and len(self.leaf_ids()) >= 2:
+            errors.append(
+                "flows is empty but there are 2+ leaves — add the request/data-flow edges "
+                "between them; a diagram with no relationships is not useful"
+            )
+        return errors
