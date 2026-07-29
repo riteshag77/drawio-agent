@@ -71,6 +71,11 @@ class _NetworkCompiler:
             top_y=geo.CLOUD_ORIGIN_Y + geo.TITLE_PAD,
         )
         emit_flows(self.w, self.ir.flows)
+        # This page's own layout is authoritative — mark it so repair_xml
+        # skips re-deriving/overwriting it, the same contract
+        # compiler/corridor.py's run_layered() already gives Logical/
+        # Security/Data-flow (see xml_diagnostics.py's layout="ir" skip).
+        self.w.mark_layout_authoritative()
 
         page_w = geo.CLOUD_ORIGIN_X + cloud_box.width + 400
         page_h = geo.CLOUD_ORIGIN_Y + cloud_box.height + 120

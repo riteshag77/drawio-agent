@@ -130,7 +130,9 @@ class CloudBoundary(Identified):
 
 
 class NetworkIR(DiagramIR):
-    view: Literal["network"] = "network"
+    view: Literal["network"] = Field(
+        default="network", description="Must be exactly the lowercase string 'network' — no other casing."
+    )
     cloud: CloudBoundary
 
     # ── id collection ──────────────────────────────────────────────────
@@ -216,6 +218,23 @@ class NetworkIR(DiagramIR):
         errors = self._base_flow_errors()
         known = self.all_ids()
         forbidden = self.no_edge_ids()
+
+        if not self.flows and self.external_actors:
+            # `flows` defaults to an empty list, so Pydantic never flags a
+            # diagram that omits every connection — but external actors
+            # (Users, an IdP, a SaaS integration) floating with zero edges
+            # into the network is exactly the same "schema-valid, useless"
+            # failure mode CorridorIR guards against (see corridor.py's
+            # equivalent rule, added after a real capture showed this exact
+            # gap for Logical/Security/Data-flow). Gated on external_actors
+            # rather than leaf count: container nesting alone can carry
+            # meaning for a purely structural diagram with no actors (see
+            # test_wrapping_grid_stays_clean), but an actor with nothing to
+            # connect to is never intentional.
+            errors.append(
+                "flows is empty but external_actors is not — add the edges connecting "
+                "actors into the network; actors with no connections are not useful"
+            )
 
         for flow in self.flows:
             if flow.source in forbidden or flow.target in forbidden:

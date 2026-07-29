@@ -1159,6 +1159,19 @@ def resolve_misplaced_actors(xml: str) -> str:
         return xml
     tree, root, is_mxfile, trimmed = parsed
 
+    # Every IR compiler (Network, and Logical/Security/Data-flow's layered
+    # path) places external actors itself and marks the default layer
+    # layout="ir" when it did — this function's "stack every root actor into
+    # column x=20" heuristic exists to fix LLM-guessed actor placement, and
+    # would otherwise collapse a compiler-placed saas_egress actor (correctly
+    # positioned past the right edge of the diagram) back onto the left
+    # column, since Network's actors are bare parent="1" leaves with no
+    # actors_left/actors_right band to exempt them (found live: this produced
+    # a full-canvas-spanning edge that read as a missing arrow).
+    default_layer = next((c for c in root.findall("mxCell") if c.get("id") == "1"), None)
+    if default_layer is not None and default_layer.get("layout") == "ir":
+        return xml
+
     cells = [c for c in root.findall("mxCell") if c.get("id")]
     by_id = {c.get("id"): c for c in cells if c.get("id")}
 

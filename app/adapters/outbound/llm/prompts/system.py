@@ -12,13 +12,16 @@ _log = logging.getLogger(__name__)
 
 MAX_CUSTOM_SYSTEM_MESSAGE_LEN = 5000
 # Soft budget for assembled system prompt (~tokens ≈ chars/4).
-# CORE + platform packs + filtered catalog. Raised from 8000 → 10000: repeatedly
-# trimming real instructions to fit the old cap was an actual bug contributor
-# this session (under-specified escaping/step-count/placement rules), not a
-# neutral tradeoff — worth the modest extra per-call cost (amortized via
-# prefix caching on Claude/OpenAI-compatible providers; paid in full on Gemini,
-# whose prompt_cache is "none", but still small at Flash-tier pricing).
-MAX_SYSTEM_PROMPT_TOKENS = 10_000
+# CORE + platform packs + filtered catalog. Raised 8000 → 10000 → 13000: each
+# time, repeatedly trimming real instructions to fit the old cap was an actual
+# bug contributor (under-specified escaping/step-count/placement rules, then
+# the Overview Panel's Lens/audience line and richer per-view Key Facts), not
+# a neutral tradeoff — output quality from a fuller, clearer prompt is worth
+# the modest extra per-call cost (amortized via prefix caching on
+# Claude/OpenAI-compatible providers; paid in full on Gemini, whose
+# prompt_cache is "none", but still small at Flash-tier pricing). Raise this
+# again rather than re-trimming a future addition if the same tradeoff recurs.
+MAX_SYSTEM_PROMPT_TOKENS = 13_000
 
 # Sentinel marking the boundary between the stable (cacheable) prefix and the
 # per-request volatile suffix. The LLM adapter (``llm.caching.build_system_message``)

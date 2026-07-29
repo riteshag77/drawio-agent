@@ -57,10 +57,13 @@ Every leaf has:
 
 ## Flows
 
-Model the **primary story** only — sparse, not a mesh. `primary: false` for
-secondary/async paths (rendered dashed). `label` is optional; when used, 1–4
-words. Every flow's `source`/`target` must be a real leaf or external-actor
-id you already declared.
+**`flows` is REQUIRED whenever 2+ leaves or any external actor exist — never
+leave it empty.** A diagram with no relationships between components is not
+a valid answer and will be rejected. Model the **primary story** only —
+sparse, not a mesh. `primary: false` for secondary/async paths (rendered
+dashed). `label` is optional; when used, 1–4 words. Every flow's
+`source`/`target` must be a real leaf or external-actor id you already
+declared.
 
 ## What you do not need to do
 

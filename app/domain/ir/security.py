@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import ClassVar, Literal
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 
 from app.domain.ir.corridor import CorridorIR
 
@@ -23,7 +23,9 @@ _SHELF_ID = "zone_external_saas"
 
 
 class SecurityIR(CorridorIR):
-    view: Literal["security"] = "security"
+    view: Literal["security"] = Field(
+        default="security", description="Must be exactly the lowercase string 'security' — no other casing."
+    )
     id_prefix: ClassVar[str] = "zone_"
 
     @model_validator(mode="after")

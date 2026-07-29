@@ -142,12 +142,13 @@ Ingest/edge `#FFF2CC/#D6B656`; process/app `#DAE8FC/#6C8EBF`; data `#D5E8D4/#82B
 
 ### Overview (plain language) + badges
 Title: `Data journey — {system}`
+Lens (per `core.txt`'s Lens line, use verbatim): `Data Journey & Classification — for Data/Integration Engineers and Privacy Officers`
 Everyday steps: data enters → cleaned/transformed → saved → read downstream → personal data marked when known → schedules off-path when present.
 Footer OK: `Out of scope: network layout and security controls (other tabs).`
 Red gaps = data-path only (dead-letter, backup/retention, CDC/replica, schema registry) — never WAF/IdP.
 Emit `step_markers` on major hops.
 
-**Key facts block** (per `core.txt`): data classification levels actually present (e.g. "Contains PII and payment data"), the retention approach when a backup/archive leaf exists, and a residency/sovereignty note only when the request implies one (never invent a region requirement). Skip whatever the design doesn't actually support.
+**Key facts block** (per `core.txt`): data classification levels actually present (e.g. "Contains PII and payment data"), the retention approach when a backup/archive leaf exists, a resilience note when a DLQ/retry or CDC/replica leaf is present (e.g. "async retries via DLQ; read replica for failover"), and a residency/sovereignty note only when the request implies one (never invent a region requirement). Skip whatever the design doesn't actually support.
 
 ### Self-Check (must pass before return — Data flow)
 1. When SaaS + primary store: DLQ + backup archive + read replica + schema registry present with labeled edges?

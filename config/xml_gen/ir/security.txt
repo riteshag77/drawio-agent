@@ -36,10 +36,10 @@ External IdP/enterprise SaaS (Okta, Salesforce, Workday, Guidewire, …):
 `zone_identity` as a trust peer, **never** as a private-app child.
 
 Business partners (brokers, agencies, resellers, distributors, suppliers,
-reinsurers, marketplace counterparties): plain generic partner-org leaves
-(not cloud `shape_type`) plus a dedicated **Partner API Gateway** leaf, all
-inside `zone_partner` — **never** as private-app children, **never** merged
-into `zone_external_saas`.
+reinsurers, marketplace counterparties): use `shape_type=security_partner_org`
+(a curated double-border tile — not a cloud `shape_type`) plus a dedicated
+**Partner API Gateway** leaf, all inside `zone_partner` — **never** as
+private-app children, **never** merged into `zone_external_saas`.
 
 ## Required companions
 

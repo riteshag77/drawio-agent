@@ -196,6 +196,18 @@ _BUILTIN_SHAPE_STYLES: dict[str, str] = {
         "verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;"
         "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.mobile_client;"
     ),
+    # Business-partner org leaves (Security's zone_partner) previously had no
+    # curated shape_type at all — the prompt just said "plain generic
+    # partner-org leaves" with no vocabulary to match, so each one fell
+    # through to MCP's keyword search with an arbitrary LLM-invented
+    # shape_type and either got a lucky hit or stayed an undifferentiated
+    # grey placeholder. Double-border rounded rect (thicker stroke) is a
+    # standard, no-stencil-risk convention for "external organisation" —
+    # matches security.txt's own partner/B2B section color.
+    "security_partner_org": (
+        "rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;"
+        "strokeWidth=3;fontColor=#1A1A2E;fontSize=12;arcSize=8;align=center;verticalAlign=middle;"
+    ),
 }
 
 # Curated SaaS stencils: SVG files in static/saas-icons/ embedded as data-URI image

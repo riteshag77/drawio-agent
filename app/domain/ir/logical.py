@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import ClassVar, Literal
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 
 from app.domain.ir.corridor import CorridorIR
 
@@ -22,7 +22,9 @@ _SHELF_ID = "domain_saas"
 
 
 class LogicalIR(CorridorIR):
-    view: Literal["logical"] = "logical"
+    view: Literal["logical"] = Field(
+        default="logical", description="Must be exactly the lowercase string 'logical' — no other casing."
+    )
     id_prefix: ClassVar[str] = "domain_"
 
     @model_validator(mode="after")

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import ClassVar, Literal
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 
 from app.domain.ir.corridor import CorridorIR
 
@@ -28,7 +28,9 @@ _WHOLE_ROW_SHELF_ID = "phase_control"
 
 
 class DataFlowIR(CorridorIR):
-    view: Literal["data_flow"] = "data_flow"
+    view: Literal["data_flow"] = Field(
+        default="data_flow", description="Must be exactly the lowercase string 'data_flow' — no other casing."
+    )
     id_prefix: ClassVar[str] = "phase_"
 
     @model_validator(mode="after")

@@ -1831,10 +1831,110 @@ def _overview_stub_body(view_title: str) -> str:
     )
 
 
-def ensure_minimal_overview_panel(xml: str, view_title: str) -> str:
-    """If overview_panel is missing, add a short stub titled for this view."""
-    if page_has_overview_panel(xml):
-        return ensure_diagram_document(xml, view_title)
+# Per-view Overview Panel copy the IR compiler path must match exactly what the
+# direct-XML prompt packs (config/xml_gen/views/*.txt) instruct the model to
+# produce — kept here as the single source of truth for the synthesized path
+# rather than duplicating it a third time in a prompt file the compiler never
+# reads.
+_VIEW_TITLE_PREFIX: dict[str, str] = {
+    "logical": "Logical architecture",
+    "security": "Security & trust",
+    "data flow": "Data journey",
+    "data_flow": "Data journey",
+    "network": "Network architecture",
+}
+_VIEW_LENS: dict[str, str] = {
+    "logical": "Solution Capability Map — for Engineering Leads and Product/Solution Architects",
+    "security": "Trust & Risk Boundary — for CISO, Security Architects and Auditors",
+    "data flow": "Data Journey & Classification — for Data/Integration Engineers and Privacy Officers",
+    "data_flow": "Data Journey & Classification — for Data/Integration Engineers and Privacy Officers",
+    "network": "Cloud Infrastructure & Deployment — for Platform/SRE and Network Engineers",
+}
+_VIEW_FOOTER: dict[str, str] = {
+    "logical": "Out of scope: network topology, trust controls, payloads (other tabs).",
+    "security": "Out of scope: business capabilities and data payloads (other tabs).",
+    "data flow": "Out of scope: network layout and security controls (other tabs).",
+    "data_flow": "Out of scope: network layout and security controls (other tabs).",
+    "network": "Out of scope: business capabilities, trust controls, and data payloads (other tabs).",
+}
+
+
+def _strip_annotation_tag(label: str) -> str:
+    """Drop a trailing "[Tag]" annotation and a "(SAAS)" suffix for prose use."""
+    label = re.sub(r"\s*\[[^\]]*\]\s*$", "", label or "").strip()
+    label = re.sub(r"\s*\(SAAS\)\s*$", "", label, flags=re.IGNORECASE).strip()
+    return label
+
+
+def synthesize_ir_overview_body(xml: str, view_title: str, system_title: str = "") -> str:
+    """Build a request-specific Overview Panel body from an IR-compiled page's
+    own vertex/edge graph, instead of the generic static stub.
+
+    The IR compiler (compiler/network.py, compiler/corridor.py) never emits an
+    overview_panel cell — it only produces structure, deliberately (that's the
+    whole point of the IR path). Something still has to fill this page's
+    narrative panel, and the only source of truth left at this point is the
+    graph the compiler just wrote: real leaf/actor labels and the edges
+    between them, in the same order the model declared its own primary story
+    (``emit_flows`` writes them in ``ir.flows`` order). Falls back to the
+    generic stub only if the graph is somehow unusable (e.g. no edges at all).
+    """
+    title_key = (view_title or "").strip().lower()
+    try:
+        parse_src = xml if ("<mxfile" in xml or "<mxGraphModel" in xml) else f"<root>{xml}</root>"
+        tree = ET.fromstring(parse_src)
+    except ET.ParseError:
+        return _overview_stub_body(view_title)
+
+    cells = list(tree.iter("mxCell"))
+    by_id = {c.get("id"): c for c in cells if c.get("id")}
+
+    def _label(cell_id: str | None) -> str:
+        cell = by_id.get(cell_id or "")
+        if cell is None:
+            return ""
+        return _strip_annotation_tag((cell.get("value") or "").strip())
+
+    edges = [c for c in cells if c.get("edge") == "1" and c.get("source") and c.get("target")]
+    steps: list[str] = []
+    seen_pairs: set[tuple[str, str]] = set()
+    for edge in edges:
+        if len(steps) >= 5:
+            break
+        src, tgt = _label(edge.get("source")), _label(edge.get("target"))
+        if not src or not tgt or (src, tgt) in seen_pairs:
+            continue
+        seen_pairs.add((src, tgt))
+        edge_label = re.sub(r"<[^>]+>", "", (edge.get("value") or "")).strip()
+        if edge_label:
+            steps.append(f"{src} → {tgt} ({edge_label}).")
+        else:
+            steps.append(f"{src} connects to {tgt}.")
+
+    if not steps:
+        return _overview_stub_body(view_title)
+
+    prefix = _VIEW_TITLE_PREFIX.get(title_key, view_title or "Architecture")
+    title = _esc(f"{prefix} — {system_title}" if system_title else prefix)
+    lens = _esc(_VIEW_LENS.get(title_key, ""))
+    footer = _esc(_VIEW_FOOTER.get(title_key, ""))
+
+    parts = [f"&lt;div style=&quot;font-size:22px;font-weight:bold;&quot;&gt;{title}&lt;/div&gt;"]
+    if lens:
+        parts.append(
+            "&lt;div style=&quot;font-size:13px;font-style:italic;color:#8A6D3B;&quot;&gt;"
+            f"{lens}&lt;/div&gt;"
+        )
+    for i, step in enumerate(steps, start=1):
+        parts.append(f"&lt;div style=&quot;font-size:15px;&quot;&gt;{i}. {_esc(step)}&lt;/div&gt;")
+    if footer:
+        parts.append(f"&lt;div style=&quot;font-size:13px;&quot;&gt;{footer}&lt;/div&gt;")
+    return "".join(parts)
+
+
+def _inject_overview_panel(xml: str, view_title: str, body: str) -> str:
+    """Shared plumbing for both fallback paths below: parse, find <root>, append
+    a fresh overview_panel cell with the given (already-escaped) HTML body."""
     trimmed = ensure_diagram_document(xml or "", view_title)
     try:
         tree = ET.fromstring(trimmed)
@@ -1851,7 +1951,6 @@ def ensure_minimal_overview_panel(xml: str, view_title: str) -> str:
         root = tree.find("root")
     if root is None:
         return trimmed
-    body = _overview_stub_body(view_title)
     panel = ET.fromstring(
         f'<mxCell id="overview_panel" value="{body}" '
         'style="rounded=1;arcSize=2;whiteSpace=wrap;html=1;align=left;verticalAlign=top;'
@@ -1861,6 +1960,23 @@ def ensure_minimal_overview_panel(xml: str, view_title: str) -> str:
     )
     root.append(panel)
     return ET.tostring(tree, encoding="unicode")
+
+
+def ensure_minimal_overview_panel(xml: str, view_title: str) -> str:
+    """If overview_panel is missing, add a short generic stub titled for this view."""
+    if page_has_overview_panel(xml):
+        return ensure_diagram_document(xml, view_title)
+    return _inject_overview_panel(xml, view_title, _overview_stub_body(view_title))
+
+
+def ensure_ir_overview_panel(xml: str, view_title: str, system_title: str = "") -> str:
+    """If overview_panel is missing, add a request-specific panel synthesized
+    from this IR-compiled page's own graph (see ``synthesize_ir_overview_body``)
+    rather than the generic stub — the IR compiler never emits its own panel,
+    so this is the narrative content an IR-compiled page actually ships with."""
+    if page_has_overview_panel(xml):
+        return ensure_diagram_document(xml, view_title)
+    return _inject_overview_panel(xml, view_title, synthesize_ir_overview_body(xml, view_title, system_title))
 
 
 def _extract_diagram_inner(page_xml: str) -> tuple[str, str]:

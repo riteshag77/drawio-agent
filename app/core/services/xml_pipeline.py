@@ -47,6 +47,7 @@ from app.adapters.outbound.diagram.architecture_docs import (
     build_single_view_human,
     build_single_view_system,
     build_views_prompt_block,
+    ensure_ir_overview_panel,
     ensure_minimal_overview_panel,
     load_docs_prompt_pack,
     load_gap_analysis_prompt_pack,
@@ -382,6 +383,7 @@ def _finalize_view_page_xml(
     primary_xml: str = "",
     view: str = "",
     human_prompt: str = "",
+    ir_title: str = "",
 ) -> str | None:
     xml = normalize_single_page_xml(xml, title)
     check = validate_and_fix_xml(xml)
@@ -394,10 +396,17 @@ def _finalize_view_page_xml(
         if logger:
             logger.log(
                 "views",
-                f"{title} page missing overview_panel — adding minimal stub",
+                f"{title} page missing overview_panel — adding {'IR-synthesized' if ir_title else 'minimal stub'} overview",
                 level="warning",
             )
-        xml = ensure_minimal_overview_panel(xml, title)
+        # ir_title is only ever non-empty for pages generate_xml_diagram_from_ir
+        # produced (see _generate_ir_view_page) — synthesize from this page's
+        # own graph rather than the generic stub, same as the primary-page path.
+        xml = (
+            ensure_ir_overview_panel(xml, title, ir_title)
+            if ir_title
+            else ensure_minimal_overview_panel(xml, title)
+        )
     if view and primary_xml:
         # Gap recommendations → Overview Panel (security / data_flow); then strip cards
         try:
@@ -462,6 +471,7 @@ def _generate_ir_view_page(
     return _finalize_view_page_xml(
         diagram.xml, title, diagram.step_markers, logger,
         primary_xml=primary_xml, view=view, human_prompt=human_prompt or "",
+        ir_title=diagram.ir_title,
     )
 
 
@@ -993,7 +1003,9 @@ async def run_xml_pipeline(
         # this in previously, leaving IR-compiled primary pages with none at
         # all. Injected before repair_xml so the panel gets positioned/sized
         # by the normal repair pass, same as every other page's panel.
-        xml_output = ensure_minimal_overview_panel(xml_output, primary_page_name)
+        # Synthesized from this page's own graph (real labels/edges), not the
+        # generic static stub — see synthesize_ir_overview_body's docstring.
+        xml_output = ensure_ir_overview_panel(xml_output, primary_page_name, xml_diagram.ir_title)
 
     await _emit(on_progress, "repair", "Checking for overlaps, dangling edges, missing labels…")
     pre_repair_diagnostics = diagnose_xml(xml_output)

@@ -154,6 +154,11 @@ class PickStyleTests(unittest.TestCase):
         self.assertNotIn("lambda", pick2.lower())
         self.assertIn("rounded=1", pick2.lower())
 
+    def test_builtin_resolves_security_partner_org(self) -> None:
+        style = _builtin_style("security_partner_org") or ""
+        self.assertIn("rounded=1", style)
+        self.assertIn("strokeWidth=3", style)
+
 
 
 class NormalizePlatformStylesTests(unittest.TestCase):

@@ -65,7 +65,7 @@ each, not their exact coordinates.
 
 ---
 
-## Application / capability grid (CRITICAL — like Network service grid)
+## Application / capability grid (CRITICAL)
 
 Inside every **non-SaaS** domain (experience / core / commerce / data / platform):
 
@@ -160,14 +160,15 @@ WAF/Shield/VPC/subnet/AZ/NAT/bastion, CDN/ALB/NLB/Route53 as products, DB/queue 
 Client/channel `#F5F5F5/#666666`; application `#DAE8FC/#6C8EBF`; data `#D5E8D4/#82B366`; identity `#E1D5E7/#9673A6`; platform/obs `#DAE8FC/#147EBA`; External SaaS shelf `#FFF2CC/#D6B656`. Always `arcSize=2`.
 
 ## Overview + badges
-Title: `Logical architecture — {system}`  
-Steps = persona → authenticate (if Okta) → owning domain → capability handoffs → **check cache** → state → external SaaS on cache miss.  
-Footer OK: `Out of scope: network topology, trust controls, payloads (other tabs).`  
-Emit `step_markers` on **persona / portal / domain** anchors — **never** on SaaS brand icons.  
+Title: `Logical architecture — {system}`
+Lens (per `core.txt`'s Lens line, use verbatim): `Solution Capability Map — for Engineering Leads and Product/Solution Architects`
+Steps = persona → authenticate (if Okta) → owning domain → capability handoffs → **check cache** → state → external SaaS on cache miss.
+Footer OK: `Out of scope: network topology, trust controls, payloads (other tabs).`
+Emit `step_markers` on **persona / portal / domain** anchors — **never** on SaaS brand icons.
 Never parent leaves under `overview_panel`. Never put `shape=image` / `saas_*` on `overview_panel`.
 Red **Recommended gaps** may include cache / graceful degradation when SaaS egress lacks a cache.
 
-**Key facts block** (per `core.txt`): primary tech stack when the request/inventory implies one (e.g. "Node.js/ECS"), the architecture pattern in play (microservices / event-driven / monolith), and any vendor lock-in note worth flagging (e.g. heavy reliance on one SaaS vendor's proprietary API). Skip whatever the design doesn't actually support.
+**Key facts block** (per `core.txt`): primary tech stack when the request/inventory implies one (e.g. "Node.js/ECS"), the architecture pattern in play (microservices / event-driven / monolith), any vendor lock-in note worth flagging (e.g. heavy reliance on one SaaS vendor's proprietary API), and a scalability/decoupling note when the design implies one (e.g. "capabilities scale independently behind their own APIs" vs "monolith — capabilities share a deployment unit"). Skip whatever the design doesn't actually support.
 
 ## Leaf annotations (optional, sparing)
 

@@ -183,6 +183,15 @@ def resolve_misplaced_connectivity_hubs(xml: str) -> str:
     if parsed is None:
         return xml
     tree, root, is_mxfile, trimmed = parsed
+
+    # The Network compiler places every cell itself and marks the default
+    # layer layout="ir" when it did — this heuristic exists to fix LLM-guessed
+    # nesting, not to second-guess a compiler that already nested hubs
+    # correctly.
+    default_layer = next((c for c in root.findall("mxCell") if c.get("id") == "1"), None)
+    if default_layer is not None and default_layer.get("layout") == "ir":
+        return xml
+
     cells = [c for c in root.findall("mxCell") if c.get("id")]
     by_id = {c.get("id"): c for c in cells if c.get("id")}
 
@@ -256,6 +265,13 @@ def resolve_misplaced_edge_services(xml: str) -> str:
     if parsed is None:
         return xml
     tree, root, is_mxfile, trimmed = parsed
+
+    # Same reasoning as resolve_misplaced_connectivity_hubs: skip pages the
+    # Network compiler already placed itself (layout="ir").
+    default_layer = next((c for c in root.findall("mxCell") if c.get("id") == "1"), None)
+    if default_layer is not None and default_layer.get("layout") == "ir":
+        return xml
+
     cells = [c for c in root.findall("mxCell") if c.get("id")]
     by_id = {c.get("id"): c for c in cells if c.get("id")}
 
@@ -352,6 +368,13 @@ def resolve_misplaced_load_balancers(xml: str) -> str:
     if parsed is None:
         return xml
     tree, root, is_mxfile, trimmed = parsed
+
+    # Same reasoning as resolve_misplaced_connectivity_hubs: skip pages the
+    # Network compiler already placed itself (layout="ir").
+    default_layer = next((c for c in root.findall("mxCell") if c.get("id") == "1"), None)
+    if default_layer is not None and default_layer.get("layout") == "ir":
+        return xml
+
     cells = [c for c in root.findall("mxCell") if c.get("id")]
     by_id = {c.get("id"): c for c in cells if c.get("id")}
 
@@ -2169,6 +2192,14 @@ def resolve_misplaced_security_controls(xml: str) -> str:
     if _diagram_page_name(tree).lower() != "security":
         return xml
 
+    # Security's IR/layered compiler already places every leaf in its
+    # validated zone and marks the default layer layout="ir" — this
+    # keyword-matching heuristic exists to fix LLM-guessed zoning, not to
+    # override a compiler that already got it right (and validated).
+    default_layer = next((c for c in root.findall("mxCell") if c.get("id") == "1"), None)
+    if default_layer is not None and default_layer.get("layout") == "ir":
+        return xml
+
     cells = [c for c in root.findall("mxCell") if c.get("id")]
     by_id = {c.get("id"): c for c in cells if c.get("id")}
 
@@ -2262,15 +2293,14 @@ def enforce_view_journey_columns(xml: str) -> str:
     if page_name not in {"logical", "security", "data flow", "data_flow"}:
         return xml
 
-    # Security/Data-flow's IR compiler is geometrically authoritative
+    # Logical/Security/Data-flow's IR compiler is geometrically authoritative
     # (compiler/corridor.py's layered path, layout_corridor_ir) — it marks
     # the page's default layer `layout="ir"` when it produced the geometry
     # itself, and this whole function exists to fix LLM-guessed placement
     # that page never had. Re-running it would at best waste work re-deriving
     # a graph the compiler already had as typed objects, and at worst
     # silently rewrite already-correct geometry to a different (not
-    # necessarily better) one. Logical isn't marked yet — its journey-spine
-    # handling isn't part of the new path — so it still runs this normally.
+    # necessarily better) one.
     default_layer = next((c for c in root.findall("mxCell") if c.get("id") == "1"), None)
     if default_layer is not None and default_layer.get("layout") == "ir":
         return xml
@@ -3133,6 +3163,15 @@ def resolve_misplaced_saas_leaves(xml: str) -> str:
     if parsed is None:
         return xml
     tree, root, is_mxfile, trimmed = parsed
+
+    # Every IR compiler already places SaaS leaves correctly (Network's
+    # ingress/egress split, the corridor views' domain_saas/zone_external_saas/
+    # phase_saas_* shelves) and marks the default layer layout="ir" when it
+    # did — this heuristic exists to fix LLM-guessed SaaS placement.
+    default_layer = next((c for c in root.findall("mxCell") if c.get("id") == "1"), None)
+    if default_layer is not None and default_layer.get("layout") == "ir":
+        return xml
+
     cells = [c for c in root.findall("mxCell") if c.get("id")]
     by_id = {c.get("id"): c for c in cells if c.get("id")}
 

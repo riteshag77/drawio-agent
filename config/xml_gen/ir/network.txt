@@ -73,7 +73,10 @@ services — omit it instead.
 
 ## flows
 
-Model the **primary request path** and mark it `primary: true`:
+**`flows` is REQUIRED whenever any external actor exists — never leave it
+empty.** A diagram with actors but no edges connecting them into the network
+is not a valid answer and will be rejected. Model the **primary request
+path** and mark it `primary: true`:
 
 ```
 users -> [saas_ingress] -> edge/CDN -> gateway -> app-tier service -> data-tier service

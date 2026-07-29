@@ -560,6 +560,7 @@ def generate_xml_diagram_from_ir(
         assistant_message=f"Generated {ir.title or _IR_PAGE_NAMES[view_key]} diagram.",
         suggestions=[],
         step_markers=[],
+        ir_title=ir.title or "",
     )
 
 

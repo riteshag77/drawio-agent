@@ -108,9 +108,18 @@ Place **four** separate groups side by side below the Zones, inside the VPC (`pa
 - A leaf's label may carry a short bracket tag when materially informative for THIS view's lens: `"Label [Tag]"` (e.g. `"Primary DB [Multi-AZ]"`, `"App Server [Auto-scaling]"`). Covers: hosting/environment facts — Multi-AZ, environment tier (Prod/Staging), notable scaling behavior.
 - Most leaves need none — only tag where it changes what a reader understands about that specific service. Never a full sentence; 1–3 words inside the brackets.
 
+## Overview Panel — Title, Lens & badges (Network)
+
+Title: `Network architecture — {system}`
+Lens (per `core.txt`'s Lens line, use verbatim): `Cloud Infrastructure & Deployment — for Platform/SRE and Network Engineers`
+Everyday steps: how a request enters (edge/CDN) → passes the load balancer → reaches the app tier → talks to the data tier → what's provisioned for resilience (Multi-AZ, auto-scaling) alongside it.
+Footer OK: `Out of scope: business capabilities, trust controls, and data payloads (other tabs).`
+Red **Recommended gaps** for missing deployment-hygiene items only (no NAT/bastion on a public-facing tier, missing Multi-AZ, no auto-scaling, no connectivity hub for a multi-VPC estate) — never as-built boxes.
+Emit `step_markers` on Cloud/Region/VPC/Zone/Subnet/gateway anchors — never on individual leaf icons unless a step is about one specific service.
+
 ## Overview Panel — Key facts (Network lens)
 
-Per `core.txt`'s Key facts block: cover, when the request/design implies them — hosting model (single-cloud/hybrid/multi-cloud), primary region(s)/AZ count, environment (prod/staging/dev), and the overall scaling approach (auto-scaling, multi-AZ). Skip any clause the design doesn't actually support.
+Per `core.txt`'s Key facts block: cover, when the request/design implies them — hosting model (single-cloud/hybrid/multi-cloud), primary region(s)/AZ count, environment (prod/staging/dev), the overall scaling approach (auto-scaling, multi-AZ), and an availability/resilience posture in one clause (e.g. "Multi-AZ for high availability", "single-AZ — no automatic failover" when that's what the design actually shows). Skip any clause the design doesn't actually support.
 
 ## Network edge cases (brief)
 

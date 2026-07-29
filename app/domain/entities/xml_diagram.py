@@ -101,6 +101,10 @@ class XmlDiagram(BaseModel):
             "you never compute coordinates yourself, just reference the id."
         ),
     )
+    ir_title: str = Field(
+        default="",
+        description="Internal use only — always leave empty. Populated by the IR compiler path in Python, never by you.",
+    )
 
     @field_validator("suggestions", mode="before")
     @classmethod

@@ -108,7 +108,7 @@ These are trust controls for third-party integrations — **not** density paddin
 ### ALLOWED nodes
 IdP/IAM, WAF/API GW/public ALB/Shield, KMS/secrets/ACM when present, bastion/private access, high-level private app, sensitive boundary, detect tools. Keep cloud `shape_type`.
 External IdP / BFSI SaaS (Okta, Salesforce, Workday, Guidewire, …): use `shape_type=saas_<vendor>` when those products appear — curated glyphs. Place as external / identity-adjacent trust peers (`zone_external_saas`, `zone_public`, or `zone_identity`) — **never** as private-app children.
-Business partners (brokers, agencies, resellers, distributors, suppliers, reinsurers, marketplace counterparties): plain generic partner-org leaves (not cloud `shape_type`) plus a **Partner API Gateway** leaf, all inside `zone_partner` — **never** as private-app children and **never** merged into `zone_external_saas`.
+Business partners (brokers, agencies, resellers, distributors, suppliers, reinsurers, marketplace counterparties): use `shape_type=security_partner_org` for each partner-org leaf (a curated double-border tile — not a cloud `shape_type`) plus a **Partner API Gateway** leaf, all inside `zone_partner` — **never** as private-app children and **never** merged into `zone_external_saas`.
 
 ### ALLOWED edges
 `AuthN`, `AuthZ`, `TLS`, `mTLS`, `inspect`, `perimeter cross`, `private path`, `issues token`, `Fetches Credentials (TLS)`, `Logs & Telemetry` (dashed), `Partner API (mTLS)`, `B2B Federation`, `Scoped Partner API`.
@@ -132,12 +132,13 @@ Edge/perimeter `#FFF2CC/#D6B656`; app `#DAE8FC/#6C8EBF`; trust/sensitive `#F8CEC
 
 ### Overview (plain language) + badges
 Title: `Security & trust — {system}`
+Lens (per `core.txt`'s Lens line, use verbatim): `Trust & Risk Boundary — for CISO, Security Architects and Auditors`
 Everyday steps: outside users → edge filter → who you are → business partners → private apps → locked data → monitoring → external SaaS trust boundary.
 Footer OK: `Out of scope: business capabilities and data payloads (other tabs).`
 Red **Recommended gaps** only for missing controls (edge filter, login, keys vault, monitoring, partner gateway) — never as-built boxes.
 Emit `step_markers` on zone/control anchors.
 
-**Key facts block** (per `core.txt`): the AuthN/AuthZ model in one clause (e.g. "OIDC via Okta"), encryption approach at rest and in transit when implied (e.g. "TLS in transit, KMS at rest"), key management if a KMS/secrets leaf is present, and a compliance/regulatory posture reference only when the request names one (never invent a framework). Skip whatever the design doesn't actually support.
+**Key facts block** (per `core.txt`): the AuthN/AuthZ model in one clause (e.g. "OIDC via Okta"), encryption approach at rest and in transit when implied (e.g. "TLS in transit, KMS at rest"), key management if a KMS/secrets leaf is present, a detection/response posture in one clause when a detect-zone leaf is present (e.g. "GuardDuty + centralized logging for threat detection"), and a compliance/regulatory posture reference only when the request names one (never invent a framework). Skip whatever the design doesn't actually support.
 
 ### Leaf annotations (optional, sparing)
 A leaf's label may carry a short bracket tag when materially informative: `"Label [Tag]"` (e.g. `"Customer DB [KMS]"`, `"Login [MFA]"`). Covers encryption/control facts only where the design implies them. Most leaves need none — edges already carry `AuthN`/`TLS`/`mTLS` per the vocabulary above, so don't duplicate that onto leaves.
