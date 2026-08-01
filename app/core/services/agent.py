@@ -264,9 +264,15 @@ def generate_xml_diagram(
 
 
 #: How many corrective passes to spend on an IR that parsed but broke a semantic
-#: rule. One is usually enough: unlike "your XML was malformed", the feedback
-#: names the exact offending flow/field, so the model has something actionable.
-IR_MAX_CORRECTIVE_PASSES = 1
+#: rule. A single-flow-reference error is usually fixed in one pass: the
+#: feedback names the exact offending flow/field, so the model has something
+#: actionable. "flows is empty" is a whole-view omission rather than a single
+#: bad reference, though, and a live capture showed the model still returning
+#: no flows after one correction attempt — the whole view then fell back to
+#: the direct-XML path (visibly worse: no compiler-owned geometry) purely
+#: because it only got one chance to add them back. Two passes costs one
+#: extra LLM call only on the views that already broke a rule once.
+IR_MAX_CORRECTIVE_PASSES = 2
 
 #: view -> (page name, IR type, compiler) — the single dispatch table every
 #: view-agnostic IR call site reads from. Adding a future view means adding one
@@ -379,13 +385,24 @@ def _generate_ir_with_corrections(
     residual = ir.semantic_errors()
     if residual:
         _drop_invalid_flows(ir, residual, logger, view_label)
+        residual = ir.semantic_errors()
 
     if logger:
-        logger.log("ir", f"{view_label} IR generated", level="success", details={
-            "leaves": len(ir.leaf_ids()),
-            "flows": len(ir.flows),
-            "actors": len(ir.external_actors),
-        })
+        if residual:
+            # Not fixed by correction or drop (e.g. "flows is empty" — there is
+            # nothing to drop). The compiler will reject this IR and the caller
+            # falls back to direct XML; logging success here would hide why.
+            logger.log(
+                "ir", f"{view_label} IR still breaks {len(residual)} rule(s) after correction — "
+                "compiler will reject it and this view will fall back to direct XML",
+                level="warning", details={"errors": residual},
+            )
+        else:
+            logger.log("ir", f"{view_label} IR generated", level="success", details={
+                "leaves": len(ir.leaf_ids()),
+                "flows": len(ir.flows),
+                "actors": len(ir.external_actors),
+            })
     return ir
 
 

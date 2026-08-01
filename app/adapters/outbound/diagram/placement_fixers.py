@@ -541,6 +541,60 @@ def _path_blocked_count(
     )
 
 
+def _clear_lanes(
+    run_lo: float,
+    run_hi: float,
+    ref: float,
+    obstacles: list[tuple[float, float, float, float]],
+    clearance: float,
+    axis: str,
+) -> list[float]:
+    """Coordinates of clear lanes crossing the run, nearest ``ref`` first.
+
+    ``axis="h"`` means the connector travels horizontally across x in
+    ``[run_lo, run_hi]`` and this picks a y to travel at; ``"v"`` is the
+    transpose.
+
+    Preferred over the extreme-edge bands below it. Those take the outermost
+    edge of every box sharing the run's span, which on a deeply nested page like
+    Network is a whole container — so the lane landed outside the drawing
+    entirely (or off-canvas at a negative coordinate) and the connector looped
+    around the diagram to reach a neighbour two rows down. The real target is
+    the gap the layout already reserves between tiers and rows, which is what
+    scanning for gaps between occupied intervals finds.
+    """
+    if axis == "h":
+        pos, size, cross_pos, cross_size = 0, 2, 1, 3
+    else:
+        pos, size, cross_pos, cross_size = 1, 3, 0, 2
+
+    spanning = [
+        r for r in obstacles
+        if r[pos] < run_hi + 40.0 and run_lo - 40.0 < r[pos] + r[size]
+    ]
+    if not spanning:
+        return []
+
+    merged: list[list[float]] = []
+    for lo, hi in sorted((r[cross_pos], r[cross_pos] + r[cross_size]) for r in spanning):
+        if merged and lo <= merged[-1][1] + clearance:
+            merged[-1][1] = max(merged[-1][1], hi)
+        else:
+            merged.append([lo, hi])
+
+    lanes = [
+        (before[1] + after[0]) / 2.0
+        for before, after in zip(merged, merged[1:])
+        if after[0] - before[1] >= clearance * 2
+    ]
+    lanes.append(merged[0][0] - clearance - _LOGICAL_ROUTE_BAND / 2.0)
+    lanes.append(merged[-1][1] + clearance + _LOGICAL_ROUTE_BAND / 2.0)
+    # Negative coordinates route off the top/left of the page: draw.io renders
+    # them but export bounds and the diagnostics engine both treat them as a
+    # defect, so they are never an acceptable lane.
+    return sorted((v for v in lanes if v >= 0.0), key=lambda v: abs(v - ref))
+
+
 def _route_candidates(
     start: tuple[float, float],
     end: tuple[float, float],
@@ -585,6 +639,14 @@ def _route_candidates(
         for shift in (0.0, 40.0, -40.0, 80.0, -80.0):
             mx = mid + shift
             out.append([start, (mx, sy), (mx, ey), end])
+        # Reserved-gap lanes, nearest the target first: descend at the source's
+        # x, cross in a clear horizontal gap, arrive at the target's face.
+        for lane_y in _clear_lanes(
+            min(sx, ex), max(sx, ex), ey, obstacles, _LOGICAL_ROUTE_CLEARANCE, "h"
+        )[:4]:
+            # band_shift keeps two connectors that pick the same reserved gap
+            # from being drawn on top of each other.
+            out.append([start, (sx, lane_y + band_shift), (ex, lane_y + band_shift), end])
         # Y-proximity window on top of the existing X-range filter: without
         # it, any container that merely shares the edge's X-span — however
         # far away vertically (a whole other zone/row) — drags top/bottom to
@@ -621,6 +683,11 @@ def _route_candidates(
         for shift in (0.0, 40.0, -40.0, 80.0, -80.0):
             my = mid + shift
             out.append([start, (sx, my), (ex, my), end])
+        # Reserved-gap lanes — mirrors the "h" branch above.
+        for lane_x in _clear_lanes(
+            min(sy, ey), max(sy, ey), ex, obstacles, _LOGICAL_ROUTE_CLEARANCE, "v"
+        )[:4]:
+            out.append([start, (lane_x + band_shift, sy), (lane_x + band_shift, ey), end])
         # X-proximity window — mirrors the "h" branch's fix above.
         x_window = 320.0
         span = [

@@ -42,11 +42,19 @@ PAD = 24.0
 TITLE_PAD = 48.0
 
 # ── Network-view specific gaps ─────────────────────────────────────────
-#: Vertical clear space between subnet tiers (network.txt: 100-140px).
-SUBNET_TIER_GAP = 120.0
+#: Vertical clear space between one subnet tier's *box* and the next tier's box.
+#: network.txt's "100-140px between subnet tiers" is a tier-to-tier figure that
+#: already includes each box's own padding, and applying it box-to-box on top of
+#: that padding stacked ~192px of dead canvas between every pair of tiers
+#: (24px bottom pad + gap + 48px title band). 56px box-to-box lands the
+#: icon-to-icon distance back inside the intended range while leaving a clear
+#: corridor for app->data edges and their labels.
+SUBNET_TIER_GAP = 56.0
 #: Clear space between the lowest zone's bottom and the cross-cutting shelves
 #: (network.txt: minimum 70-80px).
 GROUP_GAP_BELOW_ZONES = 80.0
+#: Clear space between the VPC gateway's row and the zones row below it.
+GATEWAY_GAP_BELOW = 60.0
 #: Horizontal gap between the four cross-cutting shelves (network.txt: 20-30px).
 GROUP_GAP_X = 24.0
 #: Horizontal gap between peer availability zones (network.txt: 20-30px).

@@ -24,6 +24,38 @@ external_actors[]            users | saas_ingress | saas_egress | on_prem
 flows[]                      source -> target request path
 ```
 
+## How the compiler renders this (so your choices land well)
+
+You never write coordinates, but the layout is fixed and predictable, and two of
+your choices — **list order** and **what you put in each zone** — decide whether
+the result reads cleanly. The page is built top to bottom in flow order:
+
+```
+external actors (left)   edge_layer                 external actors (right)
+                         ↓
+                         region → vpc → gateway  (centred above the zones)
+                                        ↓
+                                        zone 1        zone 2      (side by side)
+                                          public        public    ← tiers align
+                                          app           app         across zones
+                                          data          data
+                                        cross-cutting shelves (below every zone)
+                         connectivity hubs shelf
+```
+
+- **Order leaves the way the request flows.** Inside a subnet, edge layer or
+  shelf, leaves are gridded left→right in the order you list them, 4 per row.
+  Put the leaf a flow *arrives at* first and the one it continues to next to it.
+  Listing them in an unrelated order is what makes connectors cross each other,
+  and it is the only part of routing you control.
+- **Peer zones are rendered at the same size, with matching tiers on the same
+  row.** Two zones therefore read as mirrors — which is right when they *are*
+  mirrors. Give a second zone the tiers and services it genuinely has; a zone
+  holding one lone service still gets a full-size box beside its peer.
+- The widest subnet in any zone sets the width of every subnet in every zone, so
+  a single 4-icon row widens the whole block. Split genuinely unrelated services
+  into the tier they belong to rather than piling them into one subnet.
+
 ## Placement rules
 
 **Subnet tiers**
@@ -33,7 +65,11 @@ flows[]                      source -> target request path
   that hold state.
 
 **gateway** — the single load balancer or API gateway fronting the app tier. It
-belongs on the VPC, never inside a subnet. Omit if the architecture has none.
+belongs on the VPC, never inside a subnet, and renders centred in its own row
+above every zone so it can fan out to all of them. Omit if the architecture has
+none. Route the inbound path *through* it (`edge → gateway → app`) rather than
+from the edge straight into an app service — an unused gateway is the most
+common reason a diagram's flow looks disconnected.
 
 **groups** — cross-cutting inventory shelves. Put a service here when it supports
 the architecture but is not on the request path:
@@ -48,10 +84,15 @@ the architecture but is not on the request path:
 touching a group or its members is rejected by validation.
 
 **edge_layer** — global/edge services that sit in front of the region: CDN, DNS,
-WAF, static object hosting.
+WAF, static object hosting. Rendered as a row across the **top** of the cloud,
+because it is where the request path enters. List its leaves in the order
+traffic actually reaches them (DNS → CDN → WAF), so the inbound connectors run
+straight instead of doubling back across the row.
 
 **connectivity_hubs** — only for hubs that span multiple VPCs, accounts, or
-regions. A hub serving one VPC is not a hub; put it in a subnet.
+regions. A hub serving one VPC is not a hub; put it in a subnet. These render in
+their own "Connectivity / Hybrid" shelf below the regions, connected to what
+they join by flows — never nested inside a VPC.
 
 **external_actors** — anything outside the cloud boundary:
 - `users` — the people or client apps using the system.

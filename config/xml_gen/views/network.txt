@@ -125,7 +125,7 @@ Per `core.txt`'s Key facts block: cover, when the request/design implies them �
 
 - 5–8 services in one App subnet → wrap to 2 rows; grow subnet/Zone height; keep pitch
 - 2–3 AZs mirrored → each mirrored Zone must contain ≥1 leaf in each mirrored subnet; do **not** emit empty Zone/subnet shells; peer AZs that have leaves share top/height; do **not** mirror Security/Monitoring/Integration/Management/Edge
-- LB / API Gateway → sibling of Zones inside VPC (not inside a subnet)
+- LB / API Gateway → sibling of Zones inside VPC (not inside a subnet); place it in its own row **above** the Zones, not beside/right of them — it fronts every Zone below it, and beside-placement forces every edge to cross the full width of whichever Zone holds the target service
 - Public subnet with only NAT/Bastion → still use title band + padding; **never** invent empty stretch to fake AZ column alignment
 - Empty tier → omit the empty subnet rather than a huge empty box; empty AZ → omit the AZ entirely
 - Multi-cloud → each provider keeps its own tree; cross-cloud = edge only, never nesting

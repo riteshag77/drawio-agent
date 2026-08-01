@@ -145,11 +145,24 @@ def leaf_style() -> str:
     )
 
 
-def actor_style() -> str:
+def actor_style(kind: str = "users") -> str:
+    """External-actor style, by ``ActorKind``.
+
+    Only ``users`` is an actual person — the AWS person stencil is reserved
+    for that case. ``saas_ingress``/``saas_egress``/``on_prem`` (identity
+    providers, third-party SaaS, on-prem systems) are non-human systems and
+    get a distinct generic-system shape instead, so an Identity Provider
+    doesn't render as a literal person icon.
+    """
+    if kind == "users":
+        return (
+            "shape=mxgraph.aws4.user;sketch=0;outlineConnect=0;fontColor=#232F3E;"
+            "strokeColor=none;fillColor=#232F3E;html=1;verticalLabelPosition=bottom;"
+            "verticalAlign=top;align=center;fontSize=11;"
+        )
     return (
-        "shape=mxgraph.aws4.user;sketch=0;outlineConnect=0;fontColor=#232F3E;"
-        "strokeColor=none;fillColor=#232F3E;html=1;verticalLabelPosition=bottom;"
-        "verticalAlign=top;align=center;fontSize=11;"
+        "ellipse;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;"
+        "verticalLabelPosition=bottom;verticalAlign=top;align=center;fontSize=11;fontColor=#333333;"
     )
 
 

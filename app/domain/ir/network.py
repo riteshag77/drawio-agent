@@ -86,7 +86,7 @@ class Vpc(Identified):
     zones: list[AvailabilityZone] = Field(min_length=1)
     gateway: Leaf | None = Field(
         default=None,
-        description="Load balancer / API gateway. Sits beside the zones inside the VPC, never inside a subnet.",
+        description="Load balancer / API gateway. Renders centred in its own row above the zones it fronts, never inside a subnet.",
     )
     groups: list[CrossCuttingGroup] = Field(
         default_factory=list,

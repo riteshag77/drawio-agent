@@ -40,6 +40,18 @@ def leaf_label(leaf: Leaf) -> str:
     return f"{leaf.label} [{leaf.annotation}]" if leaf.annotation else leaf.label
 
 
+def grid_box(count: int, *, is_group: bool) -> Box:
+    """Outer size a container needs to hold a ``count``-icon grid.
+
+    Split out of ``emit_leaf_grid`` so a caller can *measure* a grid without
+    emitting it. Network's zone layout needs that: to align subnet tiers across
+    peer availability zones it must know every subnet's required size before it
+    can decide where any of them goes (see ``network.py:_emit_vpc``).
+    """
+    content_w, content_h, _cols, _rows = geo.grid_size(count, is_group=is_group)
+    return Box(width=content_w + geo.PAD * 2, height=geo.TITLE_PAD + content_h + geo.PAD)
+
+
 def emit_leaf_grid(writer: CellWriter, leaves: list[Leaf], parent_id: str, *, is_group: bool) -> Box:
     """Grid ``leaves`` inside ``parent_id`` and return the parent's required outer size.
 
@@ -47,8 +59,13 @@ def emit_leaf_grid(writer: CellWriter, leaves: list[Leaf], parent_id: str, *, is
     layer/cross-cutting-groups and every corridor view's corridors all place
     their leaves this same way (geometry_spec's canonical grid, capped at
     4/row), so there is exactly one implementation of it.
+
+    Leaf positions depend only on the grid, never on the parent's final size, so
+    a caller that stretches its container beyond ``grid_box`` (Network's
+    tier-aligned subnets) can emit leaves through this helper and then size the
+    container itself.
     """
-    content_w, content_h, cols, _rows = geo.grid_size(len(leaves), is_group=is_group)
+    _content_w, _content_h, cols, _rows = geo.grid_size(len(leaves), is_group=is_group)
     pitch = geo.pitch_for(is_group)
     for index, leaf in enumerate(leaves):
         col, row = index % cols, index // cols
@@ -63,10 +80,7 @@ def emit_leaf_grid(writer: CellWriter, leaves: list[Leaf], parent_id: str, *, is
             parent=parent_id,
             shape_type=leaf.shape_type,
         )
-    return Box(
-        width=content_w + geo.PAD * 2,
-        height=geo.TITLE_PAD + content_h + geo.PAD,
-    )
+    return grid_box(len(leaves), is_group=is_group)
 
 
 def emit_external_actors(
@@ -93,7 +107,7 @@ def emit_external_actors(
             writer.vertex(
                 id=actor.id,
                 label=actor.label,
-                style=theme.actor_style(),
+                style=theme.actor_style(actor.kind),
                 x=x, y=y, w=geo.LEAF_W, h=geo.LEAF_H,
                 parent="1",
             )

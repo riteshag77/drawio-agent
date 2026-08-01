@@ -162,7 +162,7 @@ class _CorridorCompiler:
             )
             for i, actor in enumerate(left):
                 self.w.vertex(
-                    id=actor.id, label=actor.label, style=theme.actor_style(),
+                    id=actor.id, label=actor.label, style=theme.actor_style(actor.kind),
                     x=CONTAINER_PADDING_X, y=CONTAINER_LABEL_HEIGHT + i * (geo.LEAF_H + geo.LABEL_BAND_H),
                     w=geo.LEAF_W, h=geo.LEAF_H, parent="actors_left",
                 )
@@ -170,7 +170,7 @@ class _CorridorCompiler:
         y = top_y
         for actor in right:
             self.w.vertex(
-                id=actor.id, label=actor.label, style=theme.actor_style(),
+                id=actor.id, label=actor.label, style=theme.actor_style(actor.kind),
                 x=row_right + _ACTOR_GAP_X, y=y, w=geo.LEAF_W, h=geo.LEAF_H, parent="1",
             )
             y += geo.LEAF_H + geo.LABEL_BAND_H + geo.ACTOR_GAP_Y
