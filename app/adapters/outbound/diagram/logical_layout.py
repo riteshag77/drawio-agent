@@ -14,13 +14,15 @@ from typing import Callable
 
 import xml.etree.ElementTree as ET
 
+from app.adapters.outbound.diagram import elk_graph
 from app.adapters.outbound.diagram import geometry_spec as geo
+from app.adapters.outbound.diagram.elk_bridge import run_elk
 from app.adapters.outbound.diagram.xml_diagnostics import (
     _cell_geometry,
     _is_container_cell,
 )
 from app.domain.ir.base import Leaf
-from app.domain.ir.corridor import CorridorIR
+from app.domain.ir.corridor import Corridor, CorridorIR
 
 
 # Canonical constants for the corridor/shelf layout engine (Logical / Security /
@@ -796,16 +798,9 @@ def _place_leaves(
     return width, height
 
 
-def layout_corridor_ir(ir: CorridorIR) -> dict[str, Geo]:
-    """Compute final geometry for every corridor/shelf/leaf in `ir`. Returns
-    ``{id: Geo}`` — corridor/shelf entries are absolute (``parent="1"``),
-    leaf entries are relative to their own corridor/shelf (matching mxCell's
-    own parent-relative child-geometry convention). External actors/flows are
-    positioned separately by ``compiler/shared.py``, unrelated to this
-    ranking.
-    """
-    geos: dict[str, Geo] = {}
-
+def _corridor_row_order(ir: CorridorIR) -> list[Corridor]:
+    """Row corridors in canonical left-to-right order (``_ROW_ORDER``, edges
+    from ``ir.flows`` only breaking ties within the same canonical slot)."""
     leaf_to_corridor: dict[str, str] = {
         leaf.id: corridor.id for corridor in ir.corridors for leaf in corridor.leaves
     }
@@ -830,34 +825,20 @@ def layout_corridor_ir(ir: CorridorIR) -> dict[str, Geo]:
         ))
     else:
         row.sort(key=lambda c: _row_rank_key(ir.view, c.id, c.label))
+    return row
 
+
+def _anchor_shelves(
+    ir: CorridorIR, geos: dict[str, Geo], *, row_right: float, row_bottom: float,
+) -> None:
+    """Place every anchored shelf directly below its anchor (or the whole
+    row), stacking shelves that share an anchor via a running cursor.
+
+    A fixed spatial relationship ("this shelf sits below that corridor"), not
+    a layout search problem — kept as this explicit step rather than folded
+    into the ELK graph (see the module's ELK section docstring).
+    """
     all_flows = [(f.source, f.target) for f in ir.flows]
-    row_sizes: dict[str, tuple[float, float]] = {}
-    for corridor in row:
-        leaf_ids = {leaf.id for leaf in corridor.leaves}
-        local_edges = [(s, t) for s, t in all_flows if s in leaf_ids and t in leaf_ids]
-        row_sizes[corridor.id] = _place_leaves(corridor.leaves, local_edges, geos)
-
-    # Uniform corridor band: every ranked corridor shares one top y and
-    # height (the tallest corridor's content) — same as
-    # apply_layered_corridor_layout, so the row reads as one aligned band.
-    band_h = max((h for _w, h in row_sizes.values()), default=0.0)
-    x = _ROW_START_X
-    for corridor in row:
-        width, _height = row_sizes[corridor.id]
-        geos[corridor.id] = Geo(x=x, y=_ROW_START_Y, w=width, h=band_h)
-        x += width + INTER_CONTAINER_GAP
-    row_right = x - INTER_CONTAINER_GAP if row else _ROW_START_X
-    row_bottom = _ROW_START_Y + band_h
-
-    # Shelves: anchored under one specific row corridor (stacked via a
-    # running cursor when more than one shares an anchor — Data-flow's
-    # phase_consume + phase_saas_producer + phase_saas_consumer all under
-    # phase_store), or — anchor_id is None — under the whole row's bottom
-    # instead of one column (Data-flow's phase_control). A running per-anchor
-    # cursor (keyed by anchor_id, None included) avoids collapsing multiple
-    # shelves onto identical coordinates — the exact bug Part A fixed in the
-    # XML-based fixer chain, ported here so it can't recur in the new path.
     cursor_by_anchor: dict[str | None, float] = {}
     for shelf in ir.anchored:
         if shelf.anchor_id is not None:
@@ -875,4 +856,127 @@ def layout_corridor_ir(ir: CorridorIR) -> dict[str, Geo]:
         geos[shelf.id] = Geo(x=base_x, y=base_top, w=width, h=height)
         cursor_by_anchor[shelf.anchor_id] = base_top + height + INTER_CONTAINER_GAP
 
-    return geos
+
+# ── ELK-driven layout (node placement + edge routing in one call) ─────────
+#
+# ELK owns the row corridors' order/position/size and the routes of flows
+# between leaves in DIFFERENT row corridors — the genuine graph-layout/
+# routing problem, and the one the old rank/barycenter engine + placement_
+# fixers.py's local router kept needing hand patches for. Anchored shelves
+# stay on ``_anchor_shelves``'s explicit placement (see its docstring) since
+# "below a named corridor" is a fixed relationship, not something ELK needs
+# to solve — so flows touching a shelf leaf are not in the ELK graph at all
+# and keep falling through to placement_fixers.py's existing local router,
+# exactly as they do today (see its ``is_ir_layout`` guard: it only skips
+# edges that already carry ELK-supplied points).
+#
+# Two things confirmed empirically before writing this (see the top-level
+# migration plan): (1) ELK cannot keep given node positions fixed while only
+# routing edges — the whole connected subgraph must be laid out by one
+# recursive algorithm instance; (2) leaves with no edges between them (the
+# common case *within* one corridor) don't wrap into a neat multi-column
+# grid under the `layered` algorithm on their own, so each corridor's leaves
+# are explicitly partitioned into rows of ``LEAF_GRID_MAX_COLS`` to reproduce
+# that wrap deterministically rather than leaving it to chance.
+
+def _elk_corridor_node(corridor: Corridor, partition: int) -> dict:
+    node = elk_graph.leaf_grid_container(
+        corridor.id, corridor.leaves,
+        extra_options={
+            "elk.partitioning.partition": str(partition),
+            "elk.padding": (
+                f"[top={CONTAINER_LABEL_HEIGHT},left={CONTAINER_PADDING_X},"
+                f"bottom={CONTAINER_PADDING_Y},right={CONTAINER_PADDING_X}]"
+            ),
+        },
+    )
+    return node
+
+
+def _build_elk_corridor_graph(row: list[Corridor], row_edges: list[tuple[str, str, str]]) -> dict:
+    """``row_edges`` are ``(flow_id, source_leaf_id, target_leaf_id)`` for
+    flows whose endpoints are both leaves of a row corridor (the only edges
+    this graph needs to know about — see the module section docstring)."""
+    return {
+        "id": "root",
+        "layoutOptions": {
+            "elk.algorithm": "layered",
+            "elk.direction": "RIGHT",
+            "elk.hierarchyHandling": "INCLUDE_CHILDREN",
+            "elk.edgeRouting": "ORTHOGONAL",
+            "elk.partitioning.activate": "true",
+            "elk.spacing.nodeNode": str(INTER_CONTAINER_GAP),
+            "elk.padding": f"[top={_ROW_START_Y},left={_ROW_START_X},bottom=40,right=40]",
+        },
+        "children": [_elk_corridor_node(c, i) for i, c in enumerate(row)],
+        "edges": [
+            {"id": fid, "sources": [src], "targets": [tgt]}
+            for fid, src, tgt in row_edges
+        ],
+    }
+
+
+def _parse_elk_corridor_result(
+    result: dict, row: list[Corridor],
+) -> tuple[dict[str, Geo], dict[str, list[tuple[float, float]]]]:
+    geos: dict[str, Geo] = {}
+    for corridor in row:
+        cnode = elk_graph.require_child(result, corridor.id)
+        geos[corridor.id] = Geo(x=cnode["x"], y=cnode["y"], w=cnode["width"], h=cnode["height"])
+        for leaf in corridor.leaves:
+            lnode = elk_graph.require_child(cnode, leaf.id)
+            geos[leaf.id] = Geo(x=lnode["x"], y=lnode["y"], w=lnode["width"], h=lnode["height"])
+    return geos, elk_graph.edge_routes(result)
+
+
+def layout_corridor_ir(ir: CorridorIR) -> tuple[dict[str, Geo], dict[str, list[tuple[float, float]]]]:
+    """Compute final geometry and edge routes for every corridor/shelf/leaf
+    in ``ir``, via ELK. Returns ``({id: Geo}, {flow_id: [(x,y),...]})`` —
+    corridor/shelf entries are absolute (``parent="1"``), leaf entries are
+    relative to their own corridor/shelf (mxCell's own parent-relative
+    child-geometry convention); routes are intermediate bend points for
+    ``compiler/shared.emit_flows``, only present for flows ELK actually
+    routed (row-to-row; see the ELK section docstring above). External
+    actors are positioned separately by ``compiler/shared.py``.
+    """
+    row = _corridor_row_order(ir)
+    if not row:
+        geos: dict[str, Geo] = {}
+        _anchor_shelves(ir, geos, row_right=_ROW_START_X, row_bottom=_ROW_START_Y)
+        return geos, {}
+
+    leaf_to_corridor: dict[str, str] = {
+        leaf.id: corridor.id for corridor in row for leaf in corridor.leaves
+    }
+    row_ids = {c.id for c in row}
+
+    row_edges: list[tuple[str, str, str]] = []
+    for index, flow in enumerate(ir.flows):
+        cs = leaf_to_corridor.get(flow.source)
+        ct = leaf_to_corridor.get(flow.target)
+        # Only cross-corridor flows are this graph's concern — a same-corridor
+        # edge (e.g. two leaves in the same domain) would otherwise become a
+        # real dependency edge inside that corridor's own internal layout,
+        # skewing its leaf spacing away from the intended partitioned grid. A
+        # leaf may still have OTHER edges that fall outside this graph (into a
+        # shelf, an actor, or a same-corridor sibling) — that's fine; the two
+        # routers meeting at one leaf is handled at the point they actually
+        # interact (placement_fixers.fix_edge_anchors_from_geometry excludes
+        # ELK-routed edges from its own shared-face offset bucketing, so a
+        # leftover legacy-routed edge never has its offset computed against a
+        # slot the ELK edge doesn't actually occupy). An earlier, more
+        # conservative version excluded a leaf's entire edge set from ELK
+        # whenever any one of them touched a shelf — correct for a small
+        # fixture, but on a real hub leaf (many flows, one of them to a
+        # shelf) that meant almost nothing got ELK-routed at all.
+        if cs in row_ids and ct in row_ids and cs != ct:
+            row_edges.append((f"flow_{index}", flow.source, flow.target))
+
+    graph = _build_elk_corridor_graph(row, row_edges)
+    result = run_elk(graph)
+    geos, routes = _parse_elk_corridor_result(result, row)
+
+    row_right = max(g.x + g.w for cid, g in geos.items() if cid in row_ids)
+    row_bottom = max(g.y + g.h for cid, g in geos.items() if cid in row_ids)
+    _anchor_shelves(ir, geos, row_right=row_right, row_bottom=row_bottom)
+    return geos, routes

@@ -99,7 +99,7 @@ class _CorridorCompiler:
         repair pass needs to (or does) touch this page's corridor/shelf/leaf
         geometry; see ``xml_diagnostics.repair_xml``'s ``layout="ir"`` skip.
         """
-        geos = layout_corridor_ir(self.ir)
+        geos, routes = layout_corridor_ir(self.ir)
         all_corridors = [*self.ir.corridors, *self.ir.anchored]
         for corridor in all_corridors:
             cg = geos[corridor.id]
@@ -131,7 +131,7 @@ class _CorridorCompiler:
         content_bottom = max((g.y + g.h for cid, g in geos.items() if cid in {c.id for c in all_corridors}), default=_ROW_TOP_Y)
 
         self._emit_actors(row_left=row_left, row_right=row_right, top_y=_ROW_TOP_Y)
-        emit_flows(self.w, self.ir.flows)
+        emit_flows(self.w, self.ir.flows, routes=routes)
 
         page_w = row_right + 400
         page_h = content_bottom + 200

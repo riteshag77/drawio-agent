@@ -245,6 +245,11 @@ class EnvConfigAdapter:
         ]
 
     @property
+    def elk_layout_timeout_seconds(self) -> float:
+        """Max seconds to wait for the ``node tools/elk_layout/layout.js`` subprocess."""
+        return self.get_float("ELK_LAYOUT_TIMEOUT_SECONDS", 8.0)
+
+    @property
     def history_enabled(self) -> bool:
         """When true, persist each successful generation for later recall/versioning."""
         return self.get_bool("DIAGRAM_HISTORY_ENABLED", True)

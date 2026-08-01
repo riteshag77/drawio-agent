@@ -61,7 +61,11 @@ GROUP_GAP_X = 24.0
 ZONE_GAP_X = 24.0
 #: Horizontal gap between peer VPCs inside a region.
 VPC_GAP_X = 32.0
-#: Gap between the region block and the edge/global layer below it.
+#: Horizontal gap between peer regions (regions sit side by side, same as
+#: peer zones/VPCs — not stacked).
+REGION_GAP_X = 32.0
+#: Gap between the edge/global layer, the regions row, and the connectivity
+#: hub shelf — the three vertically-stacked bands inside Cloud.
 EDGE_LAYER_GAP_Y = 32.0
 
 # ── Root-layer placement ───────────────────────────────────────────────

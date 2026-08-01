@@ -47,20 +47,20 @@ def _parallel_overlap_warnings(warnings: list[str]) -> list[str]:
 
 class DiagnoseXmlEdgeBoxOverlapTests(unittest.TestCase):
     def test_flags_edge_crossing_an_unrelated_sibling(self) -> None:
-        """Reuses test_network_compiler.py's realistic_ir() fixture — its
-        alb-to-ecs1 edge crosses the sibling 'lambda1' on raw, unrouted
-        compiler output (confirmed empirically), the exact real shape that
-        exposed why the naive straight-line model was unsafe to gate on."""
+        """Reuses test_network_compiler.py's realistic_ir() fixture — on raw,
+        unrouted compiler output, at least one edge's straight source-to-
+        target line crosses a sibling box it doesn't connect to (confirmed
+        empirically), the exact real shape that exposed why the naive
+        straight-line model was unsafe to gate on. Which specific sibling
+        gets crossed is a function of the compiler's own geometry (ELK's,
+        currently) — not asserted here — only that raw output has a real,
+        named box-overlap warning at all."""
         network_compiler_tests = importlib.import_module("tests.test_network_compiler")
         xml = compile_network_ir(network_compiler_tests.realistic_ir())
         diag = diagnose_xml(xml)
         self.assertEqual(diag.errors, [])
         box_warnings = _box_overlap_warnings(diag.warnings)
         self.assertTrue(box_warnings, f"expected a box-overlap warning; got {diag.warnings}")
-        self.assertTrue(
-            any("lambda1" in w for w in box_warnings),
-            f"expected the blocked sibling 'lambda1' to be named; got {box_warnings}",
-        )
 
     def test_no_false_positive_on_clean_aligned_edge(self) -> None:
         """A straight, unobstructed edge between two aligned nodes must never

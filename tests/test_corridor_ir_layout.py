@@ -191,7 +191,7 @@ class SecurityEquivalenceTests(unittest.TestCase):
     def test_matches_pipeline_except_the_known_anchor_bug(self) -> None:
         ir = realistic_security_ir()
         pipeline_geo = _pipeline_geometry(ir, "Security")
-        new_geo = layout_corridor_ir(ir)
+        new_geo, _routes = layout_corridor_ir(ir)
 
         known_diverging = {"zone_external_saas"}
         for cid, g in new_geo.items():
@@ -210,7 +210,7 @@ class SecurityEquivalenceTests(unittest.TestCase):
         re-anchoring every shelf under the rightmost ranked corridor
         (zone_detect here) regardless of its actual anchor_id."""
         ir = realistic_security_ir()
-        new_geo = layout_corridor_ir(ir)
+        new_geo, _routes = layout_corridor_ir(ir)
         self.assertEqual(new_geo["zone_external_saas"].x, new_geo["zone_restricted"].x)
 
 
@@ -218,7 +218,7 @@ class DataFlowEquivalenceTests(unittest.TestCase):
     def test_matches_pipeline_for_the_three_store_shelves(self) -> None:
         ir = realistic_data_flow_ir(with_control=False)
         pipeline_geo = _pipeline_geometry(ir, "Data flow")
-        new_geo = layout_corridor_ir(ir)
+        new_geo, _routes = layout_corridor_ir(ir)
         for cid, g in new_geo.items():
             old = pipeline_geo[cid]
             self.assertAlmostEqual(g.x, old[0], delta=1.0, msg=f"{cid} x")
@@ -233,7 +233,7 @@ class DataFlowEquivalenceTests(unittest.TestCase):
         neither _is_data_flow_shelf nor apply_layered_corridor_layout's
         shelf_filter recognizes it as a shelf at all."""
         ir = realistic_data_flow_ir(with_control=True)
-        new_geo = layout_corridor_ir(ir)
+        new_geo, _routes = layout_corridor_ir(ir)
         row_bottom = max(
             new_geo[cid].y + new_geo[cid].h
             for cid in ("phase_ingest", "phase_process", "phase_store")
@@ -248,7 +248,7 @@ class DataFlowEquivalenceTests(unittest.TestCase):
         exact bug Part A fixed in the XML-based fixer chain; the new path
         must not be able to regress it."""
         ir = realistic_data_flow_ir(with_control=False)
-        new_geo = layout_corridor_ir(ir)
+        new_geo, _routes = layout_corridor_ir(ir)
         shelves = [new_geo[cid] for cid in ("phase_consume", "phase_saas_producer", "phase_saas_consumer")]
         ys = sorted(g.y for g in shelves)
         for a, b in zip(ys, ys[1:]):
@@ -270,7 +270,7 @@ class LogicalLayoutTests(unittest.TestCase):
 
     def test_saas_shelf_anchors_under_domain_data(self) -> None:
         ir = realistic_logical_ir()
-        new_geo = layout_corridor_ir(ir)
+        new_geo, _routes = layout_corridor_ir(ir)
         self.assertEqual(new_geo["domain_saas"].x, new_geo["domain_data"].x)
 
     def test_journey_spine_actor_band_does_not_collide_with_domain_row(self) -> None:
@@ -324,19 +324,24 @@ class LogicalLayoutTests(unittest.TestCase):
     def test_diverges_from_legacy_spine_hoist_by_design(self) -> None:
         """Documents the divergence explained in the class docstring: the
         legacy path hoists `portal` out of `domain_experience` (which then
-        stops existing as a container at all) and shifts every other domain
-        corridor right by the same constant to make room. The new path keeps
-        `portal` nested in its domain and does not shift the row — this
-        pins that as an intentional design difference, not a bug, so a
-        future change that silently reintroduces spine-hoisting is caught."""
+        stops existing as a container at all). The new path keeps `portal`
+        nested in its domain — this pins that as an intentional design
+        difference, not a bug, so a future change that silently reintroduces
+        spine-hoisting is caught.
+
+        Only checks the qualitative claim (domain_experience survives as a
+        real container), not a uniform pixel shift across the other domains —
+        that constant-shift property was an artifact of the old path's own
+        cumulative cursor arithmetic lining up with the legacy pipeline's;
+        ELK's compound layout (see logical_layout._layout_corridor_ir_elk)
+        computes width/position from a real graph solve, not a running sum,
+        so there is no reason to expect one uniform offset any more.
+        """
         ir = realistic_logical_ir()
         legacy_geo = _legacy_pipeline_geometry(ir, "Logical")
-        new_geo = layout_corridor_ir(ir)
+        new_geo, _routes = layout_corridor_ir(ir)
         self.assertNotIn("domain_experience", legacy_geo, "legacy spine hoist should still unwrap this container")
         self.assertIn("domain_experience", new_geo, "new path must keep the domain as a real container")
-        shift = legacy_geo["domain_core"][0] - new_geo["domain_core"].x
-        for cid in ("domain_commerce", "domain_platform", "domain_data"):
-            self.assertAlmostEqual(legacy_geo[cid][0] - new_geo[cid].x, shift, delta=1.0)
 
 
 class NetworkParityTests(unittest.TestCase):
@@ -458,7 +463,7 @@ class ContainerSizingMatchesPlacementTests(unittest.TestCase):
 
     def test_leaves_never_overflow_container_on_ir_path(self) -> None:
         ir = self._ir_with_rank_capped_corridor()
-        geos = layout_corridor_ir(ir)
+        geos, _routes = layout_corridor_ir(ir)
         container = geos["phase_ingest"]
         for leaf in ir.corridors[0].leaves:
             g = geos[leaf.id]

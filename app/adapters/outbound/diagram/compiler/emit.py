@@ -68,7 +68,22 @@ class CellWriter:
                 cell.set("layout", "ir")
                 return
 
-    def edge(self, *, id: str, source: str, target: str, label: str, style: str) -> None:
+    def edge(
+        self,
+        *,
+        id: str,
+        source: str,
+        target: str,
+        label: str,
+        style: str,
+        points: list[tuple[float, float]] | None = None,
+    ) -> None:
+        """Emit an edge. ``points`` (if given) are intermediate bend/elbow
+        points only — never the start/end, which draw.io always derives from
+        ``source``/``target`` — written as the standard manual-waypoints
+        ``Array as="points"`` of ``mxPoint``, the same convention
+        ``placement_fixers._set_edge_waypoints`` already uses for the
+        direct-XML repair path's routed edges."""
         cell = ET.SubElement(
             self._root,
             "mxCell",
@@ -82,7 +97,11 @@ class CellWriter:
                 "target": target,
             },
         )
-        ET.SubElement(cell, "mxGeometry", {"relative": "1", "as": "geometry"})
+        geom = ET.SubElement(cell, "mxGeometry", {"relative": "1", "as": "geometry"})
+        if points:
+            arr = ET.SubElement(geom, "Array", {"as": "points"})
+            for px, py in points:
+                ET.SubElement(arr, "mxPoint", {"x": _num(px), "y": _num(py)})
 
     def to_xml(self, *, page_width: float, page_height: float) -> str:
         mxfile = ET.Element("mxfile", {"host": "app.diagrams.net"})

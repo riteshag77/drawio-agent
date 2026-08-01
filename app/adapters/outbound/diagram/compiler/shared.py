@@ -114,13 +114,32 @@ def emit_external_actors(
             y += geo.LEAF_H + geo.LABEL_BAND_H + geo.ACTOR_GAP_Y
 
 
-def emit_flows(writer: CellWriter, flows: list[Flow]) -> None:
-    """Emit every flow as a root-layer edge. Identical for every view."""
+def flow_id(index: int) -> str:
+    """Canonical id for the ``index``-th flow — shared so an ELK edge-route
+    lookup (keyed by this same id) and ``emit_flows`` never drift apart."""
+    return f"flow_{index}"
+
+
+def emit_flows(
+    writer: CellWriter,
+    flows: list[Flow],
+    *,
+    routes: dict[str, list[tuple[float, float]]] | None = None,
+) -> None:
+    """Emit every flow as a root-layer edge. Identical for every view.
+
+    ``routes`` (if given) maps a flow's id (see ``flow_id``) to the
+    intermediate bend points an external layout pass (ELK) computed for it —
+    absent/omitted flows fall back to no waypoints, i.e. draw.io's own
+    client-side edge routing, exactly today's behavior.
+    """
     for index, flow in enumerate(flows):
+        fid = flow_id(index)
         writer.edge(
-            id=f"flow_{index}",
+            id=fid,
             source=flow.source,
             target=flow.target,
             label=flow.label,
             style=theme.flow_style(primary=flow.primary, labelled=bool(flow.label)),
+            points=(routes or {}).get(fid),
         )

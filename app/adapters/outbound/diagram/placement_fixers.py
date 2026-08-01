@@ -811,6 +811,27 @@ def _route_logical_edge(
     return True
 
 
+def _edge_points(edge: ET.Element) -> list[tuple[float, float]]:
+    """Existing intermediate waypoints on ``edge``, if any (e.g. ELK's route,
+    written by the compiler via ``CellWriter.edge(points=...)``)."""
+    geom = edge.find("mxGeometry")
+    if geom is None:
+        return []
+    pts: list[tuple[float, float]] = []
+    for arr in geom.findall("Array"):
+        if arr.get("as") == "points":
+            for pt in arr.findall("mxPoint"):
+                try:
+                    pts.append((float(pt.get("x") or 0), float(pt.get("y") or 0)))
+                except ValueError:
+                    pass
+    return pts
+
+
+def _edge_has_points(edge: ET.Element) -> bool:
+    return bool(_edge_points(edge))
+
+
 def _set_edge_waypoints(edge: ET.Element, points: list[tuple[float, float]]) -> None:
     """Replace intermediate routing points on an edge (orthogonal elbows)."""
     geom = edge.find("mxGeometry")
@@ -1027,6 +1048,12 @@ def fix_edge_anchors_from_geometry(xml: str) -> str:
     by_id = {c.get("id"): c for c in cells if c.get("id")}
     page = _diagram_page_name(tree).lower()
     is_focused = page in {"logical", "security", "data flow", "data_flow"}
+    # ELK (see elk_bridge.py) already routed this page's edges at compile time
+    # when the compiler marked the default layer layout="ir" — an edge that
+    # already carries manual waypoints here is ELK's route, not a leftover;
+    # re-running the local search router on it would just overwrite a real
+    # obstacle-avoiding route with a worse guess.
+    is_ir_layout = any(c.get("id") == "1" and c.get("layout") == "ir" for c in cells)
     # Obstacle-avoiding routing (_route_logical_edge) is view-agnostic despite
     # its name (_logical_obstacle_rects has no Logical-specific assumptions)
     # — Network never got it because it was designed to rely entirely on
@@ -1086,16 +1113,12 @@ def fix_edge_anchors_from_geometry(xml: str) -> str:
                 face = ("v", src_id, "top")
                 corridor = ("v", "top", "bottom")
 
-        face_buckets.setdefault(face, []).append(edge)
-        # Only stagger edges that genuinely share a corridor — bucketing every
-        # left→right edge on the page together pushed anchors off their shapes.
         if corridor[0] == "h":
             lane = (round(scy / _CORRIDOR_LANE_PX), round(tcy / _CORRIDOR_LANE_PX))
             travel = (min(scx, tcx), max(scx, tcx))
         else:
             lane = (round(scx / _CORRIDOR_LANE_PX), round(tcx / _CORRIDOR_LANE_PX))
             travel = (min(scy, tcy), max(scy, tcy))
-        corridor_buckets.setdefault((*corridor, *lane), []).append(edge)
         eid = edge.get("id") or id(edge)
         edge_meta[str(eid)] = {
             "travel": travel,
@@ -1104,6 +1127,25 @@ def fix_edge_anchors_from_geometry(xml: str) -> str:
             "tx": tx, "ty": ty, "tw": tw, "th": th,
             "scx": scx, "scy": scy, "tcx": tcx, "tcy": tcy,
         }
+
+        if is_ir_layout and _edge_has_points(edge):
+            # Already routed by ELK at compile time (see elk_bridge.py) — its
+            # rendered path is these explicit points, not the anchor/exitDx
+            # styling below, and it doesn't need or use a shared-face offset
+            # slot. Excluded from face_buckets/corridor_buckets (but still
+            # given an edge_meta entry above, for the "route each connector"
+            # block and label/trunk logic further down) so a *different*,
+            # still-legacy-routed edge sharing this leaf gets its offset
+            # computed only against other legacy edges — counting the ELK
+            # edge in would reserve a slot it doesn't actually render into,
+            # which is what previously let a legacy sibling's "avoid the
+            # other edge" offset coincide with the ELK edge's real path.
+            continue
+
+        face_buckets.setdefault(face, []).append(edge)
+        # Only stagger edges that genuinely share a corridor — bucketing every
+        # left→right edge on the page together pushed anchors off their shapes.
+        corridor_buckets.setdefault((*corridor, *lane), []).append(edge)
         style = edge.get("style") or ""
         updates = {
             **anchors,
@@ -1184,6 +1226,12 @@ def fix_edge_anchors_from_geometry(xml: str) -> str:
             meta = edge_meta.get(eid)
             if not meta:
                 continue
+            # Capture any pre-existing waypoints (ELK's route, on an IR-layout
+            # page) before possibly routing.
+            pts = _edge_points(edge)
+            if is_ir_layout and pts:
+                routed_paths[eid] = pts
+                continue
             obstacles = _logical_obstacle_rects(
                 cells, by_id, {edge.get("source") or "", edge.get("target") or ""}, page_w, page_h
             )
@@ -1192,17 +1240,7 @@ def fix_edge_anchors_from_geometry(xml: str) -> str:
             ):
                 changed = True
             # Capture waypoints for label parking / trunk bundling.
-            geom = edge.find("mxGeometry")
-            pts = []
-            if geom is not None:
-                for arr in geom.findall("Array"):
-                    if arr.get("as") == "points":
-                        for pt in arr.findall("mxPoint"):
-                            try:
-                                pts.append((float(pt.get("x") or 0), float(pt.get("y") or 0)))
-                            except ValueError:
-                                pass
-            routed_paths[eid] = pts
+            routed_paths[eid] = _edge_points(edge)
 
         if _bundle_under_corridor_trunks(edges, edge_meta, routed_paths):
             changed = True
