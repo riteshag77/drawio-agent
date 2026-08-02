@@ -387,6 +387,13 @@ def _generate_ir_with_corrections(
         _drop_invalid_flows(ir, residual, logger, view_label)
         residual = ir.semantic_errors()
 
+    if not residual:
+        ir = _apply_semantic_warning_pass(
+            ir, ir_type=ir_type, system_prompt=system_prompt, human_content=human_content,
+            provider_key=provider_key, logger=logger, attachment_documents=attachment_documents,
+            llm=llm, view_label=view_label,
+        )
+
     if logger:
         if residual:
             # Not fixed by correction or drop (e.g. "flows is empty" — there is
@@ -404,6 +411,60 @@ def _generate_ir_with_corrections(
                 "actors": len(ir.external_actors),
             })
     return ir
+
+
+def _apply_semantic_warning_pass(
+    ir,
+    *,
+    ir_type: type,
+    system_prompt: str,
+    human_content: str,
+    provider_key: str,
+    logger: "StepLogger | None",
+    attachment_documents: list[dict] | None,
+    llm: LlmPort,
+    view_label: str,
+):
+    """One best-effort, non-blocking correction for ``ir.semantic_warnings()``.
+
+    Unlike the ``semantic_errors()`` loop above, this never gates anything: a
+    warning is a judgment call (a required-companion service that's probably
+    missing, a boundary flow with no stated protection), not a structural
+    defect, so there is no retry loop and no rejection — one corrective ask,
+    and whatever comes back is used only if it still passes ``semantic_errors()``.
+    A missing DLQ must never be the reason a view falls back to direct XML.
+    """
+    warnings = ir.semantic_warnings()
+    if not warnings:
+        return ir
+    if logger:
+        logger.log(
+            "ir", f"{view_label} IR has {len(warnings)} judgment-call warning(s) — "
+            "asking for one non-blocking correction",
+            level="warning", details={"warnings": warnings},
+        )
+    correction = (
+        f"Your {ir_type.__name__} passes all hard validation rules, but a reviewer flagged "
+        "these judgment calls:\n"
+        + "\n".join(f"- {w}" for w in warnings)
+        + f"\n\nReturn an improved {ir_type.__name__} addressing whichever of these genuinely "
+        "apply to this design. Keep everything else identical. If a flagged item doesn't "
+        "actually fit this request, you may leave it as is."
+    )
+    try:
+        corrected = llm(
+            system_prompt, human_content + "\n\n" + correction,
+            provider_key, ir_type, logger, attachment_documents,
+        )
+    except Exception as exc:
+        if logger:
+            logger.log("ir", f"{view_label} warning-correction pass failed, keeping original: {exc}", level="warning")
+        return ir
+    if corrected.semantic_errors():
+        # The "fix" broke a hard rule — worse than the warning it was meant to
+        # address. Keep the original rather than trade a soft issue for a hard one.
+        return ir
+    return corrected
 
 
 def _drop_invalid_flows(ir, residual_errors: list[str], logger: "StepLogger | None", view_label: str) -> None:

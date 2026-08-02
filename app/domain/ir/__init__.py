@@ -13,7 +13,16 @@ responsibility; the model only decides *what* exists and *how it connects*.
 Pure domain: no I/O, no draw.io vocabulary, no rendering concerns.
 """
 
-from app.domain.ir.base import ActorKind, DiagramIR, ExternalActor, Flow, Leaf, ViewKind
+from app.domain.ir.base import (
+    ActorKind,
+    DiagramIR,
+    ExternalActor,
+    Flow,
+    FlowClassification,
+    FlowProtection,
+    Leaf,
+    ViewKind,
+)
 from app.domain.ir.corridor import AnchoredCorridor, Corridor, CorridorIR
 from app.domain.ir.data_flow import DataFlowIR
 from app.domain.ir.logical import LogicalIR
@@ -44,6 +53,8 @@ __all__ = [
     "EdgeLayer",
     "ExternalActor",
     "Flow",
+    "FlowClassification",
+    "FlowProtection",
     "GroupKind",
     "Leaf",
     "LogicalIR",

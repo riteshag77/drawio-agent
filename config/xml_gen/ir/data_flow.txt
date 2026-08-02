@@ -59,6 +59,10 @@ padding — thin inventory without SaaS stays sparse):
 `JSON:…`, `SQL:…`, `Event:…`, `Cache:…`, `Object:…`, `CDC:…`, `Batch:…` —
 append `[PII]`/`[Non-PII]`/`[PCI]` when the request implies sensitivity
 (never invent PII). Keep labels short. Retry/DLQ flows: `primary: false`.
+Set the flow's structured `classification` to match the same call: `pii`/
+`pci` for a `[PII]`/`[PCI]`-tagged flow, `none` for `[Non-PII]` — this is
+the same judgment as the bracket tag, expressed as the typed field the
+compiler colours the edge and the panel's facts by.
 
 **Forbidden:** UI wireframes, WAF/Shield/auth sequences, VPC/AZ wallpaper
 (Network's lens), security-control essays (Security's lens), capability org

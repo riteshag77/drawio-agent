@@ -47,6 +47,7 @@ from app.adapters.outbound.diagram.architecture_docs import (
     build_single_view_human,
     build_single_view_system,
     build_views_prompt_block,
+    derive_story_markers,
     ensure_ir_overview_panel,
     ensure_minimal_overview_panel,
     load_docs_prompt_pack,
@@ -402,11 +403,15 @@ def _finalize_view_page_xml(
         # ir_title is only ever non-empty for pages generate_xml_diagram_from_ir
         # produced (see _generate_ir_view_page) — synthesize from this page's
         # own graph rather than the generic stub, same as the primary-page path.
-        xml = (
-            ensure_ir_overview_panel(xml, title, ir_title)
-            if ir_title
-            else ensure_minimal_overview_panel(xml, title)
-        )
+        if ir_title:
+            xml = ensure_ir_overview_panel(xml, title, ir_title)
+            # Derived from this exact xml snapshot, same one the panel prose
+            # just numbered — guarantees panel step i and canvas badge i name
+            # the same cell. generate_xml_diagram_from_ir always sends
+            # step_markers=[], so this is the only source for IR pages.
+            step_markers = derive_story_markers(xml)
+        else:
+            xml = ensure_minimal_overview_panel(xml, title)
     if view and primary_xml:
         # Gap recommendations → Overview Panel (security / data_flow); then strip cards
         try:
@@ -997,6 +1002,7 @@ async def run_xml_pipeline(
     xml_output = choose_fixed_xml(xml_output, check)
     xml_output = normalize_platform_styles(xml_output, platform_key)
 
+    derived_story_markers: list[Any] = []
     if used_ir_path and not page_has_overview_panel(xml_output):
         # Gap A (Fix 3): the IR compilers never emit an overview_panel cell —
         # only the secondary/extra-views path (_finalize_view_page_xml) wired
@@ -1006,6 +1012,11 @@ async def run_xml_pipeline(
         # Synthesized from this page's own graph (real labels/edges), not the
         # generic static stub — see synthesize_ir_overview_body's docstring.
         xml_output = ensure_ir_overview_panel(xml_output, primary_page_name, xml_diagram.ir_title)
+        # Derived from this same xml snapshot the panel prose just numbered,
+        # so panel step i and canvas badge i always name the same cell.
+        # generate_xml_diagram_from_ir always sends step_markers=[], so this
+        # is the only source of badges for an IR-compiled primary page.
+        derived_story_markers = derive_story_markers(xml_output)
 
     await _emit(on_progress, "repair", "Checking for overlaps, dangling edges, missing labels…")
     pre_repair_diagnostics = diagnose_xml(xml_output)
@@ -1062,8 +1073,13 @@ async def run_xml_pipeline(
             )
 
     # Primary badges before merge — post-merge apply_step_markers hits page 1 only.
-    if xml_diagram.step_markers:
-        xml_output = apply_step_markers(xml_output, xml_diagram.step_markers, logger)
+    # xml_diagram.step_markers is always [] for the IR path (agent.py's
+    # generate_xml_diagram_from_ir), so derived_story_markers is what actually
+    # carries badges there; the direct-XML path has no derived markers, so
+    # `or` falls through to whatever the LLM emitted, unchanged.
+    story_markers = xml_diagram.step_markers or derived_story_markers
+    if story_markers:
+        xml_output = apply_step_markers(xml_output, story_markers, logger)
 
     # Stamp curated saas_* on primary leaves before MCP resolve (all architecture views).
     if primary_view in ("network", "security", "data_flow", "logical"):

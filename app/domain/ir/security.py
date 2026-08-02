@@ -42,3 +42,50 @@ class SecurityIR(CorridorIR):
             if shelf.anchor_id != "zone_restricted":
                 raise ValueError(f"{_SHELF_ID!r} must anchor under 'zone_restricted' (got {shelf.anchor_id!r})")
         return self
+
+    #: Boundary zones a flow can cross from/to the outside world — a flow
+    #: touching either with no transport protection is a judgment call worth
+    #: flagging, not a hard error (the request may genuinely be modelling an
+    #: intentionally open path).
+    _BOUNDARY_ZONE_IDS: ClassVar[frozenset[str]] = frozenset({"zone_public", "zone_partner"})
+
+    def semantic_warnings(self) -> list[str]:
+        """Promotes three "required companions" rules from
+        ``config/xml_gen/ir/security.txt`` prose into code — see that file's
+        "Required companions" section for the judgment calls these mirror.
+        """
+        warnings: list[str] = []
+        private = self.corridor_by_id("zone_private")
+        saas_shelf = next((s for s in self.anchored if s.id == _SHELF_ID), None)
+        if private is not None and saas_shelf is not None:
+            if not self.leaves_mention(private.leaves, "secret", "vault", "kms", "key vault"):
+                warnings.append(
+                    "zone_private has no secrets/KMS leaf even though zone_external_saas is "
+                    "present — the required-companions rule calls for one (Secrets Manager / "
+                    "Key Vault) when a private app + enterprise SaaS both appear."
+                )
+            if self.corridor_by_id("zone_detect") is None:
+                warnings.append(
+                    "zone_external_saas is present but there is no zone_detect corridor — the "
+                    "required-companions rule calls for a detection zone (GuardDuty/CloudWatch "
+                    "or equivalent) when a private app + enterprise SaaS both appear."
+                )
+        partner = self.corridor_by_id("zone_partner")
+        if partner is not None and not self.leaves_mention(partner.leaves, "gateway"):
+            warnings.append(
+                "zone_partner is present but has no Partner API Gateway leaf — the "
+                "required-companions rule calls for a single dedicated partner ingress/egress "
+                "point, distinct from the consumer WAF/ALB."
+            )
+        boundary_ids = {c.id for c in self.corridors if c.id in self._BOUNDARY_ZONE_IDS}
+        if boundary_ids:
+            leaf_zone = {leaf.id: c.id for c in self.all_corridors() for leaf in c.leaves}
+            for flow in self.flows:
+                touches_boundary = leaf_zone.get(flow.source) in boundary_ids or leaf_zone.get(flow.target) in boundary_ids
+                if touches_boundary and flow.protection == "none":
+                    warnings.append(
+                        f"flow {flow.source!r} -> {flow.target!r} crosses a public/partner "
+                        "boundary zone with protection='none' — set 'tls' or 'mtls' if transport "
+                        "protection is actually in effect here."
+                    )
+        return warnings

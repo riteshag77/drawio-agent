@@ -41,3 +41,21 @@ class LogicalIR(CorridorIR):
             if shelf.anchor_id != "domain_data":
                 raise ValueError(f"{_SHELF_ID!r} must anchor under 'domain_data' (got {shelf.anchor_id!r})")
         return self
+
+    def semantic_warnings(self) -> list[str]:
+        """Promotes the cache-aside "required companion" rule from
+        ``config/xml_gen/ir/logical.txt`` prose into code — see that file's
+        "Required: cache-aside companion" section for the judgment call this
+        mirrors.
+        """
+        saas_shelf = next((s for s in self.anchored if s.id == _SHELF_ID), None)
+        if saas_shelf is None:
+            return []
+        core = self.corridor_by_id("domain_core") or self.corridor_by_id("domain_commerce")
+        if core is not None and not self.leaves_mention(core.leaves, "cache"):
+            return [
+                "domain_saas shelf is present but no domain_core/domain_commerce leaf mentions "
+                "a cache — the cache-aside companion rule calls for one for SaaS-outage "
+                "resilience."
+            ]
+        return []

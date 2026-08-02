@@ -36,6 +36,13 @@ from __future__ import annotations
 from app.adapters.outbound.diagram import geometry_spec as geo
 from app.adapters.outbound.diagram.compiler import theme
 from app.adapters.outbound.diagram.compiler.emit import CellWriter
+from app.adapters.outbound.diagram.compiler.legend import (
+    LEGEND_ID,
+    LEGEND_PLACEHOLDER_H,
+    LEGEND_PLACEHOLDER_W,
+    LEGEND_STYLE,
+    build_legend,
+)
 from app.adapters.outbound.diagram.compiler.shared import (
     Box as _Box,
     CompilerError,
@@ -107,7 +114,7 @@ class _CorridorCompiler:
             self.w.vertex(
                 id=corridor.id,
                 label=corridor.label,
-                style=theme.shelf_style() if is_shelf else theme.corridor_style(),
+                style=(theme.shelf_style if is_shelf else theme.corridor_style)(corridor.id),
                 x=cg.x, y=cg.y, w=cg.w, h=cg.h,
                 parent="1",
             )
@@ -116,10 +123,11 @@ class _CorridorCompiler:
                 self.w.vertex(
                     id=leaf.id,
                     label=leaf.label if not leaf.annotation else f"{leaf.label} [{leaf.annotation}]",
-                    style=theme.leaf_style(),
+                    style=theme.leaf_style(leaf.criticality),
                     x=lg.x, y=lg.y, w=lg.w, h=lg.h,
                     parent=corridor.id,
                     shape_type=leaf.shape_type,
+                    criticality=leaf.criticality,
                 )
         # This page's own layout is authoritative — mark it so repair_xml
         # skips re-deriving/overwriting it (see xml_diagnostics.py).
@@ -132,6 +140,19 @@ class _CorridorCompiler:
 
         self._emit_actors(row_left=row_left, row_right=row_right, top_y=_ROW_TOP_Y)
         emit_flows(self.w, self.ir.flows, routes=routes)
+
+        legend_body = build_legend(self.ir)
+        if legend_body is not None:
+            # Placeholder geometry only — xml_diagnostics.ensure_legend_position
+            # (runs unconditionally in repair_xml) pins this below the overview
+            # panel once the panel's real position is known; this call site
+            # owns content, not placement.
+            self.w.vertex(
+                id=LEGEND_ID, label=legend_body, style=LEGEND_STYLE,
+                x=row_right + 40, y=_ROW_TOP_Y,
+                w=LEGEND_PLACEHOLDER_W, h=LEGEND_PLACEHOLDER_H,
+                parent="1",
+            )
 
         page_w = row_right + 400
         page_h = content_bottom + 200

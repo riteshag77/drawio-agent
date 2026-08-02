@@ -34,6 +34,10 @@ External SaaS products: each its own leaf labeled `{Product} (SAAS)` (e.g.
 `Okta (SAAS)`, `Workday (SAAS)`), `shape_type=saas_<vendor>` when known, else
 `logical_saas`. Never invent cloud stencils for these.
 
+Mark `criticality: critical` on the primary data store inside `domain_data`
+(the system of record the capabilities depend on) — most other leaves stay
+`standard`.
+
 ## Required: cache-aside companion
 
 When egress SaaS + an app/portal + a datastore are **all** present, add

@@ -10,6 +10,7 @@ from app.adapters.outbound.diagram.architecture_docs import (
     build_architecture_inventory,
     build_single_view_system,
 )
+from app.adapters.outbound.diagram.compiler import compile_corridor_ir
 from app.adapters.outbound.diagram.view_conformance import score_view
 from app.adapters.outbound.diagram.view_fixers import (
     apply_edge_label_defaults,
@@ -18,6 +19,7 @@ from app.adapters.outbound.diagram.view_fixers import (
     ensure_gap_nodes,
     relabel_generic_data_stores,
 )
+from app.domain.ir import AnchoredCorridor, Corridor, Flow, Leaf, SecurityIR
 
 
 def _wrap(body: str, name: str = "Logical") -> str:
@@ -307,6 +309,98 @@ class ViewFixerTests(unittest.TestCase):
             xml, view="data_flow", request_text="Handle customer PII orders", min_score=75,
         )
         self.assertFalse(any(v.code == "missing_classification" for v in scored.violations))
+
+
+def _sec_leaf(i: str, label: str, **kw) -> Leaf:
+    return Leaf(id=i, shape_type="aws_ec2", label=label, **kw)
+
+
+class Phase2ScoringTests(unittest.TestCase):
+    """The three score_view additions that read the typed IR's stamped
+    attributes — all gated on the page actually being IR-compiled (``layout=
+    "ir"``), since the direct-XML fallback never stamps them."""
+
+    def test_classification_attribute_satisfies_missing_classification(self) -> None:
+        ir = SecurityIR(
+            corridors=[
+                Corridor(id="zone_public", label="Public", leaves=[_sec_leaf("waf", "WAF")]),
+                Corridor(id="zone_private", label="Private", leaves=[_sec_leaf("db", "Primary DB")]),
+            ],
+            flows=[Flow(source="waf", target="db", classification="pii")],
+        )
+        xml = compile_corridor_ir(ir, page_name="Security")
+        scored = score_view(xml, view="security", request_text="Handle customer PII", min_score=75)
+        self.assertFalse(any(v.code == "missing_classification" for v in scored.violations))
+
+    def test_unprotected_boundary_flow_flagged_on_ir_page(self) -> None:
+        ir = SecurityIR(
+            corridors=[
+                Corridor(id="zone_public", label="Public", leaves=[_sec_leaf("waf", "WAF")]),
+                Corridor(id="zone_private", label="Private", leaves=[_sec_leaf("app", "App")]),
+            ],
+            flows=[Flow(source="waf", target="app", protection="none")],
+        )
+        xml = compile_corridor_ir(ir, page_name="Security")
+        scored = score_view(xml, view="security", min_score=75)
+        self.assertTrue(any(v.code == "unprotected_boundary_flow" for v in scored.violations))
+
+    def test_protected_boundary_flow_not_flagged(self) -> None:
+        ir = SecurityIR(
+            corridors=[
+                Corridor(id="zone_public", label="Public", leaves=[_sec_leaf("waf", "WAF")]),
+                Corridor(id="zone_private", label="Private", leaves=[_sec_leaf("app", "App")]),
+            ],
+            flows=[Flow(source="waf", target="app", protection="tls")],
+        )
+        xml = compile_corridor_ir(ir, page_name="Security")
+        scored = score_view(xml, view="security", min_score=75)
+        self.assertFalse(any(v.code == "unprotected_boundary_flow" for v in scored.violations))
+
+    def test_direct_xml_fallback_is_never_flagged_for_boundary_protection(self) -> None:
+        """The direct-XML path never stamps `protection` — this must not be
+        misread as "every flow is unprotected"."""
+        xml = _wrap(
+            _leaf("waf", "WAF", 40) + _leaf("app", "App", 240)
+            + '<mxCell id="e1" edge="1" parent="1" source="waf" target="app" value="inspect">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>',
+            name="Security",
+        )
+        scored = score_view(xml, view="security", min_score=75)
+        self.assertFalse(any(v.code == "unprotected_boundary_flow" for v in scored.violations))
+
+    def test_missing_legend_flagged_when_conventions_in_play_without_one(self) -> None:
+        """Shelf present (dashed container) + security trust axis = 2 legend
+        rows worth of convention, so a legend is expected."""
+        ir = SecurityIR(
+            corridors=[
+                Corridor(id="zone_private", label="Private", leaves=[_sec_leaf("app", "App")]),
+                Corridor(id="zone_restricted", label="Restricted", leaves=[_sec_leaf("db", "DB")]),
+            ],
+            anchored=[AnchoredCorridor(
+                id="zone_external_saas", label="SaaS", anchor_id="zone_restricted",
+                leaves=[_sec_leaf("workday", "Workday (SAAS)")],
+            )],
+            flows=[Flow(source="app", target="db"), Flow(source="db", target="workday")],
+        )
+        xml = compile_corridor_ir(ir, page_name="Security")
+        # Strip the compiler's own legend so the page is missing one on purpose.
+        xml = xml.replace('id="legend_box"', 'id="legend_box_removed"')
+        scored = score_view(xml, view="security", min_score=75)
+        self.assertTrue(any(v.code == "missing_legend" for v in scored.violations))
+
+    def test_missing_legend_not_flagged_when_conventions_are_sparse(self) -> None:
+        """Only one legend-worthy convention (the security trust axis alone,
+        no shelf, no primary/secondary mix) — below the 2-row threshold, so no
+        legend is expected and none should be flagged missing."""
+        ir = SecurityIR(
+            corridors=[
+                Corridor(id="zone_public", label="Public", leaves=[_sec_leaf("waf", "WAF")]),
+            ],
+            flows=[],
+        )
+        xml = compile_corridor_ir(ir, page_name="Security")
+        scored = score_view(xml, view="security", min_score=75)
+        self.assertFalse(any(v.code == "missing_legend" for v in scored.violations))
 
 
 class InventoryBriefTests(unittest.TestCase):

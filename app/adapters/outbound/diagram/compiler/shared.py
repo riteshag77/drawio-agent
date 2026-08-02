@@ -72,13 +72,14 @@ def emit_leaf_grid(writer: CellWriter, leaves: list[Leaf], parent_id: str, *, is
         writer.vertex(
             id=leaf.id,
             label=leaf_label(leaf),
-            style=theme.leaf_style(),
+            style=theme.leaf_style(leaf.criticality),
             x=geo.PAD + col * pitch,
             y=geo.TITLE_PAD + row * geo.ROW_PITCH_Y,
             w=geo.LEAF_W,
             h=geo.LEAF_H,
             parent=parent_id,
             shape_type=leaf.shape_type,
+            criticality=leaf.criticality,
         )
     return grid_box(len(leaves), is_group=is_group)
 
@@ -140,6 +141,10 @@ def emit_flows(
             source=flow.source,
             target=flow.target,
             label=flow.label,
-            style=theme.flow_style(primary=flow.primary, labelled=bool(flow.label)),
+            style=theme.flow_style(
+                primary=flow.primary, labelled=bool(flow.label), classification=flow.classification,
+            ),
             points=(routes or {}).get(fid),
+            classification=flow.classification,
+            protection=flow.protection,
         )

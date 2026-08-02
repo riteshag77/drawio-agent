@@ -32,6 +32,7 @@ class CellWriter:
         h: float,
         parent: str,
         shape_type: str | None = None,
+        criticality: str | None = None,
     ) -> None:
         attrs = {
             "id": id,
@@ -44,6 +45,12 @@ class CellWriter:
         # attribute to look up the official stencil and merge it into `style`.
         if shape_type:
             attrs["shape_type"] = shape_type
+        # Stamped only when non-default: "standard" is the overwhelming common
+        # case, and an attribute that's always present either way is noise a
+        # reader of the raw XML has to filter past to find the leaves that
+        # actually matter.
+        if criticality and criticality != "standard":
+            attrs["criticality"] = criticality
         cell = ET.SubElement(self._root, "mxCell", attrs)
         ET.SubElement(
             cell,
@@ -77,26 +84,34 @@ class CellWriter:
         label: str,
         style: str,
         points: list[tuple[float, float]] | None = None,
+        classification: str | None = None,
+        protection: str | None = None,
     ) -> None:
         """Emit an edge. ``points`` (if given) are intermediate bend/elbow
         points only — never the start/end, which draw.io always derives from
         ``source``/``target`` — written as the standard manual-waypoints
         ``Array as="points"`` of ``mxPoint``, the same convention
         ``placement_fixers._set_edge_waypoints`` already uses for the
-        direct-XML repair path's routed edges."""
-        cell = ET.SubElement(
-            self._root,
-            "mxCell",
-            {
-                "id": id,
-                "value": label,
-                "style": style,
-                "edge": "1",
-                "parent": "1",
-                "source": source,
-                "target": target,
-            },
-        )
+        direct-XML repair path's routed edges.
+
+        ``classification``/``protection`` are stamped as plain attributes
+        (same "custom attribute" convention as ``shape_type``) only when not
+        the default ("none") — a reader of the raw XML only sees them on the
+        flows that actually carry a real classification or protection."""
+        attrs = {
+            "id": id,
+            "value": label,
+            "style": style,
+            "edge": "1",
+            "parent": "1",
+            "source": source,
+            "target": target,
+        }
+        if classification and classification != "none":
+            attrs["classification"] = classification
+        if protection and protection != "none":
+            attrs["protection"] = protection
+        cell = ET.SubElement(self._root, "mxCell", attrs)
         geom = ET.SubElement(cell, "mxGeometry", {"relative": "1", "as": "geometry"})
         if points:
             arr = ET.SubElement(geom, "Array", {"as": "points"})

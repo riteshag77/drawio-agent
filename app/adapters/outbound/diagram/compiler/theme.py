@@ -13,6 +13,7 @@ from, instead of the model.
 
 from __future__ import annotations
 
+from app.adapters.outbound.diagram import palette
 from app.domain.ir.network import GroupKind, SubnetTier
 
 _BASE_CONTAINER = (
@@ -107,39 +108,58 @@ def edge_layer_style() -> str:
     )
 
 
-def corridor_style() -> str:
-    """Generic domain/zone/phase container style.
+def _corridor_container(corridor_id: str, *, shelf: bool) -> str:
+    """Domain/zone/phase container style, coloured from ``palette``.
 
-    Fill/stroke/font colour are irrelevant here: ``placement_fixers.
-    normalize_corridor_colors`` unconditionally overwrites those three keys
-    for every ``domain_``/``zone_``/``phase_`` container to its view's
-    canonical Section-colors value regardless of what the compiler emits —
-    confirmed in that function's own docstring ("Authoritative: overwrites
-    existing fill/stroke/font color keys rather than filling gaps"). Only the
-    non-colour parts of this style (``arcSize``, ``container=1``) are ours to
-    get right.
+    ``placement_fixers.normalize_corridor_colors`` is still authoritative and
+    will overwrite fill/stroke/font/border downstream — but it now reads the
+    *same* ``palette`` table, so emitting the correct colour here means the
+    compiler's own output already matches its final rendered appearance rather
+    than being a grey placeholder that only looks right after repair.
     """
-    return _titled("#6B7280", dashed=False)
+    colors = palette.corridor_colors(corridor_id)
+    if colors is None:
+        return _titled("#6B7280", dashed=shelf)
+    fill, stroke = colors
+    return (
+        f"{_BASE_CONTAINER.replace('fillColor=none;', f'fillColor={fill};')}"
+        f"strokeColor={stroke};strokeWidth={2 if shelf else 1};"
+        f"{'dashed=1;' if shelf else 'dashed=0;'}"
+        f"align=left;verticalAlign=top;spacingLeft=12;spacingTop=8;"
+        f"fontStyle=1;fontSize=12;fontColor={stroke};"
+    )
 
 
-def shelf_style() -> str:
+def corridor_style(corridor_id: str = "") -> str:
+    """Main-row domain/zone/phase container style."""
+    return _corridor_container(corridor_id, shelf=False)
+
+
+def shelf_style(corridor_id: str = "") -> str:
     """Anchored-shelf container style (SaaS/consume/control shelves).
 
-    Same colour-is-discarded rule as ``corridor_style`` — dashed is the only
-    part that survives normalization, used here to visually distinguish a
-    shelf from a main-row corridor before that overwrite runs.
+    Heavier dashed border than a main-row corridor, so "sits outside the main
+    journey" reads without relying on position alone.
     """
-    return _titled("#6B7280", dashed=True)
+    return _corridor_container(corridor_id, shelf=True)
 
 
-def leaf_style() -> str:
+def leaf_style(criticality: str = "standard") -> str:
     """Grey placeholder awaiting MCP icon resolution.
 
     ``verticalLabelPosition=bottom`` is what puts the label in the band below
-    the icon, which geometry_spec.LABEL_BAND_H accounts for when sizing parents.
+    the icon, which geometry_spec.LABEL_BAND_H accounts for when sizing
+    parents. A ``critical`` leaf gets a heavier, coloured border — the one
+    mark this app's "clean canvas" visual system adds directly on a leaf,
+    since a business-critical/single-point-of-failure component is exactly
+    the kind of fact a reviewer should see without opening the panel.
     """
+    if criticality == "critical":
+        border = f"strokeWidth=3;strokeColor={palette.CRITICAL_LEAF_STROKE};"
+    else:
+        border = "strokeWidth=1;strokeColor=#B3B3B3;"
     return (
-        "rounded=0;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#B3B3B3;"
+        f"rounded=0;whiteSpace=wrap;html=1;fillColor=#F5F5F5;{border}"
         "verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;align=center;"
         "fontSize=11;fontColor=#333333;"
     )
@@ -149,10 +169,12 @@ def actor_style(kind: str = "users") -> str:
     """External-actor style, by ``ActorKind``.
 
     Only ``users`` is an actual person — the AWS person stencil is reserved
-    for that case. ``saas_ingress``/``saas_egress``/``on_prem`` (identity
-    providers, third-party SaaS, on-prem systems) are non-human systems and
-    get a distinct generic-system shape instead, so an Identity Provider
-    doesn't render as a literal person icon.
+    for that case. ``saas_ingress`` (something that hands you a token or
+    identity — Okta, an upstream IdP), ``saas_egress`` (something the
+    architecture calls out to — a downstream SaaS integration) and
+    ``on_prem`` (a legacy/on-prem system) are three different kinds of
+    non-human system and get three distinct shapes, so they no longer render
+    identically.
     """
     if kind == "users":
         return (
@@ -160,18 +182,36 @@ def actor_style(kind: str = "users") -> str:
             "strokeColor=none;fillColor=#232F3E;html=1;verticalLabelPosition=bottom;"
             "verticalAlign=top;align=center;fontSize=11;"
         )
+    if kind == "on_prem":
+        return (
+            "rounded=0;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#666666;"
+            "dashed=1;verticalLabelPosition=bottom;verticalAlign=top;align=center;"
+            "fontSize=11;fontColor=#333333;"
+        )
+    if kind == "saas_ingress":
+        return (
+            "shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;"
+            "fillColor=#FFF2CC;strokeColor=#D6B656;verticalLabelPosition=bottom;"
+            "verticalAlign=top;align=center;fontSize=11;fontColor=#333333;"
+        )
+    # saas_egress and any future kind: the original generic ellipse.
     return (
         "ellipse;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;"
         "verticalLabelPosition=bottom;verticalAlign=top;align=center;fontSize=11;fontColor=#333333;"
     )
 
 
-def flow_style(*, primary: bool, labelled: bool) -> str:
+def flow_style(*, primary: bool, labelled: bool, classification: str = "none") -> str:
+    """Two independent channels, not one overloaded one: ``primary`` controls
+    weight/dash (main path vs secondary/async); ``classification`` controls
+    colour (what the flow carries). A flow can be both non-primary and carry
+    PII, so neither channel may collapse into the other."""
     style = "edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;jettySize=auto;orthogonalLoop=1;"
+    color = palette.CLASSIFICATION_COLORS.get(classification, palette.CLASSIFICATION_COLORS["none"])
     if primary:
-        style += "strokeWidth=2;strokeColor=#232F3E;"
+        style += f"strokeWidth=2;strokeColor={color};"
     else:
-        style += "dashed=1;strokeWidth=1;strokeColor=#6B7280;"
+        style += f"dashed=1;strokeWidth=1;strokeColor={color};"
     if labelled:
         style += "labelBackgroundColor=#F5F5F5;fontSize=11;fontColor=#333333;"
     return style

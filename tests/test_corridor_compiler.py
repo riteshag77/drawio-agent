@@ -361,6 +361,87 @@ class StructureTests(unittest.TestCase):
         self.assertTrue(self.xml.startswith("<mxfile"))
 
 
+class SemanticFieldsThroughFullPipelineTests(unittest.TestCase):
+    """Phase 2 capture-scale check: a realistic IR using every new semantic
+    field (criticality, classification, protection) at once, run through the
+    *full* diagnostics/repair pipeline, not just the compiler in isolation —
+    the same "must stay green" bar every other fixture in this file is held
+    to. Substitutes for live capture replay (blocked in this sandbox by
+    outbound TLS interception to every LLM provider)."""
+
+    def test_security_with_semantic_fields_clean_before_and_after_repair(self) -> None:
+        ir = SecurityIR(
+            corridors=[
+                Corridor(id="zone_public", label="Public", leaves=[_leaf("dns", "aws_route53", "Route 53")]),
+                Corridor(id="zone_dmz", label="DMZ", leaves=[_leaf("waf", "aws_waf", "WAF")]),
+                Corridor(id="zone_private", label="Private", leaves=[
+                    _leaf("app", "aws_ecs", "App"),
+                    Leaf(id="secrets", shape_type="aws_secrets_manager", label="Secrets Manager"),
+                ]),
+                Corridor(id="zone_restricted", label="Restricted", leaves=[
+                    Leaf(id="rds", shape_type="aws_rds", label="RDS", criticality="critical"),
+                ]),
+                Corridor(id="zone_detect", label="Detect", leaves=[_leaf("gd", "aws_guardduty", "GuardDuty")]),
+            ],
+            anchored=[AnchoredCorridor(
+                id="zone_external_saas", label="External SaaS Zone", anchor_id="zone_restricted",
+                leaves=[_leaf("workday", "saas_workday", "Workday")],
+            )],
+            flows=[
+                Flow(source="dns", target="waf", protection="tls"),
+                Flow(source="waf", target="app", protection="tls"),
+                Flow(source="app", target="rds", classification="pii", protection="mtls"),
+                Flow(source="app", target="secrets", label="Fetches Credentials", protection="tls"),
+                Flow(source="app", target="gd", label="Logs & Telemetry", primary=False),
+                Flow(source="rds", target="workday", classification="pci", protection="tls"),
+            ],
+        )
+        self.assertEqual(ir.semantic_warnings(), [])  # secrets + detect + protected boundary all present
+        xml = compile_corridor_ir(ir, page_name="Security")
+        pre = diagnose_xml(xml)
+        self.assertEqual(pre.errors, [])
+        self.assertEqual(_non_routing_warnings(pre.warnings), [])
+        repaired, post = repair_xml(xml)
+        self.assertEqual(post.errors, [])
+        self.assertEqual(post.warnings, [])
+
+        # The semantic fields survived the full repair pipeline as stamped attributes.
+        cells = {c.get("id"): c for c in ET.fromstring(repaired).iter("mxCell") if c.get("id")}
+        self.assertEqual(cells["rds"].get("criticality"), "critical")
+        self.assertNotIn("criticality", cells["app"].keys())  # standard leaves stay unstamped
+        pii_edges = [c for c in cells.values() if c.get("classification") == "pii"]
+        self.assertEqual(len(pii_edges), 1)
+        self.assertEqual(pii_edges[0].get("protection"), "mtls")
+
+    def test_data_flow_with_semantic_fields_clean_before_and_after_repair(self) -> None:
+        ir = DataFlowIR(
+            corridors=[
+                Corridor(id="phase_ingest", label="Ingest", leaves=[_leaf("kinesis", "aws_kinesis", "Kinesis")]),
+                Corridor(id="phase_process", label="Process", leaves=[
+                    _leaf("lambda1", "aws_lambda", "Lambda"), _leaf("dlq", "aws_sqs", "Dead-Letter Queue"),
+                ]),
+                Corridor(id="phase_store", label="Store", leaves=[
+                    Leaf(id="db", shape_type="aws_rds", label="RDS", criticality="critical"),
+                    _leaf("archive", "aws_s3", "S3 Archive"),
+                ]),
+            ],
+            flows=[
+                Flow(source="kinesis", target="lambda1"),
+                Flow(source="kinesis", target="dlq", primary=False, label="Failed Retries"),
+                Flow(source="lambda1", target="db", classification="pii"),
+                Flow(source="db", target="archive", label="Automated Snapshots"),
+            ],
+        )
+        self.assertEqual(ir.semantic_warnings(), [])  # DLQ + archive both present
+        xml = compile_corridor_ir(ir, page_name="Data flow")
+        pre = diagnose_xml(xml)
+        self.assertEqual(pre.errors, [])
+        self.assertEqual(_non_routing_warnings(pre.warnings), [])
+        _repaired, post = repair_xml(xml)
+        self.assertEqual(post.errors, [])
+        self.assertEqual(post.warnings, [])
+
+
 class SafetyTests(unittest.TestCase):
     def test_invalid_ir_is_refused_rather_than_silently_compiled(self) -> None:
         ir = realistic_logical_ir()

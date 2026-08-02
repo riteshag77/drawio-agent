@@ -132,6 +132,22 @@ class CorridorIR(DiagramIR):
                 )
         return self
 
+    # ── shared helpers for subclasses' semantic_warnings() ──────────────
+
+    def corridor_by_id(self, corridor_id: str) -> Corridor | None:
+        """The row or anchored corridor with this id, or ``None`` — a
+        judgment-call check reads this to ask "does X even exist" before it
+        asks "does X follow the required-companion rule"."""
+        return next((c for c in self.all_corridors() if c.id == corridor_id), None)
+
+    @staticmethod
+    def leaves_mention(leaves: list[Leaf], *needles: str) -> bool:
+        """Whether any leaf's label contains one of ``needles`` (case-
+        insensitive) — the label-substring heuristic every "required
+        companion present?" warning is built from, since leaves have no
+        dedicated "kind" field to check structurally instead."""
+        return any(any(n in leaf.label.lower() for n in needles) for leaf in leaves)
+
     def semantic_errors(self) -> list[str]:
         """Cross-field rules common to every corridor view.
 

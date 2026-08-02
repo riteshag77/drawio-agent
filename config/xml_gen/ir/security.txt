@@ -65,6 +65,13 @@ private-app children, **never** merged into `zone_external_saas`.
 `issues token`, `Fetches Credentials (TLS)`, `Logs & Telemetry` (dashed),
 `Partner API (mTLS)`, `B2B Federation`, `Scoped Partner API`.
 
+Set each flow's structured `protection` to match its label: `mtls` for any
+`(mTLS)`-labeled flow (partner/gateway links), `tls` for `(TLS)`-labeled
+flows, `none` for anything genuinely unencrypted (e.g. internal telemetry
+over a private path with no TLS termination noted). Any flow that crosses
+into `zone_public` or `zone_partner` should carry `protection` — a boundary
+crossing with `protection: none` is flagged for review.
+
 **Forbidden:** Orders/Catalog/Checkout/UI soup, Kafka-as-hero, DB
 table/CRUD labels, full AZ/subnet wallpaper (that's Network's lens), SaaS
 leaves inside `zone_private`, partner leaves inside `zone_private` or

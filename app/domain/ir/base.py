@@ -68,6 +68,15 @@ class Leaf(Identified):
             "never a full sentence."
         ),
     )
+    criticality: Literal["standard", "critical"] = Field(
+        default="standard",
+        description=(
+            "'critical' only for a business-critical or single-point-of-failure component "
+            "(e.g. the primary datastore, the auth service) — most leaves are 'standard'. "
+            "Binary on purpose: a finer tier is not something you can judge reliably from a "
+            "brief description, so don't guess."
+        ),
+    )
 
     @field_validator("shape_type")
     @classmethod
@@ -107,6 +116,10 @@ class ExternalActor(Identified):
     label: str
 
 
+FlowClassification = Literal["none", "internal", "confidential", "pii", "pci"]
+FlowProtection = Literal["none", "tls", "mtls"]
+
+
 class Flow(IRModel):
     """A directed request/data-path edge between two leaf ids."""
 
@@ -116,6 +129,25 @@ class Flow(IRModel):
     primary: bool = Field(
         default=True,
         description="True for the main request path (solid). False for secondary/async paths (dashed).",
+    )
+    classification: FlowClassification = Field(
+        default="none",
+        description=(
+            "Sensitivity of the data this flow carries. 'pii'/'pci' only when the request "
+            "genuinely implies personal or payment data — never invent sensitivity that isn't "
+            "there. 'confidential' for internal-but-sensitive (e.g. credentials, internal "
+            "financials) that isn't personal/payment data. 'internal' for ordinary internal "
+            "traffic; 'none' when classification doesn't apply (e.g. a health check)."
+        ),
+    )
+    protection: FlowProtection = Field(
+        default="none",
+        description=(
+            "Transport protection actually in effect on this flow. 'mtls' only for mutual-TLS "
+            "(both sides authenticate — typical for service-to-service and partner links); "
+            "'tls' for one-way TLS (typical for client-to-edge); 'none' only when the flow is "
+            "genuinely unencrypted or protection doesn't apply."
+        ),
     )
 
     @field_validator("label")
@@ -180,6 +212,18 @@ class DiagramIR(IRModel):
     def semantic_errors(self) -> list[str]:  # pragma: no cover - overridden
         """View-specific rules that Pydantic field validation cannot express."""
         raise NotImplementedError
+
+    def semantic_warnings(self) -> list[str]:
+        """Judgment-call rules that should prompt a correction but must never
+        block compilation — unlike ``semantic_errors()``, a non-empty result
+        here is fed into one best-effort corrective LLM pass
+        (``agent._generate_ir_with_corrections``) and then ignored regardless
+        of the outcome. Default: none. ``CorridorIR`` subclasses override this
+        with the "required companions" rules promoted from prompt-pack prose
+        (see ``domain/ir/{logical,security,data_flow}.py``); ``NetworkIR`` has
+        none to promote yet, so it keeps this default.
+        """
+        return []
 
     def is_valid(self) -> bool:
         return not self.semantic_errors()

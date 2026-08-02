@@ -54,3 +54,31 @@ class DataFlowIR(CorridorIR):
                     f"{sorted(_STORE_SHELF_IDS | {_WHOLE_ROW_SHELF_ID})} in Data flow"
                 )
         return self
+
+    def semantic_warnings(self) -> list[str]:
+        """Promotes two "required companions" rules from
+        ``config/xml_gen/ir/data_flow.txt`` prose into code — see that file's
+        "Required companions" section for the judgment calls these mirror.
+        """
+        warnings: list[str] = []
+        ingest = self.corridor_by_id("phase_ingest")
+        if ingest is not None and self.leaves_mention(
+            ingest.leaves, "kafka", "kinesis", "stream", "event hub", "pub/sub",
+        ):
+            process = self.corridor_by_id("phase_process")
+            has_dlq = process is not None and self.leaves_mention(
+                process.leaves, "dlq", "dead-letter", "dead letter", "retry",
+            )
+            if not has_dlq:
+                warnings.append(
+                    "phase_ingest has a streaming/event leaf but phase_process has no "
+                    "dead-letter/DLQ leaf — the required-companions rule calls for one when "
+                    "ingest is streaming."
+                )
+        store = self.corridor_by_id("phase_store")
+        if store is not None and not self.leaves_mention(store.leaves, "snapshot", "archive", "backup"):
+            warnings.append(
+                "phase_store has no snapshot/archive/backup leaf — the required-companions "
+                "rule calls for one so the primary store isn't the only copy of the data."
+            )
+        return warnings

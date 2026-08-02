@@ -98,6 +98,17 @@ def _iter_cells(root: ET.Element) -> list[ET.Element]:
     return [c for c in root.iter("mxCell") if c.get("id")]
 
 
+def _is_ir_compiled(root: ET.Element) -> bool:
+    """Whether this page came from the IR compiler (``layout="ir"`` stamped
+    on the default layer by ``CellWriter.mark_layout_authoritative``), as
+    opposed to the direct-XML fallback. Checks gated on this only fire for
+    pages that actually stamp the ``classification``/``protection``/
+    ``criticality`` attributes they read — the direct-XML path never sets
+    them, so applying these checks there would misread "attribute absent"
+    as "genuinely unprotected" on every single flow."""
+    return any(c.get("id") == "1" and c.get("layout") == "ir" for c in _iter_cells(root))
+
+
 def _is_container(cell: ET.Element) -> bool:
     style = cell.get("style") or ""
     return "container=1" in style or "swimlane" in style
@@ -285,12 +296,19 @@ def score_view(
         req = (request_text or "").lower()
         needs_class = any(x in req for x in ("pii", "pci", "personal data", "gdpr", "hipaa"))
         if needs_class:
-            tagged = False
-            for _eid, label, _ in edges:
-                low = (label or "").lower()
-                if "[pii]" in low or "[pci]" in low or "[non-pii]" in low or "[confidential]" in low:
-                    tagged = True
-                    break
+            # The typed IR path stamps `classification` directly on edges —
+            # check that first, before falling back to the label-text search
+            # the direct-XML path (which never stamps the attribute) needs.
+            tagged = any(
+                (c.get("classification") or "") in ("pii", "pci")
+                for c in _iter_cells(root) if c.get("edge") == "1"
+            )
+            if not tagged:
+                for _eid, label, _ in edges:
+                    low = (label or "").lower()
+                    if "[pii]" in low or "[pci]" in low or "[non-pii]" in low or "[confidential]" in low:
+                        tagged = True
+                        break
             if not tagged:
                 for card in _iter_cells(root):
                     cid = card.get("id") or ""
@@ -373,6 +391,52 @@ def score_view(
             "warning",
             "Overview present but no step_badge_* markers — prefer step_markers",
         ))
+
+    # Security: boundary-crossing flow with no stated transport protection.
+    # IR-only — `protection` is never stamped on the direct-XML fallback, so
+    # applying this there would misread "attribute absent" as "genuinely
+    # unprotected" on every single flow rather than just the real gaps.
+    if view == "security" and _is_ir_compiled(root):
+        by_id = {c.get("id"): c for c in _iter_cells(root)}
+        boundary_prefixes = ("zone_public", "zone_partner")
+        for cell in _iter_cells(root):
+            if cell.get("edge") != "1":
+                continue
+            src = by_id.get(cell.get("source") or "")
+            tgt = by_id.get(cell.get("target") or "")
+            src_zone = src.get("parent") or "" if src is not None else ""
+            tgt_zone = tgt.get("parent") or "" if tgt is not None else ""
+            touches_boundary = src_zone.startswith(boundary_prefixes) or tgt_zone.startswith(boundary_prefixes)
+            if touches_boundary and (cell.get("protection") or "none") == "none":
+                violations.append(ViewViolation(
+                    "unprotected_boundary_flow",
+                    "warning",
+                    f"Flow {cell.get('id')} crosses a public/partner boundary zone with no "
+                    "stated TLS/mTLS protection",
+                    [cell.get("id") or ""],
+                ))
+
+    # Corridor views: a legend is expected once enough visual conventions are
+    # in play — mirrors compiler/legend.py's own row threshold. IR-only, since
+    # the direct-XML fallback never emits legend_box at all and this would
+    # otherwise fire on every one of its pages.
+    if view in ("logical", "security", "data_flow") and _is_ir_compiled(root):
+        has_legend = any((c.get("id") or "") == "legend_box" for c in _iter_cells(root))
+        if not has_legend:
+            edge_styles = [c.get("style") or "" for c in _iter_cells(root) if c.get("edge") == "1"]
+            has_primary = any("dashed=1" not in s for s in edge_styles)
+            has_secondary = any("dashed=1" in s for s in edge_styles)
+            has_shelf = any(
+                _is_container(c) and "dashed=1" in (c.get("style") or "") for c in _iter_cells(root)
+            )
+            expected_rows = sum([has_primary and has_secondary, has_shelf, view == "security"])
+            if expected_rows >= 2:
+                violations.append(ViewViolation(
+                    "missing_legend",
+                    "warning",
+                    "Page has enough visual conventions in play (primary/secondary path, "
+                    "shelf, trust axis) to warrant a legend, but no legend_box cell is present",
+                ))
 
     # Escaped HTML leak (double-escaped): after XML parse, `&amp;lt;` becomes `&lt;`
     for cell in _iter_cells(root):

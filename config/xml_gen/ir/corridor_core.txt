@@ -54,6 +54,11 @@ Every leaf has:
   need none; this view's own vocabulary pack lists what kind of tag fits its lens
   (tech stack, encryption/control, data classification, hosting/environment). Never
   a full sentence, never invented detail the request/inventory doesn't support.
+- `criticality` — `"critical"` only for a genuine business-critical or
+  single-point-of-failure component (the primary datastore, the auth service);
+  everything else is `"standard"` (the default — leave it unset unless you mean
+  `"critical"`). Binary on purpose: don't guess a finer tier from a brief
+  description. Renders as a heavier, coloured leaf border.
 
 ## Flows
 
@@ -64,6 +69,19 @@ sparse, not a mesh. `primary: false` for secondary/async paths (rendered
 dashed). `label` is optional; when used, 1–4 words. Every flow's
 `source`/`target` must be a real leaf or external-actor id you already
 declared.
+
+Two more optional fields per flow, both default to `"none"` — set them only
+when the request genuinely implies the property, never invented:
+- `classification` — sensitivity of the data this flow carries: `"pii"`/`"pci"`
+  for personal/payment data, `"confidential"` for internal-but-sensitive
+  (credentials, internal financials), `"internal"` for ordinary internal
+  traffic, `"none"` when it doesn't apply (e.g. a health check). Colours the
+  edge.
+- `protection` — transport protection actually in effect: `"mtls"` for
+  mutual-TLS (typical service-to-service/partner links), `"tls"` for one-way
+  TLS (typical client-to-edge), `"none"` only when genuinely unencrypted.
+  This structured field feeds the panel's facts and validation; it does not
+  replace a view's own convention (if any) for also naming it in `label`.
 
 ## What you do not need to do
 

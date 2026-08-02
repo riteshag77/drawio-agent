@@ -10,6 +10,7 @@ from xml.sax.saxutils import escape
 from pydantic import BaseModel, Field
 
 from app.adapters.outbound.config.env_config import EnvConfigAdapter
+from app.adapters.outbound.diagram import palette
 from app.adapters.outbound.diagram.xml_tools import ensure_diagram_document, wrap_with_mxfile
 from app.domain.entities.xml_diagram import StepMarker
 
@@ -1866,6 +1867,155 @@ def _strip_annotation_tag(label: str) -> str:
     return label
 
 
+#: Cap on how many steps the numbered story (panel prose + canvas badges)
+#: ever carries — matches ``apply_step_markers``' own badge cap, so neither
+#: side ever has to truncate what the other already committed to.
+_MAX_STORY_STEPS = 5
+
+
+class _StoryStep:
+    """One numbered step in a page's primary-flow story — both the prose
+    ``synthesize_ir_overview_body`` writes into the panel and the badge
+    ``derive_story_markers`` places on the canvas come from the same instance,
+    which is what guarantees panel step *i* and canvas badge *i* always name
+    the same cell (see both functions' docstrings)."""
+
+    __slots__ = ("target_id", "text")
+
+    def __init__(self, target_id: str, text: str) -> None:
+        self.target_id = target_id
+        self.text = text
+
+
+def _ir_story_steps(xml: str) -> list[_StoryStep]:
+    """The page's primary-flow story, deduped and capped, in ``ir.flows``
+    order (``emit_flows`` writes edges in that order) — shared by every
+    consumer that numbers the same story, so there is exactly one place that
+    decides which edges are "step 1, 2, 3...".
+    """
+    try:
+        parse_src = xml if ("<mxfile" in xml or "<mxGraphModel" in xml) else f"<root>{xml}</root>"
+        tree = ET.fromstring(parse_src)
+    except ET.ParseError:
+        return []
+
+    cells = list(tree.iter("mxCell"))
+    by_id = {c.get("id"): c for c in cells if c.get("id")}
+
+    def _label(cell_id: str | None) -> str:
+        cell = by_id.get(cell_id or "")
+        if cell is None:
+            return ""
+        return _strip_annotation_tag((cell.get("value") or "").strip())
+
+    edges = [c for c in cells if c.get("edge") == "1" and c.get("source") and c.get("target")]
+    steps: list[_StoryStep] = []
+    seen_pairs: set[tuple[str, str]] = set()
+    for edge in edges:
+        if len(steps) >= _MAX_STORY_STEPS:
+            break
+        src_id, tgt_id = edge.get("source") or "", edge.get("target") or ""
+        src, tgt = _label(src_id), _label(tgt_id)
+        if not src or not tgt or (src, tgt) in seen_pairs:
+            continue
+        seen_pairs.add((src, tgt))
+        edge_label = re.sub(r"<[^>]+>", "", (edge.get("value") or "")).strip()
+        text = f"{src} → {tgt} ({edge_label})." if edge_label else f"{src} connects to {tgt}."
+        # Anchor on the target: a step is "about" what it arrives at (the
+        # thing checked, stored, or invoked), not the actor that sent it.
+        steps.append(_StoryStep(target_id=tgt_id, text=text))
+    return steps
+
+
+def derive_story_markers(xml: str) -> list[StepMarker]:
+    """Numbered canvas badges for the same story
+    ``synthesize_ir_overview_body`` numbers in the panel — deterministic (no
+    LLM involved), and guaranteed to agree with the panel's numbering because
+    both read ``_ir_story_steps`` on the *same* xml snapshot. Fixes a real gap:
+    the IR path always sent ``step_markers=[]`` (``agent.py``'s
+    ``generate_xml_diagram_from_ir``), so the panel numbered steps 1..5 while
+    nothing on the canvas ever carried those numbers.
+    """
+    return [
+        StepMarker(step_number=i, cell_id=step.target_id)
+        for i, step in enumerate(_ir_story_steps(xml), start=1)
+    ]
+
+
+#: Corridor id prefix per view — the same vocabulary each ``CorridorIR``
+#: subclass enforces (``domain.ir.corridor.CorridorIR.id_prefix``). Network
+#: has no corridor row at all, so it is deliberately absent here.
+_CORRIDOR_PREFIX_BY_VIEW: dict[str, tuple[str, str]] = {
+    "logical": ("domain_", "domain"),
+    "security": ("zone_", "zone"),
+    "data flow": ("phase_", "phase"),
+    "data_flow": ("phase_", "phase"),
+}
+
+
+def _plural(n: int, word: str) -> str:
+    return f"{n} {word}" if n == 1 else f"{n} {word}s"
+
+
+#: Flow.classification values that count as "sensitive" for the facts line.
+_SENSITIVE_CLASSIFICATIONS = frozenset({"pii", "pci"})
+#: Flow.protection values that count as "protected" for the facts line.
+_PROTECTED_VALUES = frozenset({"tls", "mtls"})
+
+
+def _key_facts_line(xml: str, title_key: str) -> str | None:
+    """One structural summary line — "5 zones (1 shelf) · 12 services ·
+    11 flows · 2 business-critical services · 3/11 flows protected (TLS/mTLS)
+    · 2 flows carrying PII/PCI" — derived purely from cell counts and the
+    ``criticality``/``classification``/``protection`` attributes already
+    stamped on the compiled page (see ``compiler/emit.py``), never invented.
+    Every clause after the topology counts is included only when its count is
+    non-zero, so a page with no critical leaves or classified flows gets the
+    same three-clause line it always did.
+    """
+    prefix_info = _CORRIDOR_PREFIX_BY_VIEW.get(title_key)
+    if prefix_info is None:
+        return None
+    prefix, noun = prefix_info
+    try:
+        parse_src = xml if ("<mxfile" in xml or "<mxGraphModel" in xml) else f"<root>{xml}</root>"
+        tree = ET.fromstring(parse_src)
+    except ET.ParseError:
+        return None
+
+    cells = list(tree.iter("mxCell"))
+    corridors = [
+        c for c in cells
+        if (c.get("id") or "").startswith(prefix) and "container=1" in (c.get("style") or "")
+    ]
+    if not corridors:
+        return None
+    corridor_ids = {c.get("id") for c in corridors}
+    shelf_count = sum(1 for c in corridors if palette.is_shelf((c.get("id") or "").lower()))
+    leaves = [
+        c for c in cells
+        if c.get("vertex") == "1" and c.get("edge") != "1" and c.get("parent") in corridor_ids
+    ]
+    edges = [c for c in cells if c.get("edge") == "1" and c.get("source") and c.get("target")]
+
+    critical_count = sum(1 for leaf in leaves if leaf.get("criticality") == "critical")
+    sensitive_flow_count = sum(1 for edge in edges if edge.get("classification") in _SENSITIVE_CLASSIFICATIONS)
+    protected_flow_count = sum(1 for edge in edges if edge.get("protection") in _PROTECTED_VALUES)
+
+    parts = [_plural(len(corridors), noun)]
+    if shelf_count:
+        parts[-1] += f" ({_plural(shelf_count, 'shelf')})"
+    parts.append(_plural(len(leaves), "service"))
+    parts.append(_plural(len(edges), "flow"))
+    if critical_count:
+        parts.append(_plural(critical_count, "business-critical service"))
+    if protected_flow_count:
+        parts.append(f"{protected_flow_count}/{len(edges)} flows protected (TLS/mTLS)")
+    if sensitive_flow_count:
+        parts.append(f"{_plural(sensitive_flow_count, 'flow')} carrying PII/PCI")
+    return " &#183; ".join(parts)
+
+
 def synthesize_ir_overview_body(xml: str, view_title: str, system_title: str = "") -> str:
     """Build a request-specific Overview Panel body from an IR-compiled page's
     own vertex/edge graph, instead of the generic static stub.
@@ -1880,37 +2030,7 @@ def synthesize_ir_overview_body(xml: str, view_title: str, system_title: str = "
     generic stub only if the graph is somehow unusable (e.g. no edges at all).
     """
     title_key = (view_title or "").strip().lower()
-    try:
-        parse_src = xml if ("<mxfile" in xml or "<mxGraphModel" in xml) else f"<root>{xml}</root>"
-        tree = ET.fromstring(parse_src)
-    except ET.ParseError:
-        return _overview_stub_body(view_title)
-
-    cells = list(tree.iter("mxCell"))
-    by_id = {c.get("id"): c for c in cells if c.get("id")}
-
-    def _label(cell_id: str | None) -> str:
-        cell = by_id.get(cell_id or "")
-        if cell is None:
-            return ""
-        return _strip_annotation_tag((cell.get("value") or "").strip())
-
-    edges = [c for c in cells if c.get("edge") == "1" and c.get("source") and c.get("target")]
-    steps: list[str] = []
-    seen_pairs: set[tuple[str, str]] = set()
-    for edge in edges:
-        if len(steps) >= 5:
-            break
-        src, tgt = _label(edge.get("source")), _label(edge.get("target"))
-        if not src or not tgt or (src, tgt) in seen_pairs:
-            continue
-        seen_pairs.add((src, tgt))
-        edge_label = re.sub(r"<[^>]+>", "", (edge.get("value") or "")).strip()
-        if edge_label:
-            steps.append(f"{src} → {tgt} ({edge_label}).")
-        else:
-            steps.append(f"{src} connects to {tgt}.")
-
+    steps = _ir_story_steps(xml)
     if not steps:
         return _overview_stub_body(view_title)
 
@@ -1926,7 +2046,13 @@ def synthesize_ir_overview_body(xml: str, view_title: str, system_title: str = "
             f"{lens}&lt;/div&gt;"
         )
     for i, step in enumerate(steps, start=1):
-        parts.append(f"&lt;div style=&quot;font-size:15px;&quot;&gt;{i}. {_esc(step)}&lt;/div&gt;")
+        parts.append(f"&lt;div style=&quot;font-size:15px;&quot;&gt;{i}. {_esc(step.text)}&lt;/div&gt;")
+    facts = _key_facts_line(xml, title_key)
+    if facts:
+        parts.append(
+            "&lt;div style=&quot;font-size:13px;color:#555555;margin-top:6px;&quot;&gt;"
+            f"{_esc(facts)}&lt;/div&gt;"
+        )
     if footer:
         parts.append(f"&lt;div style=&quot;font-size:13px;&quot;&gt;{footer}&lt;/div&gt;")
     return "".join(parts)

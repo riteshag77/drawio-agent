@@ -6,6 +6,7 @@ import math
 import re
 import xml.etree.ElementTree as ET
 
+from app.adapters.outbound.diagram import palette
 from app.adapters.outbound.diagram.xml_diagnostics import (
     _RESERVED_IDS,
     _cell_geometry,
@@ -1957,67 +1958,43 @@ _CORRIDOR_CONTAINER_STYLE = {
 }
 _CORRIDOR_CONTAINER_STYLE["data_flow"] = _CORRIDOR_CONTAINER_STYLE["data flow"]
 
-# Per-bucket-id (fillColor, strokeColor) — matches each view pack's own documented
-# "Section colors" table exactly (config/xml_gen/views/logical|security|data_flow.txt).
-# Auto-created containers (_synthesize_corridors, resolve_misplaced_security_controls)
-# previously stamped one flat per-page style regardless of which specific domain/zone/
-# phase they were, and dropped the fill entirely — every LLM-emitted, prompt-conformant
-# container uses a real hex fill, not fillColor=none.
-_ZONE_COLORS: dict[str, tuple[str, str]] = {
-    # logical
-    "domain_experience": ("#F5F5F5", "#666666"),
-    "domain_identity": ("#E1D5E7", "#9673A6"),
-    "domain_core": ("#DAE8FC", "#6C8EBF"),
-    "domain_commerce": ("#DAE8FC", "#6C8EBF"),
-    "domain_platform": ("#DAE8FC", "#147EBA"),
-    "domain_data": ("#D5E8D4", "#82B366"),
-    "domain_saas": ("#FFF2CC", "#D6B656"),
-    # security
-    "zone_public": ("#FFF2CC", "#D6B656"),
-    "zone_dmz": ("#FFF2CC", "#D6B656"),
-    "zone_identity": ("#E1D5E7", "#9673A6"),
-    "zone_partner": ("#D5E8D4", "#82B366"),
-    "zone_private": ("#DAE8FC", "#6C8EBF"),
-    "zone_restricted": ("#F8CECC", "#B85450"),
-    "zone_detect": ("#DAE8FC", "#147EBA"),
-    "zone_external_saas": ("#FFF2CC", "#D6B656"),
-    # data flow
-    "phase_ingest": ("#FFF2CC", "#D6B656"),
-    "phase_process": ("#DAE8FC", "#6C8EBF"),
-    "phase_store": ("#D5E8D4", "#82B366"),
-    "phase_consume": ("#D5E8D4", "#82B366"),
-    "phase_control": ("#DAE8FC", "#147EBA"),
-    "phase_saas": ("#FFF2CC", "#D6B656"),
-}
-
-
 def _zone_colors_for(bucket_id: str) -> tuple[str, str] | None:
-    """(fillColor, strokeColor) for a bucket id, matched by exact id or prefix
-    (so a de-duplicated id like ``domain_core_2`` still resolves)."""
-    colors = _ZONE_COLORS.get(bucket_id)
-    if colors is not None:
-        return colors
-    for prefix, pair in _ZONE_COLORS.items():
-        if bucket_id.startswith(prefix):
-            return pair
-    return None
+    """(fillColor, strokeColor) for a bucket id — see ``palette.corridor_colors``.
+
+    The table itself lives in ``diagram/palette.py`` so ``compiler/theme.py``
+    (which *produces* container styles) and this module (which later
+    *overwrites* them) cannot drift apart.
+    """
+    return palette.corridor_colors(bucket_id)
+
+
+def _corridor_border(bucket_id: str) -> tuple[str, str]:
+    """``(strokeWidth, dashed)`` for a corridor id.
+
+    An anchored shelf (SaaS / consume / control) keeps a heavier dashed border
+    so "this sits outside the main journey" reads at a glance — the same
+    distinction ``compiler/theme.shelf_style()`` intends, which this module's
+    colour normalization would otherwise flatten to one uniform weight.
+    """
+    return ("2", "1") if palette.is_shelf(bucket_id) else ("1", "0")
 
 
 def _corridor_style_for(page_name: str, bucket_id: str) -> str:
     """Container style for a specific domain/zone/phase bucket id.
 
-    Looks up ``_ZONE_COLORS`` by the id's own prefix (so a de-duplicated id like
-    ``domain_core_2`` still resolves) and falls back to the flat per-page style
-    only when the id has no table entry.
+    Looks up ``palette.CORRIDOR_COLORS`` by the id's own prefix (so a
+    de-duplicated id like ``domain_core_2`` still resolves) and falls back to
+    the flat per-page style only when the id has no table entry.
     """
     colors = _zone_colors_for(bucket_id)
     if colors is None:
         return _CORRIDOR_CONTAINER_STYLE.get(page_name, _CORRIDOR_CONTAINER_STYLE["logical"])
     fill, stroke = colors
+    width, dashed = _corridor_border(bucket_id)
     return (
         "rounded=1;arcSize=2;whiteSpace=wrap;html=1;container=1;dropTarget=1;"
         f"collapsible=0;recursiveResize=0;fillColor={fill};strokeColor={stroke};"
-        "strokeWidth=1;dashed=1;align=left;verticalAlign=top;spacingLeft=12;"
+        f"strokeWidth={width};dashed={dashed};align=left;verticalAlign=top;spacingLeft=12;"
         f"spacingTop=8;fontStyle=1;fontSize=12;fontColor={stroke};"
     )
 
@@ -2055,9 +2032,15 @@ def normalize_corridor_colors(xml: str) -> str:
         if colors is None:
             continue
         fill, stroke = colors
+        width, dashed = _corridor_border(cid.lower())
         style = cell.get("style") or ""
+        # strokeWidth/dashed are set here too, not just colour: this pass is
+        # authoritative for corridor appearance, and leaving the border alone
+        # let a shelf keep whatever weight an upstream style happened to carry,
+        # erasing the row-vs-shelf distinction the colours alone can't show.
         new_style = _set_style_kv(style, {
             "fillColor": fill, "strokeColor": stroke, "fontColor": stroke,
+            "strokeWidth": width, "dashed": dashed,
         })
         if new_style != style:
             cell.set("style", new_style)
