@@ -58,6 +58,30 @@ Canonical auth journey: `Persona → Okta (SAAS)` (`Authenticates via`) →
 `Portal/Application` (`Redirects to`) → capability. Canonical data journey:
 `capability → Customer data store` (`Reads/Writes via API`).
 
+### Mini example
+
+```json
+"external_actors": [{"id": "persona", "kind": "users", "label": "Persona"}],
+"corridors": [
+  {"id": "domain_experience", "label": "Experience", "leaves": [
+    {"id": "portal", "shape_type": "logical_portal", "label": "Product Portal"}
+  ]},
+  {"id": "domain_core", "label": "Core", "leaves": [
+    {"id": "item_api", "shape_type": "logical_capability", "label": "Item capability"},
+    {"id": "reviews_api", "shape_type": "logical_capability", "label": "Reviews capability"}
+  ]},
+  {"id": "domain_data", "label": "Data", "leaves": [
+    {"id": "item_store", "shape_type": "logical_datastore", "label": "Item data store", "criticality": "critical"}
+  ]}
+],
+"flows": [
+  {"source": "persona", "target": "portal", "label": "Uses"},
+  {"source": "portal", "target": "item_api", "label": "Invokes"},
+  {"source": "reviews_api", "target": "item_api", "label": "Calls API"},
+  {"source": "item_api", "target": "item_store", "label": "Reads/Writes via API"}
+]
+```
+
 **Forbidden:** data store ↔ IdP edges; every-to-every mesh; bare `Calls API`
 to egress SaaS when a cache leaf is present; trust-zone vocabulary
 (zone_public/DMZ/etc. — that's Security's lens); infrastructure products

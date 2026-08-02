@@ -261,11 +261,11 @@ class ChatRequestAttachmentSchemaTests(unittest.TestCase):
 
 
 class LlmPortInjectionTests(unittest.TestCase):
-    """Verify that a fake LlmPort can be injected into generate_xml_diagram."""
+    """Verify that a fake LlmPort can be injected into generate_xml_diagram (3D path)."""
 
     def test_fake_llm_is_used_when_injected(self) -> None:
         from app.core.services.agent import generate_xml_diagram
-        from app.domain.entities import DiagramEditPlan, XmlDiagram
+        from app.domain.entities import XmlDiagram
 
         fake_xml = "<mxfile><diagram><mxGraphModel><root><mxCell id='0'/></root></mxGraphModel></diagram></mxfile>"
         fake_result = XmlDiagram(xml=fake_xml, assistant_message="ok", suggestions=[])
@@ -273,14 +273,13 @@ class LlmPortInjectionTests(unittest.TestCase):
 
         def fake_llm(system_prompt, human_content, provider, output_type, logger, attachments):
             calls.append((provider, output_type))
-            if output_type is DiagramEditPlan:
-                return DiagramEditPlan(applicable=False)
             return fake_result
 
         result = generate_xml_diagram(
             "draw a VPC",
             provider="claude",
             platform="aws",
+            three_d=True,
             llm=fake_llm,
         )
         self.assertEqual(result.xml, fake_xml)
@@ -289,53 +288,38 @@ class LlmPortInjectionTests(unittest.TestCase):
 
 
 class CurrentXmlPromptAssemblyTests(unittest.TestCase):
-    """generate_xml_diagram must surface current_xml as edit-mode ground truth when provided."""
+    """Edit mode: surgical ops or NonSurgicalEditError (IR regenerate upstream)."""
 
-    @staticmethod
-    def _fake_result() -> "XmlDiagram":
-        from app.domain.entities import XmlDiagram
-        return XmlDiagram(
-            xml='<mxfile><diagram><mxGraphModel><root><mxCell id="0"/></root></mxGraphModel></diagram></mxfile>',
-            assistant_message="ok", suggestions=[],
-        )
-
-    def test_current_xml_included_as_current_diagram_block(self) -> None:
-        from app.core.services.agent import generate_xml_diagram
-
-        captured: dict[str, str] = {}
+    def test_non_surgical_edit_raises(self) -> None:
+        from app.core.services.agent import NonSurgicalEditError, generate_xml_diagram
+        from app.domain.entities import DiagramEditPlan
 
         def fake_llm(system_prompt, human_content, provider, output_type, logger, attachments):
-            captured["human_content"] = human_content
-            from app.domain.entities import DiagramEditPlan
             if output_type is DiagramEditPlan:
                 return DiagramEditPlan(applicable=False)
-            return self._fake_result()
+            raise AssertionError("should not call XML generation for non-surgical edit")
 
-        prior_xml = '<mxfile><diagram><mxGraphModel><root><mxCell id="overview_panel" value="Old"/></root></mxGraphModel></diagram></mxfile>'
-        generate_xml_diagram(
-            "add a Lambda function", provider="claude", platform="aws",
-            current_xml=prior_xml, llm=fake_llm,
+        prior_xml = (
+            '<mxfile><diagram><mxGraphModel><root>'
+            '<mxCell id="overview_panel" value="Old"/>'
+            "</root></mxGraphModel></diagram></mxfile>"
+            + ("<!-- pad -->" * 40)
         )
-        self.assertIn("## Current diagram", captured["human_content"])
-        self.assertIn(prior_xml, captured["human_content"])
-        self.assertIn("Edit mode", captured["human_content"])
+        with self.assertRaises(NonSurgicalEditError):
+            generate_xml_diagram(
+                "redesign this as a multi-region active-active architecture",
+                provider="claude",
+                platform="aws",
+                current_xml=prior_xml,
+                llm=fake_llm,
+            )
 
-    def test_no_current_xml_omits_block_and_matches_prior_behavior(self) -> None:
+    def test_fresh_non_3d_raises(self) -> None:
         from app.core.services.agent import generate_xml_diagram
 
-        captured: dict[str, str] = {}
-
-        def fake_llm(system_prompt, human_content, provider, output_type, logger, attachments):
-            captured["human_content"] = human_content
-            from app.domain.entities import DiagramEditPlan
-            if output_type is DiagramEditPlan:
-                return DiagramEditPlan(applicable=False)
-            return self._fake_result()
-
-        generate_xml_diagram(
-            "draw a VPC", provider="claude", platform="aws", llm=fake_llm,
-        )
-        self.assertNotIn("## Current diagram", captured["human_content"])
+        with self.assertRaises(ValueError) as ctx:
+            generate_xml_diagram("draw a VPC", provider="claude", platform="aws", llm=lambda *a: None)
+        self.assertIn("three_d=True", str(ctx.exception))
 
 
 if __name__ == "__main__":

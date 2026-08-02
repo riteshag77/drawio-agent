@@ -10,9 +10,10 @@ XML string, reusing this app's own cell-parsing helpers from ``xml_tools``
 so the notion of "container" and "geometry" stays consistent across the
 pipeline.
 
-Each deterministic check here mirrors an "ABSOLUTE RULE"/"FORBIDDEN"
-clause in ``config/xml_gen/core.txt``. Format and structural repair is
-auto-only — the pipeline never spends an LLM call to fix XML shape.
+Each deterministic check here mirrors a structural layout contract from
+``geometry_spec`` / the IR compilers (formerly taught in deleted XML prompt
+packs). Format and structural repair is auto-only — the pipeline never spends
+an LLM call to fix XML shape.
 """
 
 from __future__ import annotations
@@ -48,7 +49,7 @@ _LEAF_GRID_MAX_ROWS = _geo.LEAF_GRID_MAX_ROWS
 # Rows are clustered by top-y proximity within this tolerance (px).
 _ROW_TOL = _geo.ROW_TOL
 
-# Canonical pitch ranges from core.txt's "Density tiers" table —
+# Canonical pitch ranges from geometry_spec's "Density tiers" table —
 # data-path subnets prefer 200, allowed 180-220 (widened slightly here to
 # avoid flagging legitimate edge-of-range layouts); supporting (cross-cutting)
 # groups allow a tighter 160-180.
@@ -65,7 +66,7 @@ _GROUP_CANONICAL_PITCH = _geo.GROUP_CANONICAL_PITCH
 
 # Default geometry handed to a vertex missing <mxGeometry> entirely (see
 # ensure_valid_vertex_geometry) — 78x78 matches the canonical leaf icon size
-# documented in config/xml_gen/core.txt; the container default is safely
+# documented in geometry_spec; the container default is safely
 # above xml_tools._FIT_MIN_W/_FIT_MIN_H (120.0/80.0) so fit_containers_to_
 # children never has to grow it from a degenerate starting size.
 _DEFAULT_LEAF_SIZE = _geo.DEFAULT_LEAF_SIZE
@@ -76,21 +77,21 @@ _DEFAULT_CONTAINER_SIZE = _geo.DEFAULT_CONTAINER_SIZE
 # so overlap detection accounts for the label, not just the icon box.
 _LABEL_BAND_HEIGHT = _geo.LABEL_BAND_H
 
-# Cross-cutting group containers (config/xml_gen/views/network.txt "Cross-Cutting
+# Cross-cutting group containers (config/xml_gen/ir/network.txt "Cross-Cutting
 # Groups — NO EDGES"): matched by the container's first label word, mirroring
 # the short-form naming already used in this app's fixtures/tests ("Security",
 # "Monitoring", ...) and the longer "Security Group" form from the container-
 # style table — both start with the same keyword.
 _CROSS_CUTTING_KEYWORDS = {"security", "monitoring", "integration", "management"}
 
-# Stable id the prompt (config/xml_gen/core.txt, "Overview Panel — RIGHT-HAND
+# Stable id the prompt (geometry_spec, "Overview Panel — RIGHT-HAND
 # SIDE") requires for the right-hand explanatory text box. It is deliberately
 # excluded from the leaf-grid helpers below (pitch/row/overlap checks) since
 # it's a prose annotation, not a service icon in the architecture grid.
 _OVERVIEW_PANEL_ID = "overview_panel"
 _OVERVIEW_PANEL_GAP = 40.0
 _OVERVIEW_PANEL_MARGIN = 24.0
-# Documented panel width range (config/xml_gen/core.txt) — Gap B (Fix 3):
+# Documented panel width range (geometry_spec) — Gap B (Fix 3):
 # ensure_overview_panel_position previously read width once and never
 # corrected it, unlike height, which is always recomputed from content.
 _OVERVIEW_PANEL_MIN_W = 400.0
@@ -102,7 +103,7 @@ _OVERVIEW_PANEL_MAX_W = 640.0
 _LEGEND_ID = "legend_box"
 _LEGEND_GAP = 20.0
 # Rough characters-per-line at the panel's chosen font/width, matching the
-# estimate config/xml_gen/core.txt already documents to the LLM — used to
+# estimate geometry_spec already documents to the LLM — used to
 # compute the panel's actual needed height from its real text content instead
 # of trusting whatever height the LLM emitted.
 _PANEL_CHARS_PER_LINE = 50
@@ -921,7 +922,7 @@ def resolve_leaf_overlaps(xml: str) -> str:
 def resolve_row_overflow(xml: str) -> str:
     """Wrap the 5th+ icon of any over-full visual row onto the next row.
 
-    Deterministic safety net for core.txt's "Service Grid — MAX 4 PER
+    Deterministic safety net for geometry_spec's "Service Grid — MAX 4 PER
     ROW" rule ("When adding into a full row of 4, place on the next row —
     never squeeze a 5th into the first row"). Only moves the overflow icons of
     a row that already has more than 4 — properly-sized rows are untouched.
@@ -1106,7 +1107,7 @@ def _expected_exit_entry_points(
 ) -> tuple[tuple[float, float], tuple[float, float]]:
     """Exit/entry face points ``orthogonalEdgeStyle`` would pick with no
     explicit anchor set — same dominant-axis convention this module's own
-    anchor-agreement check and ``core.txt``'s "Edge anchors from placement"
+    anchor-agreement check and ``geometry_spec``'s "Edge anchors from placement"
     table already use, so this doesn't invent a second rule."""
     sw, sh = sgeo[2], sgeo[3]
     tw, th = tgeo[2], tgeo[3]
@@ -1725,7 +1726,7 @@ def ensure_overview_panel_parent_root(xml: str) -> str:
 def ensure_overview_panel_position(xml: str) -> str:
     """Keep the right-hand overview panel clear of the architecture, sized to its real text, and the page big enough for it.
 
-    config/xml_gen/core.txt requires exactly one explanatory text box with
+    geometry_spec requires exactly one explanatory text box with
     ``id="overview_panel"``, placed to the right of every other top-level
     element. The LLM places and sizes it itself; this repositions it (never
     invents or edits its text) when its one-shot geometry overlaps the rest
@@ -1837,7 +1838,7 @@ def ensure_overview_panel_position(xml: str) -> str:
 def ensure_legend_position(xml: str) -> str:
     """Force the edge-style legend (if present) to sit directly below the Overview Panel.
 
-    config/xml_gen/core.txt asks the LLM for "outside the flow" placement,
+    geometry_spec asks the LLM for "outside the flow" placement,
     which is too vague for a wide multi-account diagram — the model has been
     observed placing the legend at an arbitrary interior point that overlaps
     real architecture content. This always pins it to the same x as the

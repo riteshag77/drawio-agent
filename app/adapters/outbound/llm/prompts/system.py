@@ -1,4 +1,9 @@
-"""System prompt builder — core + network + platform packs (token-efficient)."""
+"""System prompt helpers shared by IR assembly and the 3D XML path.
+
+Fresh cloud diagrams use ``prompts/ir.py`` only. The only remaining mxfile
+prompt pack is ``prompt_3d.txt`` (isometric). Edit mode uses surgical ops —
+not these packs.
+"""
 
 from __future__ import annotations
 
@@ -11,29 +16,15 @@ from app.adapters.outbound.config.env_config import EnvConfigAdapter
 _log = logging.getLogger(__name__)
 
 MAX_CUSTOM_SYSTEM_MESSAGE_LEN = 5000
-# Soft budget for assembled system prompt (~tokens ≈ chars/4).
-# CORE + platform packs + filtered catalog. Raised 8000 → 10000 → 13000: each
-# time, repeatedly trimming real instructions to fit the old cap was an actual
-# bug contributor (under-specified escaping/step-count/placement rules, then
-# the Overview Panel's Lens/audience line and richer per-view Key Facts), not
-# a neutral tradeoff — output quality from a fuller, clearer prompt is worth
-# the modest extra per-call cost (amortized via prefix caching on
-# Claude/OpenAI-compatible providers; paid in full on Gemini, whose
-# prompt_cache is "none", but still small at Flash-tier pricing). Raise this
-# again rather than re-trimming a future addition if the same tradeoff recurs.
 MAX_SYSTEM_PROMPT_TOKENS = 13_000
 
 # Sentinel marking the boundary between the stable (cacheable) prefix and the
-# per-request volatile suffix. The LLM adapter (``llm.caching.build_system_message``)
-# splits on this to place a provider prompt-cache breakpoint; it is never sent to
-# the model. Uses NUL bytes so it cannot collide with prompt text.
+# per-request volatile suffix. The LLM adapter splits on this; never sent to the model.
 CACHE_BREAKPOINT = "CACHE_BREAKPOINT"
 
 CONFIG_DIR = EnvConfigAdapter.base_dir() / "config"
 PROMPTS_DIR = CONFIG_DIR / "xml_gen"
 REFERENCES_DIR = CONFIG_DIR / "references"
-
-_ICON_PLATFORMS = frozenset({"aws", "gcp", "azure", "multi"})
 
 
 @lru_cache(maxsize=24)
@@ -64,14 +55,14 @@ ESTIMATE_PROMPT_TOKENS = lambda text: max(1, len(text) // 4)  # noqa: E731
 
 
 def _get_reference_files(platform: str, three_d: bool) -> list[str]:
+    if three_d:
+        return ["aws-icons-3d.txt", "aws-icons-allied-telesis.txt"]
     if platform == "multi":
         return ["multi-icons-top.txt"]
     if platform == "gcp":
         return ["gcp-icons-common.txt"]
     if platform == "azure":
         return ["azure-icons-common.txt"]
-    if three_d:
-        return ["aws-icons-3d.txt", "aws-icons-allied-telesis.txt"]
     return ["aws_stencils.txt"]
 
 
@@ -104,130 +95,11 @@ def _filter_catalog(catalog: str, user_hint: str, *, max_lines: int = 48) -> str
             body.append(line)
 
     if not body:
-        # Fallback: keep compact catalog as-is (already small for aws_stencils).
         return catalog
     selected = header + body
     if len(selected) > max_lines:
         selected = header + body[: max(0, max_lines - len(header))]
     return "\n".join(selected)
-
-
-def _saas_hint_matches(user_hint: str) -> bool:
-    """True when the request likely involves BFSI / enterprise SaaS products."""
-    from app.adapters.outbound.diagram.architecture_docs import _SAAS_HINT_TOKENS
-
-    hint = (user_hint or "").lower()
-    if not hint:
-        return False
-    tokens = set(re.findall(r"[a-z0-9_]{3,}", hint))
-    if tokens & _SAAS_HINT_TOKENS:
-        return True
-    # Short vendor tokens (okta) and multi-word phrases.
-    return any(tok in hint for tok in (
-        "salesforce", "workday", "guidewire", "temenos", "duck creek",
-        "servicenow", "okta", "finastra", "fiserv", "murex", "bloomberg",
-        "refinitiv", "experian", "equifax", "stripe", "adyen", "plaid",
-        "office 365", "microsoft 365", "banking", "insurance", "bfsi",
-        "successfactors", "success factors", "sfsf",
-    ))
-
-
-def _assemble_prompt_parts(
-    model_id: str | None,
-    *,
-    provider: str | None,
-    platform: str,
-    custom_system_message: str,
-    three_d: bool,
-    user_hint: str,
-    primary_view: str = "network",
-) -> tuple[str, str]:
-    """Return ``(stable_prefix, volatile_suffix)``.
-
-    ``stable_prefix`` = CORE + primary view pack + platform packs — byte-identical
-    across requests for a given platform/model/primary_view, so it is the natural
-    prompt-cache prefix.
-    ``volatile_suffix`` = the user-hint-filtered reference catalog + any custom
-    instructions — these vary per request and must sit *after* the cache
-    breakpoint so they never invalidate the cached prefix.
-    """
-    model_name = _resolve_model_name(model_id, provider)
-    platform_key = (platform or "aws").strip().lower()
-    if platform_key not in _ICON_PLATFORMS:
-        platform_key = "aws"
-    view_key = (primary_view or "network").strip().lower()
-    if view_key not in ("logical", "network", "security", "data_flow"):
-        view_key = "network"
-
-    stable: list[str] = []
-    volatile: list[str] = []
-
-    if three_d:
-        # 3D path: isometric prompt + 3d refs only — never aws4 icon pack / orthogonal style.
-        stable.append(_load_prompt("prompt_3d.txt"))
-        for ref in _get_reference_files("aws", three_d=True):
-            content = _load_reference(ref)
-            if content:
-                volatile.append(_filter_catalog(content, user_hint))
-    else:
-        stable.append(_load_prompt("core.txt"))
-        # Primary view pack (Network nesting, or Logical/Security/Data flow lens).
-        # No shared views/common.txt — lenses are self-contained; CORE owns mechanics.
-        try:
-            view_pack = _load_prompt(f"views/{view_key}.txt")
-            if view_pack:
-                stable.append(view_pack)
-        except FileNotFoundError:
-            if view_key == "network":
-                # Legacy path fallback during migration
-                try:
-                    stable.append(_load_prompt("network.txt"))
-                except FileNotFoundError:
-                    pass
-        # Logical primary: skip cloud classify/icon packs and AWS stencil catalogs,
-        # but still load enterprise SaaS icon rules + catalog when relevant.
-        if view_key != "logical":
-            stable.append(_load_prompt(f"classify/{platform_key}.txt"))
-            stable.append(_load_prompt(f"icons/{platform_key}.txt"))
-            try:
-                saas_icons = _load_prompt("icons/saas.txt")
-                if saas_icons:
-                    stable.append(saas_icons)
-            except FileNotFoundError:
-                pass
-            for ref in _get_reference_files(platform_key, three_d=False):
-                content = _load_reference(ref)
-                if content:
-                    volatile.append(_filter_catalog(content, user_hint))
-            if _saas_hint_matches(user_hint):
-                saas_cat = _load_reference("saas.txt")
-                if saas_cat:
-                    volatile.append(_filter_catalog(saas_cat, user_hint, max_lines=40))
-        else:
-            stable.append(
-                "## Logical primary — leaf language\n"
-                "Do not emit cloud shape_type (aws_*/gcp_*/azure_*). "
-                "External apps: label as Name (SAAS) and use shape_type=saas_<vendor> when known; "
-                "the server merges curated stencil icons (unknown vendor → logical_saas)."
-            )
-            try:
-                saas_icons = _load_prompt("icons/saas.txt")
-                if saas_icons:
-                    stable.append(saas_icons)
-            except FileNotFoundError:
-                pass
-            if _saas_hint_matches(user_hint):
-                saas_cat = _load_reference("saas.txt")
-                if saas_cat:
-                    volatile.append(_filter_catalog(saas_cat, user_hint, max_lines=40))
-
-    custom = (custom_system_message or "").strip()
-    if custom:
-        volatile.append(f"## Custom Instructions\n{custom[:MAX_CUSTOM_SYSTEM_MESSAGE_LEN]}")
-
-    stable_text = "\n\n".join(p for p in stable if p).replace("{{MODEL_NAME}}", model_name)
-    volatile_text = "\n\n".join(p for p in volatile if p).replace("{{MODEL_NAME}}", model_name)
-    return stable_text, volatile_text
 
 
 def _warn_if_over_budget(prompt: str) -> None:
@@ -240,6 +112,29 @@ def _warn_if_over_budget(prompt: str) -> None:
         )
 
 
+def _assemble_3d_prompt_parts(
+    model_id: str | None,
+    *,
+    provider: str | None,
+    custom_system_message: str,
+    user_hint: str,
+) -> tuple[str, str]:
+    """Return ``(stable_prefix, volatile_suffix)`` for the isometric 3D path only."""
+    model_name = _resolve_model_name(model_id, provider)
+    stable = [_load_prompt("prompt_3d.txt")]
+    volatile: list[str] = []
+    for ref in _get_reference_files("aws", three_d=True):
+        content = _load_reference(ref)
+        if content:
+            volatile.append(_filter_catalog(content, user_hint))
+    custom = (custom_system_message or "").strip()
+    if custom:
+        volatile.append(f"## Custom Instructions\n{custom[:MAX_CUSTOM_SYSTEM_MESSAGE_LEN]}")
+    stable_text = "\n\n".join(p for p in stable if p).replace("{{MODEL_NAME}}", model_name)
+    volatile_text = "\n\n".join(p for p in volatile if p).replace("{{MODEL_NAME}}", model_name)
+    return stable_text, volatile_text
+
+
 def get_xml_gen_system_prompt(
     model_id: str | None = None,
     *,
@@ -250,11 +145,15 @@ def get_xml_gen_system_prompt(
     user_hint: str = "",
     primary_view: str = "network",
 ) -> str:
-    """Assemble CORE + primary view pack + platform packs as one plain string."""
-    stable, volatile = _assemble_prompt_parts(
-        model_id, provider=provider, platform=platform,
-        custom_system_message=custom_system_message, three_d=three_d, user_hint=user_hint,
-        primary_view=primary_view,
+    """Assemble the 3D isometric system prompt (only remaining direct-XML pack)."""
+    if not three_d:
+        raise ValueError(
+            "get_xml_gen_system_prompt is only for three_d=True. "
+            "Fresh cloud diagrams use IR prompts (prompts/ir.py)."
+        )
+    stable, volatile = _assemble_3d_prompt_parts(
+        model_id, provider=provider,
+        custom_system_message=custom_system_message, user_hint=user_hint,
     )
     prompt = f"{stable}\n\n{volatile}" if volatile else stable
     _warn_if_over_budget(prompt)
@@ -271,15 +170,15 @@ def get_xml_gen_system_prompt_marked(
     user_hint: str = "",
     primary_view: str = "network",
 ) -> str:
-    """Same assembly, with a ``CACHE_BREAKPOINT`` sentinel between the stable
-    prefix and the volatile suffix. The LLM adapter splits on the sentinel to
-    place a provider prompt-cache breakpoint; the sentinel is never sent."""
-    stable, volatile = _assemble_prompt_parts(
-        model_id, provider=provider, platform=platform,
-        custom_system_message=custom_system_message, three_d=three_d, user_hint=user_hint,
-        primary_view=primary_view,
+    """3D prompt with ``CACHE_BREAKPOINT`` between stable and volatile parts."""
+    if not three_d:
+        raise ValueError(
+            "get_xml_gen_system_prompt_marked is only for three_d=True. "
+            "Fresh cloud diagrams use IR prompts (prompts/ir.py)."
+        )
+    stable, volatile = _assemble_3d_prompt_parts(
+        model_id, provider=provider,
+        custom_system_message=custom_system_message, user_hint=user_hint,
     )
     _warn_if_over_budget(f"{stable}\n\n{volatile}" if volatile else stable)
-    # Marker sits at the end of the stable prefix even when the suffix is empty,
-    # so the whole prefix is still marked cacheable.
     return f"{stable}\n\n{CACHE_BREAKPOINT}{volatile}"

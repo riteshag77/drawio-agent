@@ -48,7 +48,9 @@ Every leaf has:
 - `shape_type` — a semantic key, never a draw.io style/stencil string. Cloud
   services use `aws_*`/`gcp_*`/`azure_*` (e.g. `aws_rds`); this view's own
   vocabulary pack tells you when to use `logical_*`/`saas_<vendor>` instead.
-- `label` — short display name.
+- `label` — short display name, prefer ≤18 characters (official short names /
+  role suffixes like `RDS primary`). Never blank; never placeholders like
+  `Service`, `Icon`, `Node`, or `Group`.
 - `annotation` — optional short (2-3 word) contextual tag rendered as `"Label [Tag]"`
   (e.g. `"Aurora [PII]"`, `"Order Service [Node.js]"`). Use sparingly — most leaves
   need none; this view's own vocabulary pack lists what kind of tag fits its lens
@@ -60,15 +62,24 @@ Every leaf has:
   `"critical"`). Binary on purpose: don't guess a finer tier from a brief
   description. Renders as a heavier, coloured leaf border.
 
+**Order leaves left→right by primary-flow arrival** inside each corridor —
+the leaf a flow arrives at first, then what it continues to. Listing order is
+the only routing control you have; an unrelated order is what makes connectors
+cross.
+
 ## Flows
 
 **`flows` is REQUIRED whenever 2+ leaves or any external actor exist — never
 leave it empty.** A diagram with no relationships between components is not
-a valid answer and will be rejected. Model the **primary story** only —
-sparse, not a mesh. `primary: false` for secondary/async paths (rendered
-dashed). `label` is optional; when used, 1–4 words. Every flow's
-`source`/`target` must be a real leaf or external-actor id you already
-declared.
+a valid answer and will be rejected. Write `flows` last, after every corridor,
+leaf and actor is declared — each `source`/`target` must reference one of those
+already-declared ids. Prefer a **readable** sparse story over a complete mesh —
+fewer labeled edges beat an illegible diagram. `primary: false` for
+secondary/async paths (rendered dashed). Use `primary: false` plus a label
+prefix `Failure:` / `DR:` / `Fallback:` **only** for explicit error or disaster-
+recovery paths — never for a normal async edge. `label` is optional; when used,
+1–6 words. Every flow's `source`/`target` must be a real leaf or external-actor
+id you already declared.
 
 Two more optional fields per flow, both default to `"none"` — set them only
 when the request genuinely implies the property, never invented:
@@ -82,6 +93,30 @@ when the request genuinely implies the property, never invented:
   TLS (typical client-to-edge), `"none"` only when genuinely unencrypted.
   This structured field feeds the panel's facts and validation; it does not
   replace a view's own convention (if any) for also naming it in `label`.
+
+### Mini example (shape only — use the view pack's corridor ids)
+
+```json
+{
+  "external_actors": [{"id": "users", "kind": "users", "label": "Users"}],
+  "corridors": [
+    {"id": "<first_row_id>", "label": "...", "leaves": [{"id": "edge", "shape_type": "aws_api_gateway", "label": "API Gateway"}]},
+    {"id": "<next_row_id>", "label": "...", "leaves": [
+      {"id": "svc_a", "shape_type": "aws_ecs", "label": "Service A"},
+      {"id": "svc_b", "shape_type": "aws_ecs", "label": "Service B"}
+    ]}
+  ],
+  "anchored": [],
+  "flows": [
+    {"source": "users", "target": "edge", "primary": true},
+    {"source": "edge", "target": "svc_a", "primary": true},
+    {"source": "svc_a", "target": "svc_b", "primary": true, "label": "Invokes"}
+  ]
+}
+```
+
+**Never return `"flows": []` when leaves or actors exist.** If you listed the
+nodes above, you must also list the edges that tell their story.
 
 ## What you do not need to do
 

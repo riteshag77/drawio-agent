@@ -6,8 +6,8 @@ Both the IR compiler (which *produces* geometry) and xml_diagnostics (which
 guarantee rather than a coincidence: a spacing rule can only be changed in one
 place, and both sides move together.
 
-Values mirror ``config/xml_gen/core.txt`` (density tiers) and
-``config/xml_gen/views/network.txt`` (network gaps).
+Values are the product spacing contracts (density tiers, network gaps) shared
+by the compiler and diagnostics — formerly mirrored in deleted XML prompt packs.
 """
 
 from __future__ import annotations

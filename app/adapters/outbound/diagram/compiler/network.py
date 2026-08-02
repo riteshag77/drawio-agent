@@ -10,8 +10,8 @@ entirely with the existing local router
 ``enable_obstacle_routing``), which already reaches zero residual
 diagnostics on this compiler's geometry.
 
-Layout order mirrors the canonical hierarchy in
-``config/xml_gen/views/network.txt``:
+Layout order mirrors the canonical Network IR hierarchy
+(``config/xml_gen/ir/network.txt``):
 
     Cloud
       Region

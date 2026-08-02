@@ -8,8 +8,8 @@ import xml.etree.ElementTree as ET
 from app.adapters.outbound.diagram.architecture_docs import (
     achievable_density_target,
     build_architecture_inventory,
-    build_single_view_system,
 )
+from app.adapters.outbound.llm.prompts.ir import get_corridor_ir_system_prompt
 from app.adapters.outbound.diagram.compiler import compile_corridor_ir
 from app.adapters.outbound.diagram.view_conformance import score_view
 from app.adapters.outbound.diagram.view_fixers import (
@@ -40,14 +40,14 @@ def _leaf(cid: str, label: str, x: int, shape_type: str = "") -> str:
 
 
 class PackBoundaryTests(unittest.TestCase):
-    def test_view_system_inherits_core_not_network(self) -> None:
-        logical = build_single_view_system("logical")
-        self.assertIn("180–220", logical)
-        self.assertIn("overview_panel", logical)
-        self.assertIn("&lt;", logical)
+    def test_logical_ir_excludes_network_vpc_vocabulary(self) -> None:
+        logical = get_corridor_ir_system_prompt("logical", platform="aws")
+        self.assertIn("domain_experience", logical)
+        self.assertIn("(SAAS)", logical)
         self.assertNotIn("Canonical Container Hierarchy", logical)
         self.assertNotIn("Cross-Cutting Groups", logical)
         self.assertNotIn("Availability Zone", logical)
+        self.assertNotIn("Service Classification — AWS", logical)
 
 
 class DensityTargetTests(unittest.TestCase):
@@ -55,7 +55,7 @@ class DensityTargetTests(unittest.TestCase):
         self.assertEqual(achievable_density_target(0), 5)
         self.assertEqual(achievable_density_target(2), 5)
         self.assertGreaterEqual(achievable_density_target(8), 8)
-        self.assertLessEqual(achievable_density_target(100), 14)
+        self.assertLessEqual(achievable_density_target(100), 12)
 
 
 class ConformanceScorerTests(unittest.TestCase):

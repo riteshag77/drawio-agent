@@ -42,14 +42,20 @@ _FORBIDDEN_BY_VIEW: dict[str, tuple[str, ...]] = {
 }
 
 _EDGE_VOCAB: dict[str, tuple[str, ...]] = {
-    "logical": ("invokes", "calls", "relies", "reads", "writes", "uses", "api"),
+    # Substring match against lowercased labels — keep tokens aligned with
+    # config/xml_gen/ir/{logical,security,data_flow}.txt allowed-edge lists.
+    "logical": (
+        "invokes", "calls", "relies", "reads", "writes", "uses", "api",
+        "authenticates", "redirects", "check cache", "cache miss", "fetches",
+    ),
     "security": (
         "authn", "authz", "tls", "mtls", "inspect", "perimeter", "private path",
-        "token", "encrypt",
+        "token", "encrypt", "fetches", "credentials", "logs", "telemetry",
+        "partner", "federation", "scoped",
     ),
     "data_flow": (
         "json", "sql", "event", "cache", "object", "pub", "sub", "cdc", "batch",
-        "avro", "payload",
+        "avro", "payload", "snapshot", "archive", "schema", "retry", "replication",
     ),
 }
 

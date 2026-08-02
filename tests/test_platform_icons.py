@@ -11,59 +11,46 @@ from app.adapters.outbound.diagram.drawio_mcp_client import (
     _shape_query,
 )
 from app.adapters.outbound.diagram.xml_tools import normalize_platform_styles
-from app.adapters.outbound.llm.prompts.system import (
-    ESTIMATE_PROMPT_TOKENS,
-    _load_prompt,
-    get_xml_gen_system_prompt,
-)
+from app.adapters.outbound.llm.prompts.ir import get_network_ir_system_prompt
+from app.adapters.outbound.llm.prompts.system import ESTIMATE_PROMPT_TOKENS
 
 
 class PlatformPromptTests(unittest.TestCase):
-    def test_gcp_prompt_uses_gcp2_not_aws_resource_icon(self) -> None:
-        prompt = get_xml_gen_system_prompt(platform="gcp")
-        self.assertIn("mxgraph.gcp2", prompt)
-        self.assertIn("shape_type", prompt)
-        self.assertIn("NEVER use mxgraph.aws4.resourceIcon", prompt)
-        self.assertIn("NEVER use mxgraph.gcp2020", prompt)
-        # Must not teach AWS Pattern 1 as the primary GCP template
-        self.assertNotIn("resIcon=mxgraph.aws4.<name>", prompt)
+    """IR network prompts: classify packs + filtered shape_type catalog."""
 
-    def test_azure_prompt_uses_image_paths_not_resource_icon(self) -> None:
-        prompt = get_xml_gen_system_prompt(platform="azure")
-        self.assertIn("img/lib/azure2", prompt)
+    def test_gcp_prompt_uses_gcp_classify(self) -> None:
+        prompt = get_network_ir_system_prompt(platform="gcp", user_hint="cloud run")
+        self.assertIn("Service Classification — GCP", prompt)
+        self.assertIn("NEVER use mxgraph.aws4", prompt)
         self.assertIn("shape_type", prompt)
-        self.assertIn("NEVER use shape=mxgraph.azure2.resourceIcon", prompt)
-        self.assertNotIn("shape=mxgraph.aws4.resourceIcon;resIcon=", prompt)
 
-    def test_aws_prompt_keeps_resource_icon(self) -> None:
-        prompt = get_xml_gen_system_prompt(platform="aws")
-        self.assertIn("mxgraph.aws4.resourceIcon", prompt)
-        self.assertIn("resIcon=mxgraph.aws4.", prompt)
+    def test_azure_prompt_uses_azure_classify(self) -> None:
+        prompt = get_network_ir_system_prompt(platform="azure", user_hint="app service")
+        self.assertIn("Service Classification — Azure", prompt)
+        self.assertIn("NEVER use mxgraph.aws4", prompt)
+        self.assertIn("shape_type", prompt)
+
+    def test_aws_prompt_keeps_aws_classify_and_catalog(self) -> None:
+        prompt = get_network_ir_system_prompt(platform="aws", user_hint="lambda")
+        self.assertIn("Service Classification — AWS", prompt)
+        self.assertIn("shape_type", prompt)
+        # Filtered icon catalog still contributes stencil vocabulary for keys.
+        self.assertTrue(
+            "mxgraph.aws4" in prompt or "Lambda" in prompt or "lambda" in prompt.lower(),
+            "expected AWS catalog or Lambda hint in prompt",
+        )
 
     def test_unknown_platform_falls_back_to_aws(self) -> None:
-        prompt = get_xml_gen_system_prompt(platform="digitalocean")
-        self.assertIn("mxgraph.aws4.resourceIcon", prompt)
+        prompt = get_network_ir_system_prompt(platform="digitalocean", user_hint="lambda")
+        self.assertIn("Service Classification — AWS", prompt)
 
     def test_multi_prompt_is_slim_and_prefix_aware(self) -> None:
-        prompt = get_xml_gen_system_prompt(platform="multi")
-        self.assertIn('shape_type="aws_', prompt)
-        self.assertIn('shape_type="gcp_', prompt)
-        self.assertIn('shape_type="azure_', prompt)
-        self.assertIn("mxgraph.gcp2", prompt)
-        self.assertIn("img/lib/azure2", prompt)
-        # Must not dump full AWS category fillColor table
+        prompt = get_network_ir_system_prompt(platform="multi", user_hint="lambda cloud run app service")
+        self.assertIn("Service Classification — Multi-cloud", prompt)
         self.assertNotIn("| Compute | #ED7100 |", prompt)
         self.assertNotIn("aws-icons-compute", prompt)
-        # Token budget: icon overhead beyond the shared CORE+Network packs should stay lean.
-        # Measured as a delta from CORE+Network (not the raw total) — those packs are a
-        # fixed, cached cost shared by every platform, so they're not part of
-        # "multi's icon overhead".
-        shared = (
-            ESTIMATE_PROMPT_TOKENS(_load_prompt("core.txt"))
-            + ESTIMATE_PROMPT_TOKENS(_load_prompt("views/network.txt"))
-        )
-        overhead = ESTIMATE_PROMPT_TOKENS(prompt) - shared
-        self.assertLess(overhead, 2000, f"multi platform overhead ~{overhead} tokens exceeds budget")
+        tokens = ESTIMATE_PROMPT_TOKENS(prompt)
+        self.assertLess(tokens, 12_000, f"multi IR prompt ~{tokens} tokens too heavy")
 
 
 

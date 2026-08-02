@@ -21,21 +21,13 @@ VIEW_PAGE_NAMES = {
     "security": "Security",
     "data_flow": "Data flow",
 }
-_VIEW_PACK_FILES = {
-    "logical": "views/logical.txt",
-    "network": "views/network.txt",
-    "security": "views/security.txt",
-    "data_flow": "views/data_flow.txt",
-}
 _DOCS_PACK_FILE = "docs/adr_raid.txt"
 _GAP_ANALYSIS_PACK_FILE = "gap_analysis.txt"
-_CORE_PACK_FILE = "core.txt"
 _CONFIG_DIR = EnvConfigAdapter.base_dir() / "config" / "xml_gen"
 _MAX_ADRS = 15  # soft safety against runaway model dumps
 _MAX_RAID = 24
 _SERVICE_INVENTORY_LIMIT = 36
 _EDGE_INVENTORY_LIMIT = 20
-_REQUEST_TRUNCATE_VIEW = 1000
 _REQUEST_TRUNCATE_DOCS = 600
 
 INTERVIEW_QUESTIONS = [
@@ -103,7 +95,7 @@ def build_views_prompt_block(views: list[str], *, adr_notes: bool = False, raid_
     del adr_notes, raid_register  # docs are a separate pass
     views = normalize_diagram_views(views)
     primary = pick_primary_view(views)
-    # Default Network-only: no extra instruction — CORE prompt already describes network hierarchy.
+    # Default Network-only: IR network pack already owns hierarchy.
     if views == ["network"] and primary == "network":
         return ""
     focus = {
@@ -112,8 +104,9 @@ def build_views_prompt_block(views: list[str], *, adr_notes: bool = False, raid_
             "hierarchy with connectivity hubs at Cloud level."
         ),
         "logical": (
-            "Focus this page on the Logical view: services/components and relationships; "
-            "simplify deep VPC/subnet nesting — show clear tiers without every subnet box."
+            "Focus this page on the Logical view: business capabilities grouped into the "
+            "fixed domain corridors (experience/core/data/platform, optional SaaS shelf) "
+            "with labeled dependency edges — no VPC/subnet topology on this page."
         ),
         "security": (
             "Focus this page on the Security / trust view: trust boundaries, IAM/edge "
@@ -125,12 +118,9 @@ def build_views_prompt_block(views: list[str], *, adr_notes: bool = False, raid_
         ),
     }
     lines = [
-        f"Emit a SINGLE draw.io page named `{VIEW_PAGE_NAMES[primary]}` only "
-        f"(do not emit other view pages or ADR/RAID in this response).",
+        f"Primary IR view is `{VIEW_PAGE_NAMES[primary]}` only "
+        f"(other views / ADR / RAID are separate pipeline passes).",
         focus[primary],
-        f"Overview panel REQUIRED on this `{VIEW_PAGE_NAMES[primary]}` page "
-        f"(id=overview_panel): title names this view; 4–6 short layman steps "
-        f"(~100 characters each) describing what *this* page shows.",
     ]
     return "\n".join(lines)
 
@@ -145,13 +135,6 @@ def load_docs_prompt_pack() -> str:
     )
 
 
-def load_core_pack() -> str:
-    path = _CONFIG_DIR / _CORE_PACK_FILE
-    if path.is_file():
-        return path.read_text(encoding="utf-8")
-    return ""
-
-
 def load_gap_analysis_prompt_pack() -> str:
     path = _CONFIG_DIR / _GAP_ANALYSIS_PACK_FILE
     if path.is_file():
@@ -162,71 +145,6 @@ def load_gap_analysis_prompt_pack() -> str:
         "components using industry-standard practice, and record each default as "
         "an explicit, low-ceremony assumption. Never invent numbers as fact."
     )
-
-
-def load_view_prompt_pack(view: str) -> str:
-    filename = _VIEW_PACK_FILES.get(view)
-    if not filename:
-        return ""
-    path = _CONFIG_DIR / filename
-    if path.is_file():
-        return path.read_text(encoding="utf-8")
-    return ""
-
-
-class SingleViewPage(BaseModel):
-    """One focused architecture view page (Logical / Security / Data flow)."""
-
-    xml: str = Field(description="Complete mxfile or mxGraphModel for this view page only")
-    step_markers: list[StepMarker] = Field(
-        default_factory=list,
-        description=(
-            "Numbered badges matching Overview Panel steps — each entry's cell_id must be an "
-            "mxCell id already present in this page's xml (same contract as Network)."
-        ),
-    )
-
-
-_SINGLE_VIEW_SYSTEM_PREFIX = """You are producing ONE product-grade architecture briefing page as draw.io XML.
-Adopt the specialised architect persona named in the view pack below (25+ years in that discipline).
-Shared context (inventory + request) is the factual source — representation on THIS page is independent.
-The Network tab (when present) shows VPC/subnet placement — this page must answer a DIFFERENT question for that persona's audience.
-Do not invent unrelated systems absent from inventory/request. Do not clone Network layout with a new title.
-Emit one mxfile with one <diagram name="..."> matching the required page title.
-REQUIRED: overview_panel (numbered amber steps) + step_markers.
-No ADR/RAID. No commentary outside xml + step_markers.
-"""
-
-_SINGLE_VIEW_LOGICAL_SHAPE_RULE = """
-LEAF SHAPES (Logical only): Prefer grey/simple placeholders for capabilities.
-The server assigns shape_type=logical_* for actor/channel/capability/api/datastore/platform.
-External apps: label each as ``Name (SAAS)`` and emit shape_type=saas_<vendor> when known —
-server applies curated stencil icons. Unknown vendor → logical_saas. NEVER emit cloud
-shape_type (aws_*/gcp_*/azure_*) or invent resIcon / vendor cloud stencils.
-"""
-
-_SINGLE_VIEW_CLOUD_SHAPE_RULE = """
-LEAF SHAPES: Reuse inventory shape_type keys on every cloud service leaf so MCP can resolve official icons.
-When inventory/request includes enterprise SaaS (Salesforce, Workday, Guidewire, Okta, …), emit
-shape_type=saas_<vendor> from the enterprise SaaS catalog — server applies curated stencil icons (not MCP brand search).
-"""
-
-
-def build_single_view_system(view: str) -> str:
-    core = load_core_pack()
-    pack = load_view_prompt_pack(view)
-    view_key = (view or "").strip().lower()
-    shape_rule = (
-        _SINGLE_VIEW_LOGICAL_SHAPE_RULE
-        if view_key == "logical"
-        else _SINGLE_VIEW_CLOUD_SHAPE_RULE
-    )
-    parts = [f"{_SINGLE_VIEW_SYSTEM_PREFIX}\n{shape_rule}\n\n{core}\n\n{pack}".strip()]
-    if view_key in ("logical", "network", "security", "data_flow"):
-        saas_path = _CONFIG_DIR / "icons" / "saas.txt"
-        if saas_path.is_file():
-            parts.append(saas_path.read_text(encoding="utf-8"))
-    return "\n\n".join(parts)
 
 
 def _plain_cell_label(value: str) -> str:
@@ -544,10 +462,15 @@ def _gap_candidates(
 
 
 def achievable_density_target(leaf_count: int) -> int:
-    """Scale density expectations to inventory size (never force fabrication)."""
+    """Scale density expectations to inventory size (never force fabrication).
+
+    Cap at 12 to match the IR prompt packs' "8–12 when supported; 5–7 when thin"
+    guidance — a target of 14 was scoring sparse-but-correct views as under-dense
+    and pushing the model to invent padding.
+    """
     if leaf_count <= 0:
         return 5
-    return max(5, min(14, 2 + round(leaf_count * 1.5)))
+    return max(5, min(12, 2 + round(leaf_count * 1.25)))
 
 
 def build_view_target_brief(
@@ -718,73 +641,6 @@ def build_architecture_inventory(
         build_view_target_brief(services, request_text=request_text or ""),
     ]
     return "\n".join(parts)
-
-
-_VIEW_BRIEFING: dict[str, str] = {
-    "logical": (
-        "PERSONA: Principal Application / Solution Architect — 25+ years.\n"
-        "VIEWPOINT = LOGICAL — capabilities & domains; no trust zones; no note/ctrl cards.\n"
-        "OVERVIEW + step_markers badges (plain language). GROUP BY bounded contexts only.\n"
-        "JOURNEY: persona/channel LEFT → Authenticates via Okta when present → capability → data store.\n"
-        "FORBIDDEN: data store→IdP; overview_panel must stay text (never saas image).\n"
-        "EDGES: Uses / Authenticates via / Invokes / Calls API / Relies on / Reads/Writes. logical_* + saas_*."
-    ),
-    "security": (
-        "PERSONA: Principal Security / Trust Architect — 25+ years.\n"
-        "VIEWPOINT = SECURITY — controls present; trust zones; no note/ctrl cards.\n"
-        "OVERVIEW + step_markers badges (plain language). GROUP BY trust zones.\n"
-        "EDGES: AuthN / TLS / inspect / private path. FORBIDDEN: microservice soup, UI, cards."
-    ),
-    "data_flow": (
-        "PERSONA: Principal Integration / Data-Flow Architect — 25+ years.\n"
-        "VIEWPOINT = DATA FLOW — data journey; PII tags when known; no note/ctrl cards.\n"
-        "OVERVIEW + step_markers badges (plain language). GROUP BY lifecycle phases.\n"
-        "EDGES: JSON:/SQL:/Event: payloads. FORBIDDEN: WAF/login, VPC wallpaper, cards."
-    ),
-}
-
-
-def build_single_view_human(
-    *,
-    human_prompt: str,
-    platform: str,
-    view: str,
-    primary_xml: str | None = None,
-    primary_xml_summary: list[str] | None = None,
-    inventory_text: str | None = None,
-    gap_block: str | None = None,
-) -> str:
-    title = VIEW_PAGE_NAMES.get(view, view)
-    if inventory_text is None:
-        if primary_xml:
-            inventory_text = build_architecture_inventory(
-                primary_xml, request_text=human_prompt or "",
-            )
-        elif primary_xml_summary:
-            services = primary_xml_summary[:_SERVICE_INVENTORY_LIMIT]
-            inventory_text = (
-                "Services (reuse labels + shape_type on leaves):\n"
-                + "\n".join(f"- {s} [other]" for s in services)
-                + "\nKey flows (from Network — re-label by THIS view's lens):\n- (none)"
-            )
-        else:
-            inventory_text = (
-                "Services (reuse labels + shape_type on leaves):\n- (none)\n"
-                "Key flows (from Network — re-label by THIS view's lens):\n- (none)"
-            )
-    briefing = _VIEW_BRIEFING.get(view, "")
-    gap_section = f"{gap_block}\n" if gap_block else ""
-    return (
-        f"Platform: {platform}\n"
-        f"Original request (truncate ok): {human_prompt[:_REQUEST_TRUNCATE_VIEW]}\n"
-        f"{briefing}\n"
-        "Architecture inventory (from Network/primary — ground truth):\n"
-        f"{inventory_text}\n"
-        f"{gap_section}"
-        f"Produce ONE page named `{title}` only.\n"
-        "This page MUST be visually and narratively distinct from the other view tabs.\n"
-        "Return complete draw.io XML in xml + step_markers."
-    )
 
 
 class RequiredAddition(BaseModel):
@@ -1832,11 +1688,8 @@ def _overview_stub_body(view_title: str) -> str:
     )
 
 
-# Per-view Overview Panel copy the IR compiler path must match exactly what the
-# direct-XML prompt packs (config/xml_gen/views/*.txt) instruct the model to
-# produce — kept here as the single source of truth for the synthesized path
-# rather than duplicating it a third time in a prompt file the compiler never
-# reads.
+# Per-view Overview Panel copy the IR compiler synthesizes — single source of
+# truth (IR packs no longer teach overview HTML; the compiler owns it).
 _VIEW_TITLE_PREFIX: dict[str, str] = {
     "logical": "Logical architecture",
     "security": "Security & trust",

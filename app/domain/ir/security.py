@@ -1,10 +1,10 @@
 """Security / trust-zone view IR.
 
-Structural rules lifted from ``config/xml_gen/views/security.txt``: the eight
-trust-zone ids are a fixed, engine-recognized vocabulary; `zone_external_saas`
-is a shelf anchored under `zone_restricted` rather than a rightmost peer.
-Judgment calls — the partner-vs-SaaS distinction, required resilience/partner
-companions — stay in ``config/xml_gen/ir/security.txt``.
+Structural rules for Security corridors (see ``config/xml_gen/ir/security.txt``):
+the eight trust-zone ids are a fixed, engine-recognized vocabulary;
+`zone_external_saas` is a shelf anchored under `zone_restricted` rather than a
+rightmost peer. Judgment calls — the partner-vs-SaaS distinction, required
+resilience/partner companions — stay in ``config/xml_gen/ir/security.txt``.
 """
 
 from __future__ import annotations
@@ -27,6 +27,29 @@ class SecurityIR(CorridorIR):
         default="security", description="Must be exactly the lowercase string 'security' — no other casing."
     )
     id_prefix: ClassVar[str] = "zone_"
+
+    @classmethod
+    def sanitize_raw(cls, data: object) -> object:
+        """Pre-parse relocate for LangChain json_mode paths that surface the
+        raw dict before (or instead of) running ``mode='before'`` validators.
+        Live captures put ``zone_detect`` in ``anchored`` and failed parse even
+        though ``model_validate`` with the before-validator relocates it.
+        """
+        return cls._relocate_vocabulary(
+            data, row_ids=_ROW_IDS, shelf_anchors={_SHELF_ID: "zone_restricted"},
+        )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _relocate_misplaced_zones(cls, data: object) -> object:
+        """Row/shelf membership is fixed vocabulary — fix mis-slotting in code.
+
+        A live capture showed the model emitting ``zone_detect`` (a main-row
+        zone) as an anchored shelf, hard-failing the whole view to direct XML
+        even though every leaf was right. Relocation is unambiguous, so do it
+        deterministically instead of burning a corrective LLM pass.
+        """
+        return cls.sanitize_raw(data)
 
     @model_validator(mode="after")
     def _check_zone_vocabulary(self) -> "SecurityIR":

@@ -1,6 +1,6 @@
 """Logical (capability/dependency) view IR.
 
-Structural rules lifted from ``config/xml_gen/views/logical.txt``'s prose:
+Structural rules for Logical corridors (see ``config/xml_gen/ir/logical.txt``):
 domain vocabulary is fixed (the layout engine finds domains by exact id, not
 label), `domain_saas` is a shelf anchored under `domain_data` rather than a
 peer column, and external actors (Persona, IdP) never end up nested inside a
@@ -26,6 +26,20 @@ class LogicalIR(CorridorIR):
         default="logical", description="Must be exactly the lowercase string 'logical' — no other casing."
     )
     id_prefix: ClassVar[str] = "domain_"
+
+    @classmethod
+    def sanitize_raw(cls, data: object) -> object:
+        """Pre-parse relocate — see ``SecurityIR.sanitize_raw``."""
+        return cls._relocate_vocabulary(
+            data, row_ids=_ROW_IDS, shelf_anchors={_SHELF_ID: "domain_data"},
+        )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _relocate_misplaced_domains(cls, data: object) -> object:
+        """Row/shelf membership is fixed vocabulary — fix mis-slotting in code
+        (see SecurityIR._relocate_misplaced_zones for the observed failure)."""
+        return cls.sanitize_raw(data)
 
     @model_validator(mode="after")
     def _check_domain_vocabulary(self) -> "LogicalIR":

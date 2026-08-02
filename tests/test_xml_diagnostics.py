@@ -521,7 +521,7 @@ class CoordinateOnlyNestingTests(unittest.TestCase):
 
 
 class RowOverflowTests(unittest.TestCase):
-    """core.txt 'Service Grid — MAX 4 PER ROW': never squeeze a 5th into row one."""
+    """Service grid max 4 per row: never squeeze a 5th into row one."""
 
     def _xml_with_five_in_a_row(self) -> str:
         cells = "".join(

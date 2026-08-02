@@ -54,13 +54,11 @@ MAX_CONCURRENT_LLM=5
 # Multi-view + ADR/RAID fills 5 LLM slots. Raise to 6–7 if view repairs are common.
 # Cost/WAF/MCP enrichment does not consume LLM slots.
 VIEW_QUALITY_MIN_SCORE=75
-VIEW_REPAIR_MAX_PASSES=1
 # Optional provider override for Logical/Security/Data flow calls (empty = same as primary)
 VIEW_LLM_PROVIDER=
 LOG_FORMAT=text   # text | json
 DRAWIO_AGENT_LOG_DIR=logs
 LOG_RETENTION_DAYS=14
-XML_REPAIR_MAX_ATTEMPTS=1
 
 # Server
 HOST=0.0.0.0
@@ -97,14 +95,13 @@ DRAWIO_STYLE_CACHE_RESET=false
 - Agent MCP wrapper (optional): with the API running, `python -m app.mcp_server` exposes `create_architecture_diagram` / `edit_architecture_diagram` / `get_providers` for Cursor (`DRAWIO_AGENT_URL` defaults to `http://127.0.0.1:8000`).
 - **`DRAWIO_STYLE_CACHE_RESET=true`** — clears memory + SQLite style cache at process startup (use after changing MCP pick logic or prompts). Turn off afterward so cache stays warm.
 - Manual clear: delete `data/mcp_style_cache.sqlite3` and restart.
-- Prompt assembly uses `config/xml_gen/` packs (`core.txt` shared craft + `views/network.txt` for Network nesting + `classify/{platform}.txt` + `icons/{platform}.txt` + other `views/` + `docs/`).
-- **`MAX_CONCURRENT_LLM`** — caps simultaneous blocking LLM calls (default 5). Multi-view runs launch Logical/Security/Data flow (+ optional ADR/RAID) in parallel via `asyncio.gather` + `run_llm_sync`; each view's optional quality-repair hop reuses the same semaphore inside that view's task (does not serialize the three authors). Cost/WAF/MCP do not take LLM slots.
-- **`VIEW_QUALITY_MIN_SCORE`** / **`VIEW_REPAIR_MAX_PASSES`** — focused views score against viewpoint rules; below the min score triggers at most N LLM repair passes (0 disables). **`VIEW_LLM_PROVIDER`** optionally routes view calls to a different provider key.
+- Prompt assembly uses `config/xml_gen/ir/` (+ `classify/{platform}.txt` + `icons/saas.txt` + `prompt_3d.txt` + `docs/` + `gap_analysis.txt`). Legacy `core.txt` / `views/` XML packs are removed.
+- **`MAX_CONCURRENT_LLM`** — caps simultaneous blocking LLM calls (default 5). Multi-view runs launch Logical/Security/Data flow (+ optional ADR/RAID) in parallel via `asyncio.gather` + `run_llm_sync`. Cost/WAF/MCP do not take LLM slots.
+- **`VIEW_QUALITY_MIN_SCORE`** — focused views score against viewpoint rules (informational; IR views are not LLM-repaired). **`VIEW_LLM_PROVIDER`** optionally routes view calls to a different provider key.
 - **Pricing** — LLM token rates and cloud service monthly estimates live in [`config/pricing.json`](../config/pricing.json). Vendor list prices are stored in **USD**; estimates shown in the UI are converted to **AUD** via `usd_to_aud` (edit that rate or the model/service rows there — no code change). Both the toolbar LLM cost chip and the Cost insights panel use `A$`.
 - **`LOG_FORMAT=json`** — emit one JSON object per log line for structured log ingestion.
 - **`DRAWIO_AGENT_LOG_DIR`** — directory for log files (default `logs`). Rotates daily at midnight into `drawio-agent.log.YYYY-MM-DD`; the active file stays at `drawio-agent.log`.
 - **`LOG_RETENTION_DAYS`** — how many rotated daily log files to keep before the oldest is deleted (default `14`).
-- **`XML_REPAIR_MAX_ATTEMPTS`** — max corrective LLM repair passes when deterministic repair leaves structural errors unresolved (default `1`). Bounded so a diagram whose errors the model can't actually fix doesn't loop through repeated LLM calls burning API budget; raise it only if you want extra attempts on a flaky provider.
 - **`APP_VERSION`** — exposed on `/health` (default `1.0.0`).
 
 ## IR generation path (`DIAGRAM_IR_ENABLED`)
@@ -159,45 +156,28 @@ breaker, and (for the corridor views) the existing layout/scoring/repair
 pipeline — is identical regardless of which path produced the page; the IR
 path just hands the same `XmlDiagram` to it.
 
-- **Scope**: fresh generations only. Edit mode (`current_xml` present) and 3D
-  fall through to direct XML for every view — the IR cannot express "preserve
-  these exact ids and coordinates" or isometric projection.
+- **Scope**: fresh generations only. Edit mode uses surgical XML ops when the
+  change is small; larger redesigns regenerate via IR. 3D uses `prompt_3d.txt`.
 - **Both roles**: a view generated via IR whether it's the *primary* page or a
   *secondary* (extra) page in a multi-view request — same eligibility check,
-  same generator, same fallback contract in both call sites.
-- **Failure behaviour**: any error in the IR path (primary or extra-view) logs
-  a warning and falls back to direct XML for that page. It can never turn a
-  working request into a failed one.
-- **No wasted repair passes**: an extra view generated via IR skips the
-  LLM repair-pass loop (`VIEW_REPAIR_MAX_PASSES`) entirely — the invariants
-  `score_view` checks are already guaranteed by IR validation, so a low score
-  there would mean a scoring rule needs attention, not the diagram.
+  same generator in both call sites.
+- **Failure behaviour**: fresh generation is **IR-only**. Any error in the IR
+  path (primary or extra view) fails the request — there is no silent
+  direct-XML fallback.
 - **Observability**: responses carry `generation_path` (`ir` | `direct_xml`)
   for the primary page, distinct from `renderer_used` (`mcp` | `local`, which
-  is about icon resolution only).
+  is about icon resolution only). `direct_xml` means surgical edit or 3D, not a failed IR.
 - Enable with `DIAGRAM_IR_ENABLED=true` (the default); `DIAGRAM_IR_VIEWS`
-  (comma-separated) picks which views use it, defaulting to
-  `network,security,data_flow,logical` — all four. The direct-XML path
-  remains available as the per-request fallback (and via
-  `DIAGRAM_IR_ENABLED=false`) regardless of which views are listed.
+  (comma-separated) picks which views are allowed, defaulting to
+  `network,security,data_flow,logical`. Turning IR off rejects fresh cloud
+  generation (use edit/3D for XML).
 
-**Two historical bugs, now fixed for the layered (Logical/Security/Data-flow)
-path** (previously documented here as known, deliberately-unfixed gaps in the
-shared direct-XML fixer chain): (1) two shelves anchored under the same
-corridor (e.g. Data-flow's `phase_consume` *and* `phase_saas_producer`/
-`phase_saas_consumer`, all under `phase_store`) used to be able to land at
-identical coordinates; `layout_corridor_ir` stacks multiple shelves under one
-anchor with a running cursor, so this can no longer happen on the layered
-path. (2) `phase_control` (meant to anchor below the *whole* row) used to
-have no such placement mode in the engine at all and fell into the main
-ranked row instead; `layout_corridor_ir` positions `anchor_id=None` shelves
-below the whole row, per `AnchoredCorridor`'s own documented contract. Both
-remain possible on the **direct-XML** fallback path (used whenever the IR
-path is disabled or throws) since that path still runs the original
-`logical_layout.apply_layered_corridor_layout`/`enforce_view_journey_columns`
-machinery — see `test_corridor_compiler.py::test_data_flow_triple_shelf_
-stacks_cleanly` for the layered-path regression coverage and
-`tests/test_corridor_ir_layout.py` for the two fixes' dedicated tests.
+**Two historical bugs, fixed on the IR layered path** (Logical/Security/Data-flow):
+(1) two shelves under the same anchor used to collide — `layout_corridor_ir`
+stacks with a running cursor. (2) `phase_control` (`anchor_id=None`) used to
+fold into the main row — it now sits below the whole row. Edit/3D still use
+direct XML and the older layout helpers; see
+`test_corridor_compiler.py` and `tests/test_corridor_ir_layout.py`.
 
 ## Diagram history (`/history`)
 

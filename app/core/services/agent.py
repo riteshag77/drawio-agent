@@ -171,54 +171,70 @@ def generate_xml_diagram(
     *,
     llm: LlmPort | None = None,
 ) -> XmlDiagram:
-    """Generate draw.io XML directly (optional surgical edit when current_xml + small change)."""
+    """Direct XML only for 3D or surgical edits of an existing diagram.
+
+    Fresh cloud diagrams must use ``generate_xml_diagram_from_ir``. Non-surgical
+    edits of ``current_xml`` raise ``NonSurgicalEditError`` so the pipeline can
+    regenerate via IR instead of rewriting mxCells from ``core.txt``.
+    """
     provider_key = normalize_provider_key(provider)
     chat_messages = messages or [{"role": "user", "content": user_request}]
     hint = user_request or (chat_messages[-1]["content"] if chat_messages else "")
     _llm = llm or get_llm()
 
-    # --- Surgical path (small edits only; still returns XML, never JSON architecture) ---
+    # --- Surgical path (small edits only) ---
     if (
         current_xml
         and len(current_xml) > 200
+        and not three_d
         and not retry_hint
-        and looks_like_surgical_edit(hint, has_current_xml=True)
     ):
-        try:
-            plan = generate_edit_plan(
-                hint, current_xml, provider=provider_key, platform=platform,
-                logger=logger, messages=chat_messages,
-                include_suggestions=include_suggestions, llm=_llm,
-            )
-            if plan.applicable and plan.ops:
-                patched = apply_diagram_edits(current_xml, plan)
-                if logger:
-                    logger.log(
-                        "surgical_edit",
-                        f"Applied {len(plan.ops)} surgical ops",
-                        level="success",
-                        details={"ops": [o.op for o in plan.ops]},
-                    )
-                sugg = (plan.suggestions or []) if include_suggestions else []
-                return XmlDiagram(
-                    xml=patched,
-                    assistant_message=plan.assistant_message or "Updated diagram.",
-                    suggestions=sugg,
+        if looks_like_surgical_edit(hint, has_current_xml=True):
+            try:
+                plan = generate_edit_plan(
+                    hint, current_xml, provider=provider_key, platform=platform,
+                    logger=logger, messages=chat_messages,
+                    include_suggestions=include_suggestions, llm=_llm,
                 )
-            if logger:
-                logger.log("surgical_edit", "Edit plan not applicable — falling back", level="info")
-        except Exception as exc:
-            if logger:
-                logger.log("surgical_edit", f"Surgical edit failed ({exc}) — falling back", level="warn")
+                if plan.applicable and plan.ops:
+                    patched = apply_diagram_edits(current_xml, plan)
+                    if logger:
+                        logger.log(
+                            "surgical_edit",
+                            f"Applied {len(plan.ops)} surgical ops",
+                            level="success",
+                            details={"ops": [o.op for o in plan.ops]},
+                        )
+                    sugg = (plan.suggestions or []) if include_suggestions else []
+                    return XmlDiagram(
+                        xml=patched,
+                        assistant_message=plan.assistant_message or "Updated diagram.",
+                        suggestions=sugg,
+                    )
+                if logger:
+                    logger.log("surgical_edit", "Edit plan not applicable — regenerate via IR", level="info")
+            except Exception as exc:
+                if logger:
+                    logger.log("surgical_edit", f"Surgical edit failed ({exc}) — regenerate via IR", level="warn")
+        raise NonSurgicalEditError(
+            "This change needs a full redesign. Regenerating via the IR path "
+            "(or ask a smaller edit: rename, add one service, connect A→B)."
+        )
 
-    # --- Direct XML path ---
+    if not three_d:
+        raise ValueError(
+            "generate_xml_diagram is only for three_d=True or surgical edits. "
+            "Fresh diagrams use generate_xml_diagram_from_ir."
+        )
+
+    # --- 3D isometric path ---
     provider_spec = get_provider(provider_key)
     system_prompt = get_xml_gen_system_prompt_marked(
         model_id=provider_spec.default_model,
         provider=provider_key,
         platform=platform,
         custom_system_message=custom_system_message,
-        three_d=three_d,
+        three_d=True,
         user_hint=hint,
         primary_view=primary_view,
     )
@@ -236,7 +252,7 @@ def generate_xml_diagram(
     )
 
     if logger:
-        logger.log("prompt", "Prepared XML generation request", details={"provider": provider_key, "platform": platform})
+        logger.log("prompt", "Prepared 3D XML generation request", details={"provider": provider_key, "platform": platform})
 
     try:
         result = _llm(
@@ -263,16 +279,17 @@ def generate_xml_diagram(
     return result
 
 
-#: How many corrective passes to spend on an IR that parsed but broke a semantic
-#: rule. A single-flow-reference error is usually fixed in one pass: the
-#: feedback names the exact offending flow/field, so the model has something
-#: actionable. "flows is empty" is a whole-view omission rather than a single
-#: bad reference, though, and a live capture showed the model still returning
-#: no flows after one correction attempt — the whole view then fell back to
-#: the direct-XML path (visibly worse: no compiler-owned geometry) purely
-#: because it only got one chance to add them back. Two passes costs one
-#: extra LLM call only on the views that already broke a rule once.
-IR_MAX_CORRECTIVE_PASSES = 2
+class NonSurgicalEditError(ValueError):
+    """Raised when current_xml is present but the change is too large for surgical ops."""
+
+
+#: How many corrective LLM passes to spend on an IR that parsed but broke a
+#: semantic rule. One pass is enough for a named bad flow reference. Empty
+#: ``flows`` used to burn a second identical pass (live captures: same
+#: ``flows: []`` at temperature 0) then fall back to direct XML — that case is
+#: now handled by ``synthesize_spine_flows`` after the residual check, so a
+#: second LLM round-trip is pure waste.
+IR_MAX_CORRECTIVE_PASSES = 1
 
 #: view -> (page name, IR type, compiler) — the single dispatch table every
 #: view-agnostic IR call site reads from. Adding a future view means adding one
@@ -371,9 +388,15 @@ def _generate_ir_with_corrections(
                 "ir", f"{view_label} IR broke {len(errors)} rule(s) — asking for a correction",
                 level="warning", details={"errors": errors},
             )
+        # The previous IR must be included verbatim: without it, "keep
+        # everything else identical" refers to output the model cannot see,
+        # and at temperature 0 it just regenerates the same broken answer —
+        # live captures showed two correction passes failing identically
+        # (same empty `flows`) for exactly this reason.
         correction = (
             f"Your previous {ir_type.__name__} was structurally valid but broke these rules:\n"
             + "\n".join(f"- {e}" for e in errors)
+            + f"\n\nYour previous {ir_type.__name__} was:\n{ir.model_dump_json()}"
             + f"\n\nReturn a corrected {ir_type.__name__}. Keep everything else identical — "
             "change only what is needed to fix the listed problems."
         )
@@ -387,6 +410,22 @@ def _generate_ir_with_corrections(
         _drop_invalid_flows(ir, residual, logger, view_label)
         residual = ir.semantic_errors()
 
+    # Empty flows survive drop (nothing to drop) and burn LLM corrections without
+    # changing — synthesize a minimal spine so the IR+compiler path still wins.
+    if residual and _is_empty_flows_error(residual):
+        from app.domain.ir.flow_spine import synthesize_spine_flows
+
+        if synthesize_spine_flows(ir):
+            residual = ir.semantic_errors()
+            if logger and not residual:
+                logger.log(
+                    "ir",
+                    f"{view_label} IR had empty flows — synthesized a request-path spine "
+                    f"({len(ir.flows)} edge(s)) to keep the compiler path",
+                    level="warning",
+                    details={"flows": len(ir.flows)},
+                )
+
     if not residual:
         ir = _apply_semantic_warning_pass(
             ir, ir_type=ir_type, system_prompt=system_prompt, human_content=human_content,
@@ -396,9 +435,8 @@ def _generate_ir_with_corrections(
 
     if logger:
         if residual:
-            # Not fixed by correction or drop (e.g. "flows is empty" — there is
-            # nothing to drop). The compiler will reject this IR and the caller
-            # falls back to direct XML; logging success here would hide why.
+            # Not fixed by correction, drop, or spine synthesis. The compiler will
+            # reject this IR and the caller falls back to direct XML.
             logger.log(
                 "ir", f"{view_label} IR still breaks {len(residual)} rule(s) after correction — "
                 "compiler will reject it and this view will fall back to direct XML",
@@ -411,6 +449,13 @@ def _generate_ir_with_corrections(
                 "actors": len(ir.external_actors),
             })
     return ir
+
+
+def _is_empty_flows_error(errors: list[str]) -> bool:
+    """True when the only residual problem is a missing ``flows`` array."""
+    if not errors:
+        return False
+    return all("flows is empty" in e for e in errors)
 
 
 def _apply_semantic_warning_pass(

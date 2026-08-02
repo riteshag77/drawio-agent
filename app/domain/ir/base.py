@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -153,26 +153,39 @@ class Flow(IRModel):
     @field_validator("label")
     @classmethod
     def _short_label(cls, value: str) -> str:
-        # Long edge labels are the single biggest source of unreadable diagrams;
-        # truncate rather than reject so one chatty label never fails a build.
+        # Long edge labels clutter diagrams, but corridor packs teach 4–6 word
+        # verbs ("Cache Miss: Fetches via API", "JSON: Failed API Retries").
+        # Cap at 6 words — truncate rather than reject so one chatty label
+        # never fails a build, without mangling the allowed vocabulary.
         words = value.split()
-        return " ".join(words[:3])
+        return " ".join(words[:6])
 
 
 class DiagramIR(IRModel):
     """Common surface every view IR implements, so the pipeline can stay view-agnostic.
 
-    ``external_actors``/``flows`` live here rather than on each view IR: every
-    view has exactly this shape for them (a flat list of actors, a flat list of
-    edges between ids), so declaring them per-subclass was pure duplication —
-    found by comparing ``NetworkIR`` against ``CorridorIR`` once both existed.
+    ``external_actors``/``flows`` are deliberately NOT declared here even
+    though every subclass has them identically: Pydantic orders JSON-schema
+    properties by *first* definition, and both Gemini's json_mode (constrained
+    decoding honours schema property order) and function-calling models emit
+    fields in that order. Declaring flows on the base put it *before* the
+    structural fields (corridors / cloud), forcing the model to write the
+    edges before it had decided the nodes — live captures showed models
+    emitting ``"flows": []`` early and never returning to it, which failed
+    every view over to the direct-XML path. Each concrete IR therefore
+    declares ``external_actors`` and ``flows`` itself, *after* its structural
+    fields, so generation order is nodes-then-edges.
     """
 
     view: ViewKind
     platform: str = Field(default="aws", description="aws | gcp | azure | multi")
     title: str = Field(default="Architecture", description="Page title")
-    external_actors: list[ExternalActor] = Field(default_factory=list)
-    flows: list[Flow] = Field(default_factory=list)
+
+    if TYPE_CHECKING:
+        # Declared per-subclass after the structural fields (see docstring);
+        # annotated here (non-runtime) so the shared helpers below type-check.
+        external_actors: list[ExternalActor]
+        flows: list[Flow]
 
     def leaf_ids(self) -> set[str]:  # pragma: no cover - overridden
         raise NotImplementedError

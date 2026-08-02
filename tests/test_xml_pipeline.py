@@ -1,4 +1,7 @@
-"""Tests for run_xml_pipeline: deterministic XML repair only (no LLM repair)."""
+"""Tests for run_xml_pipeline: deterministic XML repair (surgical edit path).
+
+Fresh generation is IR-only. Malformed-XML retry lives on the 3D path only.
+"""
 
 from __future__ import annotations
 
@@ -20,6 +23,9 @@ MINIMAL_XML = (
     "</root></mxGraphModel></diagram></mxfile>"
 )
 
+# Substantial current_xml forces edit mode → surgical/direct XML (not IR).
+_EDIT_BASE = "x" * 500
+
 
 class DeterministicRepairOnlyTests(unittest.TestCase):
     """Format/structure repair must never call an LLM corrective pass."""
@@ -30,11 +36,12 @@ class DeterministicRepairOnlyTests(unittest.TestCase):
                 patch.object(xml_pipeline, "diagnose_xml", return_value=diagnose_result), \
                 patch.object(xml_pipeline, "repair_xml", side_effect=repair_side_effect):
             return asyncio.run(xml_pipeline.run_xml_pipeline(
-                user_prompt="draw something",
+                user_prompt="rename IAM to Identity",
                 provider="gemini",
                 platform="aws",
                 logger=StepLogger(),
                 diagram_renderer="local",
+                current_xml=_EDIT_BASE,
             ))
 
     def test_warnings_only_still_succeeds(self) -> None:
@@ -54,11 +61,12 @@ class DeterministicRepairOnlyTests(unittest.TestCase):
                 patch.object(xml_pipeline, "repair_xml", return_value=(MINIMAL_XML, has_errors)), \
                 patch("app.core.services.agent.repair_xml_diagram", create=True) as llm_repair:
             result = asyncio.run(xml_pipeline.run_xml_pipeline(
-                user_prompt="draw something",
+                user_prompt="rename IAM to Identity",
                 provider="gemini",
                 platform="aws",
                 logger=StepLogger(),
                 diagram_renderer="local",
+                current_xml=_EDIT_BASE,
             ))
         llm_repair.assert_not_called()
         self.assertEqual(result["status"], "success")
@@ -66,8 +74,7 @@ class DeterministicRepairOnlyTests(unittest.TestCase):
 
 
 class MalformedXmlRetryTests(unittest.TestCase):
-    """Generation retry on truncated XML is still allowed — that is regeneration,
-    not format/structure repair. Downstream diagnose/repair remain deterministic."""
+    """Generation retry on truncated XML is allowed on the 3D path."""
 
     TRUNCATED_XML = (
         '<mxfile host="app.diagrams.net"><diagram name="A" id="d1">'
@@ -84,11 +91,12 @@ class MalformedXmlRetryTests(unittest.TestCase):
                 patch.object(xml_pipeline, "diagnose_xml", return_value=clean), \
                 patch.object(xml_pipeline, "repair_xml", return_value=(MINIMAL_XML, clean)):
             result = asyncio.run(xml_pipeline.run_xml_pipeline(
-                user_prompt="draw something",
+                user_prompt="isometric 3d aws architecture",
                 provider="gemini",
                 platform="aws",
                 logger=StepLogger(),
                 diagram_renderer="local",
+                three_d=True,
             ))
         return gen_mock, result
 

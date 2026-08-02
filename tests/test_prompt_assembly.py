@@ -1,5 +1,9 @@
-"""Prompt assembly token-budget and platform-pack tests."""
+"""Prompt assembly: 3D XML pack + IR view packs (no legacy core/views)."""
 
+from app.adapters.outbound.llm.prompts.ir import (
+    get_corridor_ir_system_prompt,
+    get_network_ir_system_prompt,
+)
 from app.adapters.outbound.llm.prompts.system import (
     ESTIMATE_PROMPT_TOKENS,
     MAX_SYSTEM_PROMPT_TOKENS,
@@ -7,89 +11,58 @@ from app.adapters.outbound.llm.prompts.system import (
 )
 
 
-def test_aws_prompt_under_budget():
-    prompt = get_xml_gen_system_prompt(platform="aws", user_hint="lambda rds vpc")
+def test_3d_prompt_under_budget():
+    prompt = get_xml_gen_system_prompt(platform="aws", three_d=True, user_hint="vpc lambda")
     tokens = ESTIMATE_PROMPT_TOKENS(prompt)
-    assert tokens <= MAX_SYSTEM_PROMPT_TOKENS, f"AWS prompt ~{tokens} tokens exceeds {MAX_SYSTEM_PROMPT_TOKENS}"
+    assert tokens <= MAX_SYSTEM_PROMPT_TOKENS, f"3D prompt ~{tokens} tokens exceeds {MAX_SYSTEM_PROMPT_TOKENS}"
 
 
-def test_aws_excludes_azure_gcp_columns():
-    prompt = get_xml_gen_system_prompt(platform="aws")
-    assert "Entra ID" not in prompt
-    assert "Cosmos DB" not in prompt
-    assert "Cloud Armor" not in prompt
-    assert "Service Classification — AWS" in prompt
+def test_non_3d_xml_prompt_raises():
+    try:
+        get_xml_gen_system_prompt(platform="aws")
+        assert False, "expected ValueError for non-3D XML prompt"
+    except ValueError as exc:
+        assert "three_d=True" in str(exc)
 
 
-def test_gcp_excludes_aws_icons_pack_rules_from_classify():
-    prompt = get_xml_gen_system_prompt(platform="gcp")
-    assert "Service Classification — GCP" in prompt
-    assert "mxgraph.aws4.resourceIcon" not in prompt or "NEVER use mxgraph.aws4" in prompt
-
-
-def test_3d_skips_aws4_icon_pack():
+def test_3d_skips_classify_and_uses_isometric():
     prompt = get_xml_gen_system_prompt(platform="aws", three_d=True)
     assert "mxgraph.aws3d" in prompt
-    assert "mxgraph.aws4.resourceIcon" not in prompt
     assert "isometricEdgeStyle" in prompt
     assert "Service Classification — AWS" not in prompt
-    assert "Canonical Container Hierarchy" not in prompt
 
 
-def test_network_pack_loaded_for_primary():
-    prompt = get_xml_gen_system_prompt(platform="aws", primary_view="network")
-    assert "Canonical Container Hierarchy" in prompt
-    assert "Cross-Cutting Groups" in prompt
-    assert "xml_gen_network" not in prompt  # content loaded, not path/filename
+def test_network_ir_loads_hierarchy_and_classify():
+    prompt = get_network_ir_system_prompt(platform="aws", user_hint="lambda rds vpc")
+    assert "NetworkIR" in prompt
+    assert "external_actors" in prompt
+    assert "Service Classification — AWS" in prompt
+    assert "Entra ID" not in prompt
+    assert "Cosmos DB" not in prompt
 
 
-def test_logical_primary_skips_network_hierarchy():
-    prompt = get_xml_gen_system_prompt(platform="aws", primary_view="logical")
-    assert "Canonical Container Hierarchy" not in prompt
-    assert "Canonical Logical Structure" in prompt or "JOURNEY SPINE" in prompt
-    # Logical primary must not load cloud classify/icon packs (anti-mix).
+def test_gcp_ir_excludes_aws_stencils_from_classify():
+    prompt = get_network_ir_system_prompt(platform="gcp")
+    assert "Service Classification — GCP" in prompt
+    assert "NEVER use mxgraph.aws4" in prompt
+
+
+def test_logical_ir_skips_cloud_classify():
+    prompt = get_corridor_ir_system_prompt("logical", platform="aws", user_hint="salesforce")
     assert "Service Classification — AWS" not in prompt
-    assert "logical_*" in prompt.lower() or "logical_" in prompt
-    # common.txt removed — lenses are self-contained with CORE
-    assert "views/common" not in prompt
-    assert "Audience-first story" in prompt or "Pack ownership" in prompt
+    assert "logical_" in prompt.lower() or "(SAAS)" in prompt
+    assert "domain_experience" in prompt
+    assert "Check Cache" in prompt
+    assert "Cache Miss: Fetches via API" in prompt
 
 
-def test_security_prompt_requires_external_saas_zone():
-    prompt = get_xml_gen_system_prompt(platform="aws", primary_view="security")
-    assert "External SaaS Zone" in prompt
+def test_security_ir_requires_external_saas_zone():
+    prompt = get_corridor_ir_system_prompt("security", platform="aws")
     assert "zone_external_saas" in prompt
     assert "Fetches Credentials" in prompt
 
 
-def test_data_flow_prompt_requires_saas_resilience_companions():
-    prompt = get_xml_gen_system_prompt(platform="aws", primary_view="data_flow")
+def test_data_flow_ir_requires_saas_resilience_companions():
+    prompt = get_corridor_ir_system_prompt("data_flow", platform="aws")
     assert "Dead-letter" in prompt or "DLQ" in prompt
     assert "Failed API Retries" in prompt
-    assert "Schema" in prompt
-
-
-def test_logical_prompt_requires_cache_aside_for_saas():
-    prompt = get_xml_gen_system_prompt(platform="aws", primary_view="logical")
-    assert "Cache Miss: Fetches via API" in prompt
-    assert "Check Cache" in prompt
-    assert "cache-aside" in prompt.lower() or "Profile cache" in prompt
-
-
-def test_core_excludes_network_hierarchy():
-    from app.adapters.outbound.llm.prompts.system import _load_prompt
-
-    core = _load_prompt("core.txt")
-    assert "Canonical Container Hierarchy" not in core
-    assert "Availability Zone" not in core
-    assert "Cross-Cutting Groups" not in core
-    assert "180–220" in core
-    assert "overview_panel" in core
-
-
-def test_no_style_instructions_file_loaded():
-    """CORE already includes edge colors; style_instructions must not be appended."""
-    prompt = get_xml_gen_system_prompt(platform="aws")
-    # style_instructions had a "## Visual style" header — should not appear twice-ish;
-    # CORE uses "Edge colors by platform" instead.
-    assert prompt.count("## Visual style") == 0

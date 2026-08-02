@@ -14,6 +14,8 @@ rest: `zone_public`, `zone_dmz`, `zone_identity`, `zone_partner`,
 
 Anchored shelf: `zone_external_saas` — anchored under `zone_restricted`
 (SaaS vendors typically process/receive the organisation's sensitive data).
+`zone_external_saas` is the **only** id allowed in `anchored`. Every other
+zone — including `zone_detect` — is a main-row corridor, never a shelf.
 
 ## `zone_partner` vs `zone_external_saas` — do not conflate
 
@@ -30,6 +32,11 @@ Anchored shelf: `zone_external_saas` — anchored under `zone_restricted`
 Keep cloud `shape_type` (`aws_*`/`gcp_*`/`azure_*`) on inventory services:
 IdP/IAM, WAF/API GW/public ALB/Shield, KMS/secrets/ACM, bastion/private
 access, private app, sensitive-data boundary, detect tools.
+
+**Collapse density:** one `zone_private` for apps (not one zone per
+microservice) and one `zone_restricted` sensitive-data boundary (not every
+table/service as its own zone). Extra peer services stay as leaves inside
+those zones.
 
 External IdP/enterprise SaaS (Okta, Salesforce, Workday, Guidewire, …):
 `shape_type=saas_<vendor>` — place in `zone_external_saas`, `zone_public`, or
@@ -72,11 +79,42 @@ over a private path with no TLS termination noted). Any flow that crosses
 into `zone_public` or `zone_partner` should carry `protection` — a boundary
 crossing with `protection: none` is flagged for review.
 
+### Mini example
+
+```json
+"external_actors": [{"id": "users", "kind": "users", "label": "Users"}],
+"corridors": [
+  {"id": "zone_public", "label": "Public", "leaves": [
+    {"id": "api_gw", "shape_type": "aws_api_gateway", "label": "API Gateway"}
+  ]},
+  {"id": "zone_identity", "label": "Identity", "leaves": [
+    {"id": "cognito", "shape_type": "aws_cognito", "label": "Cognito"}
+  ]},
+  {"id": "zone_private", "label": "Private", "leaves": [
+    {"id": "item_api", "shape_type": "aws_ecs", "label": "Item API"}
+  ]},
+  {"id": "zone_detect", "label": "Detect", "leaves": [
+    {"id": "guardduty", "shape_type": "aws_guardduty", "label": "GuardDuty"}
+  ]}
+],
+"anchored": [],
+"flows": [
+  {"source": "users", "target": "api_gw", "label": "TLS", "protection": "tls"},
+  {"source": "api_gw", "target": "cognito", "label": "AuthN"},
+  {"source": "api_gw", "target": "item_api", "label": "private path"},
+  {"source": "item_api", "target": "guardduty", "label": "Logs & Telemetry", "primary": false}
+]
+```
+
+`zone_detect` is always a **main-row** corridor — never put it in `anchored`
+(only `zone_external_saas` may be anchored).
+
 **Forbidden:** Orders/Catalog/Checkout/UI soup, Kafka-as-hero, DB
 table/CRUD labels, full AZ/subnet wallpaper (that's Network's lens), SaaS
 leaves inside `zone_private`, partner leaves inside `zone_private` or
-`zone_external_saas`, any leaf as a direct child of `parent="1"` that isn't
-an external actor.
+`zone_external_saas`, routing partner traffic **straight into** `zone_private`
+without passing through `zone_partner`'s Partner API Gateway, putting any leaf
+in `external_actors` that is not actually outside the trust boundary.
 
 ## Density
 

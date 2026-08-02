@@ -6,9 +6,9 @@ that *produces* styles (``compiler/theme.py``) and the module that later
 these tables, so the compiler's pre-repair output already matches what
 normalization will enforce, instead of the two drifting apart.
 
-Values mirror each view pack's own documented "Section colors" table
-(``config/xml_gen/views/{logical,security,data_flow}.txt``), with three
-deliberate corrections documented at ``CORRIDOR_COLORS`` below.
+Values mirror each corridor view's section colours (Logical domains / Security
+zones / Data-flow phases), with three deliberate corrections documented at
+``CORRIDOR_COLORS`` below.
 
 One visual language across all four views: a colour means the same thing on
 Logical, Security, Data-flow and Network alike, so a reader learns it once.

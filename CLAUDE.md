@@ -46,73 +46,33 @@ app/
 
 1. `routes._run_chat` classifies intent via `core/services/intent.classify_intent` — `"simple"` (generic diagram, no cloud vocabulary) routes to the lightweight Mermaid path (`agent.generate_mermaid_diagram`); anything else ("cloud") goes to the full pipeline. **Only the cloud/full path forwards `attachment_documents`/`context_text` to the LLM** — if attachments are present, intent is forced away from `"simple"` regardless of the classifier's answer, since the Mermaid path can't use them.
 2. `xml_pipeline.run_xml_pipeline` orchestrates the full path:
-   - `agent.generate_xml_diagram` → LLM emits draw.io XML directly (structure, geometry, edges, leaf `shape_type` placeholders) via `llm_client.call_llm`.
-   - `xml_tools.validate_and_fix_xml` / `ensure_diagram_document` → structural normalization.
-   - `xml_diagnostics.diagnose_xml` / `repair_xml` → deterministic checks (dangling edges, duplicate ids, overlaps, missing labels, parent cycles, geometry) with auto-fixers only — **no LLM repair** for format/structure.
-   - In parallel (`asyncio.gather`): cost estimate, Well-Architected assessment, compliance assessment, and MCP icon resolution (`drawio_mcp_client.resolve_shape_styles` merges official icon styles into the LLM's placeholder leaves, preserving label attributes — see the LLM/MCP/prompt-pack ownership split below).
-3. Response includes `xml`, `renderer_used` (`mcp` or `local`), `llm_usage` (token/cost accounting distinct from the depicted architecture's estimated cloud spend), and `logs`.
+   - Fresh cloud → `agent.generate_xml_diagram_from_ir` (Pydantic IR → compiler XML).
+   - Edit → surgical `DiagramEditPlan` when small; otherwise IR regenerate.
+   - 3D → `generate_xml_diagram` with `prompt_3d.txt` only.
+   - `xml_tools` / `xml_diagnostics.repair_xml` → deterministic fixes only (**no LLM repair**).
+   - In parallel: cost, Well-Architected, compliance, MCP icon resolution.
+3. Response includes `xml`, `renderer_used` (`mcp` or `local`), `generation_path` (`ir` | `direct_xml`), `llm_usage`, and `logs`.
 
-### Two generation paths (`DIAGRAM_IR_ENABLED`), all four views
+### Generation paths (`DIAGRAM_IR_ENABLED`)
 
-There are now two ways any page (primary *or* a secondary/extra view) gets produced.
-Know which one you're touching:
+- **IR + compiler** (default for **fresh** cloud; `DIAGRAM_IR_VIEWS` per view):
+  LLM emits IR; `adapters/outbound/diagram/compiler/` renders XML. Failure fails
+  the request — no silent direct-XML fallback.
+- **Surgical edit** / **3D**: only remaining direct-XML paths (no `core.txt` /
+  `views/` packs). Mermaid stays for `"simple"` intent.
 
-- **Direct XML** (fallback): the LLM writes mxCells itself, then ~5k lines of deterministic
-  repair (`xml_diagnostics.py`, `placement_fixers.py`, `xml_tools.py`) correct what it got
-  wrong. Always used for edit mode and 3D; used for fresh generations only when the IR path
-  is disabled or throws (see below).
-- **IR + compiler** (default; `DIAGRAM_IR_ENABLED` gates it, `DIAGRAM_IR_VIEWS` opts in per
-  view, fresh generations only): the LLM emits a Pydantic-validated IR and
-  `adapters/outbound/diagram/compiler/` deterministically renders the XML.
-  - **Network** (`NetworkIR`, strict container nesting) — geometry/styles/parent-wiring become
-    code, so the repair layer has nothing to fix. This is a *correctness* fix: before this path
-    existed, LLM geometry mistakes were load-bearing and shipped to users.
-  - **Logical / Security / Data flow** (`LogicalIR`/`SecurityIR`/`DataFlowIR`, all sharing
-    `CorridorIR` in `domain/ir/corridor.py`) — a same-rank row of corridors + optional shelves.
-    These three already had a real deterministic layout engine
-    (`logical_layout.apply_layered_corridor_layout`, invoked unconditionally by `repair_xml`
-    for these page names) that discarded whatever geometry the LLM wrote — so the IR here is a
-    *waste and grouping-correctness* fix, not a geometry-correctness one: it stops the prompt
-    from teaching pixel arithmetic nobody reads, and turns "leaf in the wrong domain/zone/phase"
-    or "flow into a forbidden zone" into a structural validation error instead of a self-check
-    item an LLM can skip.
+Rules of thumb:
+- Layout/spacing → `geometry_spec.py`. Structural invariants → IR types /
+  `semantic_errors()` / `corridor.py`.
+- Prompts live in `config/xml_gen/ir/` (+ `classify/`, `icons/saas.txt`,
+  `prompt_3d.txt`, `docs/`, `gap_analysis.txt`).
+- `generation_path=direct_xml` means surgical edit or 3D, not a failed IR.
 
-Rules of thumb when editing:
-- A **layout/spacing** rule for the Network IR path is a constant in `geometry_spec.py`, not
-  prompt prose. That module is the single source of truth — `xml_diagnostics.py` imports the
-  same constants, which is what keeps compiler output diagnostically clean by construction.
-  The corridor views' compiler also reads it, but their geometry is a formality either way
-  (see above) — it's shared for consistency, not because it's load-bearing there.
-- A **structural invariant** (nesting, "no edges on cross-cutting groups", no empty
-  subnets/corridors, corridor id vocabulary, shelf anchoring) belongs in the IR types or a
-  `semantic_errors()` override, not in a prompt paragraph. `CorridorIR` in `corridor.py` is the
-  one place shared across Logical/Security/Data-flow — extend it there, not per-view, when the
-  rule is genuinely common to all three (see its module docstring for what already is).
-- Every view-agnostic call site reads from `domain.ir.IR_TYPES_BY_VIEW` (view → IR type) or
-  `agent._IR_PAGE_NAMES` (view → page name) rather than an if/elif chain — add a row there for
-  a new view, not a new branch at each call site.
-- The IR path must never introduce a new failure mode, for *either* role a view can play: the
-  primary page (`xml_pipeline._should_use_ir_path` gates eligibility) and a secondary/extra page
-  in the multi-view fan-out (`xml_pipeline._run_view`, same eligibility check, own try/except).
-  Both fall back to direct XML on any exception.
-- An extra view generated via IR skips `VIEW_REPAIR_MAX_PASSES`'s LLM repair loop entirely —
-  see `_run_view`'s `effective_repair_passes`.
-- Responses carry `generation_path` (`ir` | `direct_xml`) for the *primary* page — distinct from
-  `renderer_used` (`mcp` | `local`), which is about icon resolution only.
-- **Fixed on the IR/layered path, still latent on the direct-XML fallback**: Data-flow's
-  `phase_consume`+`phase_saas_*` double-shelf-under-`phase_store` case used to collide in the
-  shared layout engine. `layout_corridor_ir`'s `cursor_by_anchor` stacking fixes this for every
-  view compiled via IR (the default); it can still reproduce on the direct-XML fallback, which
-  is why the old collision is pinned as a regression test in `test_corridor_compiler.py` rather
-  than blind-patched — see `docs/ENV_AND_MCP.md`'s IR section for the full writeup before
-  touching `logical_layout.py`.
+### LLM/MCP/prompt ownership split
 
-### LLM/MCP/prompt ownership split (important when touching diagram generation)
-
-This split is deliberate — don't blur it:
-- **LLM** owns structure: parent/child nesting, geometry, container/group styles, edges, and a leaf's `shape_type` + grey placeholder style. It does **not** invent icon stencils (`resIcon=`, `mxgraph.gcp2`, Azure SVG paths).
-- **Prompt packs** (`config/xml_gen/`: `core.txt` + `views/` including `network.txt` + `classify/` + `icons/` + `docs/`) own layout/classification rules, kept token-efficient by splitting shared CORE rules from Network hierarchy and platform-specific icon packs.
-- **Draw.io MCP** (`drawio_mcp_client.py`) owns resolving official leaf icon styles at runtime via `search_shapes`, merged into (not overwriting) the LLM's leaf style. MCP misses leave the placeholder and log `mcp_miss` rather than half-overwriting a style.
+- **LLM** owns IR structure (nesting, flows, `shape_type` keys) — not icon stencils.
+- **Prompt packs** (`config/xml_gen/ir/` + `classify/` + `icons/saas.txt`) own judgment rules.
+- **Draw.io MCP** resolves official leaf icon styles via `search_shapes`; misses log `mcp_miss`.
 - `DIAGRAM_RENDERER` env/request setting: `auto`/`mcp` (resolve + optional libavoid routing) vs `local` (skip MCP, offline, placeholders stay unless the LLM invented a stencil).
 - Style resolution is cached (`diagram/style_cache.py`, SQLite at `data/mcp_style_cache.sqlite3`) — after changing MCP pick logic or prompts, set `DRAWIO_STYLE_CACHE_RESET=true` once (then back to `false`) or delete the cache file.
 

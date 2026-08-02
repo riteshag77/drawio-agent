@@ -61,8 +61,9 @@ external actors (left)   edge_layer                 external actors (right)
 **Subnet tiers**
 - `public` — internet-reachable: NAT gateway, bastion, public-facing proxies.
 - `app` — compute and application logic: containers, functions, VMs, app services.
-- `data` — persistence: relational/NoSQL databases, caches, warehouses, queues
-  that hold state.
+- `data` — persistence only: relational/NoSQL databases, caches, warehouses,
+  object stores. **Not** messaging buses (SQS/SNS/EventBridge/Pub/Sub) — those
+  belong in the `integration` group below.
 
 **gateway** — the single load balancer or API gateway fronting the app tier. It
 belongs on the VPC, never inside a subnet, and renders centred in its own row
@@ -84,15 +85,20 @@ the architecture but is not on the request path:
 touching a group or its members is rejected by validation.
 
 **edge_layer** — global/edge services that sit in front of the region: CDN, DNS,
-WAF, static object hosting. Rendered as a row across the **top** of the cloud,
-because it is where the request path enters. List its leaves in the order
-traffic actually reaches them (DNS → CDN → WAF), so the inbound connectors run
-straight instead of doubling back across the row.
+WAF (when on the ingress path), static object hosting. Rendered as a row across
+the **top** of the cloud, because it is where the request path enters. List its
+leaves in the order traffic actually reaches them (DNS → CDN → WAF), so the
+inbound connectors run straight instead of doubling back across the row. Put
+WAF in the `security` group only when it is control-plane inventory, not on the
+request path.
 
 **connectivity_hubs** — only for hubs that span multiple VPCs, accounts, or
-regions. A hub serving one VPC is not a hub; put it in a subnet. These render in
-their own "Connectivity / Hybrid" shelf below the regions, connected to what
-they join by flows — never nested inside a VPC.
+regions (Transit Gateway, VPN Gateway, Direct Connect). A hub serving one VPC
+is not a hub; put it in a subnet. A **PrivateLink / interface endpoint** that
+serves one VPC stays **inside that VPC** (usually the app or data subnet) — do
+not promote it to `connectivity_hubs`. These hubs render in their own
+"Connectivity / Hybrid" shelf below the regions, connected to what they join by
+flows — never nested inside a VPC.
 
 **external_actors** — anything outside the cloud boundary:
 - `users` — the people or client apps using the system.
@@ -110,7 +116,9 @@ top-level list precisely so this cannot happen.
 Mirror the app and data tiers into a second zone **only when the architecture
 genuinely has replicas there** (HA, Multi-AZ, active-active). Do not invent a
 second zone to look symmetrical, and never emit a zone or subnet with no
-services — omit it instead.
+services — omit it instead. **Never** mirror Security / Monitoring /
+Integration / Management groups or the `edge_layer` into every AZ — those stay
+once at VPC/cloud scope.
 
 ## flows
 
@@ -124,11 +132,27 @@ users -> [saas_ingress] -> edge/CDN -> gateway -> app-tier service -> data-tier 
 ```
 
 - Secondary or asynchronous paths get `primary: false` (rendered dashed).
-- Keep the flow set sparse. A diagram where everything connects to everything is
-  unreadable — model the story, not every possible call.
+- Explicit failure / DR / fallback paths: `primary: false` and a label prefix
+  `Failure:` / `DR:` / `Fallback:` — never use dashed alone for a normal async call.
+- Keep the flow set sparse and readable. A diagram where everything connects to
+  everything is unreadable — model the story, not every possible call.
 - `label` is optional and should be omitted by default. When used, 1–2 words
   only ("HTTPS", "async", "read").
 - Reach the data tier **through** the app tier, not directly from outside.
+
+### Mini example (ids illustrative)
+
+```json
+"external_actors": [{"id": "users", "kind": "users", "label": "Users"}],
+"flows": [
+  {"source": "users", "target": "cdn", "primary": true},
+  {"source": "cdn", "target": "alb", "primary": true},
+  {"source": "alb", "target": "orders_api", "primary": true},
+  {"source": "orders_api", "target": "orders_db", "primary": true}
+]
+```
+
+**Never return `"flows": []` when `external_actors` is non-empty.**
 
 ## leaves
 
@@ -138,7 +162,8 @@ Every leaf has:
   `aws_rds`, `aws_lambda`, `gcp_cloud_run`, `azure_functions`.
   Never a draw.io style, stencil path, or `resIcon=` string — icon resolution
   happens later and is not your concern.
-- `label` — short display name ("RDS Postgres", "Orders API").
+- `label` — short display name, prefer ≤18 characters ("RDS Postgres",
+  "Orders API"). Never blank; never `Service` / `Icon` / `Node` / `Group`.
 - `annotation` — optional short (2-3 word) contextual tag rendered as `"Label [Tag]"`
   (e.g. `"Primary DB [Multi-AZ]"`). Use sparingly — most leaves need none. Covers
   hosting/environment facts (Multi-AZ, environment tier, notable scaling behavior)
@@ -147,6 +172,9 @@ Every leaf has:
 ## Completeness
 
 A production architecture normally has, at minimum: a gateway, an app tier, a
-data tier, security and monitoring groups, and an identity story. Include what
-the request implies even when not spelled out — but do not invent services the
-architecture would not plausibly have.
+data tier, security and monitoring groups, and an identity story. When the
+request implies a public-facing app, also include NAT or bastion in `public`
+when private app tiers need outbound/admin access; Multi-AZ when HA is implied;
+a connectivity hub only when multi-VPC/hybrid is implied. Include what the
+request implies — do not invent services the architecture would not plausibly
+have.

@@ -33,7 +33,7 @@ from typing import ClassVar
 
 from pydantic import Field, model_validator
 
-from app.domain.ir.base import DiagramIR, Identified, Leaf
+from app.domain.ir.base import DiagramIR, ExternalActor, Flow, Identified, Leaf
 
 
 class Corridor(Identified):
@@ -87,6 +87,20 @@ class CorridorIR(DiagramIR):
         default_factory=list,
         description="Shelves excluded from the main row (e.g. external-SaaS), each anchored below a row corridor or the whole row.",
     )
+    # Declared after the structural fields on purpose: models emit JSON fields
+    # in schema order, so corridors/leaves (the nodes) must exist before the
+    # edges that reference them. See DiagramIR's docstring.
+    external_actors: list[ExternalActor] = Field(
+        default_factory=list,
+        description="Everyone outside the diagram's own boundary (personas, IdPs, SaaS endpoints).",
+    )
+    flows: list[Flow] = Field(
+        default_factory=list,
+        description=(
+            "REQUIRED whenever 2+ leaves exist — never empty. The directed edges that tell "
+            "this view's story, referencing only leaf/actor ids already declared above."
+        ),
+    )
 
     # ── id collection ──────────────────────────────────────────────────
 
@@ -100,6 +114,69 @@ class CorridorIR(DiagramIR):
         return {c.id for c in self.all_corridors()}
 
     # ── validation ─────────────────────────────────────────────────────
+
+    @classmethod
+    def _relocate_vocabulary(
+        cls,
+        data: object,
+        *,
+        row_ids: frozenset[str],
+        shelf_anchors: dict[str, str | None],
+    ) -> object:
+        """Deterministically fix row-vs-shelf mis-slotting in raw LLM output.
+
+        Models reliably decide *what* exists but sometimes put a fixed-vocabulary
+        corridor in the wrong list — a live capture showed ``zone_detect``
+        (a main-row zone) emitted as an anchored shelf, which hard-failed the
+        whole Security view over to direct XML. Row/shelf membership and each
+        shelf's anchor are fixed vocabulary ("this is fixed, not a judgment
+        call" per the prompt packs), so relocation is unambiguous and belongs
+        in code, not in a corrective LLM round-trip.
+
+        ``shelf_anchors`` maps each legal shelf id to its required ``anchor_id``
+        (``None`` = below the whole row). The anchor is only forced when its
+        target corridor is present in the row — otherwise the value is left
+        for the normal validators to report.
+        """
+        if not isinstance(data, dict):
+            return data
+        corridors = data.get("corridors")
+        anchored = data.get("anchored")
+        if not isinstance(corridors, list) and not isinstance(anchored, list):
+            return data
+        corridors = list(corridors) if isinstance(corridors, list) else []
+        anchored = list(anchored) if isinstance(anchored, list) else []
+
+        # Only raw-dict entries (LLM JSON) are relocated; model instances built
+        # in code pass through untouched.
+        new_row: list[object] = [
+            c for c in corridors if not (isinstance(c, dict) and c.get("id") in shelf_anchors)
+        ]
+        new_shelves: list[object] = []
+        for shelf in anchored:
+            if isinstance(shelf, dict) and shelf.get("id") in row_ids:
+                # Row-vocabulary corridor emitted as a shelf — back to the row.
+                new_row.append({k: v for k, v in shelf.items() if k != "anchor_id"})
+            else:
+                new_shelves.append(dict(shelf) if isinstance(shelf, dict) else shelf)
+        # Shelf-vocabulary corridors emitted in the row become shelves.
+        new_shelves.extend(dict(c) for c in corridors if isinstance(c, dict) and c.get("id") in shelf_anchors)
+
+        present_row_ids = {
+            c.get("id") if isinstance(c, dict) else getattr(c, "id", None) for c in new_row
+        }
+        for shelf in new_shelves:
+            if not isinstance(shelf, dict) or shelf.get("id") not in shelf_anchors:
+                continue
+            required = shelf_anchors[shelf["id"]]
+            if required is None:
+                shelf["anchor_id"] = None
+            elif required in present_row_ids:
+                shelf["anchor_id"] = required
+
+        data["corridors"] = new_row
+        data["anchored"] = new_shelves
+        return data
 
     @model_validator(mode="after")
     def _check_prefixes_and_uniqueness(self) -> "CorridorIR":

@@ -58,7 +58,7 @@ class NetworkE2ETests(unittest.TestCase):
         async def _fake_resolve(*_a, **_k):
             return {}
 
-        with patch.object(xml_pipeline, "generate_xml_diagram", return_value=diagram), \
+        with patch.object(xml_pipeline, "generate_xml_diagram_from_ir", return_value=diagram), \
                 patch.object(xml_pipeline, "resolve_shape_styles", side_effect=_fake_resolve):
             result = asyncio.run(xml_pipeline.run_xml_pipeline(
                 user_prompt="HA web app on AWS",
@@ -88,7 +88,7 @@ class NetworkE2ETests(unittest.TestCase):
         async def _fake_resolve(*_a, **_k):
             return {}
 
-        with patch.object(xml_pipeline, "generate_xml_diagram", return_value=diagram), \
+        with patch.object(xml_pipeline, "generate_xml_diagram_from_ir", return_value=diagram), \
                 patch.object(xml_pipeline, "resolve_shape_styles", side_effect=_fake_resolve), \
                 patch.object(xml_pipeline, "estimate_monthly_cost") as cost:
             result = asyncio.run(xml_pipeline.run_xml_pipeline(
@@ -109,7 +109,7 @@ class NetworkE2ETests(unittest.TestCase):
         async def _fake_resolve(*_a, **_k):
             return {}
 
-        with patch.object(xml_pipeline, "generate_xml_diagram", return_value=diagram), \
+        with patch.object(xml_pipeline, "generate_xml_diagram_from_ir", return_value=diagram), \
                 patch.object(xml_pipeline, "resolve_shape_styles", side_effect=_fake_resolve), \
                 patch.object(xml_pipeline, "assess_well_architected") as waf:
             result = asyncio.run(xml_pipeline.run_xml_pipeline(
@@ -137,7 +137,7 @@ class NetworkE2ETests(unittest.TestCase):
         async def _fake_resolve(*_a, **_k):
             return {}
 
-        with patch.object(xml_pipeline, "generate_xml_diagram", return_value=diagram), \
+        with patch.object(xml_pipeline, "generate_xml_diagram_from_ir", return_value=diagram), \
                 patch.object(xml_pipeline, "resolve_shape_styles", side_effect=_fake_resolve), \
                 patch.object(xml_pipeline, "assess_well_architected", return_value=waf_payload) as waf:
             result = asyncio.run(xml_pipeline.run_xml_pipeline(

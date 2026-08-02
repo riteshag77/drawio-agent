@@ -1,6 +1,6 @@
 """Network / deployment view IR.
 
-Every rule in ``config/xml_gen/views/network.txt`` that can be expressed
+Every rule in ``config/xml_gen/ir/network.txt`` that can be expressed
 structurally is expressed here instead of in prose:
 
 * The Cloud -> Region -> VPC -> AZ -> Subnet hierarchy is *nesting*, so a
@@ -22,7 +22,7 @@ from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 
-from app.domain.ir.base import ActorKind, DiagramIR, ExternalActor, Identified, Leaf
+from app.domain.ir.base import ActorKind, DiagramIR, ExternalActor, Flow, Identified, Leaf
 
 __all__ = [
     "ActorKind",  # re-exported for backward compatibility — canonical home is base.py
@@ -134,6 +134,20 @@ class NetworkIR(DiagramIR):
         default="network", description="Must be exactly the lowercase string 'network' — no other casing."
     )
     cloud: CloudBoundary
+    # Declared after `cloud` on purpose: models emit JSON fields in schema
+    # order, so the hierarchy (the nodes) must exist before the edges that
+    # reference it. See DiagramIR's docstring.
+    external_actors: list[ExternalActor] = Field(
+        default_factory=list,
+        description="Everyone outside the cloud boundary (users, ingress IdP, egress SaaS, on-prem).",
+    )
+    flows: list[Flow] = Field(
+        default_factory=list,
+        description=(
+            "REQUIRED whenever any external actor exists — never empty. The primary request "
+            "path plus sparse secondary paths, referencing only ids already declared above."
+        ),
+    )
 
     # ── id collection ──────────────────────────────────────────────────
 

@@ -1,4 +1,4 @@
-"""MCP-accelerated XML generation pipeline — LLM produces draw.io XML directly."""
+"""XML generation pipeline — IR+compiler for fresh cloud; direct XML for edit/3D."""
 
 from __future__ import annotations
 
@@ -35,7 +35,6 @@ from app.adapters.outbound.diagram.architecture_docs import (
     GapAnalysisResult,
     RaidItem,
     RequiredAddition,
-    SingleViewPage,
     VIEW_PAGE_NAMES,
     _gap_candidates,
     achievable_density_target,
@@ -44,8 +43,6 @@ from app.adapters.outbound.diagram.architecture_docs import (
     build_gap_analysis_block,
     build_interview_prompt_block,
     build_raid_page_xml,
-    build_single_view_human,
-    build_single_view_system,
     build_views_prompt_block,
     derive_story_markers,
     ensure_ir_overview_panel,
@@ -59,14 +56,15 @@ from app.adapters.outbound.diagram.architecture_docs import (
     pick_primary_view,
     inject_shape_types_from_primary,
 )
-from app.adapters.outbound.diagram.view_conformance import (
-    format_violations_for_repair,
-    score_view,
-)
+from app.adapters.outbound.diagram.view_conformance import score_view
 from app.adapters.outbound.diagram.view_fixers import apply_view_fixers, ensure_gap_nodes
 from app.adapters.outbound.llm.llm_client import is_quota_or_rate_limit_error
 from app.core.ports.llm import get_llm
-from app.core.services.agent import generate_xml_diagram, generate_xml_diagram_from_ir
+from app.core.services.agent import (
+    NonSurgicalEditError,
+    generate_xml_diagram,
+    generate_xml_diagram_from_ir,
+)
 
 _SERVICE_INVENTORY_LIMIT = 36
 _REQUEST_TRUNCATE_DOCS = 600
@@ -75,10 +73,9 @@ _REQUEST_TRUNCATE_DOCS = 600
 def _should_use_ir_path(primary_view: str, current_xml: str | None, three_d: bool) -> bool:
     """Whether this request is eligible for the IR + compiler generation path.
 
-    Deliberately narrow. The IR describes an architecture from scratch, so it
-    cannot express "keep every id and coordinate in the diagram I already have"
-    (edit mode) and has no isometric vocabulary (3D). Both fall through to the
-    direct-XML path, which handles them today.
+    Fresh cloud diagrams are IR-only. Edit mode (substantial ``current_xml``) and
+    3D keep the direct-XML path — IR cannot express "keep these cell ids" or
+    isometric vocabulary.
     """
     cfg = get_config()
     if not cfg.diagram_ir_enabled:
@@ -88,6 +85,22 @@ def _should_use_ir_path(primary_view: str, current_xml: str | None, three_d: boo
     if current_xml and len(current_xml) > 200:
         return False
     return (primary_view or "network").lower() in cfg.diagram_ir_views
+
+
+def _require_ir_or_raise(view: str, *, context: str) -> None:
+    """Fresh generation must use IR — no silent direct-XML fallback."""
+    cfg = get_config()
+    view_key = (view or "network").lower()
+    if not cfg.diagram_ir_enabled:
+        raise ValueError(
+            f"{context}: fresh diagrams require DIAGRAM_IR_ENABLED=true "
+            "(edit mode and 3D still use direct XML)."
+        )
+    if view_key not in cfg.diagram_ir_views:
+        raise ValueError(
+            f"{context}: view {view_key!r} is not in DIAGRAM_IR_VIEWS={cfg.diagram_ir_views}. "
+            "Add it there, or omit the view from the request."
+        )
 
 
 def _was_successful_surgical_edit(logger: Any) -> bool:
@@ -334,47 +347,6 @@ def _count_service_leaves(xml: str) -> int:
     return n
 
 
-def _load_view_repair_pack() -> str:
-    from app.adapters.outbound.config.env_config import EnvConfigAdapter
-
-    path = EnvConfigAdapter.base_dir() / "config" / "xml_gen" / "views" / "repair.txt"
-    if path.is_file():
-        return path.read_text(encoding="utf-8")
-    return (
-        "Repair this focused architecture view page. Fix only the listed violations. "
-        "Return complete draw.io XML in xml + step_markers."
-    )
-
-
-def _degraded_view_placeholder(view: str, reason: str) -> str:
-    """Visible stub page when the view LLM soft-fails (never silently omit the tab)."""
-    title = VIEW_PAGE_NAMES.get(view, view)
-    safe_reason = (reason or "generation failed")[:180].replace("<", "").replace(">", "").replace('"', "")
-    overview = (
-        f"&lt;div style=&quot;font-size:22px;font-weight:bold;&quot;&gt;{title} — unavailable&lt;/div&gt;"
-        f"&lt;div style=&quot;font-size:15px;&quot;&gt;1. This page could not be generated ({safe_reason}).&lt;/div&gt;"
-        f"&lt;div style=&quot;font-size:15px;&quot;&gt;2. Retry the request or check provider capacity.&lt;/div&gt;"
-        f"&lt;div style=&quot;font-size:15px;&quot;&gt;3. Network / primary page is still available.&lt;/div&gt;"
-    )
-    return (
-        f'<mxfile host="app.diagrams.net"><diagram id="diagram-{view}" name="{title}">'
-        '<mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" page="1" pageWidth="1600" pageHeight="900">'
-        "<root><mxCell id=\"0\"/><mxCell id=\"1\" parent=\"0\"/>"
-        '<mxCell id="2" value="" style="fillColor=#F5F5F5;strokeColor=none;" vertex="1" parent="1">'
-        '<mxGeometry x="0" y="0" width="1600" height="900" as="geometry"/></mxCell>'
-        f'<mxCell id="degraded_note" value="{title} view unavailable" '
-        'style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF5F5;strokeColor=#B85450;'
-        'fontSize=16;align=center;verticalAlign=middle;" vertex="1" parent="1">'
-        '<mxGeometry x="200" y="200" width="600" height="120" as="geometry"/></mxCell>'
-        f'<mxCell id="overview_panel" value="{overview}" '
-        'style="rounded=1;arcSize=2;whiteSpace=wrap;html=1;fillColor=#FFF8E1;strokeColor=#F5A623;'
-        'strokeWidth=2;align=left;verticalAlign=top;spacingLeft=16;spacingTop=14;fontSize=15;" '
-        'vertex="1" parent="1">'
-        '<mxGeometry x="900" y="80" width="480" height="220" as="geometry"/></mxCell>'
-        "</root></mxGraphModel></diagram></mxfile>"
-    )
-
-
 def _finalize_view_page_xml(
     xml: str,
     title: str,
@@ -477,107 +449,6 @@ def _generate_ir_view_page(
         diagram.xml, title, diagram.step_markers, logger,
         primary_xml=primary_xml, view=view, human_prompt=human_prompt or "",
         ir_title=diagram.ir_title,
-    )
-
-
-def _generate_single_view_page(
-    *,
-    human_prompt: str,
-    platform_key: str,
-    primary_xml: str,
-    provider_key: str,
-    view: str,
-    logger: Any,
-    gap_block: str | None = None,
-) -> str | None:
-    """One LLM call for a focused view page, with one retry on empty/sparse results."""
-    inventory = build_architecture_inventory(primary_xml, request_text=human_prompt or "")
-    system = build_single_view_system(view)
-    human = build_single_view_human(
-        human_prompt=human_prompt,
-        platform=platform_key,
-        primary_xml=primary_xml,
-        inventory_text=inventory,
-        view=view,
-        gap_block=gap_block,
-    )
-    title = VIEW_PAGE_NAMES.get(view, view)
-
-    def _once() -> str | None:
-        page = get_llm()(system, human, provider_key, SingleViewPage, logger, None)
-        if not isinstance(page, SingleViewPage) or not (page.xml or "").strip():
-            return None
-        return _finalize_view_page_xml(
-            page.xml,
-            title,
-            page.step_markers,
-            logger,
-            primary_xml=primary_xml,
-            view=view,
-            human_prompt=human_prompt or "",
-        )
-
-    for attempt in range(2):
-        try:
-            result = _once()
-            if result:
-                return result
-            if logger and attempt == 0:
-                logger.log(
-                    "views",
-                    f"{title} view empty/sparse — retrying once",
-                    level="warning",
-                )
-        except Exception as exc:
-            if logger:
-                logger.log(
-                    "views",
-                    f"{title} view LLM failed (attempt {attempt + 1}): {exc}",
-                    level="warning",
-                )
-    return None
-
-
-def _repair_single_view_page(
-    *,
-    human_prompt: str,
-    platform_key: str,
-    primary_xml: str,
-    current_xml: str,
-    provider_key: str,
-    view: str,
-    violations_text: str,
-    logger: Any,
-) -> str | None:
-    """One gated LLM repair for a focused view (semantic viewpoint only)."""
-    inventory = build_architecture_inventory(primary_xml, request_text=human_prompt or "")
-    system = _load_view_repair_pack() + "\n\n" + build_single_view_system(view)
-    human = (
-        f"Platform: {platform_key}\n"
-        f"View: {VIEW_PAGE_NAMES.get(view, view)}\n"
-        f"Original request: {(human_prompt or '')[:800]}\n"
-        f"{violations_text}\n\n"
-        f"Architecture inventory:\n{inventory}\n\n"
-        "CURRENT PAGE XML (repair in place):\n"
-        f"{current_xml[:12000]}\n"
-    )
-    title = VIEW_PAGE_NAMES.get(view, view)
-    try:
-        page = get_llm()(system, human, provider_key, SingleViewPage, logger, None)
-    except Exception as exc:
-        if logger:
-            logger.log("views", f"{title} repair LLM failed: {exc}", level="warning")
-        return None
-    if not isinstance(page, SingleViewPage) or not (page.xml or "").strip():
-        return None
-    return _finalize_view_page_xml(
-        page.xml,
-        title,
-        page.step_markers,
-        logger,
-        primary_xml=primary_xml,
-        view=view,
-        human_prompt=human_prompt or "",
     )
 
 
@@ -785,97 +656,109 @@ async def _generate_primary_page(
     three_d: bool,
     on_progress: ProgressCallback | None,
 ) -> tuple[Any, bool]:
-    """Generate the primary page's XML: try the IR path first (falling back to
-    direct XML on any failure), then retry once if the result is malformed.
+    """Generate the primary page.
 
-    Pure extraction from ``run_xml_pipeline`` (Fix 5) — no behavior change.
+    * Fresh cloud → IR only
+    * Edit → surgical XML patch, else IR regenerate (no core.txt rewrite)
+    * 3D → isometric XML pack only
+
     Returns ``(xml_diagram, used_ir_path)``.
     """
-    xml_diagram = None
-    used_ir_path = False
-    if _should_use_ir_path(primary_view, current_xml, three_d):
+
+    async def _ir_primary() -> Any:
+        _require_ir_or_raise(primary_view, context="Primary page")
         await _emit(on_progress, "ir", "Generating validated architecture model…")
+        diagram = await run_llm_sync(
+            generate_xml_diagram_from_ir, primary_view, human_prompt, provider_key, platform_key, logger,
+            messages, custom_system_message, applied_suggestions, enriched_context,
+            attachment_documents,
+            image_replicate=image_replicate,
+            include_suggestions=include_suggestions,
+        )
+        await _emit(on_progress, "ir", "Architecture model compiled")
+        if 'vertex="1"' not in (diagram.xml or ""):
+            if logger:
+                logger.log("error", "IR compiler returned no diagram content", level="error")
+            raise ValueError("IR compiler returned no diagram content — nothing to validate or enrich.")
         try:
-            xml_diagram = await run_llm_sync(
-                generate_xml_diagram_from_ir, primary_view, human_prompt, provider_key, platform_key, logger,
-                messages, custom_system_message, applied_suggestions, enriched_context,
-                attachment_documents,
-                image_replicate=image_replicate,
-                include_suggestions=include_suggestions,
-            )
-            used_ir_path = True
-            await _emit(on_progress, "ir", "Architecture model compiled")
-        except Exception as exc:
-            # The IR path is an optimisation, never a new failure mode: anything
-            # it cannot handle falls through to the direct-XML path that has
-            # always served this request.
+            ET.fromstring(ensure_diagram_document(diagram.xml, PLATFORM_LABELS.get(platform_key, "Architecture")))
+        except ET.ParseError as exc:
             if logger:
                 logger.log(
-                    "ir",
-                    f"IR path failed ({exc}) — falling back to direct XML generation",
+                    "xml_diagram",
+                    f"IR-compiled XML was malformed ({exc})",
+                    level="error",
+                )
+            raise ValueError(
+                f"IR-compiled diagram XML was incomplete or malformed ({exc}). Retry the request."
+            ) from exc
+        return diagram
+
+    async def _three_d_primary() -> Any:
+        diagram = await run_llm_sync(
+            generate_xml_diagram, human_prompt, provider_key, platform_key, logger, messages,
+            custom_system_message, applied_suggestions, True, enriched_context, attachment_documents,
+            current_xml=current_xml,
+            image_replicate=image_replicate,
+            animated_connectors=animated_connectors,
+            include_suggestions=include_suggestions,
+            primary_view=primary_view,
+        )
+        if 'vertex="1"' not in (diagram.xml or ""):
+            raise ValueError("LLM returned no diagram content — nothing to validate or enrich.")
+        try:
+            ET.fromstring(ensure_diagram_document(diagram.xml, PLATFORM_LABELS.get(platform_key, "Architecture")))
+        except ET.ParseError as exc:
+            if logger:
+                logger.log(
+                    "xml_diagram",
+                    f"Generated XML was incomplete or malformed ({exc}) — retrying once",
                     level="warning",
                 )
-            await _emit(on_progress, "ir", "Falling back to direct XML generation…")
-            xml_diagram = None
-
-    if xml_diagram is None:
-        xml_diagram = await run_llm_sync(
-            generate_xml_diagram, human_prompt, provider_key, platform_key, logger, messages,
-            custom_system_message, applied_suggestions, three_d, enriched_context, attachment_documents,
-            current_xml=current_xml,
-            image_replicate=image_replicate,
-            animated_connectors=animated_connectors,
-            include_suggestions=include_suggestions,
-            primary_view=primary_view,
-        )
-    if 'vertex="1"' not in (xml_diagram.xml or ""):
-        # A successful call with no diagram content (empty/near-empty xml) is not
-        # a partial success — nothing downstream should validate/repair/enrich
-        # what is effectively a blank canvas.
-        if logger:
-            logger.log("error", "LLM returned no diagram content", level="error")
-        raise ValueError("LLM returned no diagram content — nothing to validate or enrich.")
-
-    # Verify the generated XML is actually well-formed *before* spending time/cost
-    # on downstream diagnostics/repair/MCP/compliance — every one of those steps
-    # assumes a parseable document, so a truncated or malformed response here
-    # can't be recovered by any of them. Retrying immediately (regardless of
-    # *why* it was incomplete — a token ceiling, a less capable/lite model
-    # stopping itself early, a JSON-escaping slip) is cheaper and more reliable
-    # than discovering the breakage only at the final guarantee_loadable_xml
-    # circuit breaker, after cost/WAF/compliance have already run against garbage.
-    try:
-        ET.fromstring(ensure_diagram_document(xml_diagram.xml, PLATFORM_LABELS.get(platform_key, "Architecture")))
-    except ET.ParseError as exc:
-        if logger:
-            logger.log(
-                "xml_diagram",
-                f"Generated XML was incomplete or malformed ({exc}) — retrying generation once",
-                level="warning",
+            await _emit(on_progress, "llm", "First attempt was incomplete, retrying diagram generation…")
+            diagram = await run_llm_sync(
+                generate_xml_diagram, human_prompt, provider_key, platform_key, logger, messages,
+                custom_system_message, applied_suggestions, True, enriched_context, attachment_documents,
+                current_xml=current_xml,
+                image_replicate=image_replicate,
+                animated_connectors=animated_connectors,
+                include_suggestions=include_suggestions,
+                primary_view=primary_view,
+                retry_hint=(
+                    "Your previous response was cut off or malformed before the diagram XML "
+                    "was complete. Regenerate the COMPLETE 3D diagram from scratch."
+                ),
             )
-        await _emit(on_progress, "llm", "First attempt was incomplete, retrying diagram generation…")
-        xml_diagram = await run_llm_sync(
-            generate_xml_diagram, human_prompt, provider_key, platform_key, logger, messages,
-            custom_system_message, applied_suggestions, three_d, enriched_context, attachment_documents,
-            current_xml=current_xml,
-            image_replicate=image_replicate,
-            animated_connectors=animated_connectors,
-            include_suggestions=include_suggestions,
-            primary_view=primary_view,
-            retry_hint=(
-                "Your previous response was cut off or malformed before the diagram XML "
-                "was complete — every mxCell must be fully written with its geometry, "
-                "style, and closing tags; nothing may be left half-written. Regenerate "
-                "the COMPLETE diagram from scratch; if it is large, prefer fewer/simpler "
-                "shapes over leaving any shape unfinished."
-            ),
-        )
-        if 'vertex="1"' not in (xml_diagram.xml or ""):
-            if logger:
-                logger.log("error", "LLM returned no diagram content on retry", level="error")
-            raise ValueError("LLM returned no diagram content on retry — nothing to validate or enrich.")
+            if 'vertex="1"' not in (diagram.xml or ""):
+                raise ValueError("LLM returned no diagram content on retry — nothing to validate or enrich.")
+        return diagram
 
-    return xml_diagram, used_ir_path
+    if three_d:
+        return await _three_d_primary(), False
+
+    if current_xml and len(current_xml) > 200:
+        try:
+            diagram = await run_llm_sync(
+                generate_xml_diagram, human_prompt, provider_key, platform_key, logger, messages,
+                custom_system_message, applied_suggestions, False, enriched_context, attachment_documents,
+                current_xml=current_xml,
+                image_replicate=image_replicate,
+                animated_connectors=animated_connectors,
+                include_suggestions=include_suggestions,
+                primary_view=primary_view,
+            )
+            return diagram, False
+        except NonSurgicalEditError as exc:
+            if logger:
+                logger.log(
+                    "edit",
+                    f"{exc} — regenerating via IR",
+                    level="warning",
+                )
+            await _emit(on_progress, "ir", "Redesign requested — regenerating via IR…")
+            return await _ir_primary(), True
+
+    return await _ir_primary(), True
 
 
 async def run_xml_pipeline(
@@ -1110,57 +993,21 @@ async def run_xml_pipeline(
         cfg = get_config()
         view_provider = cfg.view_llm_provider or provider_key
         min_score = cfg.view_quality_min_score
-        repair_passes = cfg.view_repair_max_passes
         await _emit(on_progress, "views", f"Generating {title} view…")
 
-        page_xml: str | None = None
-        used_ir = False
-        # Same eligibility/fallback contract as the primary page's IR path
-        # (_should_use_ir_path with no current_xml/three_d — extra views are
-        # never generated for edits, that's already gated by `surgical` above,
-        # and 3D has no multi-view fan-out at all): try IR first, and any
-        # failure degrades to the direct-XML generator rather than the request.
-        if _should_use_ir_path(view_key, None, False):
-            try:
-                page_xml = await run_llm_sync(
-                    _generate_ir_view_page,
-                    human_prompt=human_prompt,
-                    platform_key=platform_key,
-                    primary_xml=primary_xml_snapshot,
-                    provider_key=view_provider,
-                    view=view_key,
-                    logger=logger,
-                )
-                used_ir = page_xml is not None
-            except Exception as exc:
-                if logger:
-                    logger.log(
-                        "views",
-                        f"{title} IR path failed ({exc}) — falling back to direct XML generation",
-                        level="warning",
-                    )
-                page_xml = None
-
-        if page_xml is None:
-            page_xml = await run_llm_sync(
-                _generate_single_view_page,
-                human_prompt=human_prompt,
-                platform_key=platform_key,
-                primary_xml=primary_xml_snapshot,
-                provider_key=view_provider,
-                view=view_key,
-                logger=logger,
-                gap_block=gap_context_block,
-            )
+        # Extra views for fresh multi-view are IR-only (same contract as primary).
+        _require_ir_or_raise(view_key, context=f"{title} view")
+        page_xml = await run_llm_sync(
+            _generate_ir_view_page,
+            human_prompt=human_prompt,
+            platform_key=platform_key,
+            primary_xml=primary_xml_snapshot,
+            provider_key=view_provider,
+            view=view_key,
+            logger=logger,
+        )
         if not page_xml:
-            if logger:
-                logger.log(
-                    "views",
-                    f"{title} view empty — emitting degraded placeholder",
-                    level="warning",
-                )
-            await _emit(on_progress, "views", f"{title} view unavailable (placeholder)")
-            return view_key, _degraded_view_placeholder(view_key, "empty or sparse LLM result")
+            raise ValueError(f"{title} IR view returned empty XML")
 
         page_xml, scored = _score_and_maybe_keep(
             page_xml,
@@ -1177,56 +1024,8 @@ async def run_xml_pipeline(
                 level="info" if scored.score >= min_score else "warning",
                 details={"score": scored.score, "violations": codes, "metrics": scored.metrics},
             )
-        await _emit(on_progress, "views", f"{title} scored {scored.score}")
-
-        best_xml, best_score = page_xml, scored
-        # IR-compiled pages don't get LLM repair passes: the invariants
-        # score_view checks (right leaf -> right corridor, valid vocabulary)
-        # are already guaranteed by the IR's own validation, so a low score
-        # here would mean a *scoring* rule needs attention, not the diagram —
-        # spending an LLM repair call on it would not fix anything.
-        effective_repair_passes = 0 if used_ir else repair_passes
-        for _ in range(effective_repair_passes):
-            if best_score.score >= min_score:
-                break
-            await _emit(
-                on_progress,
-                "views",
-                f"{title} scored {best_score.score} — repairing {len(best_score.violations)} issue(s)…",
-            )
-            repaired = await run_llm_sync(
-                _repair_single_view_page,
-                human_prompt=human_prompt,
-                platform_key=platform_key,
-                primary_xml=primary_xml_snapshot,
-                current_xml=best_xml,
-                provider_key=view_provider,
-                view=view_key,
-                violations_text=format_violations_for_repair(best_score),
-                logger=logger,
-            )
-            if not repaired:
-                break
-            repaired, repaired_score = _score_and_maybe_keep(
-                repaired,
-                view=view_key,
-                primary_xml=primary_xml_snapshot,
-                human_prompt=human_prompt or "",
-                min_score=min_score,
-            )
-            if logger:
-                logger.log(
-                    "views",
-                    f"{title} repair scored {repaired_score.score} (was {best_score.score})",
-                    level="info",
-                    details={"score": repaired_score.score},
-                )
-            # Never regress
-            if repaired_score.score >= best_score.score:
-                best_xml, best_score = repaired, repaired_score
-
-        await _emit(on_progress, "views", f"{title} view ready (score {best_score.score})")
-        return view_key, best_xml
+        await _emit(on_progress, "views", f"{title} view ready (score {scored.score})")
+        return view_key, page_xml
 
     async def _run_adr() -> list[AdrRecord]:
         await _emit(on_progress, "docs", "Generating ADR Notes…")
@@ -1362,11 +1161,6 @@ async def run_xml_pipeline(
                     if isinstance(raw, asyncio.TimeoutError)
                     else str(raw)
                 )
-                # Every parallel branch (not just RAID) can silently fall back
-                # to a placeholder/deterministic default when the provider
-                # quota is exhausted mid-session — tag it the same way as the
-                # internal gap/ADR/RAID/compliance catches so one banner can
-                # cover all of them instead of only the ones checked by hand.
                 feature_name = {
                     "view": "Additional view generation", "adr": "ADR notes",
                     "raid": "RAID register", "cost": "Cost estimate",
@@ -1378,6 +1172,10 @@ async def run_xml_pipeline(
                     if is_quota_or_rate_limit_error(raw) else None
                 )
                 logger.log(label, f"{kind} branch failed: {detail}", level="warning", details=details)
+            # Fresh multi-view is IR-only — a failed view must fail the request,
+            # not silently omit a tab. Soft enrichment (docs/cost/WAF/MCP) still continues.
+            if kind == "view":
+                raise raw
             continue
         if kind == "view":
             vk, page_xml = raw

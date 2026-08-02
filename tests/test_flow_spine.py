@@ -1,0 +1,197 @@
+"""Deterministic flow-spine synthesis when the LLM leaves flows empty."""
+
+from __future__ import annotations
+
+import unittest
+
+from app.domain.ir import (
+    AvailabilityZone,
+    CloudBoundary,
+    Corridor,
+    CrossCuttingGroup,
+    EdgeLayer,
+    ExternalActor,
+    Flow,
+    Leaf,
+    LogicalIR,
+    NetworkIR,
+    Region,
+    SecurityIR,
+    Subnet,
+    Vpc,
+)
+from app.domain.ir.flow_spine import synthesize_spine_flows
+from app.core.services.agent import _generate_ir_with_corrections, _is_empty_flows_error
+
+
+def _leaf(i: str, st: str = "aws_ecs", label: str = "Svc") -> Leaf:
+    return Leaf(id=i, shape_type=st, label=label)
+
+
+class FlowSpineTests(unittest.TestCase):
+    def test_corridor_empty_flows_get_spine(self) -> None:
+        ir = LogicalIR(
+            corridors=[
+                Corridor(id="domain_experience", label="E", leaves=[_leaf("portal", "logical_portal", "Portal")]),
+                Corridor(id="domain_core", label="C", leaves=[
+                    _leaf("item", "logical_capability", "Item"),
+                    _leaf("reviews", "logical_capability", "Reviews"),
+                ]),
+                Corridor(id="domain_data", label="D", leaves=[_leaf("store", "logical_datastore", "Store")]),
+            ],
+            external_actors=[ExternalActor(id="users", kind="users", label="Users")],
+            flows=[],
+        )
+        self.assertTrue(any("flows is empty" in e for e in ir.semantic_errors()))
+        self.assertTrue(synthesize_spine_flows(ir))
+        self.assertGreaterEqual(len(ir.flows), 3)
+        self.assertEqual(ir.flows[0].source, "users")
+        self.assertEqual(ir.semantic_errors(), [])
+
+    def test_does_not_overwrite_existing_flows(self) -> None:
+        ir = LogicalIR(
+            corridors=[
+                Corridor(id="domain_experience", label="E", leaves=[_leaf("a")]),
+                Corridor(id="domain_core", label="C", leaves=[_leaf("b")]),
+            ],
+            flows=[Flow(source="a", target="b")],
+        )
+        self.assertFalse(synthesize_spine_flows(ir))
+        self.assertEqual(len(ir.flows), 1)
+
+    def test_network_spine_skips_cross_cutting_groups(self) -> None:
+        ir = NetworkIR(
+            cloud=CloudBoundary(
+                id="cloud",
+                label="AWS",
+                regions=[
+                    Region(
+                        id="reg",
+                        label="us-east-1",
+                        vpcs=[
+                            Vpc(
+                                id="vpc",
+                                label="VPC",
+                                gateway=_leaf("alb", "aws_alb", "ALB"),
+                                zones=[
+                                    AvailabilityZone(
+                                        id="az1",
+                                        label="AZ1",
+                                        subnets=[
+                                            Subnet(
+                                                id="app",
+                                                tier="app",
+                                                leaves=[_leaf("api", "aws_ecs", "API")],
+                                            ),
+                                            Subnet(
+                                                id="data",
+                                                tier="data",
+                                                leaves=[_leaf("db", "aws_rds", "DB")],
+                                            ),
+                                        ],
+                                    )
+                                ],
+                                groups=[
+                                    CrossCuttingGroup(
+                                        id="sec",
+                                        kind="security",
+                                        leaves=[_leaf("kms", "aws_kms", "KMS")],
+                                    )
+                                ],
+                            )
+                        ],
+                    )
+                ],
+                edge_layer=EdgeLayer(id="edge", label="Edge", leaves=[_leaf("cdn", "aws_cloudfront", "CDN")]),
+            ),
+            external_actors=[ExternalActor(id="users", kind="users", label="Users")],
+            flows=[],
+        )
+        self.assertTrue(synthesize_spine_flows(ir))
+        touched = {f.source for f in ir.flows} | {f.target for f in ir.flows}
+        self.assertNotIn("kms", touched)
+        self.assertNotIn("sec", touched)
+        self.assertIn("users", touched)
+        self.assertEqual(ir.semantic_errors(), [])
+
+
+class EmptyFlowsCorrectionTests(unittest.TestCase):
+    def test_is_empty_flows_error_helper(self) -> None:
+        self.assertTrue(_is_empty_flows_error(["flows is empty but there are 2+ leaves — add edges"]))
+        self.assertFalse(_is_empty_flows_error(["flow 'x' -> itself is not meaningful"]))
+        self.assertFalse(_is_empty_flows_error([]))
+
+    def test_generate_ir_synthesizes_when_model_returns_empty_flows(self) -> None:
+        ir = SecurityIR(
+            corridors=[
+                Corridor(id="zone_public", label="Public", leaves=[_leaf("gw", "aws_api_gateway", "GW")]),
+                Corridor(id="zone_private", label="Private", leaves=[_leaf("api", "aws_ecs", "API")]),
+            ],
+            external_actors=[ExternalActor(id="users", kind="users", label="Users")],
+            flows=[],
+        )
+
+        def fake_llm(*_args, **_kwargs):
+            return ir.model_copy(deep=True)
+
+        out = _generate_ir_with_corrections(
+            ir_type=SecurityIR,
+            system_prompt="sys",
+            human_content="req",
+            provider_key="claude",
+            logger=None,
+            attachment_documents=None,
+            llm=fake_llm,
+            view_label="Security",
+        )
+        self.assertGreaterEqual(len(out.flows), 2)
+        self.assertEqual(out.semantic_errors(), [])
+
+
+class SanitizeRawTests(unittest.TestCase):
+    def test_zone_detect_relocated_from_anchored(self) -> None:
+        raw = {
+            "view": "security",
+            "platform": "aws",
+            "title": "t",
+            "external_actors": [{"id": "users", "kind": "users", "label": "Users"}],
+            "corridors": [
+                {
+                    "id": "zone_public",
+                    "label": "Public",
+                    "leaves": [{"id": "gw", "shape_type": "aws_api_gateway", "label": "GW"}],
+                },
+            ],
+            "anchored": [
+                {
+                    "id": "zone_detect",
+                    "label": "Detect",
+                    "anchor_id": None,
+                    "leaves": [{"id": "gd", "shape_type": "aws_guardduty", "label": "GuardDuty"}],
+                }
+            ],
+            "flows": [{"source": "users", "target": "gw"}],
+        }
+        sanitized = SecurityIR.sanitize_raw(raw)
+        self.assertIsInstance(sanitized, dict)
+        assert isinstance(sanitized, dict)
+        anchored_ids = [c.get("id") for c in sanitized.get("anchored") or []]
+        row_ids = [c.get("id") for c in sanitized.get("corridors") or []]
+        self.assertIn("zone_detect", row_ids)
+        self.assertNotIn("zone_detect", anchored_ids)
+        ir = SecurityIR.model_validate(sanitized)
+        self.assertIn("zone_detect", {c.id for c in ir.corridors})
+
+
+class FlowLabelLimitTests(unittest.TestCase):
+    def test_six_word_labels_kept(self) -> None:
+        f = Flow(source="a", target="b", label="Cache Miss: Fetches via API")
+        self.assertEqual(f.label, "Cache Miss: Fetches via API")
+        f2 = Flow(source="a", target="b", label="JSON: Failed API Retries extra word")
+        self.assertEqual(f2.label, "JSON: Failed API Retries extra word")
+        f3 = Flow(source="a", target="b", label="one two three four five six seven")
+        self.assertEqual(f3.label, "one two three four five six")
+
+
+if __name__ == "__main__":
+    unittest.main()

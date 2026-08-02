@@ -1,7 +1,7 @@
 """Data-flow (data journey) view IR.
 
-Structural rules lifted from ``config/xml_gen/views/data_flow.txt``: the
-phase-id vocabulary is fixed; `phase_consume`, `phase_saas_producer` and
+Structural rules for Data-flow corridors (see ``config/xml_gen/ir/data_flow.txt``):
+the phase-id vocabulary is fixed; `phase_consume`, `phase_saas_producer` and
 `phase_saas_consumer` are all shelves stacked under `phase_store` (not peer
 columns); `phase_control` is a shelf below the *entire* row rather than under
 one phase. The SaaS shelf is split by data direction rather than being one
@@ -32,6 +32,29 @@ class DataFlowIR(CorridorIR):
         default="data_flow", description="Must be exactly the lowercase string 'data_flow' — no other casing."
     )
     id_prefix: ClassVar[str] = "phase_"
+
+    @classmethod
+    def sanitize_raw(cls, data: object) -> object:
+        """Pre-parse relocate — see ``SecurityIR.sanitize_raw``."""
+        return cls._relocate_vocabulary(
+            data,
+            row_ids=_ROW_IDS,
+            shelf_anchors={
+                "phase_consume": "phase_store",
+                "phase_saas_producer": "phase_store",
+                "phase_saas_consumer": "phase_store",
+                _WHOLE_ROW_SHELF_ID: None,
+            },
+        )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _relocate_misplaced_phases(cls, data: object) -> object:
+        """Row/shelf membership is fixed vocabulary — fix mis-slotting in code
+        (see SecurityIR._relocate_misplaced_zones for the observed failure).
+        Data-flow is the likeliest to trip this: ``phase_consume`` reads like a
+        fourth journey phase but is defined as a shelf under ``phase_store``."""
+        return cls.sanitize_raw(data)
 
     @model_validator(mode="after")
     def _check_phase_vocabulary(self) -> "DataFlowIR":

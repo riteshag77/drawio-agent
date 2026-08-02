@@ -58,11 +58,36 @@ padding — thin inventory without SaaS stays sparse):
 
 `JSON:…`, `SQL:…`, `Event:…`, `Cache:…`, `Object:…`, `CDC:…`, `Batch:…` —
 append `[PII]`/`[Non-PII]`/`[PCI]` when the request implies sensitivity
-(never invent PII). Keep labels short. Retry/DLQ flows: `primary: false`.
-Set the flow's structured `classification` to match the same call: `pii`/
-`pci` for a `[PII]`/`[PCI]`-tagged flow, `none` for `[Non-PII]` — this is
-the same judgment as the bracket tag, expressed as the typed field the
-compiler colours the edge and the panel's facts by.
+(never invent PII). Keep edge labels short (≤28 characters when possible).
+Retry/DLQ flows: `primary: false`. Set the flow's structured `classification`
+to match the same call: `pii`/`pci` for a `[PII]`/`[PCI]`-tagged flow,
+`none` for `[Non-PII]` — this is the same judgment as the bracket tag,
+expressed as the typed field the compiler colours the edge and the panel's
+facts by. When a **store** holds personal/payment data, also set that store
+leaf's `annotation` to `PII` / `PCI` (classification belongs on the store
+itself, not only on edges).
+
+### Mini example
+
+```json
+"corridors": [
+  {"id": "phase_ingest", "label": "Ingest", "leaves": [
+    {"id": "api_gw", "shape_type": "aws_api_gateway", "label": "API Gateway"}
+  ]},
+  {"id": "phase_process", "label": "Process", "leaves": [
+    {"id": "item_api", "shape_type": "aws_ecs", "label": "Item API"},
+    {"id": "reviews_api", "shape_type": "aws_ecs", "label": "Reviews API"}
+  ]},
+  {"id": "phase_store", "label": "Store", "leaves": [
+    {"id": "item_db", "shape_type": "aws_rds", "label": "Item DB"}
+  ]}
+],
+"flows": [
+  {"source": "api_gw", "target": "item_api", "label": "JSON: Get Item"},
+  {"source": "reviews_api", "target": "item_api", "label": "JSON: Item lookup"},
+  {"source": "item_api", "target": "item_db", "label": "SQL: read/write"}
+]
+```
 
 **Forbidden:** UI wireframes, WAF/Shield/auth sequences, VPC/AZ wallpaper
 (Network's lens), security-control essays (Security's lens), capability org

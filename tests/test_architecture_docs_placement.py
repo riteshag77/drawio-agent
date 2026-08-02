@@ -11,14 +11,13 @@ from app.adapters.outbound.diagram.architecture_docs import (
     build_adr_page_xml,
     build_architecture_inventory,
     build_raid_page_xml,
-    build_single_view_human,
-    build_single_view_system,
     build_views_prompt_block,
     ensure_minimal_overview_panel,
     merge_mxfile_pages,
     normalize_diagram_views,
     page_has_overview_panel,
 )
+from app.adapters.outbound.llm.prompts.ir import get_corridor_ir_system_prompt
 from app.adapters.outbound.diagram.placement_fixers import (
     fix_edge_anchors_from_geometry,
     resolve_misplaced_connectivity_hubs,
@@ -59,10 +58,9 @@ class NormalizeViewsTests(unittest.TestCase):
         # Multi-select: prompt focuses primary only, no multipage dump
         block = build_views_prompt_block(["logical", "network", "security"])
         self.assertIn("Network", block)
-        self.assertIn("SINGLE", block)
+        self.assertIn("Primary IR view", block)
         self.assertNotIn("follow-up", block.lower())
         self.assertNotIn("multipage", block.lower())
-        self.assertIn("SINGLE", block)
 
 
 class DocPagesTests(unittest.TestCase):
@@ -238,17 +236,9 @@ class DocPagesTests(unittest.TestCase):
 
     def test_network_only_extra_view_context_empty(self) -> None:
         self.assertEqual(build_views_prompt_block(["network"]), "")
-        human = build_single_view_human(
-            human_prompt="x" * 500,
-            platform="aws",
-            primary_xml_summary=["ALB", "ECS"],
-            view="logical",
-        )
-        self.assertIn("Logical", human)
-        self.assertIn("Architecture inventory", human)
-        self.assertIn("VIEWPOINT = LOGICAL", human)
-        self.assertIn("distinct", human.lower())
-        self.assertLess(len(human), 3500)
+        block = build_views_prompt_block(["logical"])
+        self.assertIn("Logical", block)
+        self.assertIn("Primary IR view", block)
 
     def test_surgical_edit_gate_detects_success(self) -> None:
         from types import SimpleNamespace
@@ -264,52 +254,26 @@ class DocPagesTests(unittest.TestCase):
 
 
 class ViewPackQualityTests(unittest.TestCase):
-    def test_system_includes_core_and_self_contained_lens(self) -> None:
-        logical = build_single_view_system("logical")
-        self.assertIn("overview_panel", logical)
-        self.assertIn("step_markers", logical)
+    def test_ir_packs_are_self_contained_lenses(self) -> None:
+        logical = get_corridor_ir_system_prompt("logical", platform="aws")
         self.assertIn("Logical", logical)
-        self.assertIn("Canonical Logical Structure", logical)
         self.assertIn("Invokes", logical)
-        self.assertIn("FORBIDDEN", logical)
-        self.assertIn("Application / Solution Architect", logical)
-        self.assertIn("25+", logical)
-        self.assertIn("capability", logical.lower())
-        self.assertIn("Pack ownership", logical)  # from CORE
-        self.assertIn("Audience-first story", logical)  # from CORE overview
-        self.assertIn("180–220", logical)
-        self.assertIn("#DAE8FC", logical)
-        self.assertIn("logical_*", logical)
-        self.assertIn("step_markers", logical)
-        self.assertNotIn("note_experience", logical)
-        self.assertNotIn("ctrl_dmz", logical)
-        self.assertIn("note_*", logical)  # forbidden in CORE/lens, not required cards
+        self.assertIn("Application/Solution Architect", logical)
+        self.assertIn("domain_experience", logical)
+        self.assertIn("logical_", logical.lower())
         self.assertNotIn("Canonical Container Hierarchy", logical)
         self.assertNotIn("Cross-Cutting Groups", logical)
-        self.assertNotIn("arcSize=6", logical)
-        self.assertNotIn("official shape_type on EVERY service leaf", logical)
-        # common.txt removed
-        self.assertNotIn("Viewpoint contract", logical)
-        self.assertNotIn("Differentiation law", logical)
 
-        security = build_single_view_system("security")
-        self.assertIn("Trust Zones", security)
+        security = get_corridor_ir_system_prompt("security", platform="aws")
         self.assertIn("zone_dmz", security)
-        self.assertIn("Security / Trust Architect", security)
-        self.assertIn("CISO", security)
-        self.assertIn("Security & trust", security)
-        self.assertIn("FORBIDDEN", security)
-        self.assertNotIn("ctrl_dmz", security)
-        self.assertNotIn("note_experience", security)
+        self.assertIn("Security/Trust Architect", security)
+        self.assertIn("zone_external_saas", security)
+        self.assertIn("25+", security)
 
-        data_flow = build_single_view_system("data_flow")
-        self.assertIn("Data journey", data_flow)
-        self.assertIn("Integration / Data-Flow Architect", data_flow)
+        data_flow = get_corridor_ir_system_prompt("data_flow", platform="aws")
+        self.assertIn("Integration/Data-Flow Architect", data_flow)
         self.assertIn("JSON:", data_flow)
-        self.assertIn("PII", data_flow)
-        self.assertIn("control plane", data_flow.lower())
         self.assertIn("phase_ingest", data_flow)
-        self.assertNotIn("note_ingest", data_flow)
 
     def test_architecture_inventory_services_and_flows(self) -> None:
         xml = _wrap(
@@ -340,16 +304,8 @@ class ViewPackQualityTests(unittest.TestCase):
         self.assertIn("Control hints", inv)
         self.assertIn("Capability hints", inv)
         self.assertIn("Payload hints", inv)
-        human = build_single_view_human(
-            human_prompt="Three-tier web app with WAF and private subnets",
-            platform="aws",
-            primary_xml=xml,
-            view="security",
-        )
-        self.assertIn("VIEWPOINT = SECURITY", human)
-        self.assertIn("Key flows", human)
-        self.assertIn("→", human)
-        self.assertIn("Control hints", human)
+        self.assertIn("Key flows", inv)
+        self.assertIn("→", inv)
 
 
 class ViewEnrichmentFixerTests(unittest.TestCase):

@@ -140,11 +140,6 @@ class EnvConfigAdapter:
         return max(0, min(100, self.get_int("VIEW_QUALITY_MIN_SCORE", 75)))
 
     @property
-    def view_repair_max_passes(self) -> int:
-        """Max LLM repair passes per focused view (0 disables repair)."""
-        return max(0, self.get_int("VIEW_REPAIR_MAX_PASSES", 1))
-
-    @property
     def view_llm_provider(self) -> str:
         """Optional provider key override for Logical/Security/Data flow calls."""
         return (self.get("VIEW_LLM_PROVIDER", "") or "").strip()
@@ -214,18 +209,12 @@ class EnvConfigAdapter:
 
     @property
     def diagram_ir_enabled(self) -> bool:
-        """When true, the Network view is generated via the IR + compiler path.
+        """When true, fresh cloud views are generated via IR + compiler only.
 
-        The LLM emits a validated NetworkIR (app/domain/ir) and a deterministic
-        compiler renders the draw.io XML, instead of the model writing mxCells
-        directly. Geometry, styles and parent wiring become code rather than
-        prompt instructions, so structural defects are impossible by
-        construction rather than repaired afterwards.
-
-        On by default: the direct-XML path remains the fallback, and any
-        failure in the IR path degrades to it rather than failing the request.
-        Network, Security, Data-flow, and Logical are supported (see
-        ``diagram_ir_views``'s default).
+        The LLM emits a validated IR (``app/domain/ir``) and a deterministic
+        compiler renders draw.io XML. Edit mode and 3D still use direct XML.
+        There is no silent direct-XML fallback for fresh generation — IR failure
+        fails the request.
         """
         return self.get_bool("DIAGRAM_IR_ENABLED", True)
 

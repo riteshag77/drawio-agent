@@ -13,7 +13,7 @@ from app.adapters.outbound.diagram.architecture_docs import (
 from app.adapters.outbound.diagram.placement_fixers import resolve_misplaced_saas_leaves
 from app.adapters.outbound.diagram.xml_diagnostics import remove_cross_cutting_edges, repair_xml
 from app.adapters.outbound.diagram.xml_tools import fit_containers_to_children
-from app.adapters.outbound.llm.prompts.system import get_xml_gen_system_prompt
+from app.adapters.outbound.llm.prompts.ir import get_network_ir_system_prompt
 
 
 def _wrap(cells: str) -> str:
@@ -113,19 +113,14 @@ class LogicalBrandIconTests(unittest.TestCase):
 
 
 class PromptSaasPlacementTests(unittest.TestCase):
-    def test_network_prompt_forbids_saas_in_integration(self) -> None:
-        prompt = get_xml_gen_system_prompt(
+    def test_network_prompt_keeps_saas_as_external_actors(self) -> None:
+        prompt = get_network_ir_system_prompt(
             platform="aws",
-            primary_view="network",
             user_hint="salesforce workday guidewire",
         )
-        self.assertIn('parent="1"', prompt)
-        low = prompt.lower()
-        self.assertTrue(
-            "integration" in low and ("forbidden" in low or "never" in low),
-            "Network pack should forbid SaaS inside Integration",
-        )
-        self.assertIn("Enterprise SaaS", prompt)
+        self.assertIn("saas_ingress", prompt)
+        self.assertIn("saas_egress", prompt)
+        self.assertIn("Never place an external actor inside the cloud hierarchy", prompt)
 
 
 if __name__ == "__main__":

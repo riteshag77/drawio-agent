@@ -76,6 +76,75 @@ def _truncate(text: str, max_chars: int = 5000) -> str:
     return text if len(text) <= max_chars else text[:max_chars] + f"... (truncated, {len(text)} total chars)"
 
 
+def _message_text(content: Any) -> str:
+    """Flatten an AIMessage ``content`` (str or multimodal blocks) to text."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                parts.append(str(block.get("text") or ""))
+            else:
+                text = getattr(block, "text", None)
+                if text:
+                    parts.append(str(text))
+        return "\n".join(parts)
+    return str(content or "")
+
+
+def _extract_json_object(text: str) -> dict[str, Any] | None:
+    """Best-effort extract of the first JSON object from model text."""
+    text = (text or "").strip()
+    if not text:
+        return None
+    try:
+        data = json.loads(text)
+        return data if isinstance(data, dict) else None
+    except json.JSONDecodeError:
+        pass
+    start = text.find("{")
+    end = text.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    try:
+        data = json.loads(text[start : end + 1])
+        return data if isinstance(data, dict) else None
+    except json.JSONDecodeError:
+        return None
+
+
+def _recover_structured_parse(output_type: type, raw_result: dict[str, Any], logger: "StepLogger | None") -> Any | None:
+    """Re-validate raw LLM JSON after IR ``sanitize_raw`` (row/shelf relocate).
+
+    LangChain's ``with_structured_output`` parser sometimes rejects a payload
+    that ``model_validate`` accepts after deterministic sanitize (e.g. Security
+    ``zone_detect`` emitted as an anchored shelf). Recovering here avoids a
+    wasted corrective LLM call and a direct-XML fallback.
+    """
+    sanitize = getattr(output_type, "sanitize_raw", None)
+    ai_message = raw_result.get("raw")
+    text = _message_text(getattr(ai_message, "content", None))
+    data = _extract_json_object(text)
+    if data is None:
+        return None
+    if callable(sanitize):
+        data = sanitize(data)
+    try:
+        recovered = output_type.model_validate(data)
+    except Exception:
+        return None
+    if logger:
+        logger.log(
+            "llm",
+            f"Recovered {output_type.__name__} via sanitize_raw after structured-output parse failure",
+            level="warning",
+        )
+    return recovered
+
+
 def _build_human_message(human_content: str, attachments: list[dict] | None) -> HumanMessage:
     if not attachments:
         return HumanMessage(content=human_content)
@@ -144,7 +213,13 @@ def call_llm(
         try:
             raw_result = _invoke(messages)
             if raw_result.get("parsing_error") is not None or raw_result.get("parsed") is None:
-                raise OutputParserException(str(raw_result.get("parsing_error") or "Structured output parsing failed"))
+                recovered = _recover_structured_parse(output_type, raw_result, logger)
+                if recovered is not None:
+                    raw_result = {**raw_result, "parsed": recovered, "parsing_error": None}
+                else:
+                    raise OutputParserException(
+                        str(raw_result.get("parsing_error") or "Structured output parsing failed")
+                    )
         except OutputParserException as exc:
             if logger:
                 logger.log("llm", f"Structured output failed validation, retrying once: {exc}", level="warning")
@@ -156,7 +231,13 @@ def call_llm(
             ))
             raw_result = _invoke(messages + [corrective])
             if raw_result.get("parsed") is None:
-                raise OutputParserException(str(raw_result.get("parsing_error") or "Structured output parsing failed after retry")) from exc
+                recovered = _recover_structured_parse(output_type, raw_result, logger)
+                if recovered is not None:
+                    raw_result = {**raw_result, "parsed": recovered, "parsing_error": None}
+                else:
+                    raise OutputParserException(
+                        str(raw_result.get("parsing_error") or "Structured output parsing failed after retry")
+                    ) from exc
     except OutputParserException:
         raise
     except Exception as exc:

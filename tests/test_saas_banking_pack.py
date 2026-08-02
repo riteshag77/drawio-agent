@@ -14,7 +14,7 @@ from app.adapters.outbound.diagram.architecture_docs import (
 )
 from app.adapters.outbound.diagram.drawio_mcp_client import _SAAS_BUILTIN_STYLES, _builtin_style
 from app.adapters.outbound.diagram.view_fixers import apply_view_fixers
-from app.adapters.outbound.llm.prompts.system import get_xml_gen_system_prompt
+from app.adapters.outbound.llm.prompts.ir import get_corridor_ir_system_prompt
 
 
 def _wrap(cells: str) -> str:
@@ -117,26 +117,26 @@ class SaasPromptAndCatalogTests(unittest.TestCase):
             self.assertIn(key, text)
 
     def test_prompt_includes_saas_catalog_for_vendor_hint(self) -> None:
-        prompt = get_xml_gen_system_prompt(
+        prompt = get_corridor_ir_system_prompt(
+            "security",
             platform="aws",
-            primary_view="network",
             user_hint="insurance claims with Guidewire and Salesforce",
         )
-        self.assertIn("saas_guidewire", prompt)
+        self.assertIn("Guidewire", prompt)
         self.assertIn("saas_salesforce", prompt)
         self.assertIn("shape_type=saas_", prompt)
 
     def test_logical_primary_includes_saas_brand_catalog(self) -> None:
-        prompt = get_xml_gen_system_prompt(
+        prompt = get_corridor_ir_system_prompt(
+            "logical",
             platform="aws",
-            primary_view="logical",
             user_hint="salesforce workday guidewire banking",
         )
         self.assertIn("(SAAS)", prompt)
-        self.assertIn("Enterprise SaaS shape_types (XML mode)", prompt)
+        self.assertIn("Enterprise SaaS", prompt)
         self.assertIn("saas_salesforce", prompt)
-        self.assertIn("Emit a service **leaf** with grey placeholder style", prompt)
-        # Still no cloud classify pack on Logical primary.
+        self.assertIn("shape_type=saas_", prompt)
+        # Still no cloud classify pack on Logical.
         self.assertNotIn("Service Classification — AWS", prompt)
 
     def test_stencil_svgs_on_disk_and_embedded(self) -> None:

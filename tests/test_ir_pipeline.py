@@ -1,8 +1,8 @@
 """IR path wired through run_xml_pipeline (mocked LLM).
 
-Covers the two things that decide whether this is safe to enable in production:
-the IR path actually produces a diagram end-to-end, and any failure in it
-degrades to the direct-XML path instead of failing the request.
+Fresh cloud generation is IR-only: success produces ``generation_path=ir``;
+IR failure fails the request (no direct-XML fallback). Edit mode and 3D still
+use direct XML.
 """
 
 from __future__ import annotations
@@ -107,28 +107,55 @@ class IrPathTests(unittest.TestCase):
             f"IR output needed repair: {pre_repair.warnings}",
         )
 
-    def test_ir_failure_falls_back_to_direct_xml(self) -> None:
-        """A broken IR path must never turn a working request into an error."""
-        fallback = XmlDiagram(xml=_FALLBACK_XML, assistant_message="ok", suggestions=[], step_markers=[])
+    def test_ir_failure_fails_the_request(self) -> None:
+        """Fresh generation is IR-only — no silent direct-XML fallback."""
         with _IrEnabled(), \
                 patch("app.core.services.agent.generate_network_ir", side_effect=RuntimeError("provider exploded")), \
-                patch.object(xml_pipeline, "generate_xml_diagram", return_value=fallback) as direct, \
+                patch.object(xml_pipeline, "generate_xml_diagram") as direct, \
                 patch.object(xml_pipeline, "resolve_shape_styles", side_effect=_no_styles):
-            result = _run()
+            with self.assertRaises(RuntimeError):
+                _run()
+        direct.assert_not_called()
+
+    def test_disabled_flag_rejects_fresh_generation(self) -> None:
+        with _IrEnabled(enabled=False), \
+                patch.object(xml_pipeline, "generate_xml_diagram") as direct, \
+                patch.object(xml_pipeline, "resolve_shape_styles", side_effect=_no_styles):
+            with self.assertRaises(ValueError) as ctx:
+                _run()
+        self.assertIn("DIAGRAM_IR_ENABLED", str(ctx.exception))
+        direct.assert_not_called()
+
+    def test_edit_mode_still_uses_direct_xml(self) -> None:
+        edit = XmlDiagram(xml=_FALLBACK_XML, assistant_message="ok", suggestions=[], step_markers=[])
+        with _IrEnabled(), \
+                patch.object(xml_pipeline, "generate_xml_diagram", return_value=edit) as direct, \
+                patch.object(xml_pipeline, "generate_xml_diagram_from_ir") as ir_gen, \
+                patch.object(xml_pipeline, "resolve_shape_styles", side_effect=_no_styles):
+            result = _run(current_xml="x" * 500, user_prompt="rename ECS to Fargate")
 
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["generation_path"], "direct_xml")
         direct.assert_called_once()
+        ir_gen.assert_not_called()
 
-    def test_disabled_flag_uses_direct_xml(self) -> None:
-        fallback = XmlDiagram(xml=_FALLBACK_XML, assistant_message="ok", suggestions=[], step_markers=[])
-        with _IrEnabled(enabled=False), \
-                patch.object(xml_pipeline, "generate_xml_diagram", return_value=fallback) as direct, \
+    def test_nonsurgical_edit_regenerates_via_ir(self) -> None:
+        from app.core.services.agent import NonSurgicalEditError
+
+        compiled = XmlDiagram(xml=_FALLBACK_XML, assistant_message="ok", suggestions=[], step_markers=[])
+        with _IrEnabled(), \
+                patch.object(
+                    xml_pipeline, "generate_xml_diagram",
+                    side_effect=NonSurgicalEditError("too big"),
+                ) as direct, \
+                patch.object(xml_pipeline, "generate_xml_diagram_from_ir", return_value=compiled) as ir_gen, \
                 patch.object(xml_pipeline, "resolve_shape_styles", side_effect=_no_styles):
-            result = _run()
+            result = _run(current_xml="x" * 500, user_prompt="redesign as multi-region active-active")
 
-        self.assertEqual(result["generation_path"], "direct_xml")
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["generation_path"], "ir")
         direct.assert_called_once()
+        ir_gen.assert_called_once()
 
 
 class EligibilityTests(unittest.TestCase):
@@ -143,8 +170,8 @@ class EligibilityTests(unittest.TestCase):
         with _IrEnabled():
             self.assertFalse(xml_pipeline._should_use_ir_path("network", None, True))
 
-    def test_non_network_views_are_not_eligible(self) -> None:
-        with _IrEnabled():
+    def test_view_not_in_ir_views_is_not_eligible(self) -> None:
+        with _IrEnabled(views="network"):
             self.assertFalse(xml_pipeline._should_use_ir_path("logical", None, False))
             self.assertTrue(xml_pipeline._should_use_ir_path("network", None, False))
 

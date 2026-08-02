@@ -171,9 +171,9 @@ class SemanticRuleTests(unittest.TestCase):
         self.assertTrue(ir.is_valid())
 
     def test_long_edge_labels_are_truncated_not_rejected(self) -> None:
-        """One chatty label must never fail a whole build."""
+        """One chatty label must never fail a whole build (cap is 6 words)."""
         flow = Flow(source="a", target="b", label="sends an encrypted payload over the wire")
-        self.assertEqual(flow.label, "sends an encrypted")
+        self.assertEqual(flow.label, "sends an encrypted payload over the")
 
 
 class IdCollectionTests(unittest.TestCase):

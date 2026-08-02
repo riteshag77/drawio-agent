@@ -1,7 +1,8 @@
 """Provider-aware system-message construction with prompt-cache breakpoints.
 
-The system prompt assembled by ``prompts.system.get_xml_gen_system_prompt_marked``
-carries a ``CACHE_BREAKPOINT`` sentinel dividing the stable (cacheable) prefix
+The system prompt assembled by IR (``prompts.ir``) or 3D
+(``prompts.system.get_xml_gen_system_prompt_marked``) carries a
+``CACHE_BREAKPOINT`` sentinel dividing the stable (cacheable) prefix
 from the per-request volatile suffix. This module turns that marked string into
 the right ``SystemMessage`` shape for each provider's caching strategy:
 
