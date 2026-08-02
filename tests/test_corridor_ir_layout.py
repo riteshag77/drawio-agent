@@ -123,8 +123,10 @@ def realistic_logical_ir() -> LogicalIR:
     return LogicalIR(
         corridors=[
             Corridor(id="domain_experience", label="Experience", leaves=[_leaf("portal", "aws_ecs", "Portal")]),
-            Corridor(id="domain_core", label="Core", leaves=[_leaf("orders", "aws_lambda", "Orders")]),
-            Corridor(id="domain_commerce", label="Commerce", leaves=[_leaf("catalog", "aws_dynamodb", "Catalog")]),
+            Corridor(id="domain_core", label="Core", leaves=[
+                _leaf("orders", "aws_lambda", "Orders"),
+                _leaf("catalog", "aws_dynamodb", "Catalog"),
+            ]),
             Corridor(id="domain_data", label="Data", leaves=[_leaf("warehouse", "aws_redshift", "Warehouse")]),
             Corridor(id="domain_platform", label="Platform", leaves=[_leaf("obs", "aws_cloudwatch", "Observability")]),
         ],

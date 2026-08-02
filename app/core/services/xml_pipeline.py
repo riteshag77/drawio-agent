@@ -381,7 +381,7 @@ def _finalize_view_page_xml(
             # just numbered — guarantees panel step i and canvas badge i name
             # the same cell. generate_xml_diagram_from_ir always sends
             # step_markers=[], so this is the only source for IR pages.
-            step_markers = derive_story_markers(xml)
+            step_markers = derive_story_markers(xml, title)
         else:
             xml = ensure_minimal_overview_panel(xml, title)
     if view and primary_xml:
@@ -899,7 +899,7 @@ async def run_xml_pipeline(
         # so panel step i and canvas badge i always name the same cell.
         # generate_xml_diagram_from_ir always sends step_markers=[], so this
         # is the only source of badges for an IR-compiled primary page.
-        derived_story_markers = derive_story_markers(xml_output)
+        derived_story_markers = derive_story_markers(xml_output, primary_page_name)
 
     await _emit(on_progress, "repair", "Checking for overlaps, dangling edges, missing labels…")
     pre_repair_diagnostics = diagnose_xml(xml_output)
@@ -920,9 +920,10 @@ async def run_xml_pipeline(
     if diagnostics.errors or diagnostics.warnings:
         if logger:
             logger.log(
-                "repair",
+                "ir_residual" if used_ir_path else "repair",
                 "Deterministic repair left residual issues (no LLM repair — format/structure "
-                "fixes are auto-only; remaining items are logged for visibility)",
+                "fixes are auto-only; remaining items are logged for visibility)"
+                + ("; IR geometry should already be clean — residuals are structural" if used_ir_path else ""),
                 level="warning",
                 details={"errors": diagnostics.errors, "warnings": diagnostics.warnings},
             )
@@ -1472,6 +1473,14 @@ async def run_xml_pipeline(
     # here, at the exit point, regardless of which upstream step caused it.
     # Guarantee loadability once, right before the response leaves the service,
     # instead of trusting every step above to have been gap-free.
+    if get_config().diagram_vlm_qa and logger:
+        logger.log(
+            "vlm_qa",
+            "DIAGRAM_VLM_QA enabled — visual QA hook reserved (PNG→VLM not yet wired; "
+            "Phase 0 layout gates cover Logical overlaps)",
+            level="info",
+        )
+
     page_label = primary_page_name
     xml_output, xml_ok, xml_failure = guarantee_loadable_xml(xml_output, page_label)
     if not xml_ok and logger:

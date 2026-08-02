@@ -727,8 +727,10 @@ class Geo:
 # the classification for every id that can actually appear.
 _ROW_ORDER: dict[str, dict[str, int]] = {
     "logical": {
-        "domain_experience": 0, "domain_core": 2, "domain_commerce": 2,
-        "domain_platform": 3, "domain_data": 4,
+        # L→R journey: Experience → Core/Commerce → Data → Platform
+        # (SaaS is an anchored shelf under Data, not a row column).
+        "domain_experience": 0, "domain_core": 1, "domain_commerce": 1,
+        "domain_data": 2, "domain_platform": 3,
     },
     "security": {
         "zone_public": 0, "zone_dmz": 1, "zone_identity": 2, "zone_partner": 3,
@@ -886,7 +888,7 @@ def _elk_corridor_node(corridor: Corridor, partition: int) -> dict:
             "elk.partitioning.partition": str(partition),
             "elk.padding": (
                 f"[top={CONTAINER_LABEL_HEIGHT},left={CONTAINER_PADDING_X},"
-                f"bottom={CONTAINER_PADDING_Y},right={CONTAINER_PADDING_X}]"
+                f"bottom={CONTAINER_PADDING_Y + int(geo.LABEL_BAND_H)},right={CONTAINER_PADDING_X}]"
             ),
         },
     )
@@ -907,6 +909,7 @@ def _build_elk_corridor_graph(row: list[Corridor], row_edges: list[tuple[str, st
             "elk.partitioning.activate": "true",
             "elk.spacing.nodeNode": str(INTER_CONTAINER_GAP),
             "elk.padding": f"[top={_ROW_START_Y},left={_ROW_START_X},bottom=40,right=40]",
+            **elk_graph.MODEL_ORDER_OPTIONS,
         },
         "children": [_elk_corridor_node(c, i) for i, c in enumerate(row)],
         "edges": [

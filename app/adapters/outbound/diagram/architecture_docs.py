@@ -1698,7 +1698,10 @@ _VIEW_TITLE_PREFIX: dict[str, str] = {
     "network": "Network architecture",
 }
 _VIEW_LENS: dict[str, str] = {
-    "logical": "Solution Capability Map — for Engineering Leads and Product/Solution Architects",
+    "logical": (
+        "Business: what users and channels do · "
+        "Technical: capabilities, APIs, and data stores — for Product and Engineering"
+    ),
     "security": "Trust & Risk Boundary — for CISO, Security Architects and Auditors",
     "data flow": "Data Journey & Classification — for Data/Integration Engineers and Privacy Officers",
     "data_flow": "Data Journey & Classification — for Data/Integration Engineers and Privacy Officers",
@@ -1712,18 +1715,19 @@ _VIEW_FOOTER: dict[str, str] = {
     "network": "Out of scope: business capabilities, trust controls, and data payloads (other tabs).",
 }
 
+#: Cap on how many steps the numbered story (panel prose + canvas badges)
+#: ever carries — matches ``apply_step_markers``' own badge cap, so neither
+#: side ever has to truncate what the other already committed to.
+_MAX_STORY_STEPS = 5
+#: Logical needs room for Persona → portal → capability → data → SaaS.
+_MAX_STORY_STEPS_LOGICAL = 6
+
 
 def _strip_annotation_tag(label: str) -> str:
     """Drop a trailing "[Tag]" annotation and a "(SAAS)" suffix for prose use."""
     label = re.sub(r"\s*\[[^\]]*\]\s*$", "", label or "").strip()
     label = re.sub(r"\s*\(SAAS\)\s*$", "", label, flags=re.IGNORECASE).strip()
     return label
-
-
-#: Cap on how many steps the numbered story (panel prose + canvas badges)
-#: ever carries — matches ``apply_step_markers``' own badge cap, so neither
-#: side ever has to truncate what the other already committed to.
-_MAX_STORY_STEPS = 5
 
 
 class _StoryStep:
@@ -1740,12 +1744,13 @@ class _StoryStep:
         self.text = text
 
 
-def _ir_story_steps(xml: str) -> list[_StoryStep]:
+def _ir_story_steps(xml: str, *, max_steps: int | None = None) -> list[_StoryStep]:
     """The page's primary-flow story, deduped and capped, in ``ir.flows``
     order (``emit_flows`` writes edges in that order) — shared by every
     consumer that numbers the same story, so there is exactly one place that
     decides which edges are "step 1, 2, 3...".
     """
+    cap = max_steps if max_steps is not None else _MAX_STORY_STEPS
     try:
         parse_src = xml if ("<mxfile" in xml or "<mxGraphModel" in xml) else f"<root>{xml}</root>"
         tree = ET.fromstring(parse_src)
@@ -1761,11 +1766,29 @@ def _ir_story_steps(xml: str) -> list[_StoryStep]:
             return ""
         return _strip_annotation_tag((cell.get("value") or "").strip())
 
+    def _domain_rank(cell_id: str) -> int:
+        cell = by_id.get(cell_id)
+        if cell is None:
+            return 99
+        parent = (cell.get("parent") or "").lower()
+        order = {
+            "domain_experience": 0, "domain_core": 1, "domain_commerce": 1,
+            "domain_data": 2, "domain_platform": 3, "domain_saas": 4,
+            "actors_left": -1,
+        }
+        return order.get(parent, 50)
+
     edges = [c for c in cells if c.get("edge") == "1" and c.get("source") and c.get("target")]
+    # Prefer primary edges that advance the L→R journey (lower rank → higher).
+    edges.sort(key=lambda e: (
+        0 if (e.get("value") or "").strip() else 1,
+        _domain_rank(e.get("target") or ""),
+        _domain_rank(e.get("source") or ""),
+    ))
     steps: list[_StoryStep] = []
     seen_pairs: set[tuple[str, str]] = set()
     for edge in edges:
-        if len(steps) >= _MAX_STORY_STEPS:
+        if len(steps) >= cap:
             break
         src_id, tgt_id = edge.get("source") or "", edge.get("target") or ""
         src, tgt = _label(src_id), _label(tgt_id)
@@ -1774,24 +1797,51 @@ def _ir_story_steps(xml: str) -> list[_StoryStep]:
         seen_pairs.add((src, tgt))
         edge_label = re.sub(r"<[^>]+>", "", (edge.get("value") or "")).strip()
         text = f"{src} → {tgt} ({edge_label})." if edge_label else f"{src} connects to {tgt}."
-        # Anchor on the target: a step is "about" what it arrives at (the
-        # thing checked, stored, or invoked), not the actor that sent it.
         steps.append(_StoryStep(target_id=tgt_id, text=text))
     return steps
 
 
-def derive_story_markers(xml: str) -> list[StepMarker]:
+def _logical_business_steps(xml: str) -> list[str]:
+    """Short business-readable journey lines from Logical domain containers."""
+    try:
+        parse_src = xml if ("<mxfile" in xml or "<mxGraphModel" in xml) else f"<root>{xml}</root>"
+        tree = ET.fromstring(parse_src)
+    except ET.ParseError:
+        return []
+    labels: dict[str, str] = {}
+    for cell in tree.iter("mxCell"):
+        cid = (cell.get("id") or "").lower()
+        if cid.startswith("domain_") and "container=1" in (cell.get("style") or ""):
+            labels[cid] = _strip_annotation_tag((cell.get("value") or "").strip()) or cid
+    steps: list[str] = []
+    if any(c.get("id", "").startswith("actors_left") or
+           (c.get("parent") == "actors_left") for c in tree.iter("mxCell")):
+        steps.append("Users and channels start the business journey on the left.")
+    if "domain_experience" in labels:
+        steps.append(f"Experience ({labels['domain_experience']}) is where people interact with the product.")
+    core_id = "domain_core" if "domain_core" in labels else ("domain_commerce" if "domain_commerce" in labels else "")
+    if core_id:
+        steps.append(f"Core capabilities ({labels[core_id]}) deliver the business work via APIs.")
+    if "domain_data" in labels:
+        steps.append(f"Data ({labels['domain_data']}) holds the system of record the capabilities rely on.")
+    if "domain_platform" in labels:
+        steps.append(f"Platform ({labels['domain_platform']}) provides shared services and observability.")
+    if "domain_saas" in labels:
+        steps.append(f"External SaaS ({labels['domain_saas']}) sits under Data for partner/product integrations.")
+    return steps[:6]
+
+
+def derive_story_markers(xml: str, view_title: str = "") -> list[StepMarker]:
     """Numbered canvas badges for the same story
     ``synthesize_ir_overview_body`` numbers in the panel — deterministic (no
     LLM involved), and guaranteed to agree with the panel's numbering because
-    both read ``_ir_story_steps`` on the *same* xml snapshot. Fixes a real gap:
-    the IR path always sent ``step_markers=[]`` (``agent.py``'s
-    ``generate_xml_diagram_from_ir``), so the panel numbered steps 1..5 while
-    nothing on the canvas ever carried those numbers.
+    both read ``_ir_story_steps`` on the *same* xml snapshot.
     """
+    title_key = (view_title or "").strip().lower()
+    cap = _MAX_STORY_STEPS_LOGICAL if title_key == "logical" else _MAX_STORY_STEPS
     return [
         StepMarker(step_number=i, cell_id=step.target_id)
-        for i, step in enumerate(_ir_story_steps(xml), start=1)
+        for i, step in enumerate(_ir_story_steps(xml, max_steps=cap), start=1)
     ]
 
 
@@ -1873,18 +1923,13 @@ def synthesize_ir_overview_body(xml: str, view_title: str, system_title: str = "
     """Build a request-specific Overview Panel body from an IR-compiled page's
     own vertex/edge graph, instead of the generic static stub.
 
-    The IR compiler (compiler/network.py, compiler/corridor.py) never emits an
-    overview_panel cell — it only produces structure, deliberately (that's the
-    whole point of the IR path). Something still has to fill this page's
-    narrative panel, and the only source of truth left at this point is the
-    graph the compiler just wrote: real leaf/actor labels and the edges
-    between them, in the same order the model declared its own primary story
-    (``emit_flows`` writes them in ``ir.flows`` order). Falls back to the
-    generic stub only if the graph is somehow unusable (e.g. no edges at all).
+    For Logical, the panel carries a **business** journey (domain ranks) plus
+    a short **technical** flow spine and facts — so both audiences can read it.
     """
     title_key = (view_title or "").strip().lower()
-    steps = _ir_story_steps(xml)
-    if not steps:
+    cap = _MAX_STORY_STEPS_LOGICAL if title_key == "logical" else _MAX_STORY_STEPS
+    tech_steps = _ir_story_steps(xml, max_steps=cap)
+    if not tech_steps and title_key != "logical":
         return _overview_stub_body(view_title)
 
     prefix = _VIEW_TITLE_PREFIX.get(title_key, view_title or "Architecture")
@@ -1898,8 +1943,33 @@ def synthesize_ir_overview_body(xml: str, view_title: str, system_title: str = "
             "&lt;div style=&quot;font-size:13px;font-style:italic;color:#8A6D3B;&quot;&gt;"
             f"{lens}&lt;/div&gt;"
         )
-    for i, step in enumerate(steps, start=1):
-        parts.append(f"&lt;div style=&quot;font-size:15px;&quot;&gt;{i}. {_esc(step.text)}&lt;/div&gt;")
+
+    if title_key == "logical":
+        biz = _logical_business_steps(xml)
+        if biz:
+            parts.append(
+                "&lt;div style=&quot;font-size:13px;font-weight:bold;margin-top:4px;&quot;&gt;"
+                "Business journey&lt;/div&gt;"
+            )
+            for text in biz:
+                parts.append(
+                    f"&lt;div style=&quot;font-size:14px;&quot;&gt;&#8226; {_esc(text)}&lt;/div&gt;"
+                )
+        if tech_steps:
+            parts.append(
+                "&lt;div style=&quot;font-size:13px;font-weight:bold;margin-top:6px;&quot;&gt;"
+                "Technical flow&lt;/div&gt;"
+            )
+            for i, step in enumerate(tech_steps, start=1):
+                parts.append(f"&lt;div style=&quot;font-size:14px;&quot;&gt;{i}. {_esc(step.text)}&lt;/div&gt;")
+        if not biz and not tech_steps:
+            return _overview_stub_body(view_title)
+    else:
+        if not tech_steps:
+            return _overview_stub_body(view_title)
+        for i, step in enumerate(tech_steps, start=1):
+            parts.append(f"&lt;div style=&quot;font-size:15px;&quot;&gt;{i}. {_esc(step.text)}&lt;/div&gt;")
+
     facts = _key_facts_line(xml, title_key)
     if facts:
         parts.append(

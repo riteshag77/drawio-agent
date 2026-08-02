@@ -101,15 +101,29 @@ def _apply_one(
     if kind == "delete_node":
         if not op.id or op.id not in cells:
             return
-        # Remove edges touching this node
+        # Cascade: children of this node, then edges touching any removed id.
+        to_remove = {op.id}
+        changed = True
+        while changed:
+            changed = False
+            for eid, cell in list(cells.items()):
+                if eid in to_remove:
+                    continue
+                if cell.get("parent") in to_remove:
+                    to_remove.add(eid)
+                    changed = True
         for eid, cell in list(cells.items()):
-            if cell.get("edge") == "1" and (cell.get("source") == op.id or cell.get("target") == op.id):
-                root.remove(cell)
-                cells.pop(eid, None)
-                existing.discard(eid)
-        root.remove(cells[op.id])
-        cells.pop(op.id, None)
-        existing.discard(op.id)
+            if cell.get("edge") == "1" and (
+                cell.get("source") in to_remove or cell.get("target") in to_remove
+            ):
+                to_remove.add(eid)
+        for eid in list(to_remove):
+            cell = cells.get(eid)
+            if cell is None:
+                continue
+            root.remove(cell)
+            cells.pop(eid, None)
+            existing.discard(eid)
         return
 
     if kind == "relabel":

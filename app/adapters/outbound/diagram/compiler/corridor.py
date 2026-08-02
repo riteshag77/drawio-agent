@@ -182,9 +182,12 @@ class _CorridorCompiler:
                 x=band_x, y=top_y, w=band_w, h=band_h, parent="1",
             )
             for i, actor in enumerate(left):
+                # Match ROW_PITCH_Y so label bands don't collide (band height
+                # already assumes grid_fill pitch, not LEAF_H+LABEL alone).
                 self.w.vertex(
                     id=actor.id, label=actor.label, style=theme.actor_style(actor.kind),
-                    x=CONTAINER_PADDING_X, y=CONTAINER_LABEL_HEIGHT + i * (geo.LEAF_H + geo.LABEL_BAND_H),
+                    x=CONTAINER_PADDING_X,
+                    y=CONTAINER_LABEL_HEIGHT + i * geo.ROW_PITCH_Y,
                     w=geo.LEAF_W, h=geo.LEAF_H, parent="actors_left",
                 )
 

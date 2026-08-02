@@ -49,6 +49,11 @@ class LogicalIR(CorridorIR):
                     f"domain id {corridor.id!r} is not one of {sorted(_ROW_IDS)} — the layout "
                     "engine only recognizes these exact domain ids"
                 )
+        core_ids = {c.id for c in self.corridors if c.id in ("domain_core", "domain_commerce")}
+        if core_ids == {"domain_core", "domain_commerce"}:
+            raise ValueError(
+                "use domain_core OR domain_commerce — not both (one middle journey column)"
+            )
         for shelf in self.anchored:
             if shelf.id != _SHELF_ID:
                 raise ValueError(f"anchored corridor id {shelf.id!r} must be {_SHELF_ID!r} in Logical")
@@ -56,20 +61,37 @@ class LogicalIR(CorridorIR):
                 raise ValueError(f"{_SHELF_ID!r} must anchor under 'domain_data' (got {shelf.anchor_id!r})")
         return self
 
+    def semantic_errors(self) -> list[str]:
+        """Hard density / overcrowding rules (layout cannot fix too many leaves)."""
+        errors = super().semantic_errors()
+        total = sum(len(c.leaves) for c in self.corridors) + sum(len(s.leaves) for s in self.anchored)
+        if total > 12:
+            errors.append(
+                f"Logical has {total} leaves — keep ≤12 (prefer ≤4 per domain) so the "
+                "journey stays readable left-to-right"
+            )
+        for corridor in list(self.corridors) + list(self.anchored):
+            if len(corridor.leaves) > 4:
+                errors.append(
+                    f"{corridor.id} has {len(corridor.leaves)} leaves — wrap expectation is ≤4 "
+                    "per domain/shelf; merge or omit padding capabilities"
+                )
+        return errors
+
     def semantic_warnings(self) -> list[str]:
         """Promotes the cache-aside "required companion" rule from
         ``config/xml_gen/ir/logical.txt`` prose into code — see that file's
         "Required: cache-aside companion" section for the judgment call this
         mirrors.
         """
+        warnings: list[str] = []
         saas_shelf = next((s for s in self.anchored if s.id == _SHELF_ID), None)
-        if saas_shelf is None:
-            return []
-        core = self.corridor_by_id("domain_core") or self.corridor_by_id("domain_commerce")
-        if core is not None and not self.leaves_mention(core.leaves, "cache"):
-            return [
-                "domain_saas shelf is present but no domain_core/domain_commerce leaf mentions "
-                "a cache — the cache-aside companion rule calls for one for SaaS-outage "
-                "resilience."
-            ]
-        return []
+        if saas_shelf is not None:
+            core = self.corridor_by_id("domain_core") or self.corridor_by_id("domain_commerce")
+            if core is not None and not self.leaves_mention(core.leaves, "cache"):
+                warnings.append(
+                    "domain_saas shelf is present but no domain_core/domain_commerce leaf mentions "
+                    "a cache — the cache-aside companion rule calls for one for SaaS-outage "
+                    "resilience."
+                )
+        return warnings

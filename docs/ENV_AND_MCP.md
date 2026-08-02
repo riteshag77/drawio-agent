@@ -96,6 +96,7 @@ DRAWIO_STYLE_CACHE_RESET=false
 - **`DRAWIO_STYLE_CACHE_RESET=true`** — clears memory + SQLite style cache at process startup (use after changing MCP pick logic or prompts). Turn off afterward so cache stays warm.
 - Manual clear: delete `data/mcp_style_cache.sqlite3` and restart.
 - Prompt assembly uses `config/xml_gen/ir/` (+ `classify/{platform}.txt` + `icons/saas.txt` + `prompt_3d.txt` + `docs/` + `gap_analysis.txt`). Legacy `core.txt` / `views/` XML packs are removed.
+- **`DIAGRAM_VLM_QA`** — optional post-render visual QA hook (default `false`; reserved for PNG→VLM). Logical layout quality is enforced at compile time (L→R domains, label-band clearance).
 - **`MAX_CONCURRENT_LLM`** — caps simultaneous blocking LLM calls (default 5). Multi-view runs launch Logical/Security/Data flow (+ optional ADR/RAID) in parallel via `asyncio.gather` + `run_llm_sync`. Cost/WAF/MCP do not take LLM slots.
 - **`VIEW_QUALITY_MIN_SCORE`** — focused views score against viewpoint rules (informational; IR views are not LLM-repaired). **`VIEW_LLM_PROVIDER`** optionally routes view calls to a different provider key.
 - **Pricing** — LLM token rates and cloud service monthly estimates live in [`config/pricing.json`](../config/pricing.json). Vendor list prices are stored in **USD**; estimates shown in the UI are converted to **AUD** via `usd_to_aud` (edit that rate or the model/service rows there — no code change). Both the toolbar LLM cost chip and the Cost insights panel use `A$`.

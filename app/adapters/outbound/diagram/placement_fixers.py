@@ -1650,16 +1650,15 @@ def _domain_corridor_key(cell: ET.Element) -> tuple[int, str]:
     label = _plain_label(cell)
     blob = f"{cid} {label}"
     if "saas" in blob:
-        return (5, label)
+        return (4, label)
     if any(k in blob for k in ("channel", "experience", "client", "portal", "persona", "actor")):
         return (0, label)
-    if any(k in blob for k in ("identity", "auth", "idp")):
-        return (1, label)
     if any(k in blob for k in ("data", "store", "persist", "warehouse")):
-        return (4, label)
+        return (2, label)
     if any(k in blob for k in ("platform", "observ", "shared")):
         return (3, label)
-    return (2, label)
+    # Core / commerce / identity capabilities — middle of the journey
+    return (1, label)
 
 
 def _zone_corridor_key(cell: ET.Element) -> tuple[int, str]:

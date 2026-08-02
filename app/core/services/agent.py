@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from app.adapters.outbound.diagram.compiler import compile_corridor_ir, compile_network_ir
-from app.adapters.outbound.diagram.diagram_edits import apply_diagram_edits, looks_like_surgical_edit
+from app.adapters.outbound.diagram.diagram_edits import apply_diagram_edits
 from app.adapters.outbound.llm.prompt_builders import build_chat_prompt
 from app.adapters.outbound.utils.chat import (
     build_applied_suggestions_block,
@@ -182,40 +182,39 @@ def generate_xml_diagram(
     hint = user_request or (chat_messages[-1]["content"] if chat_messages else "")
     _llm = llm or get_llm()
 
-    # --- Surgical path (small edits only) ---
+    # --- Surgical path (prefer ops; LLM decides via applicable=false) ---
     if (
         current_xml
         and len(current_xml) > 200
         and not three_d
         and not retry_hint
     ):
-        if looks_like_surgical_edit(hint, has_current_xml=True):
-            try:
-                plan = generate_edit_plan(
-                    hint, current_xml, provider=provider_key, platform=platform,
-                    logger=logger, messages=chat_messages,
-                    include_suggestions=include_suggestions, llm=_llm,
-                )
-                if plan.applicable and plan.ops:
-                    patched = apply_diagram_edits(current_xml, plan)
-                    if logger:
-                        logger.log(
-                            "surgical_edit",
-                            f"Applied {len(plan.ops)} surgical ops",
-                            level="success",
-                            details={"ops": [o.op for o in plan.ops]},
-                        )
-                    sugg = (plan.suggestions or []) if include_suggestions else []
-                    return XmlDiagram(
-                        xml=patched,
-                        assistant_message=plan.assistant_message or "Updated diagram.",
-                        suggestions=sugg,
+        try:
+            plan = generate_edit_plan(
+                hint, current_xml, provider=provider_key, platform=platform,
+                logger=logger, messages=chat_messages,
+                include_suggestions=include_suggestions, llm=_llm,
+            )
+            if plan.applicable and plan.ops:
+                patched = apply_diagram_edits(current_xml, plan)
+                if logger:
+                    logger.log(
+                        "surgical_edit",
+                        f"Applied {len(plan.ops)} surgical ops",
+                        level="success",
+                        details={"ops": [o.op for o in plan.ops]},
                     )
-                if logger:
-                    logger.log("surgical_edit", "Edit plan not applicable — regenerate via IR", level="info")
-            except Exception as exc:
-                if logger:
-                    logger.log("surgical_edit", f"Surgical edit failed ({exc}) — regenerate via IR", level="warn")
+                sugg = (plan.suggestions or []) if include_suggestions else []
+                return XmlDiagram(
+                    xml=patched,
+                    assistant_message=plan.assistant_message or "Updated diagram.",
+                    suggestions=sugg,
+                )
+            if logger:
+                logger.log("surgical_edit", "Edit plan not applicable — regenerate via IR", level="info")
+        except Exception as exc:
+            if logger:
+                logger.log("surgical_edit", f"Surgical edit failed ({exc}) — regenerate via IR", level="warn")
         raise NonSurgicalEditError(
             "This change needs a full redesign. Regenerating via the IR path "
             "(or ask a smaller edit: rename, add one service, connect A→B)."

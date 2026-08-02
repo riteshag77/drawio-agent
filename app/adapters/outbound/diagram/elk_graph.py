@@ -32,7 +32,9 @@ from app.domain.ir.base import Leaf
 #: geometry_spec.pitch_for) — same distinction, kept as two named gaps rather
 #: than always deriving from the same constant.
 LEAF_GAP_X = max(4.0, geo.DATA_CANONICAL_PITCH - geo.LEAF_W)
-LEAF_GAP_Y = max(4.0, geo.ROW_PITCH_Y - geo.LEAF_H)
+# Pitch between leaf tops is ROW_PITCH_Y; nodes now include LABEL_BAND_H so the
+# inter-layer gap is the residual (not ROW_PITCH_Y - LEAF_H alone).
+LEAF_GAP_Y = max(4.0, geo.ROW_PITCH_Y - geo.LEAF_H - geo.LABEL_BAND_H)
 GROUP_GAP_X = max(4.0, geo.GROUP_CANONICAL_PITCH - geo.LEAF_W)
 LEAF_MAX_COLS = geo.LEAF_GRID_MAX_COLS
 
@@ -64,13 +66,16 @@ def sized_container_node(node_id: str, width: float, height: float) -> dict:
 
 
 def elk_leaf_node(leaf_id: str, index: int) -> dict:
-    """One leaf as an ELK node, partitioned into rows of ``LEAF_MAX_COLS`` —
-    forces the wrap deterministically (Corridor's leaf containers only —
-    Network's leaves aren't ELK nodes at all; see module docstring)."""
+    """One leaf as an ELK node, partitioned into rows of ``LEAF_MAX_COLS``.
+
+    Height includes ``LABEL_BAND_H`` because corridor leaves use
+    ``verticalLabelPosition=bottom`` — without the band, shelves and sibling
+    rows sit under the hanging label and look overlapped.
+    """
     return {
         "id": leaf_id,
         "width": geo.LEAF_W,
-        "height": geo.LEAF_H,
+        "height": geo.LEAF_H + geo.LABEL_BAND_H,
         "layoutOptions": {"elk.partitioning.partition": str(index // LEAF_MAX_COLS)},
     }
 

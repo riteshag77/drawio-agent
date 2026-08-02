@@ -246,6 +246,7 @@ async def _run_chat(body: ChatRequest, logger: StepLogger, *, on_progress=None) 
         ))
         response = _mermaid_response(result, logger)
     else:
+        await _snapshot_pre_edit(body)
         response = await _with_request_timeout(run_xml_pipeline(
             user_prompt=None, messages=messages, provider=provider, platform=platform,
             logger=logger,
@@ -275,6 +276,24 @@ async def _run_chat(body: ChatRequest, logger: StepLogger, *, on_progress=None) 
         await asyncio.to_thread(save_capture, body.model_dump(), response)
     await _record_history(body, response, last_user)
     return response
+
+
+async def _snapshot_pre_edit(body: ChatRequest) -> None:
+    """Persist live canvas XML before an AI mutation so users can restore."""
+    if not body.session_id or not body.current_xml or len(body.current_xml) <= 200:
+        return
+    try:
+        await asyncio.to_thread(
+            save_version,
+            session_id=body.session_id,
+            xml=body.current_xml,
+            prompt="(pre-edit snapshot)",
+            platform=body.platform or "aws",
+            provider=body.provider or "",
+            meta={"kind": "pre_edit"},
+        )
+    except Exception:
+        pass
 
 
 async def _record_history(body: ChatRequest, response: dict[str, Any], prompt: str) -> None:

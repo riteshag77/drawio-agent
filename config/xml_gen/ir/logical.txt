@@ -1,16 +1,18 @@
 # Logical architecture view — judgment content
 
 Page name: **Logical**. Role: Principal Application/Solution Architect briefing
-eng leads on **what the system does** and **how capabilities depend** — not
-infrastructure. 60-second design-authority brief. If this reads like a VPC map
-or trust-zone diagram → fail.
+**both** business stakeholders and engineering leads on **what the system does**
+and **how capabilities depend** — not infrastructure. 60-second design-authority
+brief. If this reads like a VPC map or trust-zone diagram → fail.
 
-## Corridor vocabulary (fixed ids)
+## Corridor vocabulary (fixed ids) — left → right journey
 
-Main row — use whichever apply, omit the rest:
-`domain_experience` (channels/portals), `domain_core` or `domain_commerce`
-(capabilities/APIs), `domain_data` (data stores), `domain_platform` (shared
-platform/observability capabilities).
+Main row, **exactly this order** (omit a column if empty — never invent one to pad):
+
+1. `domain_experience` — channels / portals / apps the user touches
+2. `domain_core` **OR** `domain_commerce` — capabilities / APIs (**one** middle column, never both)
+3. `domain_data` — generic data stores (system of record)
+4. `domain_platform` — shared platform / observability capabilities (rightmost)
 
 Anchored shelf: `domain_saas` — external SaaS products, anchored under
 `domain_data`. **Required** when 2+ egress SaaS products appear.
@@ -20,6 +22,11 @@ Anchored shelf: `domain_saas` — external SaaS products, anchored under
 When auth or external SaaS appears: `Persona` (kind=users) → `Identity SaaS`
 (kind=saas_ingress, e.g. Okta) → the Portal/Application **leaf inside
 domain_experience**. Never start the story at a data store or IdP alone.
+
+Canonical L→R story the layout engine will draw:
+
+`Persona → IdP → Portal (experience) → Capability (core) → Data store → [Platform]`,
+with SaaS shelf under Data when present.
 
 ## Leaf vocabulary
 
@@ -38,11 +45,13 @@ Mark `criticality: critical` on the primary data store inside `domain_data`
 (the system of record the capabilities depend on) — most other leaves stay
 `standard`.
 
+**Order leaves left→right by primary-flow arrival** inside each corridor.
+
 ## Required: cache-aside companion
 
 When egress SaaS + an app/portal + a datastore are **all** present, add
-graceful-degradation for SaaS outages (not density padding):
-1. A cache leaf inside `domain_core` (e.g. `Profile cache` / `Session cache`).
+**one** cache leaf for graceful degradation (not density padding):
+1. A single cache leaf inside `domain_core` (e.g. `Profile cache`).
 2. Flow app/portal → cache, labeled `Check Cache (Profiles)`.
 3. Flow app/portal → egress SaaS, labeled `Cache Miss: Fetches via API`
    (never a bare `Calls API` when a cache leaf exists).
@@ -85,9 +94,11 @@ Canonical auth journey: `Persona → Okta (SAAS)` (`Authenticates via`) →
 **Forbidden:** data store ↔ IdP edges; every-to-every mesh; bare `Calls API`
 to egress SaaS when a cache leaf is present; trust-zone vocabulary
 (zone_public/DMZ/etc. — that's Security's lens); infrastructure products
-(WAF/ALB/VPC/subnet/NAT — also Security's or Network's lens).
+(WAF/ALB/VPC/subnet/NAT — also Security's or Network's lens); both
+`domain_core` and `domain_commerce` in the same diagram.
 
 ## Density
 
-8–12 leaves when inventory supports it; 5–7 when thin. Never invent domains
-or capabilities to pad.
+**Hard cap:** ≤12 leaves total, ≤4 leaves per domain/shelf. Prefer 5–8 when
+the brief is thin. Never invent domains or capabilities to pad — omit empty
+columns instead.

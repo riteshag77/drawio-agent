@@ -239,6 +239,15 @@ class EnvConfigAdapter:
         return self.get_float("ELK_LAYOUT_TIMEOUT_SECONDS", 8.0)
 
     @property
+    def diagram_vlm_qa(self) -> bool:
+        """When true, run optional post-render visual QA (PNG → VLM) after compile.
+
+        Default off — enable once capture/VLM wiring is proven; feeds IR
+        correction suggestions rather than rewriting mxCells.
+        """
+        return self.get_bool("DIAGRAM_VLM_QA", False)
+
+    @property
     def history_enabled(self) -> bool:
         """When true, persist each successful generation for later recall/versioning."""
         return self.get_bool("DIAGRAM_HISTORY_ENABLED", True)
