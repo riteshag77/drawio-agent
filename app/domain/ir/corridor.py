@@ -235,11 +235,54 @@ class CorridorIR(DiagramIR):
         data["anchored"] = _filter(data.get("anchored"))
 
         if removed_ids and isinstance(data.get("flows"), list):
-            data["flows"] = [
-                f for f in data["flows"]
-                if not (isinstance(f, dict) and (f.get("source") in removed_ids or f.get("target") in removed_ids))
-            ]
+            data["flows"] = cls._bridge_removed_leaves(data["flows"], removed_ids)
         return data
+
+    @staticmethod
+    def _bridge_removed_leaves(flows: list[object], removed_ids: set[str]) -> list[object]:
+        """Reconnect around a stripped leaf instead of just deleting its edges.
+
+        A leaf denylisted by ``_strip_cross_cutting_infra`` is often a
+        mid-chain hop (``CDN -> WAF -> API Gateway``) — naively dropping every
+        flow that touches it severs the chain and leaves the downstream leaf
+        (API Gateway) with no incoming edge at all, which reads as "the line
+        to X is missing" even though X itself is fine. For each removed leaf,
+        every predecessor is rewired directly to every successor (skipping
+        self-loops and pairs already connected) before the leaf's own edges
+        are finally dropped. One bridging pass — a chain of two *consecutive*
+        removed leaves is a rare residual case the per-view orphan check
+        (``LogicalIR.semantic_errors``) catches as a backstop.
+        """
+        incoming: dict[str, list[dict]] = {}
+        outgoing: dict[str, list[dict]] = {}
+        kept: list[object] = []
+        for f in flows:
+            if not isinstance(f, dict):
+                kept.append(f)
+                continue
+            src, tgt = f.get("source"), f.get("target")
+            if tgt in removed_ids:
+                incoming.setdefault(tgt, []).append(f)
+            elif src in removed_ids:
+                outgoing.setdefault(src, []).append(f)
+            else:
+                kept.append(f)
+
+        seen_pairs = {(f.get("source"), f.get("target")) for f in kept if isinstance(f, dict)}
+        bridged: list[object] = []
+        for removed_id, in_flows in incoming.items():
+            for inf in in_flows:
+                for outf in outgoing.get(removed_id, []):
+                    src, tgt = inf.get("source"), outf.get("target")
+                    if not src or not tgt or src == tgt or (src, tgt) in seen_pairs:
+                        continue
+                    seen_pairs.add((src, tgt))
+                    bridge = dict(inf)
+                    bridge["source"], bridge["target"] = src, tgt
+                    bridge["label"] = outf.get("label") or inf.get("label")
+                    bridged.append(bridge)
+
+        return kept + bridged
 
     @model_validator(mode="after")
     def _check_prefixes_and_uniqueness(self) -> "CorridorIR":

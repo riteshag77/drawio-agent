@@ -83,8 +83,25 @@ class LogicalIR(CorridorIR):
                 raise ValueError(f"{_SHELF_ID!r} must anchor under 'domain_data' (got {shelf.anchor_id!r})")
         return self
 
+    #: Substrings in a leaf's label that mark it as a replica/standby copy of
+    #: another store — an HA/resilience concern for Network (Multi-AZ), not
+    #: part of the Logical process story. See semantic_errors below.
+    _REPLICA_MARKERS: ClassVar[tuple[str, ...]] = (
+        "replica", "standby", "read-replica", "read replica", "mirror",
+    )
+
     def semantic_errors(self) -> list[str]:
-        """Hard density / overcrowding rules (layout cannot fix too many leaves)."""
+        """Hard density/overcrowding rules, plus two story-completeness rules:
+        no unconnected leaf/actor, no replica/standby duplicate of a store.
+
+        Logical has no container nesting to fall back on (unlike Network) and
+        no visible zone box (unlike Security) — a leaf or actor with zero
+        flows is genuinely invisible-as-connected, not just under-annotated,
+        and a real capture showed exactly this: an "Ingestion Svc" leaf and
+        an "End Users" actor both declared with no flow touching either one.
+        Both classes of bug are fixed here rather than left to the prompt
+        alone, for the same reliability reason as ``_strip_cross_cutting_infra``.
+        """
         errors = super().semantic_errors()
         total = sum(len(c.leaves) for c in self.corridors) + sum(len(s.leaves) for s in self.anchored)
         if total > 14:
@@ -98,6 +115,31 @@ class LogicalIR(CorridorIR):
                     f"{corridor.id} has {len(corridor.leaves)} leaves — keep ≤5 "
                     "per domain/shelf; merge or omit padding capabilities"
                 )
+
+        all_leaf_and_actor_ids = self.leaf_ids() | {a.id for a in self.external_actors}
+        if len(all_leaf_and_actor_ids) >= 2:
+            touched: set[str] = set()
+            for flow in self.flows:
+                touched.add(flow.source)
+                touched.add(flow.target)
+            orphans = sorted(all_leaf_and_actor_ids - touched)
+            if orphans:
+                errors.append(
+                    f"these leaves/actors have no flow connecting them to anything: "
+                    f"{', '.join(orphans)} — Logical is a flat storyboard with no "
+                    "grouping box, so an unconnected node reads as broken, not just "
+                    "unlabeled; connect each one to the story or remove it"
+                )
+
+        for corridor in list(self.corridors) + list(self.anchored):
+            for leaf in corridor.leaves:
+                label_lower = leaf.label.lower()
+                if any(marker in label_lower for marker in self._REPLICA_MARKERS):
+                    errors.append(
+                        f"{corridor.id} leaf {leaf.id!r} ({leaf.label!r}) is a replica/standby "
+                        "copy of another store — HA/replica topology belongs on Network "
+                        "(Multi-AZ), not Logical; remove it and keep one leaf for the store"
+                    )
         return errors
 
     def semantic_warnings(self) -> list[str]:

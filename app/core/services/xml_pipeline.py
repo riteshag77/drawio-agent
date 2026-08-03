@@ -23,6 +23,7 @@ from app.adapters.outbound.diagram.xml_tools import (
     choose_fixed_xml,
     ensure_diagram_document,
     extract_shape_types,
+    extract_page_by_name,
     fit_containers_to_children,
     guarantee_loadable_xml,
     normalize_platform_styles,
@@ -757,11 +758,18 @@ async def _generate_primary_page(
         return await _three_d_primary(), False
 
     if current_xml and len(current_xml) > 200:
+        # current_xml from the frontend is the full multi-page mxfile (tab order
+        # is always Logical first — see VIEW_ORDER), but the edit-plan/apply code
+        # below has no concept of multiple pages. Scope to just the page being
+        # edited so it doesn't read or mutate the wrong tab (e.g. Logical instead
+        # of Network).
+        primary_page_name = VIEW_PAGE_NAMES.get(primary_view, "Network")
+        scoped_current_xml = extract_page_by_name(current_xml, primary_page_name) or current_xml
         try:
             diagram = await run_llm_sync(
                 generate_xml_diagram, human_prompt, provider_key, platform_key, logger, messages,
                 custom_system_message, applied_suggestions, False, enriched_context, attachment_documents,
-                current_xml=current_xml,
+                current_xml=scoped_current_xml,
                 image_replicate=image_replicate,
                 animated_connectors=animated_connectors,
                 include_suggestions=include_suggestions,

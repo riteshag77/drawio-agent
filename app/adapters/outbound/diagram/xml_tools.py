@@ -215,6 +215,40 @@ def coerce_drawio_xml(text: str) -> str:
     return candidate
 
 
+def extract_page_by_name(xml: str, page_name: str) -> str | None:
+    """Scope a multi-page mxfile down to the single ``<diagram>`` named ``page_name``.
+
+    Surgical-edit plumbing (``generate_edit_plan`` / ``apply_diagram_edits``)
+    has no concept of multiple pages — it walks ``mxCell``/``root`` assuming a
+    single page. Feeding it a full multi-page ``current_xml`` (tab order is
+    always Logical first, see ``VIEW_ORDER``) makes it silently read/write
+    whichever page happens to be first, not the page the user is editing.
+    Callers must scope ``current_xml`` to the active page with this before
+    handing it to that code. Returns ``None`` when ``xml`` isn't a multi-page
+    mxfile or no page matches ``page_name`` — caller should fall back to using
+    ``xml`` as-is (already single-page, or nothing to scope).
+    """
+    trimmed = (xml or "").strip()
+    if "<mxfile" not in trimmed:
+        return None
+    try:
+        tree = ET.fromstring(trimmed)
+    except ET.ParseError:
+        return None
+    diagrams = tree.findall("diagram")
+    if len(diagrams) <= 1:
+        return None
+    target = next(
+        (d for d in diagrams if (d.get("name") or "").strip().lower() == (page_name or "").strip().lower()),
+        None,
+    )
+    if target is None:
+        return None
+    scoped = ET.Element("mxfile", tree.attrib)
+    scoped.append(target)
+    return ET.tostring(scoped, encoding="unicode")
+
+
 def ensure_diagram_document(xml: str, page_name: str = "Architecture") -> str:
     """Guarantee a single-root mxfile/mxGraphModel document for draw.io load."""
     trimmed = coerce_drawio_xml(xml or "")
