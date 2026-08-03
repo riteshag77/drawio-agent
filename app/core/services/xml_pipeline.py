@@ -874,7 +874,7 @@ async def _run_generic_image_pipeline(
     compliance/ADR/RAID) — none of it applies to a non-cloud traced diagram.
     """
     page_name = "Diagram"
-    await _emit(on_progress, "ir", "Reproducing uploaded image as-is…")
+    await _emit(on_progress, "ir", "Reproducing uploaded diagram as-is…")
     diagram = await run_llm_sync(
         generate_generic_diagram_from_ir, human_prompt, provider_key, logger,
         messages, custom_system_message, applied_suggestions, attachment_documents,
@@ -949,7 +949,7 @@ async def _run_generic_image_pipeline(
     return _build_response(
         status="success",
         xml=xml_output,
-        assistant_message=diagram.assistant_message or "Reproduced the uploaded image as-is.",
+        assistant_message=diagram.assistant_message or "Reproduced the uploaded diagram as-is.",
         suggestions=[],
         renderer_used="local",
         generation_path="generic_ir",
@@ -1005,7 +1005,16 @@ async def run_xml_pipeline(
     has_image_attachment = attachment_documents and any(
         (doc.get("mime") or "").startswith("image/") for doc in attachment_documents
     )
-    if has_image_attachment and image_mode == "as_is" and not (current_xml or "").strip() and not three_d:
+    # PDFs are sent as vision blocks in this app specifically to preserve an
+    # embedded diagram/screenshot (see documents.py) — a PDF export of a
+    # flowchart is exactly as eligible for as-is replication as a PNG of one.
+    # Cloud-view classification (below) stays image-only: _classify_attachment_view's
+    # structured output is scoped to the 4 cloud lenses, unrelated to this.
+    has_visual_attachment = attachment_documents and any(
+        (doc.get("mime") or "").startswith("image/") or doc.get("mime") == "application/pdf"
+        for doc in attachment_documents
+    )
+    if has_visual_attachment and image_mode == "as_is" and not (current_xml or "").strip() and not three_d:
         return await _run_generic_image_pipeline(
             attachment_documents=attachment_documents,
             human_prompt=human_prompt,

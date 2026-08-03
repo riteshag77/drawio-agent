@@ -23,6 +23,7 @@ from tests.test_ir_pipeline import _no_styles
 from tests.test_network_compiler import realistic_ir
 
 IMAGE_ATTACHMENT = [{"filename": "flowchart.png", "mime": "image/png", "data": "ZmFrZQ=="}]
+PDF_ATTACHMENT = [{"filename": "flowchart.pdf", "mime": "application/pdf", "data": "ZmFrZQ=="}]
 
 
 def _run(**kwargs):
@@ -67,6 +68,20 @@ class AsIsShortCircuitTests(unittest.TestCase):
         cell_ids = {c.get("id") for c in ET.fromstring(result["xml"]).iter("mxCell")}
         self.assertIn("a", cell_ids)
         self.assertIn("b", cell_ids)
+
+    def test_pdf_attachment_also_reaches_the_as_is_path(self) -> None:
+        """PDFs are sent as vision blocks specifically to preserve an embedded
+        diagram — a PDF export of a flowchart is as eligible as a PNG of one."""
+        with patch.object(xml_pipeline, "generate_generic_diagram_from_ir", return_value=_generic_diagram()) as generic_gen, \
+                patch.object(xml_pipeline, "_classify_attachment_view") as classify, \
+                patch.object(xml_pipeline, "generate_xml_diagram_from_ir") as ir_gen:
+            result = _run(attachment_documents=PDF_ATTACHMENT, image_mode="as_is")
+
+        generic_gen.assert_called_once()
+        classify.assert_not_called()
+        ir_gen.assert_not_called()
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["generation_path"], "generic_ir")
 
     def test_cloud_mode_keeps_existing_classification_behavior(self) -> None:
         """Explicit image_mode='cloud' (or omitting it) must not touch the new path."""
