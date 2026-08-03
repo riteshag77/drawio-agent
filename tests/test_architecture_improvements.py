@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+import xml.etree.ElementTree as ET
 
 from app.adapters.outbound.diagram.diagram_edits import (
     apply_diagram_edits,
@@ -39,6 +40,44 @@ class SurgicalEditTests(unittest.TestCase):
         self.assertIn('shape_type="aws.nat"', out)
         self.assertIn('source="alb"', out)
         self.assertIn('target="nat"', out)
+
+    def test_relabel_keeps_ir_layout_marker(self):
+        """Label-only edits must not unlock fit (preserves corridor band)."""
+        base = (
+            '<mxfile><diagram><mxGraphModel><root>'
+            '<mxCell id="0"/><mxCell id="1" parent="0" layout="ir"/>'
+            '<mxCell id="alb" value="ALB" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/>'
+            '</mxCell>'
+            '</root></mxGraphModel></diagram></mxfile>'
+        )
+        plan = DiagramEditPlan(
+            applicable=True,
+            ops=[DiagramEditOp(op="relabel", id="alb", label="Load Balancer")],
+        )
+        out = apply_diagram_edits(base, plan)
+        layer = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "1")
+        self.assertEqual(layer.get("layout"), "ir")
+        self.assertIn('value="Load Balancer"', out)
+
+    def test_geometry_edit_clears_ir_layout_marker(self):
+        """Add/move/delete must clear layout=ir so fit can run."""
+        base = (
+            '<mxfile><diagram><mxGraphModel><root>'
+            '<mxCell id="0"/><mxCell id="1" parent="0" layout="ir"/>'
+            '<mxCell id="alb" value="ALB" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/>'
+            '</mxCell>'
+            '</root></mxGraphModel></diagram></mxfile>'
+        )
+        plan = DiagramEditPlan(
+            applicable=True,
+            ops=[DiagramEditOp(op="add_node", id="nat", label="NAT", parent="1", x=200, y=40)],
+        )
+        out = apply_diagram_edits(base, plan)
+        layer = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "1")
+        self.assertIsNone(layer.get("layout"))
+        self.assertIn('id="nat"', out)
 
 
 class IacAttachmentTests(unittest.TestCase):

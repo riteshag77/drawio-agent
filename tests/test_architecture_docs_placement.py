@@ -18,9 +18,8 @@ from app.adapters.outbound.diagram.architecture_docs import (
     page_has_overview_panel,
 )
 from app.adapters.outbound.llm.prompts.ir import get_corridor_ir_system_prompt
-from app.adapters.outbound.diagram.placement_fixers import (
+from app.adapters.outbound.diagram.edge_routing import (
     fix_edge_anchors_from_geometry,
-    resolve_misplaced_connectivity_hubs,
 )
 from app.adapters.outbound.diagram.xml_diagnostics import repair_xml
 
@@ -427,36 +426,6 @@ class ViewEnrichmentFixerTests(unittest.TestCase):
         self.assertEqual(by_id["ord"].get("shape_type"), "aws_ecs")
         self.assertEqual(by_id["ds"].get("shape_type"), "aws_rds")
         self.assertNotIn("shape=ellipse", by_id["ch"].get("style") or "")
-
-
-class HubPlacementTests(unittest.TestCase):
-    def test_tgw_hoisted_to_cloud(self) -> None:
-        xml = _wrap(
-            '<mxCell id="cloud" value="AWS Cloud" style="container=1;rounded=0;" vertex="1" parent="1">'
-            '<mxGeometry x="100" y="40" width="900" height="500" as="geometry"/></mxCell>'
-            '<mxCell id="vpc" value="VPC" style="container=1;" vertex="1" parent="cloud">'
-            '<mxGeometry x="40" y="60" width="700" height="350" as="geometry"/></mxCell>'
-            '<mxCell id="tgw" value="Transit Gateway" shape_type="aws_transit_gateway" '
-            'vertex="1" parent="vpc">'
-            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>'
-        )
-        out = resolve_misplaced_connectivity_hubs(xml)
-        tgw = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "tgw")
-        self.assertEqual(tgw.get("parent"), "cloud")
-
-    def test_repair_chain_hoists_tgw(self) -> None:
-        xml = _wrap(
-            '<mxCell id="cloud" value="AWS Cloud" style="container=1;" vertex="1" parent="1">'
-            '<mxGeometry x="100" y="40" width="900" height="500" as="geometry"/></mxCell>'
-            '<mxCell id="vpc" value="VPC" style="container=1;" vertex="1" parent="cloud">'
-            '<mxGeometry x="40" y="60" width="700" height="350" as="geometry"/></mxCell>'
-            '<mxCell id="tgw" value="Transit Gateway" shape_type="aws_transit_gateway" '
-            'vertex="1" parent="vpc">'
-            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>'
-        )
-        out, _ = repair_xml(xml)
-        tgw = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "tgw")
-        self.assertEqual(tgw.get("parent"), "cloud")
 
 
 class EdgeAnchorTests(unittest.TestCase):

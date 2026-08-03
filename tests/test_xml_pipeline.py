@@ -119,5 +119,26 @@ class MalformedXmlRetryTests(unittest.TestCase):
             self._run(generate_side_effect=[truncated, empty])
 
 
+class DegradedFeaturesTests(unittest.TestCase):
+    def test_collects_quality_gate_and_quota(self) -> None:
+        logger = StepLogger()
+        logger.log(
+            "views",
+            "Logical view scored 40",
+            level="warning",
+            details={"degraded": True, "feature": "Logical view quality", "reason": "quality_gate"},
+        )
+        logger.log(
+            "docs",
+            "ADR notes branch failed: quota",
+            level="warning",
+            details={"quota_exceeded": True, "feature": "ADR notes"},
+        )
+        feats = xml_pipeline._collect_degraded_features(logger)
+        by_feature = {f["feature"]: f["reason"] for f in feats}
+        self.assertEqual(by_feature["Logical view quality"], "quality_gate")
+        self.assertEqual(by_feature["ADR notes"], "quota")
+
+
 if __name__ == "__main__":
     unittest.main()

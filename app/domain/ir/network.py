@@ -271,4 +271,45 @@ class NetworkIR(DiagramIR):
                                 f"data-tier subnet {subnet.id!r} has a flow straight out to an external actor — "
                                 "data tiers should be reached through the app tier"
                             )
+
+        # Thoroughness: schema-valid single-tier dumps with many leaves are not useful.
+        # Tiny fixtures (1–3 leaves) stay allowed for compiler/unit tests.
+        leaf_n = len(list(self.iter_leaves()))
+        if leaf_n >= 4:
+            tiers: set[str] = set()
+            for region in self.cloud.regions:
+                for vpc in region.vpcs:
+                    for zone in vpc.zones:
+                        for subnet in zone.subnets:
+                            tiers.add(subnet.tier)
+            if len(tiers) < 2:
+                errors.append(
+                    "network has 4+ services but only one subnet tier — span at least two of "
+                    "public/app/data (e.g. public edge + app, or app + data)"
+                )
         return errors
+
+    def semantic_warnings(self) -> list[str]:
+        """Judgment-call thoroughness — one best-effort IR correction, never blocks."""
+        warnings: list[str] = []
+        leaf_n = len(list(self.iter_leaves()))
+        if self.external_actors and leaf_n >= 2:
+            has_ingress = self.cloud.edge_layer is not None
+            if not has_ingress:
+                for region in self.cloud.regions:
+                    for vpc in region.vpcs:
+                        if vpc.gateway is not None:
+                            has_ingress = True
+                            break
+                        for zone in vpc.zones:
+                            if any(s.tier == "public" for s in zone.subnets):
+                                has_ingress = True
+                                break
+                    if has_ingress:
+                        break
+            if not has_ingress:
+                warnings.append(
+                    "external_actors present but no public subnet, edge layer, or gateway — "
+                    "add a clear ingress path for actors into the network"
+                )
+        return warnings

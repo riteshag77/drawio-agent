@@ -11,6 +11,7 @@ shared part; each view compiler owns only its own hierarchy-walking logic.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from app.adapters.outbound.diagram import geometry_spec as geo
@@ -37,7 +38,17 @@ def leaf_label(leaf: Leaf) -> str:
     for ``[PII]`` tags, applied to leaves. Shared so every leaf-rendering call
     site (the grid helper below, plus Network's gateway/connectivity-hub
     singletons which bypass the grid) stays consistent."""
-    return f"{leaf.label} [{leaf.annotation}]" if leaf.annotation else leaf.label
+    if not leaf.annotation:
+        return leaf.label
+    # Models sometimes nest brackets ("Multi-AZ [PHI]") — flatten so we never
+    # emit ``Label [Multi-AZ [PHI]]``.
+    ann = re.sub(r"[\[\]]", "", leaf.annotation).strip()
+    if not ann:
+        return leaf.label
+    suffix = f"[{ann}]"
+    if leaf.label.rstrip().endswith(suffix):
+        return leaf.label
+    return f"{leaf.label} [{ann}]"
 
 
 def grid_box(count: int, *, is_group: bool) -> Box:

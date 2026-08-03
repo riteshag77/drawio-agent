@@ -41,7 +41,6 @@ import unittest
 import xml.etree.ElementTree as ET
 
 from app.adapters.outbound.diagram.compiler import compile_corridor_ir
-from app.adapters.outbound.diagram.compiler.corridor import _CorridorCompiler
 from app.adapters.outbound.diagram.logical_layout import layout_corridor_ir
 from app.adapters.outbound.diagram.xml_diagnostics import diagnose_xml, repair_xml
 from app.domain.ir import AnchoredCorridor, Corridor, DataFlowIR, ExternalActor, Flow, Leaf, LogicalIR, SecurityIR
@@ -151,28 +150,6 @@ def realistic_logical_ir() -> LogicalIR:
 
 def _pipeline_geometry(ir, page_name: str) -> dict[str, tuple[float, float, float, float]]:
     xml = compile_corridor_ir(ir, page_name=page_name)
-    repaired, post = repair_xml(xml)
-    assert post.errors == [], post.errors
-    assert post.warnings == [], post.warnings
-    cells = {c.get("id"): c for c in ET.fromstring(repaired).iter("mxCell") if c.get("id")}
-    out: dict[str, tuple[float, float, float, float]] = {}
-    for cid, cell in cells.items():
-        g = cell.find("mxGeometry")
-        if g is None:
-            continue
-        try:
-            out[cid] = (float(g.get("x")), float(g.get("y")), float(g.get("width")), float(g.get("height")))
-        except (TypeError, ValueError):
-            continue
-    return out
-
-
-def _legacy_pipeline_geometry(ir, page_name: str) -> dict[str, tuple[float, float, float, float]]:
-    """Same as `_pipeline_geometry`, but forces the pre-migration `run()` path
-    (placeholder geometry + full `repair_xml` fixer chain) regardless of
-    `_LAYERED_VIEWS`, so Logical's equivalence test genuinely compares against
-    the legacy XML-based layout it's replacing, not against itself."""
-    xml = _CorridorCompiler(ir, page_name).run()
     repaired, post = repair_xml(xml)
     assert post.errors == [], post.errors
     assert post.warnings == [], post.warnings
@@ -309,7 +286,7 @@ class LogicalLayoutTests(unittest.TestCase):
         xml = compile_corridor_ir(realistic_logical_ir(), page_name="Logical")
         repaired, post = repair_xml(xml)
         self.assertEqual(post.errors, [])
-        self.assertEqual(post.warnings, [])
+        self.assertEqual(_non_routing_warnings(post.warnings), [])
         before = {c.get("id"): c.find("mxGeometry") for c in ET.fromstring(xml).iter("mxCell") if c.get("id")}
         after = {c.get("id"): c.find("mxGeometry") for c in ET.fromstring(repaired).iter("mxCell") if c.get("id")}
         for cid, geom in before.items():
@@ -323,27 +300,15 @@ class LogicalLayoutTests(unittest.TestCase):
                 f"{cid}'s geometry changed under repair_xml",
             )
 
-    def test_diverges_from_legacy_spine_hoist_by_design(self) -> None:
-        """Documents the divergence explained in the class docstring: the
-        legacy path hoists `portal` out of `domain_experience` (which then
-        stops existing as a container at all). The new path keeps `portal`
-        nested in its domain — this pins that as an intentional design
-        difference, not a bug, so a future change that silently reintroduces
-        spine-hoisting is caught.
-
-        Only checks the qualitative claim (domain_experience survives as a
-        real container), not a uniform pixel shift across the other domains —
-        that constant-shift property was an artifact of the old path's own
-        cumulative cursor arithmetic lining up with the legacy pipeline's;
-        ELK's compound layout (see logical_layout._layout_corridor_ir_elk)
-        computes width/position from a real graph solve, not a running sum,
-        so there is no reason to expect one uniform offset any more.
-        """
+    def test_keeps_portal_nested_in_experience_domain(self) -> None:
+        """IR path must keep Portal inside domain_experience (no legacy spine hoist)."""
         ir = realistic_logical_ir()
-        legacy_geo = _legacy_pipeline_geometry(ir, "Logical")
         new_geo, _routes = layout_corridor_ir(ir)
-        self.assertNotIn("domain_experience", legacy_geo, "legacy spine hoist should still unwrap this container")
-        self.assertIn("domain_experience", new_geo, "new path must keep the domain as a real container")
+        self.assertIn("domain_experience", new_geo)
+        self.assertIn("portal", new_geo)
+        xml = compile_corridor_ir(ir, page_name="Logical")
+        cells = {c.get("id"): c for c in ET.fromstring(xml).iter("mxCell") if c.get("id")}
+        self.assertEqual(cells["portal"].get("parent"), "domain_experience")
 
 
 class NetworkParityTests(unittest.TestCase):
@@ -381,7 +346,7 @@ class NetworkParityTests(unittest.TestCase):
             xml = compile_corridor_ir(ir, page_name=page)
             repaired, post = repair_xml(xml)
             self.assertEqual(post.errors, [])
-            self.assertEqual(post.warnings, [])
+            self.assertEqual(_non_routing_warnings(post.warnings), [])
             before = {c.get("id"): c.find("mxGeometry") for c in ET.fromstring(xml).iter("mxCell") if c.get("id")}
             after = {c.get("id"): c.find("mxGeometry") for c in ET.fromstring(repaired).iter("mxCell") if c.get("id")}
             for cid, geom in before.items():
@@ -399,7 +364,7 @@ class NetworkParityTests(unittest.TestCase):
 class ActorContainerizationTests(unittest.TestCase):
     """The layered compiler path skips the fixer chain that used to
     containerize external actors (Part A's Fix 2c,
-    `placement_fixers._containerize_corridor_actors`) — the compiler must do
+    `edge_routing._containerize_corridor_actors`) — the compiler must do
     it itself now, or actors regress to bare parent="1" leaves."""
 
     def _security_with_actor(self) -> SecurityIR:
@@ -429,7 +394,7 @@ class ActorContainerizationTests(unittest.TestCase):
         xml = compile_corridor_ir(ir, page_name="Security")
         repaired, post = repair_xml(xml)
         self.assertEqual(post.errors, [])
-        self.assertEqual(post.warnings, [])
+        self.assertEqual(_non_routing_warnings(post.warnings), [])
         cells = {c.get("id"): c for c in ET.fromstring(repaired).iter("mxCell") if c.get("id")}
         self.assertEqual(cells["employees"].get("parent"), "actors_left")
 

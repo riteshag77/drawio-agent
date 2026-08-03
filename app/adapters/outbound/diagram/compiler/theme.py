@@ -111,11 +111,9 @@ def edge_layer_style() -> str:
 def _corridor_container(corridor_id: str, *, shelf: bool) -> str:
     """Domain/zone/phase container style, coloured from ``palette``.
 
-    ``placement_fixers.normalize_corridor_colors`` is still authoritative and
-    will overwrite fill/stroke/font/border downstream — but it now reads the
-    *same* ``palette`` table, so emitting the correct colour here means the
-    compiler's own output already matches its final rendered appearance rather
-    than being a grey placeholder that only looks right after repair.
+    ``palette`` / this compiler are authoritative for corridor appearance —
+    colours are emitted correctly here from the shared ``palette`` table, with
+    no downstream color-normalization pass.
     """
     colors = palette.corridor_colors(corridor_id)
     if colors is None:

@@ -5,13 +5,19 @@ from __future__ import annotations
 import asyncio
 import inspect
 import xml.etree.ElementTree as ET
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from app.adapters.outbound.config.env_config import get_config
 from app.adapters.outbound.diagram.drawio_mcp_client import DrawioMcpError, create_diagram, resolve_shape_styles
 from app.adapters.outbound.diagram.mode import is_xml_pipeline_mode
-from app.adapters.outbound.diagram.xml_diagnostics import apply_step_markers, diagnose_xml, repair_xml, validate_layout
+from app.adapters.outbound.diagram.xml_diagnostics import (
+    apply_step_markers,
+    diagnose_xml,
+    repair_xml,
+    reposition_step_badges,
+    validate_layout,
+)
 from app.adapters.outbound.diagram.xml_tools import (
     apply_mcp_styles,
     choose_fixed_xml,
@@ -47,6 +53,7 @@ from app.adapters.outbound.diagram.architecture_docs import (
     derive_story_markers,
     ensure_ir_overview_panel,
     ensure_minimal_overview_panel,
+    refresh_ir_overview_panel,
     load_docs_prompt_pack,
     load_gap_analysis_prompt_pack,
     merge_mxfile_pages,
@@ -68,6 +75,9 @@ from app.core.services.agent import (
 
 _SERVICE_INVENTORY_LIMIT = 36
 _REQUEST_TRUNCATE_DOCS = 600
+
+#: Progress/SSE callback: (step, message, optional details) → sync or async.
+ProgressCallback = Callable[[str, str, dict[str, Any] | None], Any | Awaitable[Any]]
 
 
 def _should_use_ir_path(primary_view: str, current_xml: str | None, three_d: bool) -> bool:
@@ -372,16 +382,8 @@ def _finalize_view_page_xml(
                 f"{title} page missing overview_panel — adding {'IR-synthesized' if ir_title else 'minimal stub'} overview",
                 level="warning",
             )
-        # ir_title is only ever non-empty for pages generate_xml_diagram_from_ir
-        # produced (see _generate_ir_view_page) — synthesize from this page's
-        # own graph rather than the generic stub, same as the primary-page path.
         if ir_title:
             xml = ensure_ir_overview_panel(xml, title, ir_title)
-            # Derived from this exact xml snapshot, same one the panel prose
-            # just numbered — guarantees panel step i and canvas badge i name
-            # the same cell. generate_xml_diagram_from_ir always sends
-            # step_markers=[], so this is the only source for IR pages.
-            step_markers = derive_story_markers(xml, title)
         else:
             xml = ensure_minimal_overview_panel(xml, title)
     if view and primary_xml:
@@ -413,8 +415,13 @@ def _finalize_view_page_xml(
     elif view in ("network", "security", "data_flow"):
         from app.adapters.outbound.diagram.architecture_docs import assign_saas_shape_types
         xml = assign_saas_shape_types(xml)
+    # Refresh overview + badges from the post-fixer graph so numbers match.
+    if ir_title:
+        xml = refresh_ir_overview_panel(xml, title, ir_title)
+        step_markers = derive_story_markers(xml, title)
     if step_markers:
         xml = apply_step_markers(xml, step_markers, logger)
+        xml = reposition_step_badges(xml)
     if _count_service_leaves(xml) < 2 and "degraded_note" not in (xml or ""):
         return None
     return xml
@@ -428,21 +435,31 @@ def _generate_ir_view_page(
     provider_key: str,
     view: str,
     logger: Any,
+    context_text: str | None = None,
+    attachment_documents: list[dict[str, Any]] | None = None,
 ) -> str | None:
-    """IR path for a *secondary* (extra) view page — the fan-out's counterpart
-    to the primary-page IR path in ``run_xml_pipeline``.
+    """IR path for a secondary (extra) view — same generator as primary.
 
-    Reuses ``agent.generate_xml_diagram_from_ir`` (the exact same generic
-    dispatcher the primary page uses) rather than a bespoke extra-view IR
-    call — a view's IR generation works identically whether that view happens
-    to be primary or secondary this request, and duplicating it per role
-    would be the one thing this whole effort is supposed to avoid. Runs the
-    same ``_finalize_view_page_xml`` normalization (gap injection, SaaS shape
-    stamping, overview panel) as the direct-XML extra-view path so downstream
-    handling is identical regardless of which path produced the page.
+    Passes primary inventory + the same enriched context the primary page saw
+    so Logical/Security/Data-flow describe the *same* system, not a parallel invent.
     """
+    from app.adapters.outbound.diagram.architecture_docs import build_architecture_inventory
+
+    inv = build_architecture_inventory(
+        primary_xml, service_limit=80, request_text=human_prompt or "",
+    )
+    seeded = "\n\n".join(
+        p for p in (
+            context_text,
+            "PRIMARY DIAGRAM INVENTORY — align this view to the same system "
+            "(same services/zones/capabilities; do not invent a different architecture):\n"
+            + inv,
+        ) if p
+    )
     diagram = generate_xml_diagram_from_ir(
         view, human_prompt, provider_key, platform_key, logger, None,
+        context_text=seeded or None,
+        attachment_documents=attachment_documents,
     )
     title = VIEW_PAGE_NAMES.get(view, view)
     return _finalize_view_page_xml(
@@ -564,12 +581,8 @@ def _summarize_llm_usage(logger: Any) -> dict[str, Any] | None:
 
 
 def _collect_degraded_features(logger: Any) -> list[dict[str, str]]:
-    """Surface every parallel branch (views/ADR/RAID/compliance/gap analysis/
-    icon resolution) that silently fell back to a deterministic default
-    because of a provider quota/rate-limit error, so the UI can show one
-    clear banner instead of the user having to notice a missing panel or dig
-    through logs — previously only RAID's fallback carried a message a human
-    would actually read; every other branch degraded invisibly.
+    """Surface parallel branches that soft-failed (quota, quality gate, or
+    branch exception) so the UI can show one banner instead of a missing tab.
     """
     entries = getattr(logger, "entries", None) if logger else None
     if not entries:
@@ -578,13 +591,14 @@ def _collect_degraded_features(logger: Any) -> list[dict[str, str]]:
     out: list[dict[str, str]] = []
     for entry in entries:
         details = getattr(entry, "details", None) or {}
-        if not details.get("quota_exceeded"):
+        if not (details.get("quota_exceeded") or details.get("degraded")):
             continue
         feature = details.get("feature") or entry.step
         if feature in seen:
             continue
         seen.add(feature)
-        out.append({"feature": feature, "message": entry.message})
+        reason = "quota" if details.get("quota_exceeded") else str(details.get("reason") or "degraded")
+        out.append({"feature": feature, "message": entry.message, "reason": reason})
     return out
 
 
@@ -665,12 +679,13 @@ async def _generate_primary_page(
     Returns ``(xml_diagram, used_ir_path)``.
     """
 
-    async def _ir_primary() -> Any:
+    async def _ir_primary(*, context_override: str | None = None) -> Any:
         _require_ir_or_raise(primary_view, context="Primary page")
         await _emit(on_progress, "ir", "Generating validated architecture model…")
+        ctx = enriched_context if context_override is None else context_override
         diagram = await run_llm_sync(
             generate_xml_diagram_from_ir, primary_view, human_prompt, provider_key, platform_key, logger,
-            messages, custom_system_message, applied_suggestions, enriched_context,
+            messages, custom_system_message, applied_suggestions, ctx,
             attachment_documents,
             image_replicate=image_replicate,
             include_suggestions=include_suggestions,
@@ -752,11 +767,23 @@ async def _generate_primary_page(
             if logger:
                 logger.log(
                     "edit",
-                    f"{exc} — regenerating via IR",
+                    f"{exc} — regenerating via IR from current diagram inventory",
                     level="warning",
                 )
             await _emit(on_progress, "ir", "Redesign requested — regenerating via IR…")
-            return await _ir_primary(), True
+            from app.adapters.outbound.diagram.architecture_docs import build_architecture_inventory
+            inv = build_architecture_inventory(
+                current_xml, service_limit=100, request_text=human_prompt or "",
+            )
+            seeded = "\n\n".join(
+                p for p in (
+                    enriched_context,
+                    "EXISTING DIAGRAM INVENTORY — preserve this system's topology and "
+                    "labels where possible; apply only the user's requested changes "
+                    "(do not invent an unrelated architecture):\n" + inv,
+                ) if p
+            )
+            return await _ir_primary(context_override=seeded), True
 
     return await _ir_primary(), True
 
@@ -892,14 +919,7 @@ async def run_xml_pipeline(
         # this in previously, leaving IR-compiled primary pages with none at
         # all. Injected before repair_xml so the panel gets positioned/sized
         # by the normal repair pass, same as every other page's panel.
-        # Synthesized from this page's own graph (real labels/edges), not the
-        # generic static stub — see synthesize_ir_overview_body's docstring.
         xml_output = ensure_ir_overview_panel(xml_output, primary_page_name, xml_diagram.ir_title)
-        # Derived from this same xml snapshot the panel prose just numbered,
-        # so panel step i and canvas badge i always name the same cell.
-        # generate_xml_diagram_from_ir always sends step_markers=[], so this
-        # is the only source of badges for an IR-compiled primary page.
-        derived_story_markers = derive_story_markers(xml_output, primary_page_name)
 
     await _emit(on_progress, "repair", "Checking for overlaps, dangling edges, missing labels…")
     pre_repair_diagnostics = diagnose_xml(xml_output)
@@ -947,23 +967,29 @@ async def run_xml_pipeline(
     # wait on a waterfall of serial LLM/enrichment stages.
     # ------------------------------------------------------------------
     surgical = _was_successful_surgical_edit(logger)
-    if surgical and (extra_views or adr_notes or raid_register):
+    # Extra IR views regenerate after surgical edits so Logical/Security/Data-flow
+    # tabs stay aligned with the edited primary. ADR/RAID stay skipped (docs cost
+    # vs. value on a rename/move).
+    if surgical and (adr_notes or raid_register):
         if logger:
             logger.log(
-                "views",
-                "Skipping extra views and ADR/RAID regeneration after surgical edit "
-                "(tabs may be stale relative to the edited Network page)",
-                level="warning",
+                "docs",
+                "Skipping ADR/RAID regeneration after surgical edit",
+                level="info",
             )
 
     # Primary badges before merge — post-merge apply_step_markers hits page 1 only.
-    # xml_diagram.step_markers is always [] for the IR path (agent.py's
-    # generate_xml_diagram_from_ir), so derived_story_markers is what actually
-    # carries badges there; the direct-XML path has no derived markers, so
-    # `or` falls through to whatever the LLM emitted, unchanged.
+    # Re-synthesize overview + derive markers *after* repair so panel steps and
+    # badges share the final cell set (dangling edges / remounts already applied).
+    if used_ir_path:
+        xml_output = refresh_ir_overview_panel(
+            xml_output, primary_page_name, xml_diagram.ir_title or "",
+        )
+        derived_story_markers = derive_story_markers(xml_output, primary_page_name)
     story_markers = xml_diagram.step_markers or derived_story_markers
     if story_markers:
         xml_output = apply_step_markers(xml_output, story_markers, logger)
+        xml_output = reposition_step_badges(xml_output)
 
     # Stamp curated saas_* on primary leaves before MCP resolve (all architecture views).
     if primary_view in ("network", "security", "data_flow", "logical"):
@@ -998,32 +1024,87 @@ async def run_xml_pipeline(
 
         # Extra views for fresh multi-view are IR-only (same contract as primary).
         _require_ir_or_raise(view_key, context=f"{title} view")
-        page_xml = await run_llm_sync(
-            _generate_ir_view_page,
-            human_prompt=human_prompt,
-            platform_key=platform_key,
-            primary_xml=primary_xml_snapshot,
-            provider_key=view_provider,
-            view=view_key,
-            logger=logger,
-        )
-        if not page_xml:
-            raise ValueError(f"{title} IR view returned empty XML")
 
-        page_xml, scored = _score_and_maybe_keep(
-            page_xml,
-            view=view_key,
-            primary_xml=primary_xml_snapshot,
-            human_prompt=human_prompt or "",
-            min_score=min_score,
-        )
+        async def _once(context: str | None) -> tuple[str, Any]:
+            xml = await run_llm_sync(
+                _generate_ir_view_page,
+                human_prompt=human_prompt,
+                platform_key=platform_key,
+                primary_xml=primary_xml_snapshot,
+                provider_key=view_provider,
+                view=view_key,
+                logger=logger,
+                context_text=context,
+                attachment_documents=attachment_documents,
+            )
+            if not xml:
+                raise ValueError(f"{title} IR view returned empty XML")
+            return _score_and_maybe_keep(
+                xml,
+                view=view_key,
+                primary_xml=primary_xml_snapshot,
+                human_prompt=human_prompt or "",
+                min_score=min_score,
+            )
+
+        page_xml, scored = await _once(enriched_context)
+        # One corrective IR retry when below VIEW_QUALITY_MIN_SCORE, then keep
+        # the best attempt (soft-degrade) rather than dropping the tab.
+        if not scored.passes:
+            feedback = "; ".join(
+                (v.message or v.code) for v in (scored.violations or [])[:6]
+            ) or "raise leaf density and fix viewpoint violations"
+            retry_ctx = "\n\n".join(
+                p for p in (
+                    enriched_context,
+                    (
+                        f"QUALITY CORRECTION — previous {title} view scored "
+                        f"{scored.score}/{min_score}. Regenerate a complete IR that fixes:\n"
+                        f"{feedback}"
+                    ),
+                ) if p
+            )
+            try:
+                retry_xml, scored2 = await _once(retry_ctx or None)
+                if scored2.score >= scored.score:
+                    page_xml, scored = retry_xml, scored2
+                    if logger:
+                        logger.log(
+                            "views",
+                            f"{title} quality retry scored {scored.score}",
+                            level="info" if scored.passes else "warning",
+                            details={
+                                "score": scored.score,
+                                "violations": [v.code for v in scored.violations][:8],
+                                "retry": True,
+                            },
+                        )
+            except Exception as exc:
+                if logger:
+                    logger.log(
+                        "views",
+                        f"{title} quality retry failed: {exc}",
+                        level="warning",
+                    )
+
         if logger:
             codes = [v.code for v in scored.violations][:8]
+            details: dict[str, Any] = {
+                "score": scored.score,
+                "violations": codes,
+                "metrics": scored.metrics,
+            }
+            if not scored.passes:
+                details.update({
+                    "degraded": True,
+                    "feature": f"{title} view quality",
+                    "reason": "quality_gate",
+                })
             logger.log(
                 "views",
                 f"{title} view scored {scored.score}",
-                level="info" if scored.score >= min_score else "warning",
-                details={"score": scored.score, "violations": codes, "metrics": scored.metrics},
+                level="info" if scored.passes else "warning",
+                details=details,
             )
         await _emit(on_progress, "views", f"{title} view ready (score {scored.score})")
         return view_key, page_xml
@@ -1119,7 +1200,7 @@ async def run_xml_pipeline(
             return {}
 
     fanout_jobs: list[tuple[str, Any]] = []
-    if extra_views and not surgical:
+    if extra_views:
         await _emit(
             on_progress,
             "views",
@@ -1172,11 +1253,17 @@ async def run_xml_pipeline(
                     {"quota_exceeded": True, "feature": feature_name}
                     if is_quota_or_rate_limit_error(raw) else None
                 )
+                if kind == "view" and details is None:
+                    details = {
+                        "degraded": True,
+                        "feature": feature_name,
+                        "reason": "timeout" if isinstance(raw, asyncio.TimeoutError) else "error",
+                    }
+                elif kind == "view" and details is not None:
+                    details = {**details, "degraded": True, "feature": feature_name}
                 logger.log(label, f"{kind} branch failed: {detail}", level="warning", details=details)
-            # Fresh multi-view is IR-only — a failed view must fail the request,
-            # not silently omit a tab. Soft enrichment (docs/cost/WAF/MCP) still continues.
-            if kind == "view":
-                raise raw
+            # Soft-degrade failed secondary views: keep primary + any siblings that
+            # succeeded. Hard-failing the whole request for one bad tab was worse UX.
             continue
         if kind == "view":
             vk, page_xml = raw
@@ -1288,7 +1375,7 @@ async def run_xml_pipeline(
                     diagrams = list(tree_la.findall("diagram"))
                 else:
                     diagrams = []
-                from app.adapters.outbound.diagram.placement_fixers import (
+                from app.adapters.outbound.diagram.edge_routing import (
                     repark_edge_labels_after_external_routing,
                 )
                 _FOCUSED_PAGES = {"Logical", "Security", "Data flow"}
@@ -1420,6 +1507,9 @@ async def run_xml_pipeline(
     else:
         xml_output = fit_containers_to_children(xml_output)
 
+    # Containers / libavoid can shift leaves after badges were parked.
+    xml_output = reposition_step_badges(xml_output)
+
     if logger:
         try:
             from app.adapters.outbound.diagram.xml_diagnostics import count_edge_crossings
@@ -1473,13 +1563,9 @@ async def run_xml_pipeline(
     # here, at the exit point, regardless of which upstream step caused it.
     # Guarantee loadability once, right before the response leaves the service,
     # instead of trusting every step above to have been gap-free.
-    if get_config().diagram_vlm_qa and logger:
-        logger.log(
-            "vlm_qa",
-            "DIAGRAM_VLM_QA enabled — visual QA hook reserved (PNG→VLM not yet wired; "
-            "Phase 0 layout gates cover Logical overlaps)",
-            level="info",
-        )
+    if get_config().diagram_vlm_qa:
+        from app.adapters.outbound.diagram.diagram_vlm_qa import run_visual_qa
+        xml_output = run_visual_qa(xml_output, logger=logger)
 
     page_label = primary_page_name
     xml_output, xml_ok, xml_failure = guarantee_loadable_xml(xml_output, page_label)

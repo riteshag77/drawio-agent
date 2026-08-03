@@ -216,7 +216,7 @@ class MissingApiKeyError(ValueError):
 
 
 def require_api_key(spec: ProviderSpec) -> None:
-    if spec.api_key_env and not os.getenv(spec.api_key_env):
+    if spec.api_key_env and not _env_api_key(spec.api_key_env):
         raise MissingApiKeyError(f"{spec.api_key_env} environment variable is not set.")
 
 
@@ -251,14 +251,28 @@ def _resolve_client_class(client_key: str) -> type:
     raise ValueError(f"Unknown client library key: {client_key!r}")
 
 
+def _env_api_key(env_name: str) -> str | None:
+    """Read an API key from the environment, stripping accidental quotes."""
+    raw = os.getenv(env_name)
+    if raw is None:
+        return None
+    key = raw.strip().strip("'").strip('"')
+    return key or None
+
+
 @lru_cache(maxsize=64)
 def _cached_langchain_client(spec: ProviderSpec, timeout: int) -> BaseChatModel:
     client_cls = spec.client_class or _resolve_client_class(spec.client_key)
     kwargs: dict[str, Any] = {"model": spec.default_model, "timeout": timeout}
     if not spec.omit_temperature:
         kwargs["temperature"] = 0
+    # Always pass the key explicitly when configured — ChatAnthropic/OpenAI will
+    # otherwise only see a raw env var, and quoted .env values can silently 401.
+    if spec.api_key_env:
+        key = _env_api_key(spec.api_key_env)
+        if key:
+            kwargs["api_key"] = key
     if spec.base_url_env:
-        kwargs["api_key"] = os.getenv(spec.api_key_env)
         kwargs["base_url"] = resolve_gateway_base_url(spec)
     token_kwarg = _MAX_TOKENS_KWARG.get(spec.client_key, "max_tokens")
     kwargs[token_kwarg] = spec.max_output_tokens or _DEFAULT_MAX_OUTPUT_TOKENS

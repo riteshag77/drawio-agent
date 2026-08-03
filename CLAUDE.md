@@ -49,21 +49,25 @@ app/
    - Fresh cloud → `agent.generate_xml_diagram_from_ir` (Pydantic IR → compiler XML).
    - Edit → surgical `DiagramEditPlan` when small; otherwise IR regenerate.
    - 3D → `generate_xml_diagram` with `prompt_3d.txt` only.
-   - `xml_tools` / `xml_diagnostics.repair_xml` → deterministic fixes only (**no LLM repair**).
+   - `xml_tools` / `xml_diagnostics.repair_xml` → structural hygiene + edge
+     ports/overview only (**no LLM repair**, no geometry re-layout on `layout="ir"`).
+   - Optional `DIAGRAM_VLM_QA` → fail-open visual checklist + one edge re-anchor.
    - In parallel: cost, Well-Architected, compliance, MCP icon resolution.
 3. Response includes `xml`, `renderer_used` (`mcp` or `local`), `generation_path` (`ir` | `direct_xml`), `llm_usage`, and `logs`.
 
 ### Generation paths (`DIAGRAM_IR_ENABLED`)
 
 - **IR + compiler** (default for **fresh** cloud; `DIAGRAM_IR_VIEWS` per view):
-  LLM emits IR; `adapters/outbound/diagram/compiler/` renders XML. Failure fails
+  LLM emits IR; `adapters/outbound/diagram/compiler/` renders XML (ELK for
+  corridor views). Leaf size is always `geometry_spec.LEAF_W/H`. Failure fails
   the request — no silent direct-XML fallback.
 - **Surgical edit** / **3D**: only remaining direct-XML paths (no `core.txt` /
   `views/` packs). Mermaid stays for `"simple"` intent.
 
 Rules of thumb:
-- Layout/spacing → `geometry_spec.py`. Structural invariants → IR types /
-  `semantic_errors()` / `corridor.py`.
+- Layout/spacing → `geometry_spec.py` + `logical_layout.layout_corridor_ir`.
+  Structural invariants → IR types / `semantic_errors()` / `corridor.py`.
+  Do not resize leaves after compile.
 - Prompts live in `config/xml_gen/ir/` (+ `classify/`, `icons/saas.txt`,
   `prompt_3d.txt`, `docs/`, `gap_analysis.txt`).
 - `generation_path=direct_xml` means surgical edit or 3D, not a failed IR.

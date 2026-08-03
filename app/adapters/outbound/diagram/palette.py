@@ -1,10 +1,9 @@
 """Canonical diagram colours — the single source of truth.
 
 Same role for colour that ``geometry_spec.py`` plays for geometry: the module
-that *produces* styles (``compiler/theme.py``) and the module that later
-*overwrites* them (``placement_fixers.normalize_corridor_colors``) both read
-these tables, so the compiler's pre-repair output already matches what
-normalization will enforce, instead of the two drifting apart.
+that *produces* styles (``compiler/theme.py``) reads these tables, so the
+compiler's output is already the final corridor appearance (palette + theme
+are authoritative; there is no downstream color-normalization pass).
 
 Values mirror each corridor view's section colours (Logical domains / Security
 zones / Data-flow phases), with three deliberate corrections documented at
@@ -101,8 +100,7 @@ INTENTIONAL_COLOR_TWINS: frozenset[frozenset[str]] = frozenset({
 
 #: Corridors rendered as an anchored shelf rather than a main-row peer. They
 #: keep a dashed, heavier border so "this sits outside the main journey" stays
-#: visible — ``normalize_corridor_colors`` used to flatten every corridor to one
-#: dashed weight, discarding the distinction ``theme.shelf_style()`` intends.
+#: visible — ``theme.shelf_style()`` owns that distinction.
 SHELF_IDS: frozenset[str] = frozenset({
     "domain_saas",
     "zone_external_saas",

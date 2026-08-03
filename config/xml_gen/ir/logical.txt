@@ -49,12 +49,17 @@ Mark `criticality: critical` on the primary data store inside `domain_data`
 
 ## Required: cache-aside companion
 
-When egress SaaS + an app/portal + a datastore are **all** present, add
-**one** cache leaf for graceful degradation (not density padding):
+When **profile/directory/IdP-style** egress SaaS + an app/portal + a datastore
+are **all** present, add **one** cache leaf for graceful degradation (not
+density padding):
 1. A single cache leaf inside `domain_core` (e.g. `Profile cache`).
 2. Flow app/portal → cache, labeled `Check Cache (Profiles)`.
-3. Flow app/portal → egress SaaS, labeled `Cache Miss: Fetches via API`
-   (never a bare `Calls API` when a cache leaf exists).
+3. Flow app/portal → **that same profile/directory SaaS**, labeled
+   `Cache Miss: Fetches via API` (never a bare `Calls API` for that hop).
+
+**Do not** attach `Cache Miss: Fetches via API` to billing, SMS, payments,
+or other non-cached partners (Stripe, Twilio, FHIR gateways). Those use
+`Calls API` / `Invokes` only — a cache-miss verb on Stripe is wrong.
 
 ## Allowed edges (every flow labeled)
 

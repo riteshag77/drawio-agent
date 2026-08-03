@@ -119,11 +119,13 @@ class ExtraViewFanOutTests(unittest.TestCase):
         self.assertIn("Logical", result["xml"])
         self.assertIn("domain_core", result["xml"])
 
-    def test_extra_view_ir_failure_fails_the_request(self) -> None:
+    def test_extra_view_ir_failure_soft_degrades(self) -> None:
+        """Primary succeeds; failed secondary tab is omitted + degraded_features."""
         network_diagram = XmlDiagram(
             xml=compile_network_ir(realistic_ir()),
             assistant_message="ok", suggestions=[], step_markers=[], ir_title="Network",
         )
+        logger = StepLogger()
 
         def _from_ir(view, *_a, **_k):
             if view == "network":
@@ -134,9 +136,14 @@ class ExtraViewFanOutTests(unittest.TestCase):
                 patch.object(xml_pipeline, "generate_xml_diagram_from_ir", side_effect=_from_ir), \
                 patch.object(xml_pipeline, "generate_xml_diagram") as direct, \
                 patch.object(xml_pipeline, "resolve_shape_styles", side_effect=_no_styles):
-            with self.assertRaises(RuntimeError):
-                _run(diagram_views=["network", "logical"])
+            result = _run(diagram_views=["network", "logical"], logger=logger)
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["generation_path"], "ir")
         direct.assert_not_called()
+        self.assertNotIn("domain_core", result["xml"])
+        features = {d["feature"] for d in result.get("degraded_features") or []}
+        self.assertIn("Additional view generation", features)
 
 
 if __name__ == "__main__":

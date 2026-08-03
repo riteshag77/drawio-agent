@@ -98,7 +98,7 @@ class KeyFactsCountsTests(unittest.TestCase):
         self.assertIsNotNone(facts)
         self.assertIn("1 business-critical service", facts)
         self.assertIn("1/1 flows protected (TLS/mTLS)", facts)
-        self.assertIn("1 flow carrying PII/PCI", facts)
+        self.assertIn("1 flow carrying PII/PCI/confidential", facts)
 
     def test_semantic_clauses_absent_when_all_standard(self) -> None:
         """No critical leaves, no classified/protected flows — the line stays
@@ -117,10 +117,8 @@ class KeyFactsCountsTests(unittest.TestCase):
         body = synthesize_ir_overview_body(compile_corridor_ir_or_stub(None), "Security", "Test")
         self.assertIsNone(_facts_line(body))
 
-    def test_network_view_has_no_facts_line_yet(self) -> None:
-        """Network isn't a corridor view (no domain_/zone_/phase_ prefix) —
-        the facts line is corridor-only until Network gets its own topology
-        summary, which is out of scope here."""
+    def test_network_view_has_topology_facts_line(self) -> None:
+        """Network summarizes VPC/AZ/subnet/service/flow counts."""
         vpc = Vpc(
             id="vpc", zones=[AvailabilityZone(id="az1", label="AZ-1", subnets=[
                 Subnet(id="app1", tier="app", leaves=[_leaf("ecs")]),
@@ -131,7 +129,10 @@ class KeyFactsCountsTests(unittest.TestCase):
         ir = NetworkIR(cloud=cloud, flows=[Flow(source="alb", target="ecs")])
         xml = compile_network_ir(ir, page_name="Network")
         body = synthesize_ir_overview_body(xml, "Network", "Test")
-        self.assertIsNone(_facts_line(body))
+        facts = _facts_line(body)
+        self.assertIsNotNone(facts)
+        self.assertIn("service", facts.lower())
+        self.assertIn("flow", facts.lower())
 
 
 def compile_corridor_ir_or_stub(ir):

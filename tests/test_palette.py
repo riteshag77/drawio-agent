@@ -22,7 +22,6 @@ import xml.etree.ElementTree as ET
 
 from app.adapters.outbound.diagram import palette
 from app.adapters.outbound.diagram.compiler import compile_corridor_ir
-from app.adapters.outbound.diagram.placement_fixers import normalize_corridor_colors
 from app.domain.ir import AnchoredCorridor, Corridor, DataFlowIR, Flow, Leaf, SecurityIR
 
 
@@ -146,11 +145,7 @@ class PrefixResolutionTests(unittest.TestCase):
 
 
 class ShelfBorderSurvivesNormalizationTests(unittest.TestCase):
-    """``normalize_corridor_colors`` is authoritative for corridor appearance.
-    It used to rewrite only colour, letting a shelf keep whatever border weight
-    an upstream style carried — erasing the row-vs-shelf distinction, which
-    matters most exactly where colour is shared on purpose (a SaaS shelf and
-    the DMZ are both yellow; only the border says one is out-of-band)."""
+    """Compiler emits corridor colours/borders from ``palette`` directly."""
 
     def _security_xml(self) -> str:
         ir = SecurityIR(
@@ -164,7 +159,7 @@ class ShelfBorderSurvivesNormalizationTests(unittest.TestCase):
             )],
             flows=[Flow(source="dns", target="rds"), Flow(source="rds", target="workday")],
         )
-        return normalize_corridor_colors(compile_corridor_ir(ir, page_name="Security"))
+        return compile_corridor_ir(ir, page_name="Security")
 
     def test_shelf_keeps_dashed_heavier_border(self) -> None:
         style = _style_of(self._security_xml(), "zone_external_saas")
@@ -176,7 +171,7 @@ class ShelfBorderSurvivesNormalizationTests(unittest.TestCase):
         self.assertEqual(_kv(style, "dashed"), "0")
         self.assertEqual(_kv(style, "strokeWidth"), "1")
 
-    def test_normalization_applies_canonical_colour(self) -> None:
+    def test_compiler_applies_canonical_colour(self) -> None:
         style = _style_of(self._security_xml(), "zone_public")
         fill, stroke = palette.CORRIDOR_COLORS["zone_public"]
         self.assertEqual(_kv(style, "fillColor"), fill)
@@ -193,7 +188,7 @@ class ShelfBorderSurvivesNormalizationTests(unittest.TestCase):
             ],
             flows=[Flow(source="segment", target="db"), Flow(source="db", target="looker")],
         )
-        xml = normalize_corridor_colors(compile_corridor_ir(ir, page_name="Data flow"))
+        xml = compile_corridor_ir(ir, page_name="Data flow")
         self.assertNotEqual(
             _kv(_style_of(xml, "phase_saas_producer"), "fillColor"),
             _kv(_style_of(xml, "phase_saas_consumer"), "fillColor"),

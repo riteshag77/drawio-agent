@@ -65,11 +65,12 @@ class CellWriter:
         )
 
     def mark_layout_authoritative(self) -> None:
-        """Flag this page's geometry as already final (Security/Data-flow's
-        layered corridor compiler path) — ``xml_diagnostics.repair_xml``
-        checks this on the default-layer cell (``id="1"``) and skips its
-        corridor/shelf/leaf re-layout pass for pages carrying it, since that
-        pass exists to fix LLM-guessed geometry and this page has none."""
+        """Flag this page's geometry as compiler-final (``layout="ir"``).
+
+        ``xml_tools.fit_containers_to_children`` skips reflow when set.
+        ``repair_xml`` still applies structural hygiene and edge ports; it no
+        longer re-lays out corridors. Surgical edits clear this flag.
+        """
         for cell in self._root:
             if cell.get("id") == "1":
                 cell.set("layout", "ir")
@@ -91,7 +92,7 @@ class CellWriter:
         points only — never the start/end, which draw.io always derives from
         ``source``/``target`` — written as the standard manual-waypoints
         ``Array as="points"`` of ``mxPoint``, the same convention
-        ``placement_fixers._set_edge_waypoints`` already uses for the
+        ``edge_routing._set_edge_waypoints`` already uses for the
         direct-XML repair path's routed edges.
 
         ``classification``/``protection`` are stamped as plain attributes

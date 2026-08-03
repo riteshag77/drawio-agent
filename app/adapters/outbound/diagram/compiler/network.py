@@ -6,7 +6,7 @@ edges). This module just walks the IR hierarchy — deciding which parent a
 cell nests under is a semantic/structural choice this compiler owns — and
 emits each cell at the position ELK already computed. Edge routing stays
 entirely with the existing local router
-(``placement_fixers.fix_edge_anchors_from_geometry``'s
+(``edge_routing.fix_edge_anchors_from_geometry``'s
 ``enable_obstacle_routing``), which already reaches zero residual
 diagnostics on this compiler's geometry.
 
@@ -73,10 +73,8 @@ class _NetworkCompiler:
             top_y=g.y + geo.TITLE_PAD,
         )
         emit_flows(self.w, self.ir.flows)
-        # This page's own container geometry is authoritative — mark it so
-        # repair_xml skips re-deriving/overwriting it, the same contract
-        # compiler/corridor.py's run_layered() gives Logical/Security/
-        # Data-flow (see xml_diagnostics.py's layout="ir" skip).
+        # This page's container geometry is compiler-final — mark layout="ir"
+        # so fit_containers_to_children does not reflow it (same as corridor).
         self.w.mark_layout_authoritative()
         page_w = g.x + g.w + 400
         page_h = g.y + g.h + 120

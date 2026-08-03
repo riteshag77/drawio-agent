@@ -96,9 +96,9 @@ DRAWIO_STYLE_CACHE_RESET=false
 - **`DRAWIO_STYLE_CACHE_RESET=true`** — clears memory + SQLite style cache at process startup (use after changing MCP pick logic or prompts). Turn off afterward so cache stays warm.
 - Manual clear: delete `data/mcp_style_cache.sqlite3` and restart.
 - Prompt assembly uses `config/xml_gen/ir/` (+ `classify/{platform}.txt` + `icons/saas.txt` + `prompt_3d.txt` + `docs/` + `gap_analysis.txt`). Legacy `core.txt` / `views/` XML packs are removed.
-- **`DIAGRAM_VLM_QA`** — optional post-render visual QA hook (default `false`; reserved for PNG→VLM). Logical layout quality is enforced at compile time (L→R domains, label-band clearance).
+- **`DIAGRAM_VLM_QA`** — optional post-compile visual QA (default `false`). When on, runs layout diagnostics and at most one edge re-anchor corrective pass, then ships anyway (fail-open). Geometry stays with the IR compiler; this never regenerates XML via the LLM.
 - **`MAX_CONCURRENT_LLM`** — caps simultaneous blocking LLM calls (default 5). Multi-view runs launch Logical/Security/Data flow (+ optional ADR/RAID) in parallel via `asyncio.gather` + `run_llm_sync`. Cost/WAF/MCP do not take LLM slots.
-- **`VIEW_QUALITY_MIN_SCORE`** — focused views score against viewpoint rules (informational; IR views are not LLM-repaired). **`VIEW_LLM_PROVIDER`** optionally routes view calls to a different provider key.
+- **`VIEW_QUALITY_MIN_SCORE`** — focused views score against viewpoint rules. Below the gate, the pipeline runs **one IR corrective retry**, then keeps the best attempt and marks the feature degraded (primary page still succeeds). **`VIEW_LLM_PROVIDER`** optionally routes view calls to a different provider key.
 - **Pricing** — LLM token rates and cloud service monthly estimates live in [`config/pricing.json`](../config/pricing.json). Vendor list prices are stored in **USD**; estimates shown in the UI are converted to **AUD** via `usd_to_aud` (edit that rate or the model/service rows there — no code change). Both the toolbar LLM cost chip and the Cost insights panel use `A$`.
 - **`LOG_FORMAT=json`** — emit one JSON object per log line for structured log ingestion.
 - **`DRAWIO_AGENT_LOG_DIR`** — directory for log files (default `logs`). Rotates daily at midnight into `drawio-agent.log.YYYY-MM-DD`; the active file stays at `drawio-agent.log`.
@@ -107,78 +107,47 @@ DRAWIO_STYLE_CACHE_RESET=false
 
 ## IR generation path (`DIAGRAM_IR_ENABLED`)
 
-An alternative to having the LLM write draw.io XML directly, for **all four**
-views (Network, Logical, Security, Data flow). The model instead emits a
-small, closed, Pydantic-validated IR (`app/domain/ir/`) — never coordinates,
-styles, or colours — and a deterministic compiler
-(`app/adapters/outbound/diagram/compiler/`) renders the mxCells.
-
-The IR shape differs by view, because the underlying layout problem does:
+Fresh cloud diagrams are **IR-only**: the model emits a closed, Pydantic-validated
+IR (`app/domain/ir/`) — never coordinates, styles, or colours — and a deterministic
+compiler (`app/adapters/outbound/diagram/compiler/`) renders the mxCells. Geometry
+is owned by the compiler + ELK (`logical_layout.layout_corridor_ir` for corridor
+views); `repair_xml` is structural hygiene + edge ports/overview only — it does
+**not** re-layout IR pages.
 
 | View | IR type | Shape | Who computes final geometry |
 | --- | --- | --- | --- |
-| Network | `NetworkIR` | strict container nesting (Cloud→Region→VPC→AZ→Subnet) | the compiler itself (`compiler/network.py`) |
-| Logical / Security / Data flow | `LogicalIR` / `SecurityIR` / `DataFlowIR`, sharing `CorridorIR` | a same-rank row of corridors + optional shelves anchored below | the compiler itself (`compiler/corridor.py`'s `run_layered` — `logical_layout.layout_corridor_ir` computes rank/order/grid-fill geometry directly from the IR's own typed graph, once, at compile time) |
+| Network | `NetworkIR` | strict container nesting (Cloud→Region→VPC→AZ→Subnet) | `compiler/network.py` + ELK |
+| Logical / Security / Data flow | `LogicalIR` / `SecurityIR` / `DataFlowIR` (`CorridorIR`) | same-rank corridor row + optional shelves | `compiler/corridor.py` `run_layered` via `layout_corridor_ir` |
 
-All four views' IR-compiled output is geometrically authoritative:
-`diagnose_xml` on raw compiler output — no repair pass at all — has zero
-errors and zero warnings, the same bar Network's compiler has always met
-(`tests/test_corridor_ir_layout.py`'s `NetworkParityTests`,
-`tests/test_network_compiler.py::test_realistic_diagram_has_no_diagnostics`).
-This used to not be true for the corridor views: `compiler/corridor.py`
-emitted structurally-correct placeholder geometry that a separate XML-based
-pass (`logical_layout.apply_layered_corridor_layout`, invoked unconditionally
-by `repair_xml`) recomputed from scratch, discarding whatever the compiler
-had produced — real, working code, but requiring the compiler's own typed
-graph to be re-derived by parsing the compiler's own XML output back into
-cells. Logical's own "journey spine" (Persona→IdP→Portal) needed no bespoke
-layout of its own to make this jump — it's exactly `ExternalActor` + `Flow`,
-which `emit_external_actors`/`emit_flows` already render generically; see
-`tests/test_corridor_ir_layout.py`'s `LogicalLayoutTests` for the structural
-checks this is held to (the legacy path's spine-hoist visual convention is a
-documented, deliberate divergence, not something the new path reproduces).
+Leaf size is always `geometry_spec.LEAF_W/H` (78×78) with bottom labels. Post-passes
+(`assign_logical_shape_types`, SaaS tagging) may change `shape_type`/style strings
+but must not resize boxes.
 
-Shared building blocks (the DRY payoff of splitting compiler concerns into
-small modules rather than one per view):
+Shared building blocks:
 
 | Concern | Shared in |
 | --- | --- |
 | `Leaf`, `Flow`, `ExternalActor` | `domain/ir/base.py` |
 | Corridor/shelf shape, id-vocabulary validation | `domain/ir/corridor.py` |
-| Geometry constants (pitch, padding, gaps) | `diagram/geometry_spec.py` — read by **both** the compiler and `xml_diagnostics`, so they can't drift apart |
+| Geometry constants (pitch, padding, gaps) | `diagram/geometry_spec.py` |
 | mxCell emission | `diagram/compiler/emit.py` |
-| Styles | `diagram/compiler/theme.py` |
-| LLM-call + corrective-retry loop | `core/services/agent.py`'s `_generate_ir_with_corrections` — one implementation, used by `generate_network_ir` and `generate_corridor_ir` |
+| Styles | `diagram/compiler/theme.py` + `palette.py` |
+| Edge exit/entry + local routing | `edge_routing.fix_edge_anchors_from_geometry` |
+| LLM-call + corrective-retry loop | `core/services/agent.py` `_generate_ir_with_corrections` |
 | view → IR type dispatch | `domain/ir.IR_TYPES_BY_VIEW` |
 
-Everything downstream of generation — validation, MCP icon resolution,
-libavoid, cost/WAF/compliance enrichment, the `guarantee_loadable_xml` circuit
-breaker, and (for the corridor views) the existing layout/scoring/repair
-pipeline — is identical regardless of which path produced the page; the IR
-path just hands the same `XmlDiagram` to it.
+- **Scope**: fresh generations only. Edit mode uses surgical XML ops when small;
+  larger redesigns regenerate via IR. 3D uses `prompt_3d.txt` (structural repair only).
+- **Failure behaviour**: fresh generation is IR-only — errors fail the request
+  (no silent direct-XML fallback).
+- **Observability**: `generation_path` is `ir` | `direct_xml` (surgical/3D);
+  `renderer_used` is `mcp` | `local` (icons only).
+- Enable with `DIAGRAM_IR_ENABLED=true` (default); `DIAGRAM_IR_VIEWS` defaults to
+  `network,security,data_flow,logical`.
 
-- **Scope**: fresh generations only. Edit mode uses surgical XML ops when the
-  change is small; larger redesigns regenerate via IR. 3D uses `prompt_3d.txt`.
-- **Both roles**: a view generated via IR whether it's the *primary* page or a
-  *secondary* (extra) page in a multi-view request — same eligibility check,
-  same generator in both call sites.
-- **Failure behaviour**: fresh generation is **IR-only**. Any error in the IR
-  path (primary or extra view) fails the request — there is no silent
-  direct-XML fallback.
-- **Observability**: responses carry `generation_path` (`ir` | `direct_xml`)
-  for the primary page, distinct from `renderer_used` (`mcp` | `local`, which
-  is about icon resolution only). `direct_xml` means surgical edit or 3D, not a failed IR.
-- Enable with `DIAGRAM_IR_ENABLED=true` (the default); `DIAGRAM_IR_VIEWS`
-  (comma-separated) picks which views are allowed, defaulting to
-  `network,security,data_flow,logical`. Turning IR off rejects fresh cloud
-  generation (use edit/3D for XML).
-
-**Two historical bugs, fixed on the IR layered path** (Logical/Security/Data-flow):
-(1) two shelves under the same anchor used to collide — `layout_corridor_ir`
-stacks with a running cursor. (2) `phase_control` (`anchor_id=None`) used to
-fold into the main row — it now sits below the whole row. Edit/3D still use
-direct XML and the older layout helpers; see
-`test_corridor_compiler.py` and `tests/test_corridor_ir_layout.py`.
+**Layout invariants (corridor views):** equalized row Y/H band after ELK;
+`INTER_CONTAINER_GAP` (~110px) between columns; shelves stack under anchors;
+External Actors align to the corridor band top.
 
 ## Diagram history (`/history`)
 

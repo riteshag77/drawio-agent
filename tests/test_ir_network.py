@@ -169,6 +169,39 @@ class SemanticRuleTests(unittest.TestCase):
         ir.flows = [Flow(source="users", target="ecs1", label="HTTPS")]
         self.assertEqual(ir.semantic_errors(), [])
         self.assertTrue(ir.is_valid())
+        # Missing public/edge/gateway is a warning (corrective pass), not a hard error.
+        self.assertTrue(any("ingress" in w for w in ir.semantic_warnings()))
+
+    def test_four_plus_leaves_require_two_subnet_tiers(self) -> None:
+        leaves = [_leaf(f"svc{i}") for i in range(4)]
+        zone = AvailabilityZone(
+            id="az1", label="AZ",
+            subnets=[Subnet(id="app1", tier="app", leaves=leaves)],
+        )
+        ir = NetworkIR(
+            cloud=CloudBoundary(
+                id="cloud", label="AWS",
+                regions=[Region(id="r", label="us-east-1", vpcs=[Vpc(id="vpc", zones=[zone])])],
+            ),
+            platform="aws",
+        )
+        self.assertTrue(any("only one subnet tier" in e for e in ir.semantic_errors()))
+
+        zone2 = AvailabilityZone(
+            id="az1", label="AZ",
+            subnets=[
+                Subnet(id="pub", tier="public", leaves=[_leaf("alb", "aws_alb", "ALB")]),
+                Subnet(id="app1", tier="app", leaves=leaves[:3]),
+            ],
+        )
+        ir2 = NetworkIR(
+            cloud=CloudBoundary(
+                id="cloud", label="AWS",
+                regions=[Region(id="r", label="us-east-1", vpcs=[Vpc(id="vpc", zones=[zone2])])],
+            ),
+            platform="aws",
+        )
+        self.assertFalse(any("only one subnet tier" in e for e in ir2.semantic_errors()))
 
     def test_long_edge_labels_are_truncated_not_rejected(self) -> None:
         """One chatty label must never fail a whole build (cap is 6 words)."""

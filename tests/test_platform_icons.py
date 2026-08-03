@@ -124,9 +124,13 @@ class PickStyleTests(unittest.TestCase):
         actor = _builtin_style("logical_actor") or ""
         cap = _builtin_style("logical_capability") or ""
         self.assertIn("mxgraph.aws4.users", actor)
+        self.assertIn("verticalLabelPosition=bottom", actor)
         self.assertIn("DAE8FC", cap)
+        self.assertIn("verticalLabelPosition=middle", cap)
         api = _builtin_style("logical_api") or ""
-        self.assertIn("hexagon", api)
+        self.assertIn("rounded=1", api)
+        self.assertIn("E1D5E7", api)
+        self.assertIn("verticalAlign=middle", api)
 
     def test_pick_style_logical_allows_users_client_icons(self) -> None:
         styles = [

@@ -125,7 +125,14 @@ class Flow(IRModel):
 
     source: str = Field(description="id of the source cell")
     target: str = Field(description="id of the target cell")
-    label: str = Field(default="", description="Optional 1-2 word edge label, e.g. 'HTTPS'. Prefer empty.")
+    label: str = Field(
+        default="",
+        description=(
+            "Short edge label (1-2 words preferred; corridor views may use up to ~6). "
+            "Examples: 'HTTPS', 'DNS', 'SQL', 'Invokes'. Required on Network primary "
+            "paths and all corridor flows — blank labels fail architect review."
+        ),
+    )
     primary: bool = Field(
         default=True,
         description="True for the main request path (solid). False for secondary/async paths (dashed).",
@@ -233,8 +240,8 @@ class DiagramIR(IRModel):
         (``agent._generate_ir_with_corrections``) and then ignored regardless
         of the outcome. Default: none. ``CorridorIR`` subclasses override this
         with the "required companions" rules promoted from prompt-pack prose
-        (see ``domain/ir/{logical,security,data_flow}.py``); ``NetworkIR`` has
-        none to promote yet, so it keeps this default.
+        (see ``domain/ir/{logical,security,data_flow}.py``). ``NetworkIR``
+        warns on missing ingress when external actors are present.
         """
         return []
 

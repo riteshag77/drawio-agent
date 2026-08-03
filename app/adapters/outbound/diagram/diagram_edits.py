@@ -58,7 +58,12 @@ def _ensure_geometry(cell: ET.Element, x: float, y: float, w: float = 78, h: flo
 
 
 def apply_diagram_edits(xml: str, plan: DiagramEditPlan) -> str:
-    """Apply surgical ops to ``xml``. Raises ValueError on unusable input."""
+    """Apply surgical ops to ``xml``. Raises ValueError on unusable input.
+
+    Clears ``layout="ir"`` only when an op changes geometry (add/delete/move/
+    connect). Relabel / shape_type updates keep the compiler band so
+    ``fit_containers_to_children`` does not undo equalized corridor heights.
+    """
     if not plan or not plan.applicable or not plan.ops:
         raise ValueError("Edit plan is not applicable")
     tree = ET.fromstring(xml)
@@ -70,6 +75,12 @@ def apply_diagram_edits(xml: str, plan: DiagramEditPlan) -> str:
 
     for op in plan.ops:
         _apply_one(root, cells, existing, op)
+
+    _GEOMETRY_OPS = frozenset({"add_node", "delete_node", "move", "connect", "delete_edge"})
+    if any((op.op or "") in _GEOMETRY_OPS for op in plan.ops):
+        layer = cells.get("1")
+        if layer is not None and layer.get("layout") == "ir":
+            del layer.attrib["layout"]
 
     return ET.tostring(tree, encoding="unicode")
 

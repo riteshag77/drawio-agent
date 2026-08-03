@@ -30,7 +30,6 @@ from app.adapters.outbound.diagram.xml_tools import (
     _is_canvas_background_cell,
     _is_container_cell,
     _page_size,
-    fit_containers_to_children,
 )
 
 _RESERVED_IDS = {"0", "1"}
@@ -40,11 +39,8 @@ _RESERVED_IDS = {"0", "1"}
 # the historical private names to keep the rest of this file untouched.
 from app.adapters.outbound.diagram import geometry_spec as _geo
 
-_LEAF_GRID_PITCH_X = _geo.DATA_CANONICAL_PITCH
-_LEAF_GRID_PITCH_Y = _geo.ROW_PITCH_Y
+
 _LEAF_GRID_MAX_COLS = _geo.LEAF_GRID_MAX_COLS
-_LEAF_MIN_GAP = _geo.LEAF_MIN_GAP
-_LEAF_GRID_MAX_ROWS = _geo.LEAF_GRID_MAX_ROWS
 
 # Rows are clustered by top-y proximity within this tolerance (px).
 _ROW_TOL = _geo.ROW_TOL
@@ -55,20 +51,10 @@ _ROW_TOL = _geo.ROW_TOL
 # groups allow a tighter 160-180.
 _DATA_PITCH_RANGE = _geo.DATA_PITCH_RANGE
 _GROUP_PITCH_RANGE = _geo.GROUP_PITCH_RANGE
-# Canonical snap-to pitch when a fixer corrects a bad gap — _LEAF_GRID_PITCH_X
-# (200.0) is used for ordinary data-path rows; cross-cutting groups need
-# their own canonical value since 200 sits outside _GROUP_PITCH_RANGE (a bug
-# found while auditing this: resolve_pitch_outliers used to snap every row
-# to 200 unconditionally, which "fixed" an extreme outlier under a group
-# container into a new moderate-range violation). 170 sits inside both the
-# code's _GROUP_PITCH_RANGE and the prompt's documented 160-180.
-_GROUP_CANONICAL_PITCH = _geo.GROUP_CANONICAL_PITCH
-
 # Default geometry handed to a vertex missing <mxGeometry> entirely (see
 # ensure_valid_vertex_geometry) — 78x78 matches the canonical leaf icon size
-# documented in geometry_spec; the container default is safely
-# above xml_tools._FIT_MIN_W/_FIT_MIN_H (120.0/80.0) so fit_containers_to_
-# children never has to grow it from a degenerate starting size.
+# documented in geometry_spec; the container default is safely above
+# xml_tools._FIT_MIN_W/_FIT_MIN_H (120.0/80.0).
 _DEFAULT_LEAF_SIZE = _geo.DEFAULT_LEAF_SIZE
 _DEFAULT_CONTAINER_SIZE = _geo.DEFAULT_CONTAINER_SIZE
 
@@ -112,9 +98,43 @@ _PANEL_TITLE_BAND = 48.0
 _PANEL_BLOCK_GAP = 10.0
 _PANEL_BOTTOM_PAD = 14.0
 _PANEL_MIN_HEIGHT = 140.0
-_PANEL_MAX_HEIGHT = 420.0
-_PANEL_MAX_STEPS = 6
-_PANEL_MAX_STEP_CHARS = 120
+_PANEL_MAX_HEIGHT = 520.0
+_PANEL_MAX_STEPS = 8
+_PANEL_MAX_STEP_CHARS = 140
+
+_ACTOR_SHAPE_TYPES = {
+    "aws_users", "aws_user", "users", "user", "aws_client", "client", "aws_mobile_client",
+    "azure_users", "azure_user", "azure_client",
+    "gcp_users", "gcp_user", "gcp_client",
+    "aws_internet", "internet", "aws_iot", "iot", "aws_corporate_data_center",
+    "corporate_data_center", "on_premises", "onprem", "on_prem",
+}
+_ACTOR_EXACT_LABELS = {
+    "users", "user", "client", "mobile client", "internet", "end users",
+    "external users", "end user", "customer", "customers",
+    "on-prem", "on-premises", "on premises", "iot", "iot device", "corporate dc",
+    "corporate data center", "data center",
+    "employees", "employee", "staff", "admin", "admins", "administrator",
+    "administrators", "internal users",
+}
+
+_DIV_BLOCK = re.compile(r"<div[^>]*>(.*?)</div>", re.IGNORECASE | re.DOTALL)
+_DIV_FULL = re.compile(r"<div[^>]*>.*?</div>", re.IGNORECASE | re.DOTALL)
+_TAG_STRIP = re.compile(r"<[^>]+>")
+_GAP_DIV_MARK = re.compile(
+    r'data-section\s*=\s*["\'](?:gaps|facts)["\']|color:\s*#B85450',
+    re.IGNORECASE,
+)
+# Structural overview sections that must survive trim verbatim (styles + text).
+# Numbered canvas badges correlate to data-section="tech" / plain numbered steps.
+_PRESERVE_SECTION_MARK = re.compile(
+    r'data-section\s*=\s*["\'](?:lens|howto|purpose|biz-header|biz|tech-header|tech|facts|footer|gaps)["\']',
+    re.IGNORECASE,
+)
+_TECH_STEP_MARK = re.compile(
+    r'data-section\s*=\s*["\']tech["\']|^\s*\d+\.\s+',
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -273,7 +293,7 @@ def _group_rows(kids: list[ET.Element],
 def _leaf_siblings_by_parent(cells: list[ET.Element], parent_ids: set[str | None],
                               page_w: float, page_h: float) -> dict[str, list[ET.Element]]:
     """Group same-parent leaf (non-container, non-edge-label, non-background) siblings by parent id."""
-    from app.adapters.outbound.diagram.placement_fixers import _is_saas_leaf_cell
+    from app.adapters.outbound.diagram.edge_routing import _is_saas_leaf_cell
 
     by_parent: dict[str, list[ET.Element]] = {}
     for cell in cells:
@@ -548,10 +568,9 @@ def resolve_duplicate_ids(xml: str) -> str:
     occurrence in document order as canonical whenever a duplicate id
     exists: ``diagnose_xml``'s own ``ids[cid] = cell`` (unconditional
     overwrite every iteration), and the id-keyed dict comprehensions in
-    ``resolve_pitch_outliers``, ``resolve_misplaced_actors``, and
-    ``apply_step_markers``. Keeping the last and renaming earlier ones
-    agrees with what those helpers already silently assume, rather than
-    introducing a second, inconsistent convention. Never rewrites
+    ``apply_step_markers`` / overview helpers. Keeping the last and renaming
+    earlier ones agrees with what those helpers already silently assume,
+    rather than introducing a second, inconsistent convention. Never rewrites
     ``parent=``/``source=``/``target=`` references anywhere: if one was
     meant for an earlier (now renamed) occurrence, it silently binds to the
     kept cell instead — inherent to duplicate-id ambiguity, not fully
@@ -586,7 +605,7 @@ def resolve_duplicate_ids(xml: str) -> str:
 def resolve_orphaned_parents(xml: str) -> str:
     """Reparent any cell whose ``parent=`` id doesn't exist to ``parent="1"``.
 
-    Mirrors ``resolve_misplaced_actors``'s "reposition, never delete or
+    Mirrors the overview panel's "reposition, never delete or
     fabricate" philosophy — a cell referencing a parent that was never
     emitted (or was dropped by an earlier fixer) still renders, just at the
     root layer, instead of vanishing or leaving ``diagnose_xml``'s "parent
@@ -838,183 +857,8 @@ def ensure_leaf_labels(xml: str) -> str:
     return _serialize_docroot(tree, root, is_mxfile, trimmed)
 
 
-def _next_free_slot(
-    base_x: float, base_y: float, w: float, h: float,
-    placed: list[tuple[float, float, float, float]],
-) -> tuple[float, float, float, float]:
-    for row in range(_LEAF_GRID_MAX_ROWS):
-        for col in range(_LEAF_GRID_MAX_COLS):
-            candidate = (base_x + col * _LEAF_GRID_PITCH_X, base_y + row * _LEAF_GRID_PITCH_Y, w, h)
-            if not any(_rects_overlap(candidate, p, pad=_LEAF_MIN_GAP) for p in placed):
-                return candidate
-    max_bottom = max((p[1] + p[3] for p in placed), default=base_y)
-    return (base_x, max_bottom + _LEAF_MIN_GAP, w, h)
 
 
-def resolve_leaf_overlaps(xml: str) -> str:
-    """Nudge overlapping leaf siblings to the next free grid slot.
-
-    Mirrors the prompt's own grid convention (200px pitch, wrap after 4,
-    ~130px row height) so the fallback matches what the LLM is asked to do.
-    Detection rects include the under-icon label band (for leaves styled with
-    ``verticalLabelPosition=bottom``) so overlapping labels are also resolved.
-    Only repositions cells actually found overlapping — everything else,
-    including already-clear siblings, is left untouched.
-    """
-    parsed = _parse_docroot(xml)
-    if parsed is None:
-        return xml
-    tree, root, is_mxfile, trimmed = parsed
-
-    # The IR compiler (compiler/corridor.py, compiler/network.py) already
-    # grid-fills every container's leaves and places external actors with
-    # its own known-clear geometry — it marks the default layer layout="ir"
-    # when it did. This function's overlap detection compares raw
-    # mxGeometry x/y across cells that may sit in different parents'
-    # relative coordinate spaces, which is only safe for LLM-authored
-    # geometry this pass was built to repair; on IR output it can flag a
-    # false "overlap" between an external actor and an unrelated container's
-    # leaf and relocate the actor into the middle of the row (found while
-    # porting Logical — see test_corridor_ir_layout.py).
-    default_layer = next((c for c in root.findall("mxCell") if c.get("id") == "1"), None)
-    if default_layer is not None and default_layer.get("layout") == "ir":
-        return xml
-
-    page_w, page_h = _page_size(tree)
-
-    cells = [c for c in root.findall("mxCell") if c.get("id")]
-    parent_ids = {c.get("parent") for c in cells}
-    by_parent = _leaf_siblings_by_parent(cells, parent_ids, page_w, page_h)
-
-    changed = False
-    for kids in by_parent.values():
-        geo_by_kid = {kid: _cell_geometry(kid) for kid in kids}
-        band_by_kid = {kid: _band_height(kid) for kid in kids}
-        ordered = sorted(
-            (k for k in kids if geo_by_kid[k] is not None),
-            key=lambda k: (geo_by_kid[k][1], geo_by_kid[k][0]),
-        )
-        if len(ordered) < 2:
-            continue
-        base_x = min(geo_by_kid[k][0] for k in ordered)
-        base_y = min(geo_by_kid[k][1] for k in ordered)
-
-        placed: list[tuple[float, float, float, float]] = []  # label-band-extended detection rects
-        for kid in ordered:
-            x, y, w, h = geo_by_kid[kid]
-            band = band_by_kid[kid]
-            detect_rect = (x, y, w, h + band)
-            if any(_rects_overlap(detect_rect, p, pad=_LEAF_MIN_GAP) for p in placed):
-                new_x, new_y, _, _ = _next_free_slot(base_x, base_y, w, h + band, placed)
-                geom_el = kid.find("mxGeometry")
-                if geom_el is not None:
-                    geom_el.set("x", str(new_x))
-                    geom_el.set("y", str(new_y))
-                    changed = True
-                detect_rect = (new_x, new_y, w, h + band)
-            placed.append(detect_rect)
-
-    if not changed:
-        return xml
-    return _serialize_docroot(tree, root, is_mxfile, trimmed)
-
-
-def resolve_row_overflow(xml: str) -> str:
-    """Wrap the 5th+ icon of any over-full visual row onto the next row.
-
-    Deterministic safety net for geometry_spec's "Service Grid — MAX 4 PER
-    ROW" rule ("When adding into a full row of 4, place on the next row —
-    never squeeze a 5th into the first row"). Only moves the overflow icons of
-    a row that already has more than 4 — properly-sized rows are untouched.
-    Any residual overlap this introduces is cleaned up by the overlap-nudge
-    fixer that runs immediately after in ``repair_xml``.
-    """
-    parsed = _parse_docroot(xml)
-    if parsed is None:
-        return xml
-    tree, root, is_mxfile, trimmed = parsed
-    page_w, page_h = _page_size(tree)
-
-    cells = [c for c in root.findall("mxCell") if c.get("id")]
-    parent_ids = {c.get("parent") for c in cells}
-    by_parent = _leaf_siblings_by_parent(cells, parent_ids, page_w, page_h)
-
-    changed = False
-    for kids in by_parent.values():
-        geo_by_kid = {k: _cell_geometry(k) for k in kids}
-        for row in _group_rows(kids, geo_by_kid):
-            if len(row) <= _LEAF_GRID_MAX_COLS:
-                continue
-            overflow = row[_LEAF_GRID_MAX_COLS:]
-            row_y = geo_by_kid[row[0]][1]
-            base_x = geo_by_kid[row[0]][0]
-            for idx, kid in enumerate(overflow, start=1):
-                geom_el = kid.find("mxGeometry")
-                if geom_el is None:
-                    continue
-                geom_el.set("x", str(base_x))
-                geom_el.set("y", str(row_y + idx * _LEAF_GRID_PITCH_Y))
-                changed = True
-
-    if not changed:
-        return xml
-    return _serialize_docroot(tree, root, is_mxfile, trimmed)
-
-
-def resolve_coordinate_only_nesting(xml: str) -> str:
-    """Reparent a top-level container that's visually nested inside another top-level container.
-
-    Deterministic enforcement of network.txt's "Overlap != containment"
-    rule — only the Cloud boundary (plus background/actors) may legitimately
-    sit at ``parent="1"``. Converts the reparented cell's geometry to be
-    relative to its new parent.
-    """
-    parsed = _parse_docroot(xml)
-    if parsed is None:
-        return xml
-    tree, root, is_mxfile, trimmed = parsed
-    page_w, page_h = _page_size(tree)
-
-    cells = [c for c in root.findall("mxCell") if c.get("id")]
-    violations = _coordinate_nesting_violations(cells, page_w, page_h)
-    if not violations:
-        return xml
-
-    changed = False
-    for inner, outer in violations:
-        inner_geo = _cell_geometry(inner)
-        outer_geo = _cell_geometry(outer)
-        if inner_geo is None or outer_geo is None:
-            continue
-        inner.set("parent", outer.get("id") or "1")
-        geom_el = inner.find("mxGeometry")
-        if geom_el is not None:
-            geom_el.set("x", str(inner_geo[0] - outer_geo[0]))
-            geom_el.set("y", str(inner_geo[1] - outer_geo[1]))
-            changed = True
-
-    if not changed:
-        return xml
-    return _serialize_docroot(tree, root, is_mxfile, trimmed)
-
-
-_ACTOR_SHAPE_TYPES = {
-    "aws_users", "aws_user", "users", "user", "aws_client", "client", "aws_mobile_client",
-    "azure_users", "azure_user", "azure_client",
-    "gcp_users", "gcp_user", "gcp_client",
-    "aws_internet", "internet", "aws_iot", "iot", "aws_corporate_data_center",
-    "corporate_data_center", "on_premises", "onprem", "on_prem",
-}
-_ACTOR_EXACT_LABELS = {
-    "users", "user", "client", "mobile client", "internet", "end users",
-    "external users", "end user", "customer", "customers",
-    "on-prem", "on-premises", "on premises", "iot", "iot device", "corporate dc",
-    "corporate data center", "data center",
-    # Found via real-capture replay: without these, a bare "Employees"/
-    # "Employee" actor icon (a very common label for internal-user diagrams)
-    "employees", "employee", "staff", "admin", "admins", "administrator",
-    "administrators", "internal users",
-}
 
 
 def _is_external_actor_cell(cell: ET.Element) -> bool:
@@ -1222,7 +1066,7 @@ def count_edge_crossings(xml: str, page: str | None = None) -> int:
     A cheap proxy for "does this diagram look tangled" — nothing else in the
     pipeline measures edge crossings directly, so this is the quality signal
     the Logical/Security/Data-flow layout work (``logical_layout.py``,
-    ``enforce_view_journey_columns``) is scored against. Counts every pair of
+    ``layout_corridor_ir`` / ELK) is scored against. Counts every pair of
     segments (from different edges) that properly cross; segments that only
     touch at a shared endpoint (e.g. two edges landing on the same icon) are
     not counted. Never raises — returns 0 on anything unparseable.
@@ -1261,233 +1105,18 @@ def count_edge_crossings(xml: str, page: str | None = None) -> int:
     return crossings
 
 
-def resolve_misplaced_actors(xml: str) -> str:
-    """Reparent external-actor icons nested inside a container back to parent="1".
 
-    Actors claim the far-left column (x≈20) so the SaaS journey lane can sit
-    between Users and Cloud without collision. Nested actors are hoisted with
-    absolute coords then parked in that column.
-
-    Exempts the ``actors_left``/``actors_right`` band containers (Part A's
-    Fix 2c, also emitted directly by the corridor compiler's layered path) —
-    those are the deliberate "actor is grid-aligned inside its own band, still
-    a peer of the main row, not logically inside the architecture" case, not
-    a misplacement to undo.
-    """
-    parsed = _parse_docroot(xml)
-    if parsed is None:
-        return xml
-    tree, root, is_mxfile, trimmed = parsed
-
-    # Every IR compiler (Network, and Logical/Security/Data-flow's layered
-    # path) places external actors itself and marks the default layer
-    # layout="ir" when it did — this function's "stack every root actor into
-    # column x=20" heuristic exists to fix LLM-guessed actor placement, and
-    # would otherwise collapse a compiler-placed saas_egress actor (correctly
-    # positioned past the right edge of the diagram) back onto the left
-    # column, since Network's actors are bare parent="1" leaves with no
-    # actors_left/actors_right band to exempt them (found live: this produced
-    # a full-canvas-spanning edge that read as a missing arrow).
-    default_layer = next((c for c in root.findall("mxCell") if c.get("id") == "1"), None)
-    if default_layer is not None and default_layer.get("layout") == "ir":
-        return xml
-
-    cells = [c for c in root.findall("mxCell") if c.get("id")]
-    by_id = {c.get("id"): c for c in cells if c.get("id")}
-
-    _ACTOR_BAND_IDS = {"actors_left", "actors_right"}
-    misplaced = [
-        c for c in cells
-        if _is_external_actor_cell(c)
-        and c.get("parent") not in (None, "1", *_ACTOR_BAND_IDS)
-    ]
-    root_actors = [c for c in cells if _is_external_actor_cell(c) and c.get("parent") == "1"]
-    if not misplaced and not root_actors:
-        return xml
-
-    changed = False
-    for cell in misplaced:
-        abs_x, abs_y = absolute_position(cell, by_id)
-        cell.set("parent", "1")
-        geom_el = cell.find("mxGeometry")
-        if geom_el is not None:
-            geom_el.set("x", str(abs_x))
-            geom_el.set("y", str(abs_y))
-        changed = True
-
-    # Refresh and stack all root actors in column 0.
-    cells = [c for c in root.findall("mxCell") if c.get("id")]
-    actors = [c for c in cells if _is_external_actor_cell(c) and c.get("parent") == "1"]
-    actors.sort(key=lambda c: (_cell_geometry(c) or (0.0, 0.0, 0.0, 0.0))[1])
-    for i, cell in enumerate(actors):
-        geom_el = cell.find("mxGeometry")
-        if geom_el is None:
-            continue
-        target_x = 20.0
-        target_y = 40.0 + i * 100.0
-        try:
-            cur_x = float(geom_el.get("x") or 0)
-            cur_y = float(geom_el.get("y") or 0)
-        except ValueError:
-            cur_x, cur_y = 0.0, 0.0
-        # Only force column when nested-hoisted or clearly not in the actor column.
-        if cell in misplaced or abs(cur_x - target_x) > 40.0 or cur_x > 120.0:
-            if abs(cur_x - target_x) > 0.5 or abs(cur_y - target_y) > 0.5:
-                geom_el.set("x", str(target_x))
-                geom_el.set("y", str(target_y))
-                changed = True
-
-    if not changed:
-        return xml
-    return _serialize_docroot(tree, root, is_mxfile, trimmed)
-
-
-# A gap this many times the canonical max pitch is a clear outlier (one child
-# sitting far away from its row, not just a minor deviation) — generic to any
-# leaf/service, not a specific named list of shape_types.
-_PITCH_OUTLIER_MULTIPLIER = 3.0
-
-
-def resolve_pitch_outliers(xml: str) -> str:
-    """Snap any leaf sitting anomalously far from its row-mates back to a normal pitch.
-
-    Generic geometric safety net, deliberately shape_type-agnostic — applies
-    to *any* service, not a hardcoded list of "connectivity hub" types.
-    Whatever the reason an LLM places one icon far outside the normal pitch
-    range from its previous same-row sibling (e.g. trying to visually reach
-    toward something in a different container), that single outlier forces
-    every ancestor container to balloon in width to contain it — this
-    detects a clear outlier (gap beyond ``_PITCH_OUTLIER_MULTIPLIER`` times
-    the canonical max for that layer) and snaps it back to a normal pitch
-    from its predecessor. Never touches gaps already within or moderately
-    outside the normal range — that's ``diagnose_xml``'s warning +
-    corrective-LLM-pass territory, not this fixer's.
-    """
-    parsed = _parse_docroot(xml)
-    if parsed is None:
-        return xml
-    tree, root, is_mxfile, trimmed = parsed
-
-    cells = [c for c in root.findall("mxCell") if c.get("id")]
-    ids = {c.get("id"): c for c in cells if c.get("id")}
-    parent_ids = {c.get("parent") for c in cells}
-    page_w, page_h = _page_size(tree)
-    by_parent_leaves = _leaf_siblings_by_parent(cells, parent_ids, page_w, page_h)
-
-    from app.adapters.outbound.diagram.placement_fixers import is_connectivity_hub_cell
-
-    changed = False
-    for pid, kids in by_parent_leaves.items():
-        kids = [k for k in kids if not is_connectivity_hub_cell(k)]
-        if len(kids) < 2:
-            continue
-        parent_cell = ids.get(pid)
-        is_group = parent_cell is not None and _is_cross_cutting_group_cell(parent_cell)
-        _, hi = _GROUP_PITCH_RANGE if is_group else _DATA_PITCH_RANGE
-        outlier_threshold = hi * _PITCH_OUTLIER_MULTIPLIER
-        # Groups snap to their own canonical pitch — snapping every row to the
-        # data-path value (200) would land outside _GROUP_PITCH_RANGE
-        # (150-190) and "fix" an extreme outlier into a new moderate-range
-        # violation. See _GROUP_CANONICAL_PITCH's comment.
-        canonical_pitch = _GROUP_CANONICAL_PITCH if is_group else _LEAF_GRID_PITCH_X
-        geo_by_kid = {k: _cell_geometry(k) for k in kids}
-        for row in _group_rows(kids, geo_by_kid):
-            for a, b in zip(row, row[1:]):
-                ga, gb = geo_by_kid.get(a), geo_by_kid.get(b)
-                if ga is None or gb is None:
-                    continue
-                dx = gb[0] - ga[0]
-                if dx <= outlier_threshold:
-                    continue
-                new_x = ga[0] + canonical_pitch
-                geom_el = b.find("mxGeometry")
-                if geom_el is not None:
-                    geom_el.set("x", str(new_x))
-                    geo_by_kid[b] = (new_x, gb[1], gb[2], gb[3])
-                    changed = True
-
-    if not changed:
-        return xml
-    return _serialize_docroot(tree, root, is_mxfile, trimmed)
-
-
-def resolve_moderate_pitch_deviations(xml: str) -> str:
-    """Snap any remaining out-of-canonical-range adjacent pitch, either direction.
-
-    ``resolve_pitch_outliers`` only clears extreme outliers (beyond
-    ``_PITCH_OUTLIER_MULTIPLIER`` times the canonical max) by design,
-    deliberately leaving moderate deviations — too tight, or moderately too
-    wide — for what used to be the LLM repair pass. The fix is the same
-    mechanical "snap to canonical pitch from predecessor" regardless of how
-    far off the gap is, so there's no reason to pay for an LLM call here
-    either. Runs immediately after ``resolve_pitch_outliers`` in the
-    ``repair_xml`` chain — by the time this runs, any gap still outside the
-    canonical range is by definition moderate (extreme ones were already
-    snapped), so the two fixers compose without double-handling anything.
-    """
-    parsed = _parse_docroot(xml)
-    if parsed is None:
-        return xml
-    tree, root, is_mxfile, trimmed = parsed
-
-    cells = [c for c in root.findall("mxCell") if c.get("id")]
-    ids = {c.get("id"): c for c in cells if c.get("id")}
-    parent_ids = {c.get("parent") for c in cells}
-    page_w, page_h = _page_size(tree)
-    by_parent_leaves = _leaf_siblings_by_parent(cells, parent_ids, page_w, page_h)
-
-    from app.adapters.outbound.diagram.placement_fixers import is_connectivity_hub_cell
-
-    changed = False
-    for pid, kids in by_parent_leaves.items():
-        kids = [k for k in kids if not is_connectivity_hub_cell(k)]
-        if len(kids) < 2:
-            continue
-        parent_cell = ids.get(pid)
-        is_group = parent_cell is not None and _is_cross_cutting_group_cell(parent_cell)
-        lo, hi = _GROUP_PITCH_RANGE if is_group else _DATA_PITCH_RANGE
-        canonical_pitch = _GROUP_CANONICAL_PITCH if is_group else _LEAF_GRID_PITCH_X
-        geo_by_kid = {k: _cell_geometry(k) for k in kids}
-        for row in _group_rows(kids, geo_by_kid):
-            for a, b in zip(row, row[1:]):
-                ga, gb = geo_by_kid.get(a), geo_by_kid.get(b)
-                if ga is None or gb is None:
-                    continue
-                dx = gb[0] - ga[0]
-                if dx <= 0 or lo <= dx <= hi:
-                    continue
-                new_x = ga[0] + canonical_pitch
-                geom_el = b.find("mxGeometry")
-                if geom_el is not None:
-                    geom_el.set("x", str(new_x))
-                    geo_by_kid[b] = (new_x, gb[1], gb[2], gb[3])
-                    changed = True
-
-    if not changed:
-        return xml
-    return _serialize_docroot(tree, root, is_mxfile, trimmed)
-
-
-_DIV_BLOCK = re.compile(r"<div[^>]*>(.*?)</div>", re.IGNORECASE | re.DOTALL)
-_DIV_FULL = re.compile(r"<div[^>]*>.*?</div>", re.IGNORECASE | re.DOTALL)
-_TAG_STRIP = re.compile(r"<[^>]+>")
-_GAP_DIV_MARK = re.compile(
-    r'data-section\s*=\s*["\'](?:gaps|facts)["\']|color:\s*#B85450',
-    re.IGNORECASE,
-)
 
 
 def _trim_overview_panel_value(value: str) -> str:
-    """Keep title + up to ``_PANEL_MAX_STEPS`` short step divs; truncate long steps.
+    """Keep overview structure readable without destroying badge-correlated steps.
 
-    Preserves a trailing Recommended-gaps section (red ``#B85450`` / data-section=gaps)
-    and a Key-facts section (``data-section=facts``, Part B's per-view ADS context
-    block) without rewriting either's styling. Both are excluded from the step-count
-    cap the same way. Existing step styling stays the amber overview recipe.
-
-    Returns **decoded** HTML suitable for ``Element.set("value", …)``. ElementTree
-    escapes on serialize — pre-escaped ``&lt;div&gt;`` here double-escapes to
-    ``&amp;lt;div`` and the UI shows raw tags.
+    Preserves ``data-section`` blocks (lens, howto, business/technical headers,
+    numbered tech steps, facts, footer, gaps) with their styling. Caps only
+    anonymous step divs and ``data-section=tech`` lines to ``_PANEL_MAX_STEPS``.
+    Older trim flattened every div and erased Logical's "Technical flow"
+    section — badges still numbered the canvas while the panel only showed
+    business bullets.
     """
     decoded = html.unescape(value or "")
     full_divs = _DIV_FULL.findall(decoded)
@@ -1497,33 +1126,59 @@ def _trim_overview_panel_value(value: str) -> str:
             plain = plain[:397] + "..."
         return plain if plain else (value or "")
 
-    main_divs: list[str] = []
+    title_div: str | None = None
+    preserved: list[str] = []
+    steps: list[str] = []
     gap_divs: list[str] = []
+    tech_count = 0
+    seen_title = False
+
     for div in full_divs:
-        if _GAP_DIV_MARK.search(div):
+        low = div.lower()
+        is_gaps = bool(re.search(r'data-section\s*=\s*["\']gaps["\']', low)) or (
+            "#b85450" in low and "data-section" not in low
+        )
+        if is_gaps:
             gap_divs.append(div)
-        else:
-            main_divs.append(div)
+            continue
 
-    if not main_divs:
-        return "".join(gap_divs) if gap_divs else (value or "")
+        if _PRESERVE_SECTION_MARK.search(div):
+            is_tech = bool(re.search(r'data-section\s*=\s*["\']tech["\']', low))
+            if is_tech:
+                tech_count += 1
+                if tech_count > _PANEL_MAX_STEPS:
+                    continue
+                inner = _DIV_BLOCK.search(div)
+                text = _TAG_STRIP.sub("", inner.group(1) if inner else div).strip()
+                if len(text) > _PANEL_MAX_STEP_CHARS:
+                    text = text[: _PANEL_MAX_STEP_CHARS - 1].rstrip() + "…"
+                    open_m = re.match(r"(<div[^>]*>)", div, re.I)
+                    open_tag = open_m.group(1) if open_m else '<div data-section="tech">'
+                    preserved.append(f"{open_tag}{html.escape(text)}</div>")
+                else:
+                    preserved.append(div)
+            else:
+                preserved.append(div)
+            continue
 
-    # Rebuild main steps with standard overview styling (unchanged recipe).
-    kept = main_divs[: 1 + _PANEL_MAX_STEPS]
-    out_parts: list[str] = []
-    for i, div in enumerate(kept):
         inner = _DIV_BLOCK.search(div)
         text = _TAG_STRIP.sub("", inner.group(1) if inner else div).strip()
-        if i > 0 and len(text) > _PANEL_MAX_STEP_CHARS:
+        if not seen_title:
+            seen_title = True
+            title_div = f'<div style="font-size:22px;font-weight:bold;">{html.escape(text)}</div>'
+            continue
+        if len(text) > _PANEL_MAX_STEP_CHARS:
             text = text[: _PANEL_MAX_STEP_CHARS - 1].rstrip() + "…"
-        safe = html.escape(text)
-        if i == 0:
-            out_parts.append(
-                f'<div style="font-size:22px;font-weight:bold;">{safe}</div>'
-            )
-        else:
-            out_parts.append(f'<div style="font-size:15px;">{safe}</div>')
-    # Re-append gaps section verbatim (keeps red colour / markers).
+        steps.append(f'<div style="font-size:15px;">{html.escape(text)}</div>')
+
+    if title_div is None and not preserved and not steps:
+        return "".join(gap_divs) if gap_divs else (value or "")
+
+    out_parts: list[str] = []
+    if title_div:
+        out_parts.append(title_div)
+    out_parts.extend(preserved)
+    out_parts.extend(steps[:_PANEL_MAX_STEPS])
     out_parts.extend(gap_divs)
     return "".join(out_parts)
 
@@ -1734,7 +1389,7 @@ def ensure_overview_panel_position(xml: str) -> str:
     actual text content needs (never trusting the LLM's own height estimate —
     the same "don't trust the LLM's size" reasoning as the container
     shrink-fit in xml_tools.py), and grows ``pageWidth``/``pageHeight`` (and
-    the full-page background rect) to fit — mirroring resolve_misplaced_actors'
+    the full-page background rect) to fit — mirroring actor-band placement's
     "reposition, don't fabricate" shape. No-ops if the panel is absent.
     """
     parsed = _parse_docroot(xml)
@@ -1957,21 +1612,31 @@ def apply_step_markers(xml: str, step_markers: list[Any], logger: Any = None) ->
 
     def _remap_saas_badge_target(target: ET.Element) -> ET.Element | None:
         """Remount badges off SaaS icons; on Logical prefer portal/domain anchors."""
-        try:
-            from app.adapters.outbound.diagram.placement_fixers import (
-                _is_cloud_container,
-                _is_edge_layer_container,
-                _is_logical_channel_cell,
-                _is_saas_leaf_cell,
-            )
-        except Exception:
-            return target
+        from app.adapters.outbound.diagram.edge_routing import _is_saas_leaf_cell
+
+        def _is_logical_channel(cell: ET.Element) -> bool:
+            if cell.get("vertex") != "1" or cell.get("edge") == "1" or _is_container_cell(cell):
+                return False
+            st = (cell.get("shape_type") or "").strip().lower()
+            return st == "logical_channel"
+
+        def _is_edge_layer(cell: ET.Element) -> bool:
+            if not _is_container_cell(cell):
+                return False
+            value = re.sub(r"<[^>]+>", " ", (cell.get("value") or "").strip().lower()).strip()
+            return value.startswith("edge") or "global layer" in value or value == "global"
+
+        def _is_cloud(cell: ET.Element) -> bool:
+            if not _is_container_cell(cell):
+                return False
+            value = re.sub(r"<[^>]+>", " ", (cell.get("value") or "").strip().lower()).strip()
+            return any(k in value for k in ("cloud", "aws", "azure", "gcp", "google cloud"))
 
         if page_name == "logical":
             # Prefer spine anchors (persona → portal → domain) — not SaaS / random leaves.
             if _is_saas_leaf_cell(target):
                 for c in cells:
-                    if _is_logical_channel_cell(c):
+                    if _is_logical_channel(c):
                         return c
                 for c in cells:
                     cid = (c.get("id") or "")
@@ -1985,10 +1650,10 @@ def apply_step_markers(xml: str, step_markers: list[Any], logger: Any = None) ->
         if not _is_saas_leaf_cell(target):
             return target
         for c in cells:
-            if _is_edge_layer_container(c):
+            if _is_edge_layer(c):
                 return c
         for c in cells:
-            if _is_cloud_container(c) and c.get("parent") == "1":
+            if _is_cloud(c) and c.get("parent") == "1":
                 return c
         for c in cells:
             if _is_external_actor_cell(c):
@@ -2170,7 +1835,7 @@ def _validate_tier_heights(cells: list[ET.Element], by_id: dict[str, ET.Element]
     anchored below it — heights should differ by at most one icon-row.
 
     Rows and shelves are deliberately two separate tiers, not one group by id
-    prefix: a shelf anchors *below* the row by design (`_anchor_shelf_under`)
+    prefix: a shelf anchors *below* the row by design (the IR layout shelf anchor)
     and is expected to differ in height from the row it hangs off of.
 
     Flags only — the row-band-uniformity pass already normalizes the main row;
@@ -2180,7 +1845,7 @@ def _validate_tier_heights(cells: list[ET.Element], by_id: dict[str, ET.Element]
     if page_name not in {"logical", "security", "data flow", "data_flow"}:
         return []
     from app.adapters.outbound.diagram.logical_layout import ICON_SPACING
-    from app.adapters.outbound.diagram.placement_fixers import _is_anchored_shelf
+    from app.adapters.outbound.diagram.edge_routing import _is_anchored_shelf
 
     tolerance = _geo.LEAF_H + ICON_SPACING
     prefix = {"logical": "domain_", "security": "zone_", "data flow": "phase_", "data_flow": "phase_"}[page_name]
@@ -2369,7 +2034,7 @@ def validate_layout(xml: str) -> list[str]:
     if parsed is None:
         return []
     tree, root, _is_mxfile, _trimmed = parsed
-    from app.adapters.outbound.diagram.placement_fixers import _diagram_page_name
+    from app.adapters.outbound.diagram.edge_routing import _diagram_page_name
 
     page_name = _diagram_page_name(tree).lower()
     page_w, page_h = _page_size(tree)
@@ -2384,33 +2049,11 @@ def validate_layout(xml: str) -> list[str]:
 
 
 def repair_xml(xml: str) -> tuple[str, XmlDiagnostics]:
-    """Run deterministic fixers in sequence, then re-diagnose what's left.
+    """Structural hygiene + edge ports + overview/legend.
 
-    Order matters. A leading "structural sanity" phase runs first — every
-    later fixer assumes valid ids/parents/geometry, so these must be settled
-    before anything else touches the document: resolve reserved-id (0/1)
-    reuse before duplicate ids (so a rogue offender can never "win" a
-    duplicate-id decision against the true canonical cell), then duplicate
-    ids, then orphaned parents (needs the final id set from the previous
-    two), then missing/degenerate vertex geometry (a vertex with no geometry
-    is invisible to every geometry-consuming fixer below, so this must
-    precede all of them).
-
-    Then the original chain, unchanged: drop unfixable dangling/forbidden
-    edges first (nothing downstream should route through cells about to
-    disappear or that must never carry an edge), fill missing labels, fix
-    structural placement (misplaced actors, coordinate-only nesting),
-    resolve row overflow before pitch outliers/overlaps (so later passes see
-    the corrected row layout), snap extreme pitch outliers back to a normal
-    gap, then moderate pitch deviations (both directions, using the same
-    canonical-pitch snap — extreme ones are already gone by this point so
-    the two never double-handle the same gap), resolve remaining overlaps,
-    then shrink-wrap containers — this also absorbs any container-width
-    relief from no longer having to stretch around an outlier. The overview
-    panel is positioned last of all, since it must clear the architecture's
-    *final* extents (containers may still grow during the fit-to-children
-    pass); the legend runs immediately after, since it depends on the
-    panel's now-final position and height.
+    Geometry for IR-compiled pages stays with the compiler; this path never
+    re-lays out corridors/leaves. The same thin chain runs for IR and for
+    rare non-IR (3D / surgical) pages — LLM-era pitch/journey mutators are gone.
     """
     fixed = resolve_reserved_id_reuse(xml)
     fixed = resolve_duplicate_ids(fixed)
@@ -2421,67 +2064,35 @@ def repair_xml(xml: str) -> tuple[str, XmlDiagnostics]:
     fixed = clear_overview_panel_children(fixed)
     fixed = sanitize_overview_panel_style(fixed)
     fixed = ensure_leaf_labels(fixed)
-    fixed = resolve_misplaced_actors(fixed)
-    from app.adapters.outbound.diagram.placement_fixers import (
-        enforce_corridor_gap_consistency,
-        enforce_view_journey_columns,
-        fix_edge_anchors_from_geometry,
-        normalize_corridor_colors,
-        resolve_misplaced_connectivity_hubs,
-        resolve_misplaced_edge_services,
-        resolve_misplaced_load_balancers,
-        resolve_misplaced_saas_leaves,
-        resolve_misplaced_security_controls,
-    )
-    # Hoist SaaS before cross-cutting edge strip so app↔SaaS edges survive.
-    fixed = resolve_misplaced_saas_leaves(fixed)
     fixed = remove_dangling_edges(fixed)
     fixed = remove_cross_cutting_edges(fixed)
-    fixed = resolve_misplaced_connectivity_hubs(fixed)
-    fixed = resolve_misplaced_edge_services(fixed)
-    fixed = resolve_misplaced_load_balancers(fixed)
-    # Known-control correction before corridor ranking — a misplaced leaf (e.g.
-    # Secrets Manager under Identity instead of Private) must not be allowed to
-    # scramble enforce_view_journey_columns's canonical zone order.
-    fixed = resolve_misplaced_security_controls(fixed)
-    fixed = enforce_view_journey_columns(fixed)
-    # Authoritative color-coding for every corridor container, whether the LLM
-    # emitted it directly or a fixer above created/reparented into it.
-    fixed = normalize_corridor_colors(fixed)
-    fixed = resolve_coordinate_only_nesting(fixed)
-    fixed = resolve_row_overflow(fixed)
-    fixed = resolve_pitch_outliers(fixed)
-    fixed = resolve_moderate_pitch_deviations(fixed)
-    fixed = resolve_leaf_overlaps(fixed)
-    fixed = fit_containers_to_children(fixed)
-    # Re-flow corridor gaps after any post-hoc width shrink above — otherwise the
-    # gap between two corridors balloons by whatever a container shrank by.
-    fixed = enforce_corridor_gap_consistency(fixed)
+
+    from app.adapters.outbound.diagram.edge_routing import (
+        fix_edge_anchors_from_geometry,
+    )
     fixed = fix_edge_anchors_from_geometry(fixed)
+
     page_name = ""
     try:
         parsed_name = _parse_docroot(fixed)
         if parsed_name is not None:
-            tree_n, _, _, _ = parsed_name
+            tree_n, _root_n, _, _ = parsed_name
             if tree_n.tag == "mxfile":
                 diag = tree_n.find("diagram")
                 if diag is not None:
                     page_name = (diag.get("name") or "").strip().lower()
     except Exception:
         page_name = ""
+
     if page_name in {"logical", "security", "data flow"}:
         from app.adapters.outbound.diagram.view_fixers import ensure_edge_label_readability
         view_key = {"logical": "logical", "security": "security", "data flow": "data_flow"}[page_name]
         fixed = ensure_edge_label_readability(fixed, view=view_key)
-    # After spine/SaaS layout moves, re-snap badges to their anchor cells.
+
     fixed = reposition_step_badges(fixed)
     fixed = ensure_overview_panel_position(fixed)
     fixed = sanitize_overview_panel_style(fixed)
     fixed = ensure_legend_position(fixed)
-    # Defensive re-run: a container-adjacent fixer earlier in the chain
-    # (coordinate-nesting, fit-to-children) could in principle still
-    # misparent the panel/legend into a shelf container it geometrically
-    # overlaps — restore parent="1" one last time before z-ordering.
     fixed = ensure_overview_panel_parent_root(fixed)
     fixed = move_overview_and_legend_to_end(fixed)
     return fixed, diagnose_xml(fixed)

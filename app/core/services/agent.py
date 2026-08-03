@@ -434,11 +434,11 @@ def _generate_ir_with_corrections(
 
     if logger:
         if residual:
-            # Not fixed by correction, drop, or spine synthesis. The compiler will
-            # reject this IR and the caller falls back to direct XML.
+            # Not fixed by correction, drop, or spine synthesis — compiler will
+            # reject and the pipeline fails the request (no direct-XML fallback).
             logger.log(
                 "ir", f"{view_label} IR still breaks {len(residual)} rule(s) after correction — "
-                "compiler will reject it and this view will fall back to direct XML",
+                "compiler will reject this view (IR-only; no direct-XML fallback)",
                 level="warning", details={"errors": residual},
             )
         else:

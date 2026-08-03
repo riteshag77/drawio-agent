@@ -40,6 +40,19 @@ _EDGE_DEFAULTS: dict[str, dict[str, str]] = {
         "app->app": "Event: DomainEvent",
         "default": "JSON: Payload",
     },
+    # Network IR historically omitted labels ("prefer empty"); fill from hop tier
+    # so Platform/SRE reviews still see protocol intent on every edge.
+    "network": {
+        "edge->edge": "HTTPS",
+        "edge->app": "HTTPS",
+        "app->data": "SQL",
+        "app->app": "HTTPS",
+        "app->cache": "cache",
+        "actor->identity": "AuthN",
+        "actor->app": "HTTPS",
+        "identity->*": "token",
+        "default": "HTTPS",
+    },
 }
 
 _DB_BRANDS = (
@@ -343,6 +356,14 @@ def drop_nonsensical_logical_edges(page_xml: str, *, view: str = "") -> str:
         if _is_data_store_label(tgt_l) and plain == "invokes":
             cell.set("value", "Reads/Writes via API")
             changed = True
+        # Cache-miss verb belongs on profile/directory SaaS only — never Stripe/Twilio/FHIR.
+        if plain.startswith("cache miss") and not _is_identity_saas_label(tgt_l, tgt_st):
+            tgt_low = tgt_l.lower()
+            if any(tok in tgt_low for tok in (
+                "stripe", "twilio", "fhir", "hl7", "billing", "sms", "payment",
+            )):
+                cell.set("value", "Calls API")
+                changed = True
     for cell in drop:
         try:
             root.remove(cell)
@@ -471,6 +492,30 @@ def strip_detail_cards(page_xml: str, *, view: str = "") -> str:
     return remove_dangling_edges(_serialize(tree))
 
 
+def sanitize_nested_leaf_annotations(page_xml: str, *, view: str = "") -> str:
+    """Flatten ``Label [Multi-AZ [PHI]]`` → ``Label [Multi-AZ PHI]`` on vertices."""
+    title = VIEW_PAGE_NAMES.get(view, view or "Page")
+    tree = _parse(page_xml, title)
+    if tree is None:
+        return page_xml
+    changed = False
+    for cell in tree.iter("mxCell"):
+        if cell.get("vertex") != "1" or cell.get("edge") == "1":
+            continue
+        val = cell.get("value") or ""
+        if "[" not in val or val.count("[") < 2:
+            continue
+        # Only touch plain-text labels (no HTML overview panels).
+        if "<" in val or "&lt;" in val:
+            continue
+        flat = re.sub(r"\[([^\[\]]*)\[([^\[\]]*)\]\]", r"[\1 \2]", val)
+        flat = re.sub(r"\s+", " ", flat).strip()
+        if flat != val:
+            cell.set("value", flat)
+            changed = True
+    return _serialize(tree) if changed else page_xml
+
+
 def apply_view_fixers(page_xml: str, *, view: str) -> str:
     """Run the deterministic fixer chain for a focused view page."""
     # Relabel before drop so Kafka/SQS become capabilities instead of vanishing.
@@ -484,6 +529,7 @@ def apply_view_fixers(page_xml: str, *, view: str) -> str:
     xml = strip_detail_cards(xml, view=view)
     xml = apply_edge_label_defaults(xml, view=view)
     xml = ensure_edge_label_readability(xml, view=view)
+    xml = sanitize_nested_leaf_annotations(xml, view=view)
     from app.adapters.outbound.diagram.xml_diagnostics import sanitize_overview_panel_style
     xml = sanitize_overview_panel_style(xml)
     return xml

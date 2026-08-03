@@ -131,13 +131,21 @@ path** and mark it `primary: true`:
 users -> [saas_ingress] -> edge/CDN -> gateway -> app-tier service -> data-tier service
 ```
 
+The primary path **must reach a data-tier leaf** when a data subnet exists —
+stopping at the gateway or CDN is incomplete.
+
 - Secondary or asynchronous paths get `primary: false` (rendered dashed).
 - Explicit failure / DR / fallback paths: `primary: false` and a label prefix
   `Failure:` / `DR:` / `Fallback:` — never use dashed alone for a normal async call.
 - Keep the flow set sparse and readable. A diagram where everything connects to
   everything is unreadable — model the story, not every possible call.
-- `label` is optional and should be omitted by default. When used, 1–2 words
-  only ("HTTPS", "async", "read").
+- **Every flow needs a short `label`** (1–2 words): protocol or hop intent —
+  `"HTTPS"`, `"DNS"`, `"inspect"`, `"SQL"`, `"async"`, `"mTLS"`. Never leave
+  `label` blank on the primary path; empty labels make Network diagrams
+  unreadable for platform reviews.
+- Set `protection` (`tls`/`mtls`) and `classification` (`pii`/`pci`/
+  `confidential`) when the request implies them (PHI/PII clinical paths,
+  payment to Stripe, etc.).
 - Reach the data tier **through** the app tier, not directly from outside.
 
 ### Mini example (ids illustrative)
@@ -178,3 +186,13 @@ when private app tiers need outbound/admin access; Multi-AZ when HA is implied;
 a connectivity hub only when multi-VPC/hybrid is implied. Include what the
 request implies — do not invent services the architecture would not plausibly
 have.
+
+**When the request names them, keep them distinct — do not collapse:**
+- Dual identity: patient Cognito **and** workforce Okta/Entra as separate
+  `saas_ingress` (or Cognito in edge/security + Okta as saas_ingress) — never
+  one leaf labeled `Okta/Entra/Cognito`.
+- Compute: label ECS/Fargate (or EKS) services as such (`Clinical API (ECS)`),
+  not bare capability names that hide the runtime.
+- Partner clinical exchange: HL7/FHIR gateway (or similar) as its own egress
+  path when the brief mentions partners/FHIR — distinct from Stripe/Twilio.
+- Backup/DR inventory in `management` when Multi-AZ / backup is implied.

@@ -46,7 +46,7 @@ container come from ``emit_leaf_grid`` once the container's own final
 size/position is known.
 
 This graph carries no real flow edges. Edge routing stays entirely with the
-existing local router (``placement_fixers.py``'s ``enable_obstacle_routing``)
+existing local router (``edge_routing.py``'s ``enable_obstacle_routing``)
 — it already reaches zero residual diagnostics on this compiler's geometry,
 unlike Corridor's, it was never the evidenced pain, and giving ELK real
 edges here would fight the band/row synthetic edges above (confirmed

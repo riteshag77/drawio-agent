@@ -40,14 +40,22 @@ def configure_ssl() -> bool:
             _ssl_ready = True
             return False
 
+        # Prefer the OS trust store (handles corporate MITM roots on Windows).
+        # Also point SSL_CERT_FILE at certifi so libraries that ignore the
+        # default context (some httpx/SDK builds) still find a CA bundle.
         try:
             import truststore
             truststore.inject_into_ssl()
         except ImportError:
+            pass
+        try:
             import certifi
             bundle = certifi.where()
             os.environ.setdefault("SSL_CERT_FILE", bundle)
             os.environ.setdefault("REQUESTS_CA_BUNDLE", bundle)
+            os.environ.setdefault("CURL_CA_BUNDLE", bundle)
+        except ImportError:
+            pass
 
         _ssl_ready = True
         return True

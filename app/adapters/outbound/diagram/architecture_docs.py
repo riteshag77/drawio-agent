@@ -1260,55 +1260,10 @@ def assign_saas_shape_types(page_xml: str) -> str:
         if builtin and cell.get("style") != builtin:
             cell.set("style", builtin)
             changed = True
-        # Brand logos are square stencils — a non-square box distorts them.
-        if _square_up_icon_geometry(cell, _SAAS_ICON_SIZE):
-            changed = True
+        # Never touch mxGeometry — IR compiler owns leaf size (LEAF_W×LEAF_H).
     if not changed:
         return page_xml
     return ET.tostring(tree, encoding="unicode")
-
-
-_SAAS_ICON_SIZE = 78.0
-_LOGICAL_ICON_SIZE = 68.0
-# Logical capability/API/store tiles carry their label inside the box.
-_LOGICAL_TILE_W = 160.0
-_LOGICAL_TILE_H = 60.0
-
-
-def _size_up_text_tile(cell: ET.Element) -> bool:
-    """Give label-inside tiles a consistent, readable card size."""
-    geom = cell.find("mxGeometry")
-    if geom is None:
-        return False
-    try:
-        w = float(geom.get("width") or 0)
-        h = float(geom.get("height") or 0)
-    except ValueError:
-        w, h = 0.0, 0.0
-    new_w = max(w, _LOGICAL_TILE_W)
-    new_h = max(min(h, 90.0), _LOGICAL_TILE_H)
-    if abs(new_w - w) <= 1.0 and abs(new_h - h) <= 1.0:
-        return False
-    geom.set("width", str(new_w))
-    geom.set("height", str(new_h))
-    return True
-
-
-def _square_up_icon_geometry(cell: ET.Element, size: float) -> bool:
-    """Force a square box on icon leaves so SVG/stencil art is never stretched."""
-    geom = cell.find("mxGeometry")
-    if geom is None:
-        return False
-    try:
-        w = float(geom.get("width") or 0)
-        h = float(geom.get("height") or 0)
-    except ValueError:
-        w, h = 0.0, 0.0
-    if abs(w - h) <= 1.0 and w >= size - 1.0:
-        return False
-    geom.set("width", str(size))
-    geom.set("height", str(size))
-    return True
 
 
 def _logical_leaf_role(label: str) -> str:
@@ -1396,14 +1351,7 @@ def assign_logical_shape_types(page_xml: str) -> str:
         if cell.get("style") != new_style:
             cell.set("style", new_style)
             changed = True
-        # Icon roles need square geometry or the stencil stretches / looks empty.
-        if st in {"logical_actor", "logical_channel"}:
-            if _square_up_icon_geometry(cell, _LOGICAL_ICON_SIZE):
-                changed = True
-        elif st in {"logical_capability", "logical_api", "logical_datastore", "logical_platform"}:
-            # Text tiles: enforce a readable card size so labels do not clip.
-            if _size_up_text_tile(cell):
-                changed = True
+        # Style/shape_type only — never resize. Compiler laid out LEAF_W×LEAF_H.
     if not changed:
         return page_xml
     return ET.tostring(tree, encoding="unicode")
@@ -1721,11 +1669,19 @@ _VIEW_FOOTER: dict[str, str] = {
 _MAX_STORY_STEPS = 5
 #: Logical needs room for Persona → portal → capability → data → SaaS.
 _MAX_STORY_STEPS_LOGICAL = 6
+#: Network primary path often needs edge + gateway + app + data (7 hops).
+_MAX_STORY_STEPS_NETWORK = 7
 
 
 def _strip_annotation_tag(label: str) -> str:
-    """Drop a trailing "[Tag]" annotation and a "(SAAS)" suffix for prose use."""
-    label = re.sub(r"\s*\[[^\]]*\]\s*$", "", label or "").strip()
+    """Drop trailing "[Tag]" annotations and a "(SAAS)" suffix for prose use."""
+    label = label or ""
+    # Peel nested/stacked brackets: "Aurora [Multi-AZ] [PHI]" or "X [Multi-AZ [PHI]]".
+    for _ in range(4):
+        nxt = re.sub(r"\s*\[[^\]]*\]\s*$", "", label).strip()
+        if nxt == label:
+            break
+        label = nxt
     label = re.sub(r"\s*\(SAAS\)\s*$", "", label, flags=re.IGNORECASE).strip()
     return label
 
@@ -1745,8 +1701,7 @@ class _StoryStep:
 
 
 def _ir_story_steps(xml: str, *, max_steps: int | None = None) -> list[_StoryStep]:
-    """The page's primary-flow story, deduped and capped, in ``ir.flows``
-    order (``emit_flows`` writes edges in that order) — shared by every
+    """The page's primary-flow story, deduped and capped — shared by every
     consumer that numbers the same story, so there is exactly one place that
     decides which edges are "step 1, 2, 3...".
     """
@@ -1766,24 +1721,78 @@ def _ir_story_steps(xml: str, *, max_steps: int | None = None) -> list[_StorySte
             return ""
         return _strip_annotation_tag((cell.get("value") or "").strip())
 
-    def _domain_rank(cell_id: str) -> int:
+    def _parent_chain(cell_id: str) -> str:
+        parts: list[str] = []
+        cur = by_id.get(cell_id)
+        seen: set[str] = set()
+        while cur is not None:
+            cid = (cur.get("id") or "").lower()
+            if not cid or cid in seen:
+                break
+            seen.add(cid)
+            parts.append(cid)
+            parts.append((cur.get("value") or "").lower())
+            pid = cur.get("parent")
+            cur = by_id.get(pid) if pid else None
+        return " ".join(parts)
+
+    def _journey_rank(cell_id: str) -> int:
+        """Lower = earlier in the L→R / edge→data journey."""
         cell = by_id.get(cell_id)
         if cell is None:
             return 99
         parent = (cell.get("parent") or "").lower()
-        order = {
+        domain_order = {
             "domain_experience": 0, "domain_core": 1, "domain_commerce": 1,
             "domain_data": 2, "domain_platform": 3, "domain_saas": 4,
             "actors_left": -1,
         }
-        return order.get(parent, 50)
+        if parent in domain_order:
+            return domain_order[parent]
+        val = ((cell.get("value") or "") + (cell.get("style") or "") + (cell.get("shape_type") or "")).lower()
+        # External actors sit at parent="1" (Network) or under actors_left (corridor).
+        if parent in {"1", "actors_left"} or parent.startswith("actors"):
+            if "aws4.user" in val or any(
+                t in val for t in (
+                    "user", "patient", "clinician", "persona", "customer",
+                    "employee", "partner",
+                )
+            ):
+                return -2
+            if any(t in val for t in ("okta", "entra", "cognito", "auth0", "idp", "identity")):
+                return -1
+            # Egress SaaS on the right — late in the journey.
+            if any(t in val for t in ("stripe", "twilio", "fhir", "workday", "saas")):
+                return 6
+            return -1
+        chain = _parent_chain(cell_id)
+        if "edge" in chain or any(t in chain for t in ("route 53", "cloudfront", "waf", "cdn")):
+            return 0
+        if "gateway" in chain or "api gateway" in chain or re.search(r"\balb\b|\bnlb\b", chain):
+            return 1
+        if "public" in chain and "subnet" in chain:
+            return 2
+        if "app" in chain and "subnet" in chain:
+            return 3
+        if "data" in chain and "subnet" in chain:
+            return 4
+        if parent.startswith("zone_"):
+            return 2
+        if parent.startswith("phase_"):
+            phase = {
+                "phase_ingress": 0, "phase_process": 1, "phase_store": 2,
+                "phase_consume": 3, "phase_archive": 4,
+            }
+            return phase.get(parent, 50)
+        return 50
 
     edges = [c for c in cells if c.get("edge") == "1" and c.get("source") and c.get("target")]
-    # Prefer primary edges that advance the L→R journey (lower rank → higher).
+    # Prefer labelled primary edges that advance the journey (earlier → later rank).
     edges.sort(key=lambda e: (
         0 if (e.get("value") or "").strip() else 1,
-        _domain_rank(e.get("target") or ""),
-        _domain_rank(e.get("source") or ""),
+        0 if (e.get("primary") or "1") not in {"0", "false", "False"} else 1,
+        _journey_rank(e.get("source") or ""),
+        _journey_rank(e.get("target") or ""),
     ))
     steps: list[_StoryStep] = []
     seen_pairs: set[tuple[str, str]] = set()
@@ -1794,6 +1803,10 @@ def _ir_story_steps(xml: str, *, max_steps: int | None = None) -> list[_StorySte
         src, tgt = _label(src_id), _label(tgt_id)
         if not src or not tgt or (src, tgt) in seen_pairs:
             continue
+        src_r, tgt_r = _journey_rank(src_id), _journey_rank(tgt_id)
+        # Skip clear reverse hops once we already have a forward story.
+        if steps and tgt_r < src_r - 1:
+            continue
         seen_pairs.add((src, tgt))
         edge_label = re.sub(r"<[^>]+>", "", (edge.get("value") or "")).strip()
         text = f"{src} → {tgt} ({edge_label})." if edge_label else f"{src} connects to {tgt}."
@@ -1802,32 +1815,88 @@ def _ir_story_steps(xml: str, *, max_steps: int | None = None) -> list[_StorySte
 
 
 def _logical_business_steps(xml: str) -> list[str]:
-    """Short business-readable journey lines from Logical domain containers."""
+    """Business-readable journey from actual Logical leaves — not corridor fluff."""
     try:
         parse_src = xml if ("<mxfile" in xml or "<mxGraphModel" in xml) else f"<root>{xml}</root>"
         tree = ET.fromstring(parse_src)
     except ET.ParseError:
         return []
-    labels: dict[str, str] = {}
+
+    by_parent: dict[str, list[str]] = {}
+    actors: list[str] = []
     for cell in tree.iter("mxCell"):
-        cid = (cell.get("id") or "").lower()
-        if cid.startswith("domain_") and "container=1" in (cell.get("style") or ""):
-            labels[cid] = _strip_annotation_tag((cell.get("value") or "").strip()) or cid
+        if cell.get("vertex") != "1" or cell.get("edge") == "1":
+            continue
+        if "container=1" in (cell.get("style") or ""):
+            continue
+        cid = cell.get("id") or ""
+        if cid in {"0", "1", "overview_panel", "legend_box"} or cid.startswith("step_badge_"):
+            continue
+        lab = _strip_annotation_tag((cell.get("value") or "").strip())
+        if not lab:
+            continue
+        parent = cell.get("parent") or ""
+        style = (cell.get("style") or "").lower()
+        val_low = lab.lower()
+        if parent == "actors_left" or (cell.get("id") or "").startswith("actors_"):
+            # People only — IdP/SaaS on the spine are not "who".
+            if "aws4.user" in style or any(
+                t in val_low for t in ("persona", "user", "patient", "clinician", "customer", "employee")
+            ):
+                if not any(t in val_low for t in ("okta", "entra", "cognito", "saas", "idp")):
+                    actors.append(lab)
+            continue
+        by_parent.setdefault(parent, []).append(lab)
+
+    def _join(names: list[str], *, limit: int = 3) -> str:
+        names = names[:limit]
+        if not names:
+            return ""
+        if len(names) == 1:
+            return names[0]
+        if len(names) == 2:
+            return f"{names[0]} and {names[1]}"
+        return f"{', '.join(names[:-1])}, and {names[-1]}"
+
     steps: list[str] = []
-    if any(c.get("id", "").startswith("actors_left") or
-           (c.get("parent") == "actors_left") for c in tree.iter("mxCell")):
-        steps.append("Users and channels start the business journey on the left.")
-    if "domain_experience" in labels:
-        steps.append(f"Experience ({labels['domain_experience']}) is where people interact with the product.")
-    core_id = "domain_core" if "domain_core" in labels else ("domain_commerce" if "domain_commerce" in labels else "")
-    if core_id:
-        steps.append(f"Core capabilities ({labels[core_id]}) deliver the business work via APIs.")
-    if "domain_data" in labels:
-        steps.append(f"Data ({labels['domain_data']}) holds the system of record the capabilities rely on.")
-    if "domain_platform" in labels:
-        steps.append(f"Platform ({labels['domain_platform']}) provides shared services and observability.")
-    if "domain_saas" in labels:
-        steps.append(f"External SaaS ({labels['domain_saas']}) sits under Data for partner/product integrations.")
+    who = _join(actors, limit=2) or "Users"
+    exp = by_parent.get("domain_experience") or []
+    if exp:
+        steps.append(f"{who} reach the product via {_join(exp)}.")
+    elif actors:
+        steps.append(f"{who} start the journey from the left (channels follow).")
+
+    core = by_parent.get("domain_core") or by_parent.get("domain_commerce") or []
+    # Prefer capability/API-ish names; skip pure cache for the headline.
+    core_apis = [n for n in core if "cache" not in n.lower()] or core
+    if core_apis:
+        steps.append(f"Core work is delivered by {_join(core_apis)}.")
+
+    data = by_parent.get("domain_data") or []
+    if data:
+        # Call out PHI/PII if still visible on raw labels.
+        sensitive = [
+            _strip_annotation_tag((c.get("value") or ""))
+            for c in tree.iter("mxCell")
+            if (c.get("parent") or "") == "domain_data"
+            and re.search(r"\[(?:PHI|PII|PCI)\]", c.get("value") or "", re.I)
+        ]
+        if sensitive:
+            steps.append(
+                f"System of record holds regulated data in {_join(sensitive)} "
+                "(treat as PHI/PII in design reviews)."
+            )
+        else:
+            steps.append(f"System of record: {_join(data)}.")
+
+    saas = by_parent.get("domain_saas") or []
+    if saas:
+        steps.append(f"External partners/products: {_join(saas)}.")
+
+    plat = by_parent.get("domain_platform") or []
+    if plat:
+        steps.append(f"Shared platform services: {_join(plat)}.")
+
     return steps[:6]
 
 
@@ -1838,7 +1907,12 @@ def derive_story_markers(xml: str, view_title: str = "") -> list[StepMarker]:
     both read ``_ir_story_steps`` on the *same* xml snapshot.
     """
     title_key = (view_title or "").strip().lower()
-    cap = _MAX_STORY_STEPS_LOGICAL if title_key == "logical" else _MAX_STORY_STEPS
+    if title_key == "logical":
+        cap = _MAX_STORY_STEPS_LOGICAL
+    elif title_key == "network":
+        cap = _MAX_STORY_STEPS_NETWORK
+    else:
+        cap = _MAX_STORY_STEPS
     return [
         StepMarker(step_number=i, cell_id=step.target_id)
         for i, step in enumerate(_ir_story_steps(xml, max_steps=cap), start=1)
@@ -1861,25 +1935,13 @@ def _plural(n: int, word: str) -> str:
 
 
 #: Flow.classification values that count as "sensitive" for the facts line.
-_SENSITIVE_CLASSIFICATIONS = frozenset({"pii", "pci"})
+_SENSITIVE_CLASSIFICATIONS = frozenset({"pii", "pci", "confidential"})
 #: Flow.protection values that count as "protected" for the facts line.
 _PROTECTED_VALUES = frozenset({"tls", "mtls"})
 
 
 def _key_facts_line(xml: str, title_key: str) -> str | None:
-    """One structural summary line — "5 zones (1 shelf) · 12 services ·
-    11 flows · 2 business-critical services · 3/11 flows protected (TLS/mTLS)
-    · 2 flows carrying PII/PCI" — derived purely from cell counts and the
-    ``criticality``/``classification``/``protection`` attributes already
-    stamped on the compiled page (see ``compiler/emit.py``), never invented.
-    Every clause after the topology counts is included only when its count is
-    non-zero, so a page with no critical leaves or classified flows gets the
-    same three-clause line it always did.
-    """
-    prefix_info = _CORRIDOR_PREFIX_BY_VIEW.get(title_key)
-    if prefix_info is None:
-        return None
-    prefix, noun = prefix_info
+    """One structural summary line derived from cell counts and stamped attrs."""
     try:
         parse_src = xml if ("<mxfile" in xml or "<mxGraphModel" in xml) else f"<root>{xml}</root>"
         tree = ET.fromstring(parse_src)
@@ -1887,6 +1949,60 @@ def _key_facts_line(xml: str, title_key: str) -> str | None:
         return None
 
     cells = list(tree.iter("mxCell"))
+    edges = [c for c in cells if c.get("edge") == "1" and c.get("source") and c.get("target")]
+
+    # Network has no corridor row — summarize hierarchy instead.
+    if title_key == "network":
+        def _count_prefix(*prefixes: str) -> int:
+            n = 0
+            for c in cells:
+                cid = (c.get("id") or "").lower()
+                style = c.get("style") or ""
+                if "container=1" not in style and "swimlane" not in style:
+                    continue
+                if any(cid.startswith(p) or p in cid for p in prefixes):
+                    n += 1
+            return n
+
+        vpcs = _count_prefix("vpc", "vnet")
+        zones = sum(
+            1 for c in cells
+            if "container=1" in (c.get("style") or "")
+            and re.search(r"\baz\b|availability|zone_", (c.get("id") or ""), re.I)
+        )
+        subnets = sum(
+            1 for c in cells
+            if "container=1" in (c.get("style") or "")
+            and ("subnet" in (c.get("id") or "").lower() or "subnet" in (c.get("value") or "").lower())
+        )
+        leaves = [
+            c for c in cells
+            if c.get("vertex") == "1" and c.get("edge") != "1"
+            and "container=1" not in (c.get("style") or "")
+            and (c.get("id") or "") not in {"0", "1", "overview_panel", "legend_box"}
+            and not (c.get("id") or "").startswith("step_badge_")
+        ]
+        parts = []
+        if vpcs:
+            parts.append(_plural(vpcs, "VPC"))
+        if zones:
+            parts.append(_plural(zones, "AZ"))
+        if subnets:
+            parts.append(_plural(subnets, "subnet"))
+        parts.append(_plural(len(leaves), "service"))
+        parts.append(_plural(len(edges), "flow"))
+        protected = sum(1 for e in edges if e.get("protection") in _PROTECTED_VALUES)
+        sensitive = sum(1 for e in edges if e.get("classification") in _SENSITIVE_CLASSIFICATIONS)
+        if protected:
+            parts.append(f"{protected}/{len(edges)} flows protected (TLS/mTLS)")
+        if sensitive:
+            parts.append(f"{_plural(sensitive, 'flow')} carrying PII/PCI/confidential")
+        return " &#183; ".join(parts)
+
+    prefix_info = _CORRIDOR_PREFIX_BY_VIEW.get(title_key)
+    if prefix_info is None:
+        return None
+    prefix, noun = prefix_info
     corridors = [
         c for c in cells
         if (c.get("id") or "").startswith(prefix) and "container=1" in (c.get("style") or "")
@@ -1899,7 +2015,6 @@ def _key_facts_line(xml: str, title_key: str) -> str | None:
         c for c in cells
         if c.get("vertex") == "1" and c.get("edge") != "1" and c.get("parent") in corridor_ids
     ]
-    edges = [c for c in cells if c.get("edge") == "1" and c.get("source") and c.get("target")]
 
     critical_count = sum(1 for leaf in leaves if leaf.get("criticality") == "critical")
     sensitive_flow_count = sum(1 for edge in edges if edge.get("classification") in _SENSITIVE_CLASSIFICATIONS)
@@ -1915,19 +2030,24 @@ def _key_facts_line(xml: str, title_key: str) -> str | None:
     if protected_flow_count:
         parts.append(f"{protected_flow_count}/{len(edges)} flows protected (TLS/mTLS)")
     if sensitive_flow_count:
-        parts.append(f"{_plural(sensitive_flow_count, 'flow')} carrying PII/PCI")
+        parts.append(f"{_plural(sensitive_flow_count, 'flow')} carrying PII/PCI/confidential")
     return " &#183; ".join(parts)
 
 
 def synthesize_ir_overview_body(xml: str, view_title: str, system_title: str = "") -> str:
-    """Build a request-specific Overview Panel body from an IR-compiled page's
-    own vertex/edge graph, instead of the generic static stub.
+    """Build a request-specific Overview Panel body from an IR-compiled page.
 
-    For Logical, the panel carries a **business** journey (domain ranks) plus
-    a short **technical** flow spine and facts — so both audiences can read it.
+    For Logical: business journey + numbered technical flow (same numbers as
+    canvas badges) + facts. Every structural block carries ``data-section`` so
+    ``_trim_overview_panel_value`` cannot erase the badge-correlated steps.
     """
     title_key = (view_title or "").strip().lower()
-    cap = _MAX_STORY_STEPS_LOGICAL if title_key == "logical" else _MAX_STORY_STEPS
+    if title_key == "logical":
+        cap = _MAX_STORY_STEPS_LOGICAL
+    elif title_key == "network":
+        cap = _MAX_STORY_STEPS_NETWORK
+    else:
+        cap = _MAX_STORY_STEPS
     tech_steps = _ir_story_steps(xml, max_steps=cap)
     if not tech_steps and title_key != "logical":
         return _overview_stub_body(view_title)
@@ -1940,44 +2060,75 @@ def synthesize_ir_overview_body(xml: str, view_title: str, system_title: str = "
     parts = [f"&lt;div style=&quot;font-size:22px;font-weight:bold;&quot;&gt;{title}&lt;/div&gt;"]
     if lens:
         parts.append(
-            "&lt;div style=&quot;font-size:13px;font-style:italic;color:#8A6D3B;&quot;&gt;"
+            "&lt;div data-section=&quot;lens&quot; style=&quot;font-size:13px;font-style:italic;color:#8A6D3B;&quot;&gt;"
             f"{lens}&lt;/div&gt;"
+        )
+
+    # How to read: badges on canvas ↔ numbered steps in this panel.
+    if tech_steps:
+        n = len(tech_steps)
+        parts.append(
+            "&lt;div data-section=&quot;howto&quot; style=&quot;font-size:12px;color:#6B7280;margin-top:4px;&quot;&gt;"
+            f"Orange badges 1–{n} on the diagram match the numbered steps below — "
+            "follow them left-to-right for the primary path."
+            "&lt;/div&gt;"
+        )
+        # One-line purpose from the first hop.
+        first = tech_steps[0].text.rstrip(".")
+        parts.append(
+            "&lt;div data-section=&quot;purpose&quot; style=&quot;font-size:13px;margin-top:2px;&quot;&gt;"
+            f"Primary path starts: {_esc(first)}."
+            "&lt;/div&gt;"
         )
 
     if title_key == "logical":
         biz = _logical_business_steps(xml)
         if biz:
             parts.append(
-                "&lt;div style=&quot;font-size:13px;font-weight:bold;margin-top:4px;&quot;&gt;"
+                "&lt;div data-section=&quot;biz-header&quot; style=&quot;font-size:13px;font-weight:bold;margin-top:6px;&quot;&gt;"
                 "Business journey&lt;/div&gt;"
             )
             for text in biz:
                 parts.append(
-                    f"&lt;div style=&quot;font-size:14px;&quot;&gt;&#8226; {_esc(text)}&lt;/div&gt;"
+                    "&lt;div data-section=&quot;biz&quot; style=&quot;font-size:14px;&quot;&gt;"
+                    f"&#8226; {_esc(text)}&lt;/div&gt;"
                 )
         if tech_steps:
             parts.append(
-                "&lt;div style=&quot;font-size:13px;font-weight:bold;margin-top:6px;&quot;&gt;"
-                "Technical flow&lt;/div&gt;"
+                "&lt;div data-section=&quot;tech-header&quot; style=&quot;font-size:13px;font-weight:bold;margin-top:6px;&quot;&gt;"
+                "Technical flow (badges)&lt;/div&gt;"
             )
             for i, step in enumerate(tech_steps, start=1):
-                parts.append(f"&lt;div style=&quot;font-size:14px;&quot;&gt;{i}. {_esc(step.text)}&lt;/div&gt;")
+                parts.append(
+                    "&lt;div data-section=&quot;tech&quot; style=&quot;font-size:14px;&quot;&gt;"
+                    f"{i}. {_esc(step.text)}&lt;/div&gt;"
+                )
         if not biz and not tech_steps:
             return _overview_stub_body(view_title)
     else:
         if not tech_steps:
             return _overview_stub_body(view_title)
+        parts.append(
+            "&lt;div data-section=&quot;tech-header&quot; style=&quot;font-size:13px;font-weight:bold;margin-top:4px;&quot;&gt;"
+            "Primary path (badges)&lt;/div&gt;"
+        )
         for i, step in enumerate(tech_steps, start=1):
-            parts.append(f"&lt;div style=&quot;font-size:15px;&quot;&gt;{i}. {_esc(step.text)}&lt;/div&gt;")
+            parts.append(
+                "&lt;div data-section=&quot;tech&quot; style=&quot;font-size:15px;&quot;&gt;"
+                f"{i}. {_esc(step.text)}&lt;/div&gt;"
+            )
 
     facts = _key_facts_line(xml, title_key)
     if facts:
         parts.append(
-            "&lt;div style=&quot;font-size:13px;color:#555555;margin-top:6px;&quot;&gt;"
-            f"{_esc(facts)}&lt;/div&gt;"
+            "&lt;div data-section=&quot;facts&quot; style=&quot;font-size:13px;color:#555555;margin-top:6px;&quot;&gt;"
+            f"Key facts: {_esc(facts)}&lt;/div&gt;"
         )
     if footer:
-        parts.append(f"&lt;div style=&quot;font-size:13px;&quot;&gt;{footer}&lt;/div&gt;")
+        parts.append(
+            "&lt;div data-section=&quot;footer&quot; style=&quot;font-size:12px;color:#6B7280;margin-top:4px;&quot;&gt;"
+            f"{footer}&lt;/div&gt;"
+        )
     return "".join(parts)
 
 
@@ -2026,6 +2177,30 @@ def ensure_ir_overview_panel(xml: str, view_title: str, system_title: str = "") 
     if page_has_overview_panel(xml):
         return ensure_diagram_document(xml, view_title)
     return _inject_overview_panel(xml, view_title, synthesize_ir_overview_body(xml, view_title, system_title))
+
+
+def refresh_ir_overview_panel(xml: str, view_title: str, system_title: str = "") -> str:
+    """Rewrite overview_panel HTML from the *current* graph (post-repair).
+
+    Keeps panel steps and canvas badges in sync when edges/cells changed during
+    repair. Creates the panel if missing.
+    """
+    body = synthesize_ir_overview_body(xml, view_title, system_title)
+    if not page_has_overview_panel(xml):
+        return _inject_overview_panel(xml, view_title, body)
+    trimmed = ensure_diagram_document(xml or "", view_title)
+    try:
+        tree = ET.fromstring(trimmed)
+    except ET.ParseError:
+        return trimmed
+    # synthesize emits attribute-escaped HTML (&lt;div…); Element.set wants
+    # decoded markup (ET re-escapes on serialize).
+    decoded = html.unescape(body)
+    for cell in tree.iter("mxCell"):
+        if cell.get("id") == "overview_panel":
+            cell.set("value", decoded)
+            break
+    return ET.tostring(tree, encoding="unicode")
 
 
 def _extract_diagram_inner(page_xml: str) -> tuple[str, str]:

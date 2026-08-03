@@ -100,44 +100,47 @@ _LOGICAL_SHAPE_QUERIES: dict[str, str] = {
     "logical_platform": "rounded rectangle",
 }
 
-# Curated draw.io styles for Logical roles.
-# Prefer AWS4 resource icons for people/portals — they render in the embed iframe;
-# umlActor / vague MCP hits often show as empty boxes.
+# Curated draw.io styles for Logical roles — always LEAF_W×LEAF_H.
+# People/channel use AWS4 icons with the label in the band *below* the glyph.
+# Capability / API / store / SaaS / platform are coloured tiles with the label
+# *inside* the box — bottom-band labels left those tiles looking empty.
 _LOGICAL_BUILTIN_STYLES: dict[str, str] = {
     "logical_actor": (
         "sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;"
         "fillColor=#232F3D;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;"
-        "verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;"
+        "verticalAlign=top;align=center;html=1;fontSize=11;fontStyle=0;aspect=fixed;"
         "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.users;"
     ),
     "logical_channel": (
         "sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;"
         "fillColor=#232F3D;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;"
-        "verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;"
+        "verticalAlign=top;align=center;html=1;fontSize=11;fontStyle=0;aspect=fixed;"
         "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.client;"
     ),
     "logical_capability": (
         "rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;"
-        "fontColor=#1A1A2E;fontSize=12;arcSize=8;align=center;verticalAlign=middle;"
+        "fontColor=#1A1A2E;fontSize=11;arcSize=8;align=center;verticalAlign=middle;"
+        "labelPosition=center;verticalLabelPosition=middle;"
     ),
     "logical_api": (
-        "shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;"
-        "fillColor=#E1D5E7;strokeColor=#9673A6;fontColor=#1A1A2E;fontSize=11;align=center;"
-        "verticalAlign=middle;"
+        "rounded=1;whiteSpace=wrap;html=1;fillColor=#E1D5E7;strokeColor=#9673A6;"
+        "fontColor=#1A1A2E;fontSize=11;arcSize=20;align=center;verticalAlign=middle;"
+        "labelPosition=center;verticalLabelPosition=middle;"
     ),
     "logical_datastore": (
-        "shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;"
-        "fillColor=#D5E8D4;strokeColor=#82B366;fontColor=#1A1A2E;fontSize=12;align=center;"
-        "verticalAlign=middle;"
+        "rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;"
+        "fontColor=#1A1A2E;fontSize=11;arcSize=8;align=center;verticalAlign=middle;"
+        "labelPosition=center;verticalLabelPosition=middle;dashed=0;"
     ),
     "logical_saas": (
-        "ellipse;shape=ellipse;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;"
-        "fontColor=#1A1A2E;fontSize=12;align=center;"
-        "verticalLabelPosition=bottom;verticalAlign=top;"
+        "rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;"
+        "fontColor=#1A1A2E;fontSize=11;arcSize=50;align=center;verticalAlign=middle;"
+        "labelPosition=center;verticalLabelPosition=middle;"
     ),
     "logical_platform": (
         "rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#147EBA;"
-        "fontColor=#1A1A2E;fontSize=12;arcSize=8;dashed=1;align=center;verticalAlign=middle;"
+        "fontColor=#1A1A2E;fontSize=11;arcSize=8;dashed=1;align=center;verticalAlign=middle;"
+        "labelPosition=center;verticalLabelPosition=middle;"
     ),
 }
 

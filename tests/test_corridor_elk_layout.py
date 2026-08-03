@@ -91,7 +91,7 @@ class ElkCorridorLayoutTests(unittest.TestCase):
         # orgchart -> cache are both in domain_core — excluded from the ELK
         # graph on purpose (see logical_layout._layout_corridor_ir_elk), so
         # no route is fabricated for it here; it falls through to
-        # placement_fixers.py's existing local router instead.
+        # edge_routing.py's existing local router instead.
         _geos, routes = layout_corridor_ir(_sample_ir())
         self.assertNotIn("flow_2", routes)
 

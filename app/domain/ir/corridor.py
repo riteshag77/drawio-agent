@@ -8,16 +8,15 @@ shelf under Data domain / Restricted zone / Store phase — the exact same
 pattern in all three prompt packs, just different names). This module is the
 one place that shape gets defined.
 
-Crucially: **geometry has never been this app's job for these three views.**
-`adapters/outbound/diagram/logical_layout.py`'s rank-and-order layered layout
-already recomputes every corridor's and leaf's x/y/width/height downstream
-(`placement_fixers.enforce_view_journey_columns`, called unconditionally by
-`xml_diagnostics.repair_xml` for these three page names) — confirmed by
-reading that call chain, not assumed. So unlike Network, this IR doesn't need
-to out-compete a "the model does the geometry" failure mode; it needs to
-out-compete a *grouping* failure mode (a leaf in the wrong domain/zone/phase,
-a business partner folded into the SaaS shelf, an edge into a zone it must
-never reach). That is what the validators here check.
+Crucially: **geometry is computed once at compile time for these three views.**
+`adapters/outbound/diagram/logical_layout.layout_corridor_ir` (invoked by
+`compiler/corridor.compile_corridor_ir`) writes every corridor's and leaf's
+x/y/width/height; `repair_xml` does not re-flow the journey row. So unlike
+Network, this IR doesn't need to out-compete a "the model does the geometry"
+failure mode; it needs to out-compete a *grouping* failure mode (a leaf in
+the wrong domain/zone/phase, a business partner folded into the SaaS shelf,
+an edge into a zone it must never reach). That is what the validators here
+check.
 
 What is genuinely a per-view judgment call (which corridor kinds exist, which
 companion services are required when a trigger condition is met, spine/shelf
