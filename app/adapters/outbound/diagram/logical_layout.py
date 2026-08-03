@@ -32,6 +32,8 @@ CONTAINER_LABEL_HEIGHT = 30.0
 #: is NOT what actually drives icon-to-icon pitch below — see _ICON_PITCH_X.
 ICON_SPACING = 40.0
 INTER_CONTAINER_GAP = 110.0
+#: Wider L→R gutter for sparse Logical (next-ai-style process storyboards).
+LOGICAL_INTER_CONTAINER_GAP = 140.0
 #: Floor so a container never shrinks below room for its own title band —
 #: mirrors xml_tools._FIT_MIN_W/_FIT_MIN_H's role for the general-container
 #: fitter, kept as a separate constant since these are independent systems.
@@ -524,10 +526,16 @@ def _elk_corridor_node(corridor: Corridor, partition: int) -> dict:
     return node
 
 
-def _build_elk_corridor_graph(row: list[Corridor], row_edges: list[tuple[str, str, str]]) -> dict:
+def _build_elk_corridor_graph(
+    row: list[Corridor],
+    row_edges: list[tuple[str, str, str]],
+    *,
+    view: str = "",
+) -> dict:
     """``row_edges`` are ``(flow_id, source_leaf_id, target_leaf_id)`` for
     flows whose endpoints are both leaves of a row corridor (the only edges
     this graph needs to know about — see the module section docstring)."""
+    gap = LOGICAL_INTER_CONTAINER_GAP if view == "logical" else INTER_CONTAINER_GAP
     return {
         "id": "root",
         "layoutOptions": {
@@ -537,8 +545,8 @@ def _build_elk_corridor_graph(row: list[Corridor], row_edges: list[tuple[str, st
             "elk.edgeRouting": "ORTHOGONAL",
             "elk.partitioning.activate": "true",
             # Between L→R corridor columns (layers), not same-layer siblings.
-            "elk.layered.spacing.nodeNodeBetweenLayers": str(INTER_CONTAINER_GAP),
-            "elk.spacing.nodeNode": str(INTER_CONTAINER_GAP),
+            "elk.layered.spacing.nodeNodeBetweenLayers": str(gap),
+            "elk.spacing.nodeNode": str(gap),
             "elk.padding": f"[top={_ROW_START_Y},left={_ROW_START_X},bottom=40,right=40]",
             **elk_graph.MODEL_ORDER_OPTIONS,
         },
@@ -882,7 +890,7 @@ def layout_corridor_ir(ir: CorridorIR) -> tuple[dict[str, Geo], dict[str, list[t
         if cs in row_ids and ct in row_ids and cs != ct:
             row_edges.append((f"flow_{index}", flow.source, flow.target))
 
-    graph = _build_elk_corridor_graph(row, row_edges)
+    graph = _build_elk_corridor_graph(row, row_edges, view=ir.view)
     result = run_elk(graph)
     geos, routes = _parse_elk_corridor_result(result, row)
 

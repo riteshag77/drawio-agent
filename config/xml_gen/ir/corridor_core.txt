@@ -1,10 +1,10 @@
 # Corridor views — shared IR mechanics (Logical / Security / Data-flow)
 
-You produce a JSON object with this shape. You do **not** produce draw.io XML,
-coordinates, styles, or colours — a compiler handles structure, and a
-deterministic layout engine recomputes every position and colour afterward.
+You produce a **JSON** object with this shape. You do **not** produce draw.io
+XML, coordinates, styles, colours, waypoints, or `exitX`/`entryY` — a compiler
+and deterministic layout engine own geometry and edge routing after you return.
 Your only job: decide **what exists**, **which corridor it belongs to**, and
-**how it connects**.
+**how it connects** as a readable storyboard.
 
 ```
 corridors[]        the main left-to-right row (domains / trust zones / data phases)
@@ -15,13 +15,44 @@ external_actors[]  outside the whole diagram (users | saas_ingress | saas_egress
 flows[]            source -> target edges between any two leaf/actor ids
 ```
 
+## Storyboard rules (JSON, not pixels)
+
+Borrowed from high-clarity diagram assistants — expressed as IR choices:
+
+1. **One viewport story** — prefer a sparse graph the reader finishes in seconds.
+   Fewer labeled edges beat a complete mesh. Cap density per the view pack.
+2. **Plan before you emit** — mentally pick the L→R columns (journey ranks),
+   which leaves sit in each, and the primary path. Then write JSON in that
+   order: actors → corridors/leaves → anchored → flows last.
+3. **One dominant direction** — primary flows should read left→right along the
+   corridor row (or top→bottom within a column). Put secondary/error paths as
+   `primary: false` (dashed), not as extra primary zigzags.
+4. **Layers = corridors** — organize components into journey ranks by role
+   (experience → core → data, or public → private → restricted). Omit empty
+   corridors; never invent padding nodes. **Security / Data-flow** draw those
+   ranks as colored boxes; **Logical** uses the same JSON ranks for L→R order
+   only and renders a flat storyboard (icons + edges, optional one cloud
+   boundary — no Experience/Core/Data columns).
+5. **Leaf order is routing** — inside each corridor, list leaves in primary-flow
+   arrival order. That is the only “spacing” control you have; a random order
+   causes crossings after layout.
+6. **Every relationship labeled** — when 2+ leaves/actors exist, `flows` is
+   required and non-empty. Prefer short verbs (1–6 words). Dual paths between
+   the same pair: one primary, one `primary: false` with a distinct label.
+7. **Name what the user asked for** — if they say React + AWS Cognito + Lambda,
+   those labels/`shape_type` keys appear in the JSON. Do not hide them behind
+   vague “capability” placeholders unless the brief is business-generic.
+8. **Never invent geometry** — no `x`/`y`/`width`/`style`/`mxCell`. Icons are
+   semantic `shape_type` keys only (`aws_lambda`, `logical_portal`, `saas_okta`).
+
 ## Corridors
 
 Each corridor is one rank in the journey (a domain, a trust zone, a data
 phase). **Never emit an empty corridor** — omit it entirely if nothing belongs
 in it. Each view below gives you the exact, fixed set of corridor ids the
 layout engine recognizes — use those ids exactly; inventing a new one is a
-validation error, not a creative choice.
+validation error, not a creative choice. On Logical the ranks stay in JSON
+only; on Security/Data-flow they become the visible zone/phase boxes.
 
 ## Anchored shelves
 
@@ -108,8 +139,8 @@ when the request genuinely implies the property, never invented:
   ],
   "anchored": [],
   "flows": [
-    {"source": "users", "target": "edge", "primary": true},
-    {"source": "edge", "target": "svc_a", "primary": true},
+    {"source": "users", "target": "edge", "primary": true, "label": "Uses"},
+    {"source": "edge", "target": "svc_a", "primary": true, "label": "Invokes"},
     {"source": "svc_a", "target": "svc_b", "primary": true, "label": "Invokes"}
   ]
 }
@@ -121,6 +152,6 @@ nodes above, you must also list the edges that tell their story.
 ## What you do not need to do
 
 No coordinates, no pixel gaps, no styles, no colours, no `arcSize`, no grid
-math. A rank-and-order layout engine positions every corridor and leaf after
-you return — spend your effort on correct grouping and a readable story, not
-layout.
+math, no draw.io XML. A rank-and-order layout engine positions every corridor
+and leaf after you return — spend your effort on correct grouping and a
+readable JSON story, not layout.

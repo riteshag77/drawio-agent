@@ -129,6 +129,13 @@ class ViewFixerTests(unittest.TestCase):
         out = relabel_generic_data_stores(xml, view="logical")
         cell = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "db")
         self.assertEqual(cell.get("shape_type"), "aws_rds")
+        # Named cloud products keep product labels on sparse Logical.
+        self.assertIn("aurora", (cell.get("value") or "").lower())
+
+    def test_relabel_generic_brand_without_cloud_shape(self) -> None:
+        xml = _wrap(_leaf("db", "Postgres", 40, "logical_datastore"))
+        out = relabel_generic_data_stores(xml, view="logical")
+        cell = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "db")
         self.assertIn("data store", (cell.get("value") or "").lower())
 
     def test_edge_label_defaults(self) -> None:
@@ -256,11 +263,11 @@ class ViewFixerTests(unittest.TestCase):
         self.assertNotIn("waf", ids)
         self.assertNotIn("note_x", ids)
         db = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "db")
-        self.assertIn("data store", (db.get("value") or "").lower())
-        # Cloud shape_types stripped on Logical (assign_logical runs later in pipeline).
-        self.assertIsNone(db.get("shape_type"))
+        # Named cloud stores keep product labels + aws_* shape_types on Logical.
+        self.assertIn("aurora", (db.get("value") or "").lower())
+        self.assertEqual(db.get("shape_type"), "aws_rds")
         app = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "app")
-        self.assertIsNone(app.get("shape_type"))
+        self.assertEqual(app.get("shape_type"), "aws_ecs")
 
     def test_relabel_kafka_and_drop_alb(self) -> None:
         xml = _wrap(
@@ -277,6 +284,17 @@ class ViewFixerTests(unittest.TestCase):
         self.assertIn("Async messaging", by_id["k"].get("value") or "")
 
     def test_cloud_shape_violation_on_logical(self) -> None:
+        """Network plumbing shape_types are still illegal on Logical."""
+        xml = _wrap(
+            _leaf("a", "WAF", 40, "aws_waf")
+            + _leaf("b", "Customer data store", 240, "aws_rds")
+            + '<mxCell id="e1" edge="1" parent="1" source="a" target="b" value="Reads/Writes via API">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        scored = score_view(xml, view="logical", min_score=75)
+        self.assertTrue(any(v.code == "cloud_shape_on_logical" for v in scored.violations))
+
+    def test_solution_cloud_shapes_ok_on_logical(self) -> None:
         xml = _wrap(
             _leaf("a", "Orders", 40, "aws_ecs")
             + _leaf("b", "Customer data store", 240, "aws_rds")
@@ -284,7 +302,7 @@ class ViewFixerTests(unittest.TestCase):
             '<mxGeometry relative="1" as="geometry"/></mxCell>'
         )
         scored = score_view(xml, view="logical", min_score=75)
-        self.assertTrue(any(v.code == "cloud_shape_on_logical" for v in scored.violations))
+        self.assertFalse(any(v.code == "cloud_shape_on_logical" for v in scored.violations))
 
     def test_missing_classification_on_data_flow(self) -> None:
         xml = _wrap(

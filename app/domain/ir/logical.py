@@ -4,7 +4,11 @@ Structural rules for Logical corridors (see ``config/xml_gen/ir/logical.txt``):
 domain vocabulary is fixed (the layout engine finds domains by exact id, not
 label), `domain_saas` is a shelf anchored under `domain_data` rather than a
 peer column, and external actors (Persona, IdP) never end up nested inside a
-domain because they have their own list. Judgment calls — which capability
+domain because they have their own list.
+
+**Compile note:** ``domain_*`` ids are JSON ranks for L→R order only. The
+corridor compiler emits a flat next-ai-style storyboard (no Experience/Core/
+Data boxes; optional one ``cloud_boundary``). Judgment calls — which capability
 goes in which domain, the cache-aside companion pattern — stay in
 ``config/xml_gen/ir/logical.txt`` and are not re-litigated here.
 """
@@ -22,6 +26,14 @@ _SHELF_ID = "domain_saas"
 
 
 class LogicalIR(CorridorIR):
+    """Sparse process / solution-architecture Logical view.
+
+    Fixed domain vocabulary + optional SaaS shelf (see ``logical.txt``). Cloud
+    ``shape_type`` keys are allowed when the brief is serverless/cloud so MCP
+    can resolve Cognito/Lambda/DynamoDB icons; Network plumbing still belongs
+    on Network/Security, not here.
+    """
+
     view: Literal["logical"] = Field(
         default="logical", description="Must be exactly the lowercase string 'logical' — no other casing."
     )
@@ -65,30 +77,35 @@ class LogicalIR(CorridorIR):
         """Hard density / overcrowding rules (layout cannot fix too many leaves)."""
         errors = super().semantic_errors()
         total = sum(len(c.leaves) for c in self.corridors) + sum(len(s.leaves) for s in self.anchored)
-        if total > 12:
+        if total > 14:
             errors.append(
-                f"Logical has {total} leaves — keep ≤12 (prefer ≤4 per domain) so the "
+                f"Logical has {total} leaves — keep ≤14 (prefer 5–10) so the "
                 "journey stays readable left-to-right"
             )
         for corridor in list(self.corridors) + list(self.anchored):
-            if len(corridor.leaves) > 4:
+            if len(corridor.leaves) > 5:
                 errors.append(
-                    f"{corridor.id} has {len(corridor.leaves)} leaves — wrap expectation is ≤4 "
+                    f"{corridor.id} has {len(corridor.leaves)} leaves — keep ≤5 "
                     "per domain/shelf; merge or omit padding capabilities"
                 )
         return errors
 
     def semantic_warnings(self) -> list[str]:
-        """Promotes the cache-aside "required companion" rule from
-        ``config/xml_gen/ir/logical.txt`` prose into code — see that file's
-        "Required: cache-aside companion" section for the judgment call this
-        mirrors.
-        """
+        """Cache-aside companion for enterprise profile SaaS — not thin Cognito demos."""
         warnings: list[str] = []
         saas_shelf = next((s for s in self.anchored if s.id == _SHELF_ID), None)
-        if saas_shelf is not None:
-            core = self.corridor_by_id("domain_core") or self.corridor_by_id("domain_commerce")
-            if core is not None and not self.leaves_mention(core.leaves, "cache"):
+        if saas_shelf is None:
+            return warnings
+        # Skip when core already hosts cloud IdP (Cognito) — serverless auth path.
+        core = self.corridor_by_id("domain_core") or self.corridor_by_id("domain_commerce")
+        if core is not None:
+            if any(
+                (leaf.shape_type or "").lower().startswith(("aws_cognito", "aws_identity"))
+                or "cognito" in (leaf.label or "").lower()
+                for leaf in core.leaves
+            ):
+                return warnings
+            if not self.leaves_mention(core.leaves, "cache"):
                 warnings.append(
                     "domain_saas shelf is present but no domain_core/domain_commerce leaf mentions "
                     "a cache — the cache-aside companion rule calls for one for SaaS-outage "

@@ -1,109 +1,175 @@
-# Logical architecture view — judgment content
+# Logical architecture view — sparse process / solution briefing (JSON IR)
 
-Page name: **Logical**. Role: Principal Application/Solution Architect briefing
-**both** business stakeholders and engineering leads on **what the system does**
-and **how capabilities depend** — not infrastructure. 60-second design-authority
-brief. If this reads like a VPC map or trust-zone diagram → fail.
+Page name: **Logical**. You emit **JSON only** (CorridorIR). Never draw.io XML,
+coordinates, styles, or edge ports — the compiler lays those out.
 
-## Corridor vocabulary (fixed ids) — left → right journey
+Role: brief business + engineering on **what the system does** and **how
+services connect** — not VPC nesting, subnets, AZs, or trust-zone maps
+(Network / Security).
 
-Main row, **exactly this order** (omit a column if empty — never invent one to pad):
+Target look: next-ai-draw-io–class **flat storyboard** — icons + labeled edges
+left→right (User → Client → services → data), optionally one cloud boundary.
+**No Experience / Core / Data colored columns are drawn** — those `domain_*`
+ids are **JSON ranking only** so the compiler can order the journey.
 
-1. `domain_experience` — channels / portals / apps the user touches
-2. `domain_core` **OR** `domain_commerce` — capabilities / APIs (**one** middle column, never both)
-3. `domain_data` — generic data stores (system of record)
-4. `domain_platform` — shared platform / observability capabilities (rightmost)
+Prefer **5–10 leaves**. Overview panel, step badges, and legend are added
+after compile — you do not invent them in JSON.
 
-Anchored shelf: `domain_saas` — external SaaS products, anchored under
-`domain_data`. **Required** when 2+ egress SaaS products appear.
+## How to answer short user prompts (gallery style → JSON)
+
+Users often send short briefs like next-ai examples. Map them to **JSON IR**,
+not freehand XML:
+
+| User-style brief | Emit as Logical JSON |
+|------------------|----------------------|
+| “Auth with React + AWS serverless” | User actor → React leaf → Cognito + API GW + Lambda → DynamoDB; labeled JWT / return paths |
+| “RAG architecture for a chat app” | Chat UI → retriever + LLM → vector store; labeled ingest vs query edges (still use domain ranks in JSON) |
+| “Open Innovation model” | Sparse conceptual nodes L→R with labeled inflows/outflows — still fixed domain ids in JSON |
+| “Transformer architecture” | Attention + FFN as capabilities; L→R residual story; no cloud VPC |
+
+Always: plan the L→R ranks and primary path mentally, then emit the JSON object
+with `external_actors`, `corridors`, `anchored`, `flows` (flows last).
+
+## Corridor vocabulary (fixed ids) — JSON ranks only (not drawn boxes)
+
+Main row ids, **exactly this order** (omit a rank if empty — never invent one
+to pad). These ids control left→right order; they are **not** on-canvas
+domain columns:
+
+1. `domain_experience` — channels / portals / apps the user touches (React app, portal)
+2. `domain_core` **OR** `domain_commerce` — APIs, auth services, compute (**one** middle rank)
+3. `domain_data` — system of record (DynamoDB, Aurora, generic store)
+4. `domain_platform` — shared platform / observability (optional; omit if unused)
+
+Anchored shelf: `domain_saas` — external SaaS products (Stripe, Workday, Okta as
+egress), anchored under `domain_data` in JSON. Use when 2+ egress SaaS products
+appear, or one important partner (e.g. Stripe) sits outside the primary cloud
+path. Cloud `aws_*`/`gcp_*`/`azure_*` leaves may render inside one dashed cloud
+group; React/portal and SaaS egress stay outside that group.
+
+## Cloud / serverless prompts
+
+When the user asks for **AWS / GCP / Azure / React / serverless** auth or a
+named cloud stack:
+
+- **Name the real services** in labels (`Amazon Cognito`, `API Gateway`,
+  `AWS Lambda`, `DynamoDB`, `React Client`).
+- Use matching `shape_type` keys: `aws_cognito`, `aws_api_gateway`, `aws_lambda`,
+  `aws_dynamodb`, `logical_portal` for React, etc. MCP resolves icons.
+- Keep the story **process-shaped**, not Network-shaped: no VPC, subnet, NAT,
+  ALB-as-plumbing, WAF, CloudFront, Route 53, or AZ boxes on Logical.
+- Typical serverless auth map:
+  - `domain_experience`: React / web client
+  - `domain_core`: Cognito + API Gateway + Lambda (order by primary flow)
+  - `domain_data`: DynamoDB (or primary store)
+  - `domain_saas` or right `saas_egress` actor: Stripe / external APIs when needed
+  - Left actor: User (`kind=users`)
+
+When the brief is **business capability** (no cloud vendor): keep generic
+`logical_*` labels (`Product Portal`, `Orders capability`, `Customer data store`).
 
 ## Journey spine (external actors)
 
-When auth or external SaaS appears: `Persona` (kind=users) → `Identity SaaS`
-(kind=saas_ingress, e.g. Okta) → the Portal/Application **leaf inside
-domain_experience**. Never start the story at a data store or IdP alone.
+User / Persona (`kind=users`) on the left. Identity can be:
 
-Canonical L→R story the layout engine will draw:
+- **Cloud IdP as a leaf** inside `domain_core` (Cognito) — preferred for AWS
+  serverless auth demos, **or**
+- **External IdP** as `saas_ingress` (Okta / Auth0) flowing into the portal.
 
-`Persona → IdP → Portal (experience) → Capability (core) → Data store → [Platform]`,
-with SaaS shelf under Data when present.
+Canonical L→R: `User → Client → Auth → API → Compute → Data → [SaaS]`.
 
 ## Leaf vocabulary
 
-Personas/actors, channels/portals/applications, capabilities (business verbs —
-not infra), BFF/API as interface, generic data stores (**"Customer data
-store" — never product names like Postgres/Aurora**), cache capability (see
-below), shared platform capabilities. Use `shape_type=logical_*` placeholders
-for all of these — the server assigns icons. **Never** emit cloud
-`shape_type` (`aws_*`/`gcp_*`/`azure_*`).
-
-External SaaS products: each its own leaf labeled `{Product} (SAAS)` (e.g.
-`Okta (SAAS)`, `Workday (SAAS)`), `shape_type=saas_<vendor>` when known, else
-`logical_saas`. Never invent cloud stencils for these.
-
-Mark `criticality: critical` on the primary data store inside `domain_data`
-(the system of record the capabilities depend on) — most other leaves stay
-`standard`.
+- Channels / apps, capabilities, APIs/gateways, auth services, stores, platform.
+- SaaS: `{Product} (SAAS)` with `saas_<vendor>` when known.
+- Mark `criticality: critical` on the primary datastore (and Cognito when it is
+  the auth SPOF).
 
 **Order leaves left→right by primary-flow arrival** inside each corridor.
 
-## Required: cache-aside companion
+## Cache-aside companion (enterprise SaaS only)
 
-When **profile/directory/IdP-style** egress SaaS + an app/portal + a datastore
-are **all** present, add **one** cache leaf for graceful degradation (not
-density padding):
-1. A single cache leaf inside `domain_core` (e.g. `Profile cache`).
-2. Flow app/portal → cache, labeled `Check Cache (Profiles)`.
-3. Flow app/portal → **that same profile/directory SaaS**, labeled
-   `Cache Miss: Fetches via API` (never a bare `Calls API` for that hop).
-
-**Do not** attach `Cache Miss: Fetches via API` to billing, SMS, payments,
-or other non-cached partners (Stripe, Twilio, FHIR gateways). Those use
-`Calls API` / `Invokes` only — a cache-miss verb on Stripe is wrong.
+When **profile/directory egress SaaS** + portal + datastore are all present,
+add one cache leaf in `domain_core` with `Check Cache` / `Cache Miss: Fetches via API`.
+**Do not** invent cache-aside for Stripe / billing / SMS, or for thin Cognito
+serverless demos.
 
 ## Allowed edges (every flow labeled)
 
-`Uses`, `Authenticates via`, `Invokes`, `Calls API`, `Relies on`,
-`Reads/Writes via API`, `Redirects to`, `Check Cache (Profiles)`,
-`Cache Miss: Fetches via API`. Never TLS/WAF/JSON-payload-tour vocabulary —
-that belongs to Security/Data-flow.
+Prefer short process verbs: `Uses`, `Authenticates`, `Authenticates via`,
+`Invokes`, `Calls API`, `Forwards Request`, `Validate JWT`, `Reads/Writes`,
+`Returns`, `Query Subscription`, `Redirects to`, `Check Cache (Profiles)`,
+`Cache Miss: Fetches via API`. Secondary / error paths: `primary: false` with
+labels like `401 Unauthorized`, `402 Payment Required`, `Failure: …`.
 
-Canonical auth journey: `Persona → Okta (SAAS)` (`Authenticates via`) →
-`Portal/Application` (`Redirects to`) → capability. Canonical data journey:
-`capability → Customer data store` (`Reads/Writes via API`).
+Never TLS/WAF/JSON-payload-class vocabulary — that belongs to Security / Data-flow.
 
-### Mini example
+### Mini example — serverless auth (AWS) — full JSON object
 
 ```json
-"external_actors": [{"id": "persona", "kind": "users", "label": "Persona"}],
-"corridors": [
-  {"id": "domain_experience", "label": "Experience", "leaves": [
-    {"id": "portal", "shape_type": "logical_portal", "label": "Product Portal"}
-  ]},
-  {"id": "domain_core", "label": "Core", "leaves": [
-    {"id": "item_api", "shape_type": "logical_capability", "label": "Item capability"},
-    {"id": "reviews_api", "shape_type": "logical_capability", "label": "Reviews capability"}
-  ]},
-  {"id": "domain_data", "label": "Data", "leaves": [
-    {"id": "item_store", "shape_type": "logical_datastore", "label": "Item data store", "criticality": "critical"}
-  ]}
-],
-"flows": [
-  {"source": "persona", "target": "portal", "label": "Uses"},
-  {"source": "portal", "target": "item_api", "label": "Invokes"},
-  {"source": "reviews_api", "target": "item_api", "label": "Calls API"},
-  {"source": "item_api", "target": "item_store", "label": "Reads/Writes via API"}
-]
+{
+  "external_actors": [
+    {"id": "user", "kind": "users", "label": "User"}
+  ],
+  "corridors": [
+    {"id": "domain_experience", "label": "Experience", "leaves": [
+      {"id": "react", "shape_type": "logical_portal", "label": "React Client"}
+    ]},
+    {"id": "domain_core", "label": "Core", "leaves": [
+      {"id": "cognito", "shape_type": "aws_cognito", "label": "Amazon Cognito", "criticality": "critical"},
+      {"id": "apigw", "shape_type": "aws_api_gateway", "label": "API Gateway"},
+      {"id": "lambda", "shape_type": "aws_lambda", "label": "AWS Lambda"}
+    ]},
+    {"id": "domain_data", "label": "Data", "leaves": [
+      {"id": "ddb", "shape_type": "aws_dynamodb", "label": "DynamoDB", "criticality": "critical"}
+    ]}
+  ],
+  "anchored": [],
+  "flows": [
+    {"source": "user", "target": "react", "label": "Initiates Login", "primary": true},
+    {"source": "react", "target": "cognito", "label": "Authenticates", "primary": true},
+    {"source": "react", "target": "apigw", "label": "Authenticated Request (JWT)", "primary": true},
+    {"source": "apigw", "target": "cognito", "label": "Validate JWT", "primary": true},
+    {"source": "apigw", "target": "lambda", "label": "Forwards Request", "primary": true},
+    {"source": "lambda", "target": "ddb", "label": "Fetch User Data", "primary": true},
+    {"source": "lambda", "target": "react", "label": "Return Data (JSON)", "primary": false}
+  ]
+}
 ```
 
-**Forbidden:** data store ↔ IdP edges; every-to-every mesh; bare `Calls API`
-to egress SaaS when a cache leaf is present; trust-zone vocabulary
-(zone_public/DMZ/etc. — that's Security's lens); infrastructure products
-(WAF/ALB/VPC/subnet/NAT — also Security's or Network's lens); both
-`domain_core` and `domain_commerce` in the same diagram.
+### Mini example — RAG chat (JSON IR)
+
+```json
+{
+  "external_actors": [{"id": "user", "kind": "users", "label": "User"}],
+  "corridors": [
+    {"id": "domain_experience", "label": "Experience", "leaves": [
+      {"id": "chat", "shape_type": "logical_portal", "label": "Chat UI"}
+    ]},
+    {"id": "domain_core", "label": "Core", "leaves": [
+      {"id": "retrieve", "shape_type": "logical_capability", "label": "Retriever"},
+      {"id": "llm", "shape_type": "logical_capability", "label": "LLM"}
+    ]},
+    {"id": "domain_data", "label": "Data", "leaves": [
+      {"id": "vectors", "shape_type": "logical_datastore", "label": "Vector store", "criticality": "critical"}
+    ]}
+  ],
+  "anchored": [],
+  "flows": [
+    {"source": "user", "target": "chat", "label": "Asks", "primary": true},
+    {"source": "chat", "target": "retrieve", "label": "Query", "primary": true},
+    {"source": "retrieve", "target": "vectors", "label": "Similarity search", "primary": true},
+    {"source": "retrieve", "target": "llm", "label": "Context + prompt", "primary": true},
+    {"source": "llm", "target": "chat", "label": "Answer", "primary": true}
+  ]
+}
+```
+
+**Forbidden on Logical:** VPC / subnet / AZ / NAT / IGW / TGW / WAF / Shield /
+CloudFront-as-edge / ALB-as-plumbing / Route 53 boxes; both `domain_core` and
+`domain_commerce`; trust-zone ids (`zone_*`); raw mxCell / coordinates.
 
 ## Density
 
-**Hard cap:** ≤12 leaves total, ≤4 leaves per domain/shelf. Prefer 5–8 when
-the brief is thin. Never invent domains or capabilities to pad — omit empty
-columns instead.
+**Hard cap:** ≤14 leaves total, ≤5 leaves per domain/shelf. Prefer **5–10** for
+auth/RAG-style briefs. Never pad empty domains — omit unused columns.

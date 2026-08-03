@@ -29,6 +29,21 @@ def _compile(ir: LogicalIR) -> str:
     return compile_corridor_ir(ir, page_name="Logical")
 
 
+def _abs_xy(cells: dict, cid: str) -> tuple[float, float]:
+    """Absolute x/y for a cell (walk parent chain for relative nesting)."""
+    x = y = 0.0
+    cur = cid
+    seen: set[str] = set()
+    while cur and cur not in {"0", "1"} and cur not in seen:
+        seen.add(cur)
+        cell = cells[cur]
+        g = cell.find("mxGeometry")
+        x += float(g.get("x") or 0)
+        y += float(g.get("y") or 0)
+        cur = cell.get("parent") or "1"
+    return x, y
+
+
 def _uneven_logical_ir() -> LogicalIR:
     """Tall Core + short Experience/Data with a skip-edge — the shape that
     made ELK stagger corridor Y on real captures (Data dropped ~200px)."""
@@ -61,22 +76,22 @@ def _uneven_logical_ir() -> LogicalIR:
 
 
 class LogicalRowOrderTests(unittest.TestCase):
-    def test_domains_read_left_to_right(self) -> None:
+    def test_leaves_read_left_to_right_without_domain_boxes(self) -> None:
         xml = _compile(realistic_logical_ir())
         cells = {c.get("id"): c for c in ET.fromstring(xml).iter("mxCell") if c.get("id")}
+        for domain in (
+            "domain_experience", "domain_core", "domain_data",
+            "domain_platform", "domain_saas", "actors_left",
+        ):
+            self.assertNotIn(domain, cells)
+        self.assertIn("cloud_boundary", cells)
 
-        def x(cid: str) -> float:
-            g = cells[cid].find("mxGeometry")
-            return float(g.get("x") or 0)
+        def ax(cid: str) -> float:
+            return _abs_xy(cells, cid)[0]
 
-        self.assertLess(x("domain_experience"), x("domain_core"))
-        self.assertLess(x("domain_core"), x("domain_data"))
-        self.assertLess(x("domain_data"), x("domain_platform"))
-        self.assertAlmostEqual(x("domain_saas"), x("domain_data"), delta=5.0)
-        sy = float(cells["domain_saas"].find("mxGeometry").get("y") or 0)
-        dy = float(cells["domain_data"].find("mxGeometry").get("y") or 0)
-        dh = float(cells["domain_data"].find("mxGeometry").get("height") or 0)
-        self.assertGreaterEqual(sy, dy + dh - 1.0)
+        self.assertLess(ax("portal"), ax("orders"))
+        self.assertLess(ax("orders"), ax("warehouse"))
+        self.assertLess(ax("persona"), ax("portal"))
 
     def test_row_corridors_share_one_y_and_height_band(self) -> None:
         geos, _routes = layout_corridor_ir(_uneven_logical_ir())
@@ -88,12 +103,17 @@ class LogicalRowOrderTests(unittest.TestCase):
         shelf, data = geos["domain_saas"], geos["domain_data"]
         self.assertGreaterEqual(shelf.y, data.y + data.h - 1.0)
 
-    def test_actors_align_to_corridor_band(self) -> None:
+    def test_actors_are_loose_and_left_of_storyboard(self) -> None:
         xml = _compile(_uneven_logical_ir())
         cells = {c.get("id"): c for c in ET.fromstring(xml).iter("mxCell") if c.get("id")}
-        actors_y = float(cells["actors_left"].find("mxGeometry").get("y") or 0)
-        core_y = float(cells["domain_core"].find("mxGeometry").get("y") or 0)
-        self.assertAlmostEqual(actors_y, core_y, delta=1.0)
+        self.assertNotIn("actors_left", cells)
+        self.assertEqual(cells["persona"].get("parent"), "1")
+        # Generic logical_* brief: no cloud_boundary.
+        self.assertNotIn("cloud_boundary", cells)
+        self.assertEqual(cells["portal"].get("parent"), "1")
+        persona_right = float(cells["persona"].find("mxGeometry").get("x") or 0) + geo.LEAF_W
+        portal_x = float(cells["portal"].find("mxGeometry").get("x") or 0)
+        self.assertLessEqual(persona_right, portal_x)
 
     def test_leaves_are_leaf_wh_and_fit_parent(self) -> None:
         xml = assign_logical_shape_types(_compile(realistic_logical_ir()))
@@ -139,7 +159,7 @@ class LogicalRowOrderTests(unittest.TestCase):
             )
 
     def test_density_semantic_error(self) -> None:
-        leaves = [_leaf(f"c{i}", "logical_capability", f"Cap{i}") for i in range(5)]
+        leaves = [_leaf(f"c{i}", "logical_capability", f"Cap{i}") for i in range(6)]
         ir = LogicalIR(
             corridors=[
                 Corridor(id="domain_experience", label="Experience", leaves=[_leaf("p", "logical_portal", "Portal")]),
@@ -149,7 +169,7 @@ class LogicalRowOrderTests(unittest.TestCase):
             flows=[Flow(source="p", target="c0"), Flow(source="c0", target="d")],
         )
         errs = ir.semantic_errors()
-        self.assertTrue(any("domain_core" in e and "4" in e for e in errs), errs)
+        self.assertTrue(any("domain_core" in e and "5" in e for e in errs), errs)
 
 
 class LogicalOverviewTests(unittest.TestCase):
@@ -161,6 +181,9 @@ class LogicalOverviewTests(unittest.TestCase):
         self.assertIn("Business:", body)
         self.assertIn("Portal", body)
         self.assertIn("Core work", body)
+        self.assertIn("cloud boundary", body.lower())
+        # Facts line for flat Logical mentions services/flows (not domain counts).
+        self.assertTrue("service" in body.lower() or "flow" in body.lower())
         out = ensure_ir_overview_panel(xml, "Logical", "Demo System")
         self.assertIn("overview_panel", out)
 

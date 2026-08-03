@@ -142,6 +142,14 @@ def shelf_style(corridor_id: str = "") -> str:
     return _corridor_container(corridor_id, shelf=True)
 
 
+def cloud_boundary_style(platform: str = "aws") -> str:
+    """Single dashed cloud group for flat Logical (next-ai auth.svg look).
+
+    Not a domain column — one optional boundary around cloud-shaped leaves.
+    """
+    return _titled(_palette(platform)["cloud"], dashed=True, width=2, bold=True)
+
+
 def leaf_style(criticality: str = "standard") -> str:
     """Grey placeholder awaiting MCP icon resolution.
 

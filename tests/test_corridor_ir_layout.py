@@ -252,20 +252,23 @@ class LogicalLayoutTests(unittest.TestCase):
         new_geo, _routes = layout_corridor_ir(ir)
         self.assertEqual(new_geo["domain_saas"].x, new_geo["domain_data"].x)
 
-    def test_journey_spine_actor_band_does_not_collide_with_domain_row(self) -> None:
-        """Persona/Okta (the 'journey spine') render as ExternalActor, not
-        bespoke spine geometry — this is the regression test for that: the
-        actors band must sit clear of the domain row, not overlap it."""
+    def test_journey_spine_actor_does_not_collide_with_storyboard(self) -> None:
+        """Persona/Okta render as loose ExternalActors on flat Logical — clear
+        of the leftmost storyboard leaf / cloud boundary."""
         ir = realistic_logical_ir()
         xml = compile_corridor_ir(ir, page_name="Logical")
         diag = diagnose_xml(xml)
         self.assertEqual(diag.errors, [])
         self.assertEqual(_non_routing_warnings(diag.warnings), [])
         cells = {c.get("id"): c for c in ET.fromstring(xml).iter("mxCell") if c.get("id")}
+        self.assertNotIn("actors_left", cells)
+        self.assertNotIn("domain_experience", cells)
         actor_geo = cells["persona"].find("mxGeometry")
-        row_geo = cells["domain_experience"].find("mxGeometry")
+        # Leftmost storyboard container is cloud_boundary (aws_* leaves) or a root leaf.
+        hull = cells.get("cloud_boundary") or cells["portal"]
+        hull_geo = hull.find("mxGeometry")
         actor_right = float(actor_geo.get("x")) + float(actor_geo.get("width"))
-        self.assertLessEqual(actor_right, float(row_geo.get("x")))
+        self.assertLessEqual(actor_right, float(hull_geo.get("x")))
 
     def test_raw_compiler_output_has_zero_diagnostics(self) -> None:
         xml = compile_corridor_ir(realistic_logical_ir(), page_name="Logical")
@@ -300,15 +303,26 @@ class LogicalLayoutTests(unittest.TestCase):
                 f"{cid}'s geometry changed under repair_xml",
             )
 
-    def test_keeps_portal_nested_in_experience_domain(self) -> None:
-        """IR path must keep Portal inside domain_experience (no legacy spine hoist)."""
+    def test_flat_storyboard_no_domain_boxes(self) -> None:
+        """Logical compiles next-ai-style: no domain_* boxes; cloud aws_* under
+        cloud_boundary; SaaS shelf leaves stay outside."""
         ir = realistic_logical_ir()
         new_geo, _routes = layout_corridor_ir(ir)
-        self.assertIn("domain_experience", new_geo)
+        self.assertIn("domain_experience", new_geo)  # ranks still in layout
         self.assertIn("portal", new_geo)
         xml = compile_corridor_ir(ir, page_name="Logical")
         cells = {c.get("id"): c for c in ET.fromstring(xml).iter("mxCell") if c.get("id")}
-        self.assertEqual(cells["portal"].get("parent"), "domain_experience")
+        for domain in (
+            "domain_experience", "domain_core", "domain_data",
+            "domain_platform", "domain_saas",
+        ):
+            self.assertNotIn(domain, cells)
+        self.assertIn("cloud_boundary", cells)
+        self.assertEqual(cells["portal"].get("parent"), "cloud_boundary")
+        self.assertEqual(cells["orders"].get("parent"), "cloud_boundary")
+        self.assertEqual(cells["segment"].get("parent"), "1")
+        self.assertEqual(cells["persona"].get("parent"), "1")
+        self.assertEqual(cells["okta"].get("parent"), "1")
 
 
 class NetworkParityTests(unittest.TestCase):

@@ -175,9 +175,16 @@ def relabel_generic_data_stores(page_xml: str, *, view: str) -> str:
         return page_xml
     changed = False
     for cell in _service_leaves(tree):
+        st = (cell.get("shape_type") or "").strip().lower()
+        if st.startswith(("aws_", "gcp_", "azure_")):
+            continue
         label = _plain_cell_label(cell.get("value") or "")
         low = label.lower()
         if "data store" in low:
+            continue
+        if any(p in low for p in (
+            "dynamodb", "cognito", "aurora", "rds", "cosmos", "firestore", "spanner",
+        )):
             continue
         if any(b in low for b in _DB_BRANDS):
             # Preserve role hints
@@ -216,37 +223,13 @@ def relabel_messaging_as_capabilities(page_xml: str, *, view: str) -> str:
 
 
 def strip_cloud_shape_types(page_xml: str, *, view: str) -> str:
-    """Remove leaked cloud shape_type attrs on Logical before logical_* assignment.
+    """Formerly stripped all cloud shape_types on Logical.
 
-    Brand ``saas_*`` keys are kept — Logical uses curated SaaS stencil icons.
+    Logical now keeps intentional ``aws_*`` / ``gcp_*`` / ``azure_*`` keys so
+    serverless / solution-architecture briefs get MCP icons. Network plumbing
+    is still removed via ``drop_forbidden_nodes``. No-op for call-site compatibility.
     """
-    if view != "logical":
-        return page_xml
-    title = VIEW_PAGE_NAMES.get(view, view)
-    tree = _parse(page_xml, title)
-    if tree is None:
-        return page_xml
-    changed = False
-    for cell in tree.iter("mxCell"):
-        st = (cell.get("shape_type") or "").strip().lower()
-        if not st:
-            continue
-        if st.startswith(("aws_", "gcp_", "azure_")):
-            if "shape_type" in cell.attrib:
-                del cell.attrib["shape_type"]
-                changed = True
-            style = cell.get("style") or ""
-            # Drop vendor stencil crumbs so MCP/builtins can repaint cleanly.
-            cleaned = re.sub(
-                r"(?:mxgraph\.(?:aws4|gcp2|azure)[^;]*|resIcon=[^;]*|shape=mxgraph\.[^;]*);?",
-                "",
-                style,
-                flags=re.IGNORECASE,
-            )
-            if cleaned != style:
-                cell.set("style", cleaned)
-                changed = True
-    return _serialize(tree) if changed else page_xml
+    return page_xml
 
 
 def _is_data_store_label(label: str) -> bool:

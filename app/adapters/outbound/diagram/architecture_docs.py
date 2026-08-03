@@ -104,9 +104,9 @@ def build_views_prompt_block(views: list[str], *, adr_notes: bool = False, raid_
             "hierarchy with connectivity hubs at Cloud level."
         ),
         "logical": (
-            "Focus this page on the Logical view: business capabilities grouped into the "
-            "fixed domain corridors (experience/core/data/platform, optional SaaS shelf) "
-            "with labeled dependency edges — no VPC/subnet topology on this page."
+            "Focus this page on the Logical view: sparse next-ai-style process "
+            "storyboard (icons + labeled edges; domain_* ids are JSON ranks only) "
+            "— no VPC/subnet topology on this page."
         ),
         "security": (
             "Focus this page on the Security / trust view: trust boundaries, IAM/edge "
@@ -157,7 +157,7 @@ def _plain_cell_label(value: str) -> str:
 def _is_inventory_noise_label(label: str, cell_id: str) -> bool:
     """Drop badges, overview, and digit-only noise from inventory lists."""
     cid = (cell_id or "").strip().lower()
-    if cid in {"overview_panel", "legend_box", "0", "1"} or cid.startswith("step_badge_"):
+    if cid in {"overview_panel", "legend_box", "cloud_boundary", "0", "1"} or cid.startswith("step_badge_"):
         return True
     text = (label or "").strip()
     if not text:
@@ -1307,11 +1307,11 @@ def _logical_leaf_role(label: str) -> str:
 
 
 def assign_logical_shape_types(page_xml: str) -> str:
-    """Tag Logical leaves with logical_* shape_type + non-cloud stencil for MCP.
+    """Tag generic Logical leaves with logical_* shape_type + builtin stencil.
 
-    Applies builtin generic styles immediately (so local renderer looks right).
-    MCP may overwrite with search_shapes hits; miss path uses the same builtins.
-    Network / Security / Data flow are unchanged.
+    Leaves that already have ``aws_*`` / ``gcp_*`` / ``azure_*`` / ``saas_*``
+    keep those keys so MCP can resolve official icons (next-ai-style serverless
+    Logical). Network / Security / Data flow are unchanged.
     """
     from app.adapters.outbound.diagram.drawio_mcp_client import _LOGICAL_BUILTIN_STYLES
 
@@ -1336,9 +1336,11 @@ def assign_logical_shape_types(page_xml: str) -> str:
         label = _plain_cell_label(cell.get("value") or "")
         if _is_inventory_noise_label(label, cid):
             continue
-        # Preserve brand SaaS keys/styles already assigned by the LLM or prior pass.
+        # Preserve brand SaaS and intentional cloud icons (serverless Logical).
         existing = (cell.get("shape_type") or "").strip().lower()
         if existing.startswith("saas_"):
+            continue
+        if existing.startswith(("aws_", "gcp_", "azure_")):
             continue
         role = _logical_leaf_role(label)
         st = _LOGICAL_ROLE_TO_SHAPE_TYPE.get(role, "logical_capability")
@@ -1762,21 +1764,33 @@ def _ir_story_steps(xml: str, *, max_steps: int | None = None) -> list[_StorySte
         if parent in domain_order:
             return domain_order[parent]
         val = ((cell.get("value") or "") + (cell.get("style") or "") + (cell.get("shape_type") or "")).lower()
-        # External actors sit at parent="1" (Network) or under actors_left (corridor).
-        if parent in {"1", "actors_left"} or parent.startswith("actors"):
-            if "aws4.user" in val or any(
-                t in val for t in (
-                    "user", "patient", "clinician", "persona", "customer",
-                    "employee", "partner",
-                )
-            ):
-                return -2
-            if any(t in val for t in ("okta", "entra", "cognito", "auth0", "idp", "identity")):
-                return -1
-            # Egress SaaS on the right — late in the journey.
-            if any(t in val for t in ("stripe", "twilio", "fhir", "workday", "saas")):
-                return 6
-            return -1
+        st = (cell.get("shape_type") or "").lower()
+        # Flat Logical: leaves under cloud_boundary or parent=1 — rank by shape/label.
+        if parent in {"1", "cloud_boundary", "actors_left"} or parent.startswith("actors"):
+            if parent in {"1", "actors_left"} or parent.startswith("actors"):
+                if "aws4.user" in val or any(
+                    t in val for t in (
+                        "user", "patient", "clinician", "persona", "customer",
+                        "employee", "partner",
+                    )
+                ):
+                    if not any(t in val for t in ("okta", "entra", "cognito", "auth0", "idp")):
+                        return -2
+                if any(t in val for t in ("okta", "entra", "cognito", "auth0", "idp", "identity")) and not st.startswith("aws_"):
+                    return -1
+                # Egress SaaS on the right — late in the journey.
+                if st.startswith("saas_") or any(t in val for t in ("stripe", "twilio", "fhir", "workday", "saas")):
+                    return 6
+            if st.startswith("logical_portal") or "portal" in val or "react" in val or "chat" in val:
+                return 0
+            if any(st.startswith(p) for p in ("aws_dynamodb", "aws_rds", "aws_aurora", "aws_s3")) or "logical_datastore" in st:
+                return 2
+            if st.startswith(("aws_", "gcp_", "azure_")) or "logical_capability" in st or "logical_api" in st:
+                return 1
+            if parent == "cloud_boundary":
+                return 1
+            if parent == "1" and cell.get("vertex") == "1":
+                return 0
         chain = _parent_chain(cell_id)
         if "edge" in chain or any(t in chain for t in ("route 53", "cloudfront", "waf", "cdn")):
             return 0
@@ -1827,7 +1841,11 @@ def _ir_story_steps(xml: str, *, max_steps: int | None = None) -> list[_StorySte
 
 
 def _logical_business_steps(xml: str) -> list[str]:
-    """Business-readable journey from actual Logical leaves — not corridor fluff."""
+    """Business-readable journey from actual Logical leaves — not corridor fluff.
+
+    Supports nested ``domain_*`` parents (legacy) and flat Logical (parent ``1`` /
+    ``cloud_boundary``) by grouping on ``shape_type`` + label heuristics.
+    """
     try:
         parse_src = xml if ("<mxfile" in xml or "<mxGraphModel" in xml) else f"<root>{xml}</root>"
         tree = ET.fromstring(parse_src)
@@ -1835,6 +1853,11 @@ def _logical_business_steps(xml: str) -> list[str]:
         return []
 
     by_parent: dict[str, list[str]] = {}
+    channels: list[str] = []
+    core: list[str] = []
+    data: list[str] = []
+    saas: list[str] = []
+    platform: list[str] = []
     actors: list[str] = []
     for cell in tree.iter("mxCell"):
         if cell.get("vertex") != "1" or cell.get("edge") == "1":
@@ -1842,26 +1865,56 @@ def _logical_business_steps(xml: str) -> list[str]:
         if "container=1" in (cell.get("style") or ""):
             continue
         cid = cell.get("id") or ""
-        if cid in {"0", "1", "overview_panel", "legend_box"} or cid.startswith("step_badge_"):
+        if cid in {"0", "1", "overview_panel", "legend_box", "cloud_boundary"} or cid.startswith("step_badge_"):
             continue
         lab = _strip_annotation_tag((cell.get("value") or "").strip())
         if not lab:
             continue
         parent = cell.get("parent") or ""
         style = (cell.get("style") or "").lower()
+        st = (cell.get("shape_type") or "").lower()
         val_low = lab.lower()
-        if parent == "actors_left" or (cell.get("id") or "").startswith("actors_"):
-            # People only — IdP/SaaS on the spine are not "who".
-            if "aws4.user" in style or any(
-                t in val_low for t in ("persona", "user", "patient", "clinician", "customer", "employee")
-            ):
-                if not any(t in val_low for t in ("okta", "entra", "cognito", "saas", "idp")):
-                    actors.append(lab)
+        is_person = (
+            "aws4.user" in style
+            or any(t in val_low for t in ("persona", "user", "patient", "clinician", "customer", "employee"))
+        ) and not any(t in val_low for t in ("okta", "entra", "cognito", "saas", "idp"))
+        if parent == "actors_left" or cid.startswith("actors_") or (
+            parent == "1" and is_person and not st
+        ):
+            if is_person:
+                actors.append(lab)
             continue
         by_parent.setdefault(parent, []).append(lab)
+        # Flat Logical buckets (also used when domain parents are gone).
+        if st.startswith("logical_portal") or any(t in val_low for t in ("portal", "react", "chat ui", "client")):
+            channels.append(lab)
+        elif st.startswith("saas_") or "saas" in val_low or parent == "domain_saas":
+            saas.append(lab)
+        elif (
+            any(st.startswith(p) for p in ("aws_dynamodb", "aws_rds", "aws_aurora", "aws_s3", "gcp_sql", "azure_sql"))
+            or "logical_datastore" in st
+            or parent == "domain_data"
+        ):
+            data.append(lab)
+        elif "logical_observability" in st or parent == "domain_platform" or any(
+            t in val_low for t in ("observab", "platform", "telemetry")
+        ):
+            platform.append(lab)
+        elif parent in {"domain_core", "domain_commerce", "cloud_boundary"} or st.startswith(
+            ("aws_", "gcp_", "azure_", "logical_")
+        ):
+            if "cache" not in val_low:
+                core.append(lab)
 
     def _join(names: list[str], *, limit: int = 3) -> str:
-        names = names[:limit]
+        # Preserve order, drop dupes.
+        seen: set[str] = set()
+        uniq: list[str] = []
+        for n in names:
+            if n not in seen:
+                seen.add(n)
+                uniq.append(n)
+        names = uniq[:limit]
         if not names:
             return ""
         if len(names) == 1:
@@ -1872,26 +1925,24 @@ def _logical_business_steps(xml: str) -> list[str]:
 
     steps: list[str] = []
     who = _join(actors, limit=2) or "Users"
-    exp = by_parent.get("domain_experience") or []
+    exp = by_parent.get("domain_experience") or channels
     if exp:
         steps.append(f"{who} reach the product via {_join(exp)}.")
     elif actors:
         steps.append(f"{who} start the journey from the left (channels follow).")
 
-    core = by_parent.get("domain_core") or by_parent.get("domain_commerce") or []
-    # Prefer capability/API-ish names; skip pure cache for the headline.
-    core_apis = [n for n in core if "cache" not in n.lower()] or core
+    core_apis = by_parent.get("domain_core") or by_parent.get("domain_commerce") or core
+    core_apis = [n for n in core_apis if "cache" not in n.lower()] or core_apis
     if core_apis:
         steps.append(f"Core work is delivered by {_join(core_apis)}.")
 
-    data = by_parent.get("domain_data") or []
-    if data:
-        # Call out PHI/PII if still visible on raw labels.
+    data_names = by_parent.get("domain_data") or data
+    if data_names:
         sensitive = [
             _strip_annotation_tag((c.get("value") or ""))
             for c in tree.iter("mxCell")
-            if (c.get("parent") or "") == "domain_data"
-            and re.search(r"\[(?:PHI|PII|PCI)\]", c.get("value") or "", re.I)
+            if re.search(r"\[(?:PHI|PII|PCI)\]", c.get("value") or "", re.I)
+            and (c.get("parent") or "") in {"domain_data", "1", "cloud_boundary"}
         ]
         if sensitive:
             steps.append(
@@ -1899,13 +1950,13 @@ def _logical_business_steps(xml: str) -> list[str]:
                 "(treat as PHI/PII in design reviews)."
             )
         else:
-            steps.append(f"System of record: {_join(data)}.")
+            steps.append(f"System of record: {_join(data_names)}.")
 
-    saas = by_parent.get("domain_saas") or []
-    if saas:
-        steps.append(f"External partners/products: {_join(saas)}.")
+    saas_names = by_parent.get("domain_saas") or saas
+    if saas_names:
+        steps.append(f"External partners/products: {_join(saas_names)}.")
 
-    plat = by_parent.get("domain_platform") or []
+    plat = by_parent.get("domain_platform") or platform
     if plat:
         steps.append(f"Shared platform services: {_join(plat)}.")
 
@@ -2013,6 +2064,32 @@ def _key_facts_line(xml: str, title_key: str) -> str | None:
         c for c in cells
         if (c.get("id") or "").startswith(prefix) and "container=1" in (c.get("style") or "")
     ]
+    cloud = next((c for c in cells if (c.get("id") or "") == "cloud_boundary"), None)
+    # Flat Logical: no domain_* containers — summarize services + flows (+ cloud).
+    if not corridors and title_key == "logical":
+        leaves = [
+            c for c in cells
+            if c.get("vertex") == "1" and c.get("edge") != "1"
+            and "container=1" not in (c.get("style") or "")
+            and (c.get("id") or "") not in {"0", "1", "overview_panel", "legend_box", "cloud_boundary"}
+            and not (c.get("id") or "").startswith("step_badge_")
+        ]
+        critical_count = sum(1 for leaf in leaves if leaf.get("criticality") == "critical")
+        sensitive_flow_count = sum(1 for edge in edges if edge.get("classification") in _SENSITIVE_CLASSIFICATIONS)
+        protected_flow_count = sum(1 for edge in edges if edge.get("protection") in _PROTECTED_VALUES)
+        parts: list[str] = []
+        if cloud is not None:
+            parts.append("1 cloud boundary")
+        parts.append(_plural(len(leaves), "service"))
+        parts.append(_plural(len(edges), "flow"))
+        if critical_count:
+            parts.append(_plural(critical_count, "business-critical service"))
+        if protected_flow_count:
+            parts.append(f"{protected_flow_count}/{len(edges)} flows protected (TLS/mTLS)")
+        if sensitive_flow_count:
+            parts.append(f"{_plural(sensitive_flow_count, 'flow')} carrying PII/PCI/confidential")
+        return " &#183; ".join(parts)
+
     if not corridors:
         return None
     corridor_ids = {c.get("id") for c in corridors}

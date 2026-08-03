@@ -47,6 +47,8 @@ _EDGE_VOCAB: dict[str, tuple[str, ...]] = {
     "logical": (
         "invokes", "calls", "relies", "reads", "writes", "uses", "api",
         "authenticates", "redirects", "check cache", "cache miss", "fetches",
+        "forwards", "validate", "jwt", "login", "token", "return", "query",
+        "subscription", "request", "initiates",
     ),
     "security": (
         "authn", "authz", "tls", "mtls", "inspect", "perimeter", "private path",
@@ -122,7 +124,7 @@ def _is_container(cell: ET.Element) -> bool:
 
 def _is_annotation(cell: ET.Element) -> bool:
     cid = cell.get("id") or ""
-    return cid in {"0", "1", "overview_panel", "legend_box"} or cid.startswith(
+    return cid in {"0", "1", "overview_panel", "legend_box", "cloud_boundary"} or cid.startswith(
         ("step_badge_", "note_", "ctrl_", "sec_", "gap_")
     ) or cell.get("gap") == "1"
 
@@ -257,18 +259,28 @@ def score_view(
                 ))
                 break
 
-    # Logical must not keep cloud vendor shape_types (anti-mix with Network)
+    # Logical may keep solution-architecture cloud icons (Cognito/Lambda/…).
+    # Only flag network-plumbing shape_types that belong on Network/Security.
+    _LOGICAL_PLUMBING_SHAPES = (
+        "aws_waf", "aws_shield", "aws_vpc", "aws_subnet", "aws_nat", "aws_nat_gateway",
+        "aws_internet_gateway", "aws_transit_gateway", "aws_cloudfront", "aws_route53",
+        "aws_alb", "aws_application_load_balancer", "aws_nlb", "aws_network_load_balancer",
+        "gcp_vpc", "azure_vnet",
+    )
     if view == "logical":
         for cell in leaves:
             st = (cell.get("shape_type") or "").strip().lower()
             cid = cell.get("id") or ""
-            if st.startswith(("aws_", "gcp_", "azure_")) or st in {
-                "aws", "gcp", "azure",
-            }:
+            if st in _LOGICAL_PLUMBING_SHAPES or any(
+                st.startswith(p) for p in (
+                    "aws_waf", "aws_vpc", "aws_subnet", "aws_nat", "aws_cloudfront",
+                    "aws_route53", "aws_alb", "aws_nlb", "aws_transit",
+                )
+            ):
                 violations.append(ViewViolation(
                     "cloud_shape_on_logical",
                     "error",
-                    f"Logical leaf {cid!r} still has cloud shape_type={st!r}",
+                    f"Logical leaf {cid!r} has network-plumbing shape_type={st!r}",
                     [cid],
                 ))
 
@@ -339,19 +351,20 @@ def score_view(
             f"Only {leaf_n} service nodes (target ~{target})",
         ))
 
-    # Group taxonomy
-    containers = [
-        _plain_cell_label(c.get("value") or "").lower()
-        for c in _iter_cells(root)
-        if _is_container(c)
-    ]
-    hints = _GROUP_HINTS.get(view, ())
-    if hints and not any(any(h in title for h in hints) for title in containers):
-        violations.append(ViewViolation(
-            "group_taxonomy",
-            "warning",
-            f"No {view} grouping containers found (expected domain/zone/phase style titles)",
-        ))
+    # Group taxonomy (Security / Data-flow keep zone/phase boxes; Logical is flat)
+    if view != "logical":
+        containers = [
+            _plain_cell_label(c.get("value") or "").lower()
+            for c in _iter_cells(root)
+            if _is_container(c)
+        ]
+        hints = _GROUP_HINTS.get(view, ())
+        if hints and not any(any(h in title for h in hints) for title in containers):
+            violations.append(ViewViolation(
+                "group_taxonomy",
+                "warning",
+                f"No {view} grouping containers found (expected domain/zone/phase style titles)",
+            ))
 
     # Detail cards removed — Overview + badges own the narrative
     cards = [

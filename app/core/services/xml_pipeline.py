@@ -373,7 +373,7 @@ def _finalize_view_page_xml(
     xml = choose_fixed_xml(xml, check)
     xml = normalize_single_page_xml(xml, title)
     if primary_xml and view != "logical":
-        # Logical uses logical_* MCP vocabulary (not cloud shape_type inject).
+        # Logical keeps its own shape_types (logical_* and intentional aws_*).
         xml = inject_shape_types_from_primary(xml, primary_xml)
     if not page_has_overview_panel(xml):
         if logger:
@@ -497,15 +497,25 @@ def _merge_ordered_view_pages(
     primary_xml: str,
     extra_by_view: dict[str, str],
 ) -> str:
-    """Build mxfile pages in Logical → Network → Security → Data flow order."""
+    """Build mxfile pages with the primary view first, then the rest in view order.
+
+    Network is the usual primary — opening that tab first keeps Cloud→Region→VPC
+    hierarchy visible. Logical (flat storyboard) must not steal the first page
+    when Network was also requested.
+    """
     by_view: dict[str, str] = {primary_view: primary_xml}
     for key, xml in extra_by_view.items():
         if key in VIEW_PAGE_NAMES and (xml or "").strip():
             by_view[key] = xml
-    pages: list[tuple[str, str]] = []
+    # Primary first, then remaining selected views in canonical UI order.
+    ordered_keys: list[str] = []
+    if primary_view in by_view:
+        ordered_keys.append(primary_view)
     for v in views:
-        if v not in by_view:
-            continue
+        if v in by_view and v not in ordered_keys:
+            ordered_keys.append(v)
+    pages: list[tuple[str, str]] = []
+    for v in ordered_keys:
         name = VIEW_PAGE_NAMES[v]
         xml = ensure_diagram_document(by_view[v], name)
         # Rename diagram page to canonical view name
@@ -1312,7 +1322,9 @@ async def run_xml_pipeline(
 
             if repair_jobs:
                 repaired_pages = await asyncio.gather(*repair_jobs)
-                order_names = [VIEW_PAGE_NAMES[v] for v in views if VIEW_PAGE_NAMES.get(v)]
+                # Keep primary page first (same order as _merge_ordered_view_pages).
+                order_keys = [primary_view] + [v for v in views if v != primary_view]
+                order_names = [VIEW_PAGE_NAMES[v] for v in order_keys if VIEW_PAGE_NAMES.get(v)]
                 by_name = dict(repaired_pages)
                 ordered = [(n, by_name[n]) for n in order_names if n in by_name]
                 for n, x in repaired_pages:
@@ -1324,9 +1336,10 @@ async def run_xml_pipeline(
             if logger:
                 logger.log(
                     "views",
-                    f"Merged view pages: {[VIEW_PAGE_NAMES[v] for v in views if v == primary_view or v in extra_by_view]}",
+                    f"Merged view pages: "
+                    f"{[VIEW_PAGE_NAMES[v] for v in ([primary_view] + [x for x in views if x != primary_view]) if v == primary_view or v in extra_by_view]}",
                     level="success",
-                    details={"extra_returned": len(extra_by_view)},
+                    details={"extra_returned": len(extra_by_view), "primary_view": primary_view},
                 )
         except Exception as exc:
             if logger:

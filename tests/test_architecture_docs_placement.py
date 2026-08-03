@@ -61,6 +61,31 @@ class NormalizeViewsTests(unittest.TestCase):
         self.assertNotIn("follow-up", block.lower())
         self.assertNotIn("multipage", block.lower())
 
+    def test_merge_puts_network_primary_before_logical(self) -> None:
+        """When both views are selected, Network must be page 1 so draw.io
+        does not open flat Logical and look like VPC hierarchy vanished."""
+        from app.core.services.xml_pipeline import _merge_ordered_view_pages
+
+        logical = _wrap(
+            '<mxCell id="react" value="React" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>',
+            name="Logical",
+        )
+        network = _wrap(
+            '<mxCell id="vpc" value="VPC" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="200" height="120" as="geometry"/></mxCell>',
+            name="Network",
+        )
+        merged = _merge_ordered_view_pages(
+            views=["logical", "network"],
+            primary_view="network",
+            primary_xml=network,
+            extra_by_view={"logical": logical},
+        )
+        names = [d.get("name") for d in ET.fromstring(merged).findall("diagram")]
+        self.assertEqual(names[0], "Network")
+        self.assertEqual(names, ["Network", "Logical"])
+
 
 class DocPagesTests(unittest.TestCase):
     def test_adr_and_raid_merge(self) -> None:
@@ -356,13 +381,11 @@ class ViewEnrichmentFixerTests(unittest.TestCase):
         )
         out = assign_logical_shape_types(page)
         by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
-        self.assertEqual(by_id["ord"].get("shape_type"), "logical_capability")
-        self.assertEqual(by_id["ds"].get("shape_type"), "logical_datastore")
+        # Intentional aws_* keys are preserved for MCP icon resolve.
+        self.assertEqual(by_id["ord"].get("shape_type"), "aws_ecs")
+        self.assertEqual(by_id["ds"].get("shape_type"), "aws_rds")
         self.assertEqual(by_id["user"].get("shape_type"), "logical_actor")
-        self.assertIn("DAE8FC", by_id["ord"].get("style") or "")
-        self.assertIn("cylinder", (by_id["ds"].get("style") or "").lower())
         self.assertIn("mxgraph.aws4.users", by_id["user"].get("style") or "")
-        self.assertNotIn("aws_ecs", out)
         # People icons use AWS4 users on purpose (umlActor renders empty in embed).
         self.assertNotIn("resIcon=mxgraph.aws4.lambda", out)
 
