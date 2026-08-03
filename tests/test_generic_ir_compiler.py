@@ -86,6 +86,52 @@ class CompileGenericIrTests(unittest.TestCase):
         # Different row -> different y.
         self.assertNotEqual(geoms["a"].get("y"), geoms["c"].get("y"))
 
+    def test_fill_color_is_used_verbatim_in_style(self) -> None:
+        ir = GenericDiagramIR(nodes=[_node("a", fill_color="#3B82F6")])
+        root = ET.fromstring(compile_generic_ir(ir))
+        cell = next(c for c in root.iter("mxCell") if c.get("id") == "a")
+        self.assertIn("fillColor=#3B82F6", cell.get("style"))
+
+    def test_stroke_color_defaults_to_a_darker_shade_of_fill(self) -> None:
+        ir = GenericDiagramIR(nodes=[_node("a", fill_color="#3B82F6")])
+        root = ET.fromstring(compile_generic_ir(ir))
+        style = next(c for c in root.iter("mxCell") if c.get("id") == "a").get("style")
+        self.assertNotIn("strokeColor=#B3B3B3", style)  # not the neutral placeholder default
+
+    def test_explicit_stroke_color_overrides_derived_shade(self) -> None:
+        ir = GenericDiagramIR(nodes=[_node("a", fill_color="#3B82F6", stroke_color="#FF0000")])
+        root = ET.fromstring(compile_generic_ir(ir))
+        style = next(c for c in root.iter("mxCell") if c.get("id") == "a").get("style")
+        self.assertIn("strokeColor=#FF0000", style)
+
+    def test_dark_fill_gets_white_font_for_contrast(self) -> None:
+        ir = GenericDiagramIR(nodes=[_node("a", fill_color="#000000")])
+        root = ET.fromstring(compile_generic_ir(ir))
+        style = next(c for c in root.iter("mxCell") if c.get("id") == "a").get("style")
+        self.assertIn("fontColor=#FFFFFF", style)
+
+    def test_no_color_uses_neutral_placeholder(self) -> None:
+        ir = GenericDiagramIR(nodes=[_node("a")])
+        root = ET.fromstring(compile_generic_ir(ir))
+        style = next(c for c in root.iter("mxCell") if c.get("id") == "a").get("style")
+        self.assertIn("fillColor=#F5F5F5", style)
+
+    def test_text_shape_uses_fill_color_as_font_color(self) -> None:
+        ir = GenericDiagramIR(nodes=[_node("a", "text", fill_color="#FF0000")])
+        root = ET.fromstring(compile_generic_ir(ir))
+        style = next(c for c in root.iter("mxCell") if c.get("id") == "a").get("style")
+        self.assertIn("fontColor=#FF0000", style)
+        self.assertNotIn("fillColor", style)
+
+    def test_edge_color_is_used_verbatim(self) -> None:
+        ir = GenericDiagramIR(
+            nodes=[_node("a"), _node("b")],
+            edges=[GenericEdge(source="a", target="b", color="#FF0000")],
+        )
+        root = ET.fromstring(compile_generic_ir(ir))
+        edge_cell = next(c for c in root.iter("mxCell") if c.get("edge") == "1")
+        self.assertIn("strokeColor=#FF0000", edge_cell.get("style"))
+
     def test_grouped_nodes_nest_under_their_group_container(self) -> None:
         ir = GenericDiagramIR(
             groups=[GenericGroup(id="team", label="Team", boundary="solid")],

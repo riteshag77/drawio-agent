@@ -31,6 +31,31 @@ class GenericNodeValidationTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             GenericNode(id="a", shape="rectangle", label="A", row=-1)
 
+    def test_valid_hex_colors_are_accepted_and_normalized(self) -> None:
+        node = GenericNode(id="a", shape="rectangle", label="A", fill_color="#3b82f6", stroke_color="#000000")
+        self.assertEqual(node.fill_color, "#3B82F6")
+        self.assertEqual(node.stroke_color, "#000000".upper())
+
+    def test_missing_colors_default_to_none(self) -> None:
+        node = _node("a")
+        self.assertIsNone(node.fill_color)
+        self.assertIsNone(node.stroke_color)
+
+    def test_bad_fill_color_is_rejected(self) -> None:
+        for bad in ("red", "3B82F6", "#ZZZZZZ", "#fff"):
+            with self.assertRaises(ValidationError, msg=bad):
+                GenericNode(id="a", shape="rectangle", label="A", fill_color=bad)
+
+
+class GenericEdgeValidationTests(unittest.TestCase):
+    def test_valid_color_is_accepted(self) -> None:
+        edge = GenericEdge(source="a", target="b", color="#ff0000")
+        self.assertEqual(edge.color, "#FF0000")
+
+    def test_bad_color_is_rejected(self) -> None:
+        with self.assertRaises(ValidationError):
+            GenericEdge(source="a", target="b", color="not-a-color")
+
 
 class GenericDiagramIRSemanticTests(unittest.TestCase):
     def test_empty_nodes_is_an_error(self) -> None:

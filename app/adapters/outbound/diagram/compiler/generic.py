@@ -94,7 +94,8 @@ class _GenericCompiler:
             for node in ungrouped:
                 rel_x, rel_y = positions[node.id]
                 self.w.vertex(
-                    id=node.id, label=node.label, style=theme.node_style(node.shape),
+                    id=node.id, label=node.label,
+                    style=theme.node_style(node.shape, fill_color=node.fill_color, stroke_color=node.stroke_color),
                     x=cursor_x + rel_x, y=_ORIGIN_Y + rel_y,
                     w=geo.LEAF_W, h=geo.LEAF_H, parent="1",
                 )
@@ -113,7 +114,8 @@ class _GenericCompiler:
             for node in nodes:
                 rel_x, rel_y = positions[node.id]
                 self.w.vertex(
-                    id=node.id, label=node.label, style=theme.node_style(node.shape),
+                    id=node.id, label=node.label,
+                    style=theme.node_style(node.shape, fill_color=node.fill_color, stroke_color=node.stroke_color),
                     x=geo.PAD + rel_x, y=geo.TITLE_PAD + rel_y,
                     w=geo.LEAF_W, h=geo.LEAF_H, parent=group.id,
                 )
@@ -123,7 +125,9 @@ class _GenericCompiler:
         for index, edge in enumerate(self.ir.edges):
             self.w.edge(
                 id=f"edge_{index}", source=edge.source, target=edge.target, label=edge.label,
-                style=theme.edge_style(line_style=edge.line_style, dashed=edge.dashed, arrow=edge.arrow),
+                style=theme.edge_style(
+                    line_style=edge.line_style, dashed=edge.dashed, arrow=edge.arrow, color=edge.color,
+                ),
             )
 
         self.w.mark_layout_authoritative()

@@ -11,9 +11,10 @@ non-cloud drawing. Reuses only the two primitives worth sharing — ``IRModel``
 
 from __future__ import annotations
 
+import re
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from app.domain.ir.base import Identified, IRModel
 
@@ -21,6 +22,16 @@ GenericNodeShape = Literal[
     "rectangle", "rounded_rectangle", "ellipse", "diamond",
     "parallelogram", "hexagon", "cylinder", "cloud", "actor", "text",
 ]
+
+_HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
+
+
+def _validate_hex_color(value: str | None) -> str | None:
+    if value is None:
+        return None
+    if not _HEX_COLOR_RE.match(value):
+        raise ValueError(f"color {value!r} must be a 6-digit hex string, e.g. '#3B82F6'")
+    return value.upper()
 
 
 class GenericGroup(Identified):
@@ -47,6 +58,26 @@ class GenericNode(Identified):
         default=None, ge=0,
         description="Coarse left-to-right reading-order hint (grid ordinal, not a pixel coordinate).",
     )
+    fill_color: str | None = Field(
+        default=None,
+        description=(
+            "The shape's actual fill color from the source image, as a 6-digit hex string "
+            "(e.g. '#3B82F6'). Omit if the shape is white/transparent/uncolored in the image — "
+            "never invent a color that isn't there."
+        ),
+    )
+    stroke_color: str | None = Field(
+        default=None,
+        description=(
+            "The shape's actual border/outline color from the source image, as a 6-digit hex "
+            "string. Omit if not visually distinct from a plain grey/black outline."
+        ),
+    )
+
+    @field_validator("fill_color", "stroke_color")
+    @classmethod
+    def _valid_hex(cls, value: str | None) -> str | None:
+        return _validate_hex_color(value)
 
 
 class GenericEdge(IRModel):
@@ -58,6 +89,18 @@ class GenericEdge(IRModel):
     line_style: Literal["straight", "orthogonal", "curved"] = "orthogonal"
     dashed: bool = False
     arrow: Literal["none", "forward", "both"] = "forward"
+    color: str | None = Field(
+        default=None,
+        description=(
+            "The connector's actual line color from the source image, as a 6-digit hex string. "
+            "Omit if it's a plain grey/black line."
+        ),
+    )
+
+    @field_validator("color")
+    @classmethod
+    def _valid_hex(cls, value: str | None) -> str | None:
+        return _validate_hex_color(value)
 
 
 class GenericDiagramIR(IRModel):

@@ -49,6 +49,25 @@ Each `GenericEdge` describes exactly what is drawn between two shapes:
 Transcribe every visible label **verbatim** (OCR-faithful) — never
 paraphrase, translate, or invent a label that isn't in the image.
 
+## Colour (`fill_color` / `stroke_color` / edge `color`)
+
+Report each shape's **actual** colour from the image, as a 6-digit hex string
+(e.g. `"#3B82F6"`) — match what you see as closely as you can, don't round to
+a "nearest named colour" or a design-system palette:
+
+- `fill_color`: the shape's background/fill colour. Omit entirely if the
+  shape is white, transparent, or otherwise uncoloured in the image.
+- `stroke_color`: the shape's border/outline colour, only when it is visibly
+  a *different* colour from a plain grey/black outline. Omit otherwise — the
+  renderer derives a sensible border automatically from `fill_color` when
+  you provide one.
+- A `GenericEdge`'s `color`: the connector line's actual colour. Omit for a
+  plain grey/black line.
+
+Never invent a colour that isn't visibly there, and never use `fill_color` to
+encode meaning (status, priority, category) that isn't itself a literal
+colour difference in the source image.
+
 ## Layout hints (`row` / `col`)
 
 Optional per-node integers describing coarse position, **not pixels**:
@@ -85,11 +104,11 @@ schema below.
   "title": "Expense Approval",
   "groups": [],
   "nodes": [
-    {"id": "start", "shape": "rounded_rectangle", "label": "Submit Expense", "row": 0, "col": 0},
-    {"id": "check", "shape": "diamond", "label": "Amount > $500?", "row": 1, "col": 0},
+    {"id": "start", "shape": "rounded_rectangle", "label": "Submit Expense", "row": 0, "col": 0, "fill_color": "#D1E7DD"},
+    {"id": "check", "shape": "diamond", "label": "Amount > $500?", "row": 1, "col": 0, "fill_color": "#FFF3CD"},
     {"id": "manager", "shape": "rectangle", "label": "Manager Review", "row": 2, "col": 0},
     {"id": "auto", "shape": "rectangle", "label": "Auto-Approved", "row": 2, "col": 1},
-    {"id": "end", "shape": "rounded_rectangle", "label": "Reimbursed", "row": 3, "col": 0}
+    {"id": "end", "shape": "rounded_rectangle", "label": "Reimbursed", "row": 3, "col": 0, "fill_color": "#D1E7DD"}
   ],
   "edges": [
     {"source": "start", "target": "check", "line_style": "orthogonal", "arrow": "forward"},
