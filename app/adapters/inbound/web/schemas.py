@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from app.adapters.outbound.llm.providers import default_provider_key as _default_provider
@@ -59,6 +61,15 @@ class ChatRequest(BaseModel):
     current_xml: str | None = Field(default=None, max_length=1_500_000)
     libavoid: bool | None = None
     image_replicate: bool = False
+    image_mode: Literal["as_is", "cloud"] = Field(
+        default="as_is",
+        description=(
+            "How an uploaded image/PDF is turned into a diagram. 'as_is' (default) "
+            "reproduces its shapes/lines/layout faithfully via the generic IR path, "
+            "with no cloud-service interpretation. 'cloud' routes it through the "
+            "existing cloud IR pipeline instead (fidelity governed by image_replicate)."
+        ),
+    )
     animated_connectors: bool = False
     suggestions: bool = False
     architecture_interview: bool = False

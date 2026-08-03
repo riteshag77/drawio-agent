@@ -4,14 +4,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from app.adapters.outbound.diagram.compiler import compile_corridor_ir, compile_network_ir
+from app.adapters.outbound.diagram.compiler import compile_corridor_ir, compile_generic_ir, compile_network_ir
 from app.adapters.outbound.diagram.diagram_edits import apply_diagram_edits
 from app.adapters.outbound.llm.prompt_builders import build_chat_prompt
 from app.adapters.outbound.utils.chat import (
     build_applied_suggestions_block,
     build_suggestions_instruction_block,
 )
-from app.adapters.outbound.llm.prompts.ir import get_corridor_ir_system_prompt, get_network_ir_system_prompt
+from app.adapters.outbound.llm.prompts.ir import (
+    get_corridor_ir_system_prompt,
+    get_generic_ir_system_prompt,
+    get_network_ir_system_prompt,
+)
 from app.adapters.outbound.llm.prompts.simple import MERMAID_SYSTEM_PROMPT
 from app.adapters.outbound.llm.prompts.system import get_xml_gen_system_prompt_marked
 from app.adapters.outbound.llm.providers import get_provider, normalize_provider_key
@@ -19,7 +23,7 @@ from app.adapters.outbound.llm.response_parse import extract_mermaid
 from app.core.ports.llm import LlmPort, get_llm
 from app.domain.entities import DiagramEditPlan, MermaidDiagram, XmlDiagram
 from app.domain.entities.xml_diagram import DiagramSuggestion
-from app.domain.ir import IR_TYPES_BY_VIEW, NetworkIR
+from app.domain.ir import IR_TYPES_BY_VIEW, GenericDiagramIR, NetworkIR
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
@@ -576,6 +580,155 @@ def _drop_invalid_flows(ir, residual_errors: list[str], logger: "StepLogger | No
             "ir", f"Dropped {dropped} invalid flow(s) from {view_label} after correction passes",
             level="warning", details={"errors": residual_errors},
         )
+
+
+def _build_generic_ir_human_content(
+    *,
+    chat_messages: list[dict[str, str]],
+    applied_suggestions: list[str] | None,
+) -> str:
+    """Human message for the generic (as-is) image-replication IR generator.
+
+    No platform/image_replicate hint needed — unlike the cloud IR generators,
+    this path only ever runs for as-is image replication, so ``generic.txt``
+    already carries the full fidelity instruction; there is no cloud-vs-as-is
+    branch to hint at here.
+    """
+    parts: list[str] = []
+    applied_block = build_applied_suggestions_block(applied_suggestions)
+    if applied_block:
+        parts.append(applied_block)
+    if len(chat_messages) > 1:
+        parts.append("Conversation so far:")
+        for msg in chat_messages[:-1]:
+            parts.append(f"{msg['role'].upper()}: {msg['content']}")
+    parts.append(f"Request:\n{chat_messages[-1]['content']}")
+    return "\n".join(parts)
+
+
+def _drop_invalid_generic_edges(
+    ir: GenericDiagramIR, residual_errors: list[str], logger: "StepLogger | None",
+) -> None:
+    """Last-resort residual cleanup, mirroring ``_drop_invalid_flows``: a
+    diagram missing an edge is far more useful than not rendering at all."""
+    known = ir.all_ids()
+    kept = [e for e in ir.edges if e.source in known and e.target in known and e.source != e.target]
+    dropped = len(ir.edges) - len(kept)
+    ir.edges = kept
+    if dropped and logger:
+        logger.log(
+            "ir", f"Dropped {dropped} invalid edge(s) from Generic diagram after correction passes",
+            level="warning", details={"errors": residual_errors},
+        )
+
+
+def _generate_generic_ir_with_corrections(
+    *,
+    system_prompt: str,
+    human_content: str,
+    provider_key: str,
+    logger: "StepLogger | None",
+    attachment_documents: list[dict] | None,
+    llm: LlmPort,
+) -> GenericDiagramIR:
+    """Slim counterpart to ``_generate_ir_with_corrections`` for ``GenericDiagramIR``.
+
+    Generic diagrams have no flow-spine/semantic-warning machinery (those are
+    cloud-story concepts that don't apply to an as-is image trace) — just one
+    corrective retry against ``semantic_errors()``, then a last-resort edge
+    drop if errors persist.
+    """
+    ir = llm(system_prompt, human_content, provider_key, GenericDiagramIR, logger, attachment_documents)
+
+    for _attempt in range(IR_MAX_CORRECTIVE_PASSES):
+        errors = ir.semantic_errors()
+        if not errors:
+            break
+        if logger:
+            logger.log(
+                "ir", f"Generic IR broke {len(errors)} rule(s) — asking for a correction",
+                level="warning", details={"errors": errors},
+            )
+        correction = (
+            "Your previous GenericDiagramIR was structurally valid but broke these rules:\n"
+            + "\n".join(f"- {e}" for e in errors)
+            + f"\n\nYour previous GenericDiagramIR was:\n{ir.model_dump_json()}"
+            + "\n\nReturn a corrected GenericDiagramIR. Keep everything else identical — "
+            "change only what is needed to fix the listed problems."
+        )
+        ir = llm(
+            system_prompt, human_content + "\n\n" + correction,
+            provider_key, GenericDiagramIR, logger, attachment_documents,
+        )
+
+    residual = ir.semantic_errors()
+    if residual:
+        _drop_invalid_generic_edges(ir, residual, logger)
+        residual = ir.semantic_errors()
+
+    if logger:
+        if residual:
+            logger.log(
+                "ir", f"Generic IR still breaks {len(residual)} rule(s) after correction — "
+                "compiler will reject this diagram (IR-only; no direct-XML fallback)",
+                level="warning", details={"errors": residual},
+            )
+        else:
+            logger.log("ir", "Generic IR generated", level="success", details={
+                "nodes": len(ir.nodes), "edges": len(ir.edges), "groups": len(ir.groups),
+            })
+    return ir
+
+
+def generate_generic_diagram_from_ir(
+    user_request: str,
+    provider: str = "claude",
+    logger: "StepLogger | None" = None,
+    messages: list[dict[str, str]] | None = None,
+    custom_system_message: str = "",
+    applied_suggestions: list[str] | None = None,
+    attachment_documents: list[dict] | None = None,
+    *,
+    llm: LlmPort | None = None,
+) -> XmlDiagram:
+    """As-is image replication: ask the LLM for a ``GenericDiagramIR``, then
+    compile it to draw.io XML.
+
+    Sibling to ``generate_xml_diagram_from_ir`` — same return type, so the
+    caller (``xml_pipeline._run_generic_image_pipeline``) can reuse the same
+    structural-hygiene post-processing — but this path skips MCP icon
+    resolution and every cloud-specific enrichment step entirely, since a
+    generic diagram carries no ``shape_type``/corridor/platform concepts.
+    """
+    provider_key, chat_messages, hint, _llm, provider_spec = _prepare_ir_call(
+        user_request=user_request, provider=provider, messages=messages, llm=llm,
+    )
+    system_prompt = get_generic_ir_system_prompt(
+        model_id=provider_spec.default_model, provider=provider_key,
+        custom_system_message=custom_system_message, user_hint=hint,
+    )
+    human_content = _build_generic_ir_human_content(
+        chat_messages=chat_messages, applied_suggestions=applied_suggestions,
+    )
+    if logger:
+        logger.log("prompt", "Prepared Generic IR request", details={"provider": provider_key})
+    ir = _generate_generic_ir_with_corrections(
+        system_prompt=system_prompt, human_content=human_content,
+        provider_key=provider_key, logger=logger, attachment_documents=attachment_documents,
+        llm=_llm,
+    )
+    xml = compile_generic_ir(ir)
+    if logger:
+        logger.log("ir_compile", "Compiled Generic IR to draw.io XML", level="success", details={
+            "xml_chars": len(xml), "xml": xml,
+        })
+    return XmlDiagram(
+        xml=xml,
+        assistant_message=f"Reproduced {ir.title or 'diagram'} as-is.",
+        suggestions=[],
+        step_markers=[],
+        ir_title=ir.title or "",
+    )
 
 
 def generate_network_ir(

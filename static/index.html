@@ -344,13 +344,13 @@
                         </div>
                         <div class="verbose-toggle-row">
                             <div>
-                                <span>Image replicate mode</span>
-                                <small>Preserve topology from attached screenshots/PDFs</small>
+                                <span>Uploaded image handling</span>
+                                <small>How an attached screenshot/PDF becomes a diagram</small>
                             </div>
-                            <label class="toggle-switch" title="Toggle image replicate">
-                                <input type="checkbox" id="image-replicate-toggle" onchange="savePromptSettings()">
-                                <span class="toggle-slider"></span>
-                            </label>
+                            <select id="image-mode-select" title="Uploaded image handling" onchange="savePromptSettings()">
+                                <option value="as_is" selected>As-is (reproduce faithfully)</option>
+                                <option value="cloud">Interpret as cloud architecture</option>
+                            </select>
                         </div>
                         <div class="verbose-toggle-row">
                             <div>

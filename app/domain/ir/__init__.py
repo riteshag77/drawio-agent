@@ -25,6 +25,13 @@ from app.domain.ir.base import (
 )
 from app.domain.ir.corridor import AnchoredCorridor, Corridor, CorridorIR
 from app.domain.ir.data_flow import DataFlowIR
+from app.domain.ir.generic import (
+    GenericDiagramIR,
+    GenericEdge,
+    GenericGroup,
+    GenericNode,
+    GenericNodeShape,
+)
 from app.domain.ir.logical import LogicalIR
 from app.domain.ir.network import (
     AvailabilityZone,
@@ -55,6 +62,11 @@ __all__ = [
     "Flow",
     "FlowClassification",
     "FlowProtection",
+    "GenericDiagramIR",
+    "GenericEdge",
+    "GenericGroup",
+    "GenericNode",
+    "GenericNodeShape",
     "GroupKind",
     "Leaf",
     "LogicalIR",

@@ -263,6 +263,7 @@ async def _run_chat(body: ChatRequest, logger: StepLogger, *, on_progress=None) 
             current_xml=body.current_xml,
             libavoid=body.libavoid,
             image_replicate=body.image_replicate,
+            image_mode=body.image_mode,
             animated_connectors=body.animated_connectors,
             include_suggestions=body.suggestions,
             diagram_views=body.diagram_views,

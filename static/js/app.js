@@ -264,6 +264,7 @@ async function sendMessage(options = {}) {
             applied_suggestions: getAppliedSuggestionsPayload(),
             libavoid: promptSettings.libavoid,
             image_replicate: promptSettings.image_replicate,
+            image_mode: promptSettings.image_mode,
             animated_connectors: promptSettings.animated_connectors,
             suggestions: !!promptSettings.suggestions,
             architecture_interview: !!promptSettings.architecture_interview,

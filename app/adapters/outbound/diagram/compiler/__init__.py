@@ -5,6 +5,7 @@ vocabulary on the *write* side. The IR it consumes is pure domain.
 """
 
 from app.adapters.outbound.diagram.compiler.corridor import compile_corridor_ir
+from app.adapters.outbound.diagram.compiler.generic import compile_generic_ir
 from app.adapters.outbound.diagram.compiler.network import compile_network_ir
 
-__all__ = ["compile_corridor_ir", "compile_network_ir"]
+__all__ = ["compile_corridor_ir", "compile_generic_ir", "compile_network_ir"]

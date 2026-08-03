@@ -107,9 +107,12 @@ function getPromptSettings() {
         libavoid: document.getElementById('libavoid-toggle')
             ? document.getElementById('libavoid-toggle').checked
             : true,
-        image_replicate: document.getElementById('image-replicate-toggle')
-            ? document.getElementById('image-replicate-toggle').checked
+        image_replicate: document.getElementById('image-mode-select')
+            ? document.getElementById('image-mode-select').value === 'cloud'
             : false,
+        image_mode: document.getElementById('image-mode-select')
+            ? document.getElementById('image-mode-select').value
+            : 'as_is',
         animated_connectors: document.getElementById('animated-connectors-toggle')
             ? document.getElementById('animated-connectors-toggle').checked
             : false,
@@ -146,8 +149,8 @@ function savePromptSettings() {
     localStorage.setItem(COMPLIANCE_KEY, comp ? '1' : '0');
     const lib = document.getElementById('libavoid-toggle');
     if (lib) localStorage.setItem(LIBAVOID_STORAGE_KEY, lib.checked ? '1' : '0');
-    const img = document.getElementById('image-replicate-toggle');
-    if (img) localStorage.setItem(IMAGE_REPLICATE_STORAGE_KEY, img.checked ? '1' : '0');
+    const imgMode = document.getElementById('image-mode-select');
+    if (imgMode) localStorage.setItem(IMAGE_MODE_STORAGE_KEY, imgMode.value);
     const anim = document.getElementById('animated-connectors-toggle');
     if (anim) localStorage.setItem(ANIMATED_CONNECTORS_STORAGE_KEY, anim.checked ? '1' : '0');
     const reason = document.getElementById('show-reasoning-toggle');
@@ -221,8 +224,8 @@ function initPromptSettings() {
         const libStored = localStorage.getItem(LIBAVOID_STORAGE_KEY);
         libEl.checked = libStored === null ? true : libStored === '1';
     }
-    const imgEl = document.getElementById('image-replicate-toggle');
-    if (imgEl) imgEl.checked = localStorage.getItem(IMAGE_REPLICATE_STORAGE_KEY) === '1';
+    const imgModeEl = document.getElementById('image-mode-select');
+    if (imgModeEl) imgModeEl.value = localStorage.getItem(IMAGE_MODE_STORAGE_KEY) || 'as_is';
     const animEl = document.getElementById('animated-connectors-toggle');
     if (animEl) animEl.checked = localStorage.getItem(ANIMATED_CONNECTORS_STORAGE_KEY) === '1';
     const reasonEl = document.getElementById('show-reasoning-toggle');

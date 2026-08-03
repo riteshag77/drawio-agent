@@ -73,6 +73,7 @@ from app.adapters.outbound.llm.llm_client import is_quota_or_rate_limit_error
 from app.core.ports.llm import get_llm
 from app.core.services.agent import (
     NonSurgicalEditError,
+    generate_generic_diagram_from_ir,
     generate_xml_diagram,
     generate_xml_diagram_from_ir,
 )
@@ -856,6 +857,106 @@ async def _generate_primary_page(
     return await _ir_primary(), True
 
 
+async def _run_generic_image_pipeline(
+    *,
+    attachment_documents: list[dict[str, Any]] | None,
+    human_prompt: str,
+    provider_key: str,
+    logger: Any,
+    messages: list[dict[str, Any]] | None,
+    custom_system_message: str,
+    applied_suggestions: list[Any] | None,
+    on_progress: ProgressCallback | None,
+) -> dict[str, Any]:
+    """As-is image replication: generic IR + compiler, skipping every
+    cloud-specific enrichment step (platform styling, overview panel, SaaS
+    shape stamping, MCP icon resolution, multi-view fan-out, cost/WAF/
+    compliance/ADR/RAID) — none of it applies to a non-cloud traced diagram.
+    """
+    page_name = "Diagram"
+    await _emit(on_progress, "ir", "Reproducing uploaded image as-is…")
+    diagram = await run_llm_sync(
+        generate_generic_diagram_from_ir, human_prompt, provider_key, logger,
+        messages, custom_system_message, applied_suggestions, attachment_documents,
+    )
+    await _emit(on_progress, "ir", "Diagram compiled")
+    if 'vertex="1"' not in (diagram.xml or ""):
+        if logger:
+            logger.log("error", "Generic IR compiler returned no diagram content", level="error")
+        raise ValueError("Generic IR compiler returned no diagram content — nothing to validate.")
+    try:
+        ET.fromstring(ensure_diagram_document(diagram.xml, page_name))
+    except ET.ParseError as exc:
+        if logger:
+            logger.log("xml_diagram", f"Generic IR-compiled XML was malformed ({exc})", level="error")
+        raise ValueError(
+            f"Generic IR-compiled diagram XML was incomplete or malformed ({exc}). Retry the request."
+        ) from exc
+
+    await _emit(on_progress, "validate", "Validating and normalizing XML…")
+    xml_output = ensure_diagram_document(diagram.xml, page_name)
+    check = validate_and_fix_xml(xml_output)
+    xml_output = choose_fixed_xml(xml_output, check)
+
+    await _emit(on_progress, "repair", "Checking for overlaps, dangling edges, missing labels…")
+    pre_repair_diagnostics = diagnose_xml(xml_output)
+    xml_output, diagnostics = repair_xml(xml_output)
+    fixed_count = (
+        (len(pre_repair_diagnostics.errors) + len(pre_repair_diagnostics.warnings))
+        - (len(diagnostics.errors) + len(diagnostics.warnings))
+    )
+    if fixed_count > 0 and logger:
+        logger.log(
+            "repair", f"Auto-fixed {fixed_count} diagram issue(s)", level="success",
+            details={
+                "before": len(pre_repair_diagnostics.errors) + len(pre_repair_diagnostics.warnings),
+                "after": len(diagnostics.errors) + len(diagnostics.warnings),
+            },
+        )
+    if diagnostics.errors or diagnostics.warnings:
+        if logger:
+            logger.log(
+                "ir_residual",
+                "Deterministic repair left residual issues (no LLM repair — format/structure "
+                "fixes are auto-only; remaining items are logged for visibility)",
+                level="warning",
+                details={"errors": diagnostics.errors, "warnings": diagnostics.warnings},
+            )
+        await _emit(on_progress, "repair", "Deterministic repair complete")
+
+    layout_issues = validate_layout(xml_output)
+    if layout_issues and logger:
+        logger.log(
+            "repair", f"Layout validation found {len(layout_issues)} informational issue(s)",
+            level="warning", details={"issues": layout_issues},
+        )
+
+    xml_output, xml_ok, xml_failure = guarantee_loadable_xml(xml_output, page_name)
+    if not xml_ok and logger:
+        logger.log(
+            "error",
+            "Diagram XML failed to parse after every repair pass — served an "
+            "empty canvas instead of a broken diagram file",
+            level="error",
+            details=xml_failure,
+        )
+
+    if logger:
+        logger.log("request", "Generic (as-is) image replication complete", level="success", details={
+            "xml_chars": len(xml_output),
+        })
+
+    return _build_response(
+        status="success",
+        xml=xml_output,
+        assistant_message=diagram.assistant_message or "Reproduced the uploaded image as-is.",
+        suggestions=[],
+        renderer_used="local",
+        generation_path="generic_ir",
+        logger=logger,
+    )
+
+
 async def run_xml_pipeline(
     *,
     user_prompt: str | None = None,
@@ -876,6 +977,7 @@ async def run_xml_pipeline(
     current_xml: str | None = None,
     libavoid: bool | None = None,
     image_replicate: bool = False,
+    image_mode: str = "cloud",
     animated_connectors: bool = False,
     include_suggestions: bool = False,
     diagram_views: list[str] | None = None,
@@ -903,6 +1005,17 @@ async def run_xml_pipeline(
     has_image_attachment = attachment_documents and any(
         (doc.get("mime") or "").startswith("image/") for doc in attachment_documents
     )
+    if has_image_attachment and image_mode == "as_is" and not (current_xml or "").strip() and not three_d:
+        return await _run_generic_image_pipeline(
+            attachment_documents=attachment_documents,
+            human_prompt=human_prompt,
+            provider_key=provider_key,
+            logger=logger,
+            messages=messages,
+            custom_system_message=custom_system_message,
+            applied_suggestions=applied_suggestions,
+            on_progress=on_progress,
+        )
     if has_image_attachment and not (current_xml or "").strip():
         await _emit(on_progress, "classify", "Identifying diagram type from image…")
         detected_view = await run_llm_sync(

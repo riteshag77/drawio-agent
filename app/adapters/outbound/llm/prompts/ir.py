@@ -122,6 +122,26 @@ _CORRIDOR_VIEW_CONFIG: dict[str, dict[str, bool]] = {
 }
 
 
+def get_generic_ir_system_prompt(
+    model_id: str | None = None,
+    *,
+    provider: str | None = None,
+    custom_system_message: str = "",
+    user_hint: str = "",
+) -> str:
+    """Assemble the GenericDiagramIR system prompt — no cloud classify pack,
+    no cloud icon catalog, no SaaS icons: none of that applies to an as-is
+    replication of a non-cloud image."""
+    return _assemble_ir_prompt(
+        view_prompt_files=["ir/generic.txt"],
+        include_cloud_classify=False,
+        include_cloud_icon_catalog=False,
+        include_saas_icons=False,
+        model_id=model_id, provider=provider, platform="generic",
+        custom_system_message=custom_system_message, user_hint=user_hint,
+    )
+
+
 def get_corridor_ir_system_prompt(
     view: str,
     model_id: str | None = None,
