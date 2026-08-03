@@ -7,7 +7,7 @@ Role: brief business + engineering on **what the system does** and **how
 services connect** — not VPC nesting, subnets, AZs, or trust-zone maps
 (Network / Security).
 
-Target look: next-ai-draw-io–class **flat storyboard** — icons + labeled edges
+Target look: a clean **flat storyboard** — icons + labeled edges
 left→right (User → Client → services → data), optionally one cloud boundary.
 **No Experience / Core / Data colored columns are drawn** — those `domain_*`
 ids are **JSON ranking only** so the compiler can order the journey.
@@ -15,17 +15,54 @@ ids are **JSON ranking only** so the compiler can order the journey.
 Prefer **5–10 leaves**. Overview panel, step badges, and legend are added
 after compile — you do not invent them in JSON.
 
-## How to answer short user prompts (gallery style → JSON)
+## What belongs on Logical vs. what is noise
 
-Users often send short briefs like next-ai examples. Map them to **JSON IR**,
-not freehand XML:
+Logical tells one clean story: a reader follows a single path and understands
+the system in seconds. Every leaf you add either sits on that path or anchors
+directly off it — nothing else.
 
-| User-style brief | Emit as Logical JSON |
-|------------------|----------------------|
-| “Auth with React + AWS serverless” | User actor → React leaf → Cognito + API GW + Lambda → DynamoDB; labeled JWT / return paths |
-| “RAG architecture for a chat app” | Chat UI → retriever + LLM → vector store; labeled ingest vs query edges (still use domain ranks in JSON) |
-| “Open Innovation model” | Sparse conceptual nodes L→R with labeled inflows/outflows — still fixed domain ids in JSON |
-| “Transformer architecture” | Attention + FFN as capabilities; L→R residual story; no cloud VPC |
+**Include:**
+- Things the user's request actually asked for or named (their app, their
+  named cloud services, their datastore).
+- Channels/apps the user touches (`domain_experience`), the compute/API/auth
+  layer that serves the request (`domain_core`/`domain_commerce`), the system
+  of record (`domain_data`), and SaaS the primary flow depends on
+  (`domain_saas`/`saas_ingress`/`saas_egress`).
+- `domain_platform` **only** when a shared platform capability is itself part
+  of the primary story the user is describing (e.g. an event bus or workflow
+  engine the flow routes through) — not as a place to park cross-cutting infra.
+
+**Exclude (cross-cutting infra noise, not part of the process story):**
+- Observability/monitoring: CloudWatch, X-Ray, Azure Monitor, Cloud Logging,
+  Datadog.
+- Secrets/identity plumbing: Secrets Manager, Key Vault, KMS, IAM
+  roles/policies, GuardDuty and other threat detection.
+- Networking plumbing: VPC, subnets, AZs, NAT/IGW/TGW, WAF, Shield,
+  CloudFront-as-edge, ALB-as-plumbing, Route 53, load balancers as hops.
+
+These all have a real home — Secrets Manager/Key Vault and
+CloudWatch/GuardDuty belong on **Security** (`zone_private` / `zone_detect`);
+VPC/subnet/NAT/WAF belong on **Network**. Never add them to Logical just
+because the user's stack includes them — only draw what the user's request is
+actually *about*. The one exception: the user explicitly asks for an
+observability- or secrets-focused logical story (rare) — then, and only then,
+use `domain_platform` for it.
+
+If you are ever unsure whether a leaf earns its place, ask: "does removing
+this leaf change the story the reader walks away with?" If not, cut it.
+
+## How to answer short user prompts
+
+Users often send short briefs across different business domains. Map them to
+**JSON IR**, not freehand XML:
+
+| Brief | Emit as Logical JSON |
+|-------|----------------------|
+| "Ecommerce storefront with catalog, cart, checkout" | User → Storefront (React) → Catalog/Cart/Checkout services → Orders DB; Stripe as `saas_egress` for payment capture |
+| "Multi-tenant SaaS subscription dashboard" | User → Web app → Tenant API + Billing service → Tenant DB; Stripe/Chargebee as `saas_egress` for billing |
+| "Fintech wallet with KYC and ledger" | User → Mobile app → KYC service + Ledger API → Ledger DB; KYC/AML vendor as `saas_egress` |
+| "Healthcare patient portal with EHR sync" | Patient → Portal → Scheduling/Records API → Clinical datastore; EHR system as `saas_egress` |
+| "Insurance claims intake with broker submissions" | Claimant/Broker → Claims API → Underwriting service → Policy DB; policy admin vendor as `saas_egress` |
 
 Always: plan the L→R ranks and primary path mentally, then emit the JSON object
 with `external_actors`, `corridors`, `anchored`, `flows` (flows last).
@@ -166,8 +203,11 @@ Never TLS/WAF/JSON-payload-class vocabulary — that belongs to Security / Data-
 ```
 
 **Forbidden on Logical:** VPC / subnet / AZ / NAT / IGW / TGW / WAF / Shield /
-CloudFront-as-edge / ALB-as-plumbing / Route 53 boxes; both `domain_core` and
-`domain_commerce`; trust-zone ids (`zone_*`); raw mxCell / coordinates.
+CloudFront-as-edge / ALB-as-plumbing / Route 53 boxes; CloudWatch / X-Ray /
+GuardDuty / Secrets Manager / Key Vault / KMS / IAM roles-and-policies (see
+"What belongs on Logical vs. what is noise" above — these belong on
+Security/Network, not here); both `domain_core` and `domain_commerce`;
+trust-zone ids (`zone_*`); raw mxCell / coordinates.
 
 ## Density
 

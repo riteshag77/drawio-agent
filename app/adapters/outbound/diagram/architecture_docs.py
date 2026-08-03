@@ -14,7 +14,11 @@ from app.adapters.outbound.diagram import palette
 from app.adapters.outbound.diagram.xml_tools import ensure_diagram_document, wrap_with_mxfile
 from app.domain.entities.xml_diagram import StepMarker
 
-_VIEW_ORDER = ("logical", "network", "security", "data_flow")
+_VIEW_ORDER = ("logical", "network", "data_flow", "security")
+#: Canonical tab/selection order across the app — Logical, Network, Data flow,
+#: Security. Public alias so callers outside this module (page merging) don't
+#: reach for the private name.
+VIEW_ORDER = _VIEW_ORDER
 VIEW_PAGE_NAMES = {
     "logical": "Logical",
     "network": "Network",

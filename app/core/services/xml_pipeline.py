@@ -41,6 +41,7 @@ from app.adapters.outbound.diagram.architecture_docs import (
     GapAnalysisResult,
     RaidItem,
     RequiredAddition,
+    VIEW_ORDER,
     VIEW_PAGE_NAMES,
     _gap_candidates,
     achievable_density_target,
@@ -492,28 +493,22 @@ def _score_and_maybe_keep(
 
 def _merge_ordered_view_pages(
     *,
-    views: list[str],
     primary_view: str,
     primary_xml: str,
     extra_by_view: dict[str, str],
 ) -> str:
-    """Build mxfile pages with the primary view first, then the rest in view order.
+    """Build mxfile pages in the fixed tab order Logical, Network, Data flow, Security.
 
-    Network is the usual primary — opening that tab first keeps Cloud→Region→VPC
-    hierarchy visible. Logical (flat storyboard) must not steal the first page
-    when Network was also requested.
+    ``primary_view`` (usually Network — see ``pick_primary_view``) only decides
+    which view's LLM call seeds generation and fans out the others; it does not
+    control tab order. Tab order is always the canonical ``VIEW_ORDER``,
+    independent of which view was generated first.
     """
     by_view: dict[str, str] = {primary_view: primary_xml}
     for key, xml in extra_by_view.items():
         if key in VIEW_PAGE_NAMES and (xml or "").strip():
             by_view[key] = xml
-    # Primary first, then remaining selected views in canonical UI order.
-    ordered_keys: list[str] = []
-    if primary_view in by_view:
-        ordered_keys.append(primary_view)
-    for v in views:
-        if v in by_view and v not in ordered_keys:
-            ordered_keys.append(v)
+    ordered_keys = [v for v in VIEW_ORDER if v in by_view]
     pages: list[tuple[str, str]] = []
     for v in ordered_keys:
         name = VIEW_PAGE_NAMES[v]
@@ -1296,7 +1291,6 @@ async def run_xml_pipeline(
     if extra_by_view:
         try:
             merged = _merge_ordered_view_pages(
-                views=views,
                 primary_view=primary_view,
                 primary_xml=xml_output,
                 extra_by_view=extra_by_view,
@@ -1322,9 +1316,8 @@ async def run_xml_pipeline(
 
             if repair_jobs:
                 repaired_pages = await asyncio.gather(*repair_jobs)
-                # Keep primary page first (same order as _merge_ordered_view_pages).
-                order_keys = [primary_view] + [v for v in views if v != primary_view]
-                order_names = [VIEW_PAGE_NAMES[v] for v in order_keys if VIEW_PAGE_NAMES.get(v)]
+                # Same canonical tab order as _merge_ordered_view_pages.
+                order_names = [VIEW_PAGE_NAMES[v] for v in VIEW_ORDER if VIEW_PAGE_NAMES.get(v)]
                 by_name = dict(repaired_pages)
                 ordered = [(n, by_name[n]) for n in order_names if n in by_name]
                 for n, x in repaired_pages:
@@ -1337,7 +1330,7 @@ async def run_xml_pipeline(
                 logger.log(
                     "views",
                     f"Merged view pages: "
-                    f"{[VIEW_PAGE_NAMES[v] for v in ([primary_view] + [x for x in views if x != primary_view]) if v == primary_view or v in extra_by_view]}",
+                    f"{[VIEW_PAGE_NAMES[v] for v in VIEW_ORDER if v == primary_view or v in extra_by_view]}",
                     level="success",
                     details={"extra_returned": len(extra_by_view), "primary_view": primary_view},
                 )

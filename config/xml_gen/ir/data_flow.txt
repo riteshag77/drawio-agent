@@ -31,6 +31,48 @@ Anchored shelf below the **whole row** (leave `anchor_id` unset): `phase_control
 — optional, for schema registry / catalog / schedules when in inventory.
 Never IdP/WAF here — that's Security's lens.
 
+## What belongs on Data flow vs. what is noise
+
+Data flow tells one story: how data enters, is transformed, is stored, and is
+consumed — not how requests are authenticated or how the network is carved up.
+Every leaf either sits on that ingest→process→store→consume journey or is one
+of the explicit required companions below — nothing else.
+
+**Include:**
+- Named producers/ingest points, transform/process services, primary stores,
+  downstream consumers (dashboards/reports), SaaS producers/consumers placed
+  by data direction, and `phase_control` items (schema registry/catalog) when
+  actually in inventory.
+- The four required companions (DLQ, backup/archive, CDC replica, schema
+  registry) — but **only** when their trigger condition is met (SaaS + a
+  primary store both present), never added as default padding.
+
+**Exclude (cross-cutting infra noise, not part of the data journey):**
+- Identity/perimeter: IdP, login/auth sequences, WAF/Shield.
+- Security controls: KMS, Secrets Manager/Key Vault, IAM roles/policies,
+  threat detection (GuardDuty/CloudWatch) — that's Security's lens
+  (`zone_private`/`zone_detect`).
+- Network plumbing: VPC/subnet/AZ wallpaper, load balancers as topology —
+  that's Network's lens.
+- Capability/org-chart framing (channels, business capabilities as boxes) —
+  that's Logical's lens.
+
+These all have a real home on another view. Never draw them here just because
+the underlying stack includes them — only the data's own path earns a leaf.
+
+## How to answer short user prompts
+
+Users often send short briefs across different business domains. Map them to
+**JSON IR**, not freehand XML:
+
+| Brief | Emit as Data-flow JSON |
+|-------|--------------------------|
+| "Ecommerce storefront with catalog, cart, checkout" | `phase_ingest` (API Gateway) → `phase_process` (Catalog/Cart/Checkout services) → `phase_store` (Orders DB, S3 archive) → `phase_consume` (Analytics dashboard); `phase_saas_consumer` Stripe for payment capture |
+| "Multi-tenant SaaS subscription platform" | `phase_ingest` (API Gateway) → `phase_process` (Tenant/Billing service) → `phase_store` (Tenant DB) → `phase_consume` (Usage reporting); `phase_saas_consumer` Stripe/Chargebee for billing |
+| "Fintech wallet with KYC and ledger" | `phase_ingest` (Mobile API) → `phase_process` (KYC service, Ledger engine) → `phase_store` (Ledger DB `[PCI]`); `phase_saas_producer` KYC/AML vendor feeding verification results |
+| "Healthcare patient portal with EHR sync" | `phase_ingest` (Portal API) → `phase_process` (Scheduling/Records service) → `phase_store` (Clinical DB `[PII]`); `phase_saas_producer`/`phase_saas_consumer` EHR vendor for bidirectional sync |
+| "Insurance claims intake with broker submissions" | `phase_ingest` (Claims API) → `phase_process` (Underwriting engine) → `phase_store` (Policy DB); `phase_saas_producer` broker/agency system feeding submissions, `phase_saas_consumer` policy admin vendor for sync |
+
 ## Leaf vocabulary
 
 Keep cloud `shape_type` on named producers/consumers/stores/brokers/ETL/

@@ -24,6 +24,14 @@ from app.domain.ir.corridor import CorridorIR
 _ROW_IDS = frozenset({"domain_experience", "domain_core", "domain_commerce", "domain_data", "domain_platform"})
 _SHELF_ID = "domain_saas"
 
+# See CorridorIR._strip_cross_cutting_infra — these never belong on Logical
+# (Security/Network own them) regardless of what the LLM tries to add.
+_INFRA_NOISE_DENYLIST = frozenset({
+    "cloudwatch", "secrets_manager", "secret_manager", "key_vault", "_kms",
+    "guardduty", "_waf", "shield", "aws_iam", "azure_iam", "gcp_iam",
+    "x_ray", "xray", "azure_monitor", "cloud_logging", "cloudtrail",
+})
+
 
 class LogicalIR(CorridorIR):
     """Sparse process / solution-architecture Logical view.
@@ -38,13 +46,15 @@ class LogicalIR(CorridorIR):
         default="logical", description="Must be exactly the lowercase string 'logical' — no other casing."
     )
     id_prefix: ClassVar[str] = "domain_"
+    _infra_noise_denylist: ClassVar[frozenset[str]] = _INFRA_NOISE_DENYLIST
 
     @classmethod
     def sanitize_raw(cls, data: object) -> object:
         """Pre-parse relocate — see ``SecurityIR.sanitize_raw``."""
-        return cls._relocate_vocabulary(
+        data = cls._relocate_vocabulary(
             data, row_ids=_ROW_IDS, shelf_anchors={_SHELF_ID: "domain_data"},
         )
+        return cls._strip_cross_cutting_infra(data)
 
     @model_validator(mode="before")
     @classmethod

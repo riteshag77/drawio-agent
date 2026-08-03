@@ -17,7 +17,7 @@ flows[]            source -> target edges between any two leaf/actor ids
 
 ## Storyboard rules (JSON, not pixels)
 
-Borrowed from high-clarity diagram assistants — expressed as IR choices:
+Expressed as IR choices:
 
 1. **One viewport story** — prefer a sparse graph the reader finishes in seconds.
    Fewer labeled edges beat a complete mesh. Cap density per the view pack.

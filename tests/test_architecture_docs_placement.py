@@ -24,9 +24,9 @@ from app.adapters.outbound.diagram.edge_routing import (
 from app.adapters.outbound.diagram.xml_diagnostics import repair_xml
 
 
-def _wrap(inner: str) -> str:
+def _wrap(inner: str, *, name: str = "Network") -> str:
     return (
-        '<mxfile host="embed.diagrams.net"><diagram name="Network" id="page-1">'
+        f'<mxfile host="embed.diagrams.net"><diagram name="{name}" id="page-1">'
         '<mxGraphModel><root>'
         '<mxCell id="0"/><mxCell id="1" parent="0"/>'
         f"{inner}"
@@ -61,9 +61,10 @@ class NormalizeViewsTests(unittest.TestCase):
         self.assertNotIn("follow-up", block.lower())
         self.assertNotIn("multipage", block.lower())
 
-    def test_merge_puts_network_primary_before_logical(self) -> None:
-        """When both views are selected, Network must be page 1 so draw.io
-        does not open flat Logical and look like VPC hierarchy vanished."""
+    def test_merge_uses_canonical_tab_order_regardless_of_primary(self) -> None:
+        """Tabs always read Logical, Network, Data flow, Security — independent
+        of which view was generated as primary (Network, for content-completeness
+        reasons — see pick_primary_view)."""
         from app.core.services.xml_pipeline import _merge_ordered_view_pages
 
         logical = _wrap(
@@ -77,14 +78,12 @@ class NormalizeViewsTests(unittest.TestCase):
             name="Network",
         )
         merged = _merge_ordered_view_pages(
-            views=["logical", "network"],
             primary_view="network",
             primary_xml=network,
             extra_by_view={"logical": logical},
         )
         names = [d.get("name") for d in ET.fromstring(merged).findall("diagram")]
-        self.assertEqual(names[0], "Network")
-        self.assertEqual(names, ["Network", "Logical"])
+        self.assertEqual(names, ["Logical", "Network"])
 
 
 class DocPagesTests(unittest.TestCase):

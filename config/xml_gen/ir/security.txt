@@ -17,6 +17,19 @@ Anchored shelf: `zone_external_saas` — anchored under `zone_restricted`
 `zone_external_saas` is the **only** id allowed in `anchored`. Every other
 zone — including `zone_detect` — is a main-row corridor, never a shelf.
 
+## How to answer short user prompts
+
+Users often send short briefs across different business domains. Map them to
+**JSON IR**, not freehand XML:
+
+| Brief | Emit as Security JSON |
+|-------|------------------------|
+| "Ecommerce storefront with catalog, cart, checkout" | `zone_public` (WAF/ALB) → `zone_identity` (Cognito) → `zone_private` (Catalog/Cart/Checkout) → `zone_restricted` (Orders DB) → `zone_detect`; `zone_external_saas` Stripe |
+| "Multi-tenant SaaS subscription platform" | `zone_public` (API GW) → `zone_identity` (Okta/IdP) → `zone_private` (Tenant/Billing services) → `zone_restricted` (Tenant DB) → `zone_detect`; `zone_external_saas` Chargebee |
+| "Fintech wallet with KYC and ledger" | `zone_public` → `zone_identity` → `zone_private` (KYC service, Ledger API) → `zone_restricted` (Ledger DB, KMS) → `zone_detect`; `zone_external_saas` KYC/AML vendor |
+| "Healthcare patient portal with EHR sync" | `zone_public` → `zone_identity` → `zone_private` (Scheduling, Records API) → `zone_restricted` (Clinical DB, PHI) → `zone_detect`; `zone_external_saas` EHR vendor |
+| "Insurance claims intake with broker submissions" | `zone_public` → `zone_partner` (Partner API Gateway for brokers) → `zone_identity` (federation broker) → `zone_private` (Claims API, Underwriting) → `zone_restricted` (Policy DB) → `zone_detect`; `zone_external_saas` policy admin vendor |
+
 ## `zone_partner` vs `zone_external_saas` — do not conflate
 
 - `zone_external_saas` = SaaS products **the organisation subscribes to and

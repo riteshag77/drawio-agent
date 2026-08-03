@@ -81,6 +81,12 @@ class CorridorIR(DiagramIR):
     #: three times.
     id_prefix: ClassVar[str] = ""
 
+    #: Shape-type substrings that are unambiguous cross-cutting infrastructure
+    #: (observability/secrets/IAM/edge-security) for this view — empty by
+    #: default (Security legitimately hosts these). Set by Logical/Data-flow;
+    #: see ``_strip_cross_cutting_infra``.
+    _infra_noise_denylist: ClassVar[frozenset[str]] = frozenset()
+
     corridors: list[Corridor] = Field(min_length=1)
     anchored: list[AnchoredCorridor] = Field(
         default_factory=list,
@@ -175,6 +181,64 @@ class CorridorIR(DiagramIR):
 
         data["corridors"] = new_row
         data["anchored"] = new_shelves
+        return data
+
+    @classmethod
+    def _strip_cross_cutting_infra(cls, data: object) -> object:
+        """Deterministically drop leaves that are unambiguous cross-cutting
+        infrastructure (CloudWatch, Secrets Manager, KMS, GuardDuty, WAF, IAM,
+        ...) for views whose prompt pack excludes them (Logical, Data-flow —
+        see each pack's "what belongs vs. noise" section).
+
+        Prompt instructions alone do not reliably keep the model from adding
+        these: live captures showed the Logical LLM call putting CloudWatch +
+        Secrets Manager under ``domain_platform`` and WAF/CloudFront under
+        ``domain_experience`` even with an explicit forbidden-list and
+        exclusion section in the prompt. This is the deterministic backstop —
+        a no-op (empty denylist) for views that legitimately host these
+        (Security). Runs pre-parse like ``_relocate_vocabulary``, so a leaf
+        stripped here also has its dangling flows removed in the same pass
+        rather than surfacing as a semantic-error correction round-trip.
+        """
+        denylist = cls._infra_noise_denylist
+        if not denylist or not isinstance(data, dict):
+            return data
+
+        removed_ids: set[str] = set()
+
+        def _is_denied(leaf: object) -> bool:
+            if not isinstance(leaf, dict):
+                return False
+            shape = str(leaf.get("shape_type") or "").lower()
+            return any(term in shape for term in denylist)
+
+        def _filter(corridor_list: object) -> list[object]:
+            kept: list[object] = []
+            for corridor in corridor_list or []:
+                if not isinstance(corridor, dict) or not isinstance(corridor.get("leaves"), list):
+                    kept.append(corridor)
+                    continue
+                keep_leaves = []
+                for leaf in corridor["leaves"]:
+                    if _is_denied(leaf):
+                        if isinstance(leaf, dict) and leaf.get("id"):
+                            removed_ids.add(leaf["id"])
+                        continue
+                    keep_leaves.append(leaf)
+                if keep_leaves:
+                    kept.append({**corridor, "leaves": keep_leaves})
+                # else: corridor emptied entirely by the strip — omit it,
+                # same as the "never emit an empty corridor" prompt rule.
+            return kept
+
+        data["corridors"] = _filter(data.get("corridors"))
+        data["anchored"] = _filter(data.get("anchored"))
+
+        if removed_ids and isinstance(data.get("flows"), list):
+            data["flows"] = [
+                f for f in data["flows"]
+                if not (isinstance(f, dict) and (f.get("source") in removed_ids or f.get("target") in removed_ids))
+            ]
         return data
 
     @model_validator(mode="after")

@@ -47,17 +47,24 @@ never pad for the sake of padding. Each addition names one `viewpoint`:
 
 - **security** — identity/IAM boundary, secrets management, edge protection (WAF/API
   gateway) when a public surface is implied, encryption-at-rest note for sensitive data.
-  When the brief implies external business partners (brokers, agencies, resellers,
-  distributors, suppliers, reinsurers, marketplace counterparties) — not the same thing as
-  a subscribed SaaS product — flag a dedicated partner/B2B trust boundary (partner API
-  gateway, per-partner federation) as its own control, distinct from both the public
-  perimeter and any SaaS vendor relationship.
+  `applies_to_views` defaults to `["network","security"]` — **never** `"logical"` or
+  `"data_flow"` unless the brief explicitly asks for that control to be shown on that
+  specific view. When the brief implies external business partners (brokers, agencies,
+  resellers, distributors, suppliers, reinsurers, marketplace counterparties) — not the
+  same thing as a subscribed SaaS product — flag a dedicated partner/B2B trust boundary
+  (partner API gateway, per-partner federation) as its own control, distinct from both the
+  public perimeter and any SaaS vendor relationship.
 - **resilience** — multi-AZ for stateful tiers as the default baseline (multi-region only
   when the brief implies a hard RTO/RPO or regulatory concentration-risk reason — never
   as a default), backup/retention for primary stores, a dead-letter/retry path for async
   work.
-- **observability** — centralized logging/metrics/tracing; this is missing from almost
-  every raw brief and is one of the most common ARB-style callouts.
+- **observability** — centralized logging/metrics/tracing (e.g. CloudWatch, Azure Monitor,
+  Cloud Logging, Datadog); this is missing from almost every raw brief and is one of the
+  most common ARB-style callouts. **`applies_to_views` defaults to `["network","security"]`
+  — the same rule as security, never `"logical"` or `"data_flow"` by default.** Logging/
+  monitoring tooling is cross-cutting infrastructure, not part of the Logical process
+  story or the Data-flow ingest→process→store journey; only route it to `"logical"` or
+  `"data_flow"` when the brief explicitly asks to see observability on that view.
 - **data** — data classification (PII/PCI/sensitive) when personal or payment data is
   implied by the domain; retention note if the domain has an obvious long-tail obligation
   (e.g. financial/health records) — do not invent a specific retention *number*, name the
@@ -68,8 +75,8 @@ never pad for the sake of padding. Each addition names one `viewpoint`:
   (e.g. multi-region duplication) is being assumed without justification.
 
 For each, state which of the requested `applies_to_views` (logical/network/security/
-data_flow) it's relevant to — a security control belongs on Security (and often Network),
-not necessarily on Data flow.
+data_flow) it's relevant to — a security or observability control belongs on Security
+and/or Network, not on Logical or Data flow, unless the brief explicitly asks for it there.
 
 ### Step 4 — Record assumptions (`assumptions`)
 

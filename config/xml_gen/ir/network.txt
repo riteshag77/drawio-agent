@@ -24,6 +24,19 @@ external_actors[]            users | saas_ingress | saas_egress | on_prem
 flows[]                      source -> target request path
 ```
 
+## How to answer short user prompts
+
+Users often send short briefs across different business domains. Map them to
+**JSON IR**, not freehand XML:
+
+| Brief | Emit as Network JSON |
+|-------|-----------------------|
+| "Ecommerce storefront with catalog, cart, checkout" | `edge_layer` CDN → `gateway` ALB → `app` subnet (Catalog/Cart/Checkout services) → `data` subnet (Orders DB); `security`+`monitoring` groups; Stripe as `saas_egress` |
+| "Multi-tenant SaaS subscription platform" | `gateway` API Gateway → `app` subnet (Tenant API, Billing service) → `data` subnet (Tenant DB, cache); `integration` group for the event bus; Stripe/Chargebee as `saas_egress` |
+| "Fintech wallet with KYC and ledger" | `gateway` → `app` subnet (KYC service, Ledger API) → `data` subnet (Ledger DB); `security` group for KMS/Secrets Manager; KYC/AML vendor as `saas_egress` |
+| "Healthcare patient portal with EHR sync" | `gateway` → `app` subnet (Scheduling, Records API) → `data` subnet (Clinical DB); EHR system as `saas_egress` or via `connectivity_hubs` when it's a dedicated hybrid link |
+| "Insurance claims intake with broker submissions" | `edge_layer`/`gateway` → `app` subnet (Claims API, Underwriting service) → `data` subnet (Policy DB); policy admin vendor as `saas_egress` |
+
 ## How the compiler renders this (so your choices land well)
 
 You never write coordinates, but the layout is fixed and predictable, and two of

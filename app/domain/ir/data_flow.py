@@ -26,17 +26,26 @@ _ROW_IDS = frozenset({"phase_ingest", "phase_process", "phase_store"})
 _STORE_SHELF_IDS = frozenset({"phase_consume", "phase_saas_producer", "phase_saas_consumer"})
 _WHOLE_ROW_SHELF_ID = "phase_control"
 
+# See CorridorIR._strip_cross_cutting_infra — these never belong on Data-flow
+# (Security/Network own them) regardless of what the LLM tries to add.
+_INFRA_NOISE_DENYLIST = frozenset({
+    "cloudwatch", "secrets_manager", "secret_manager", "key_vault", "_kms",
+    "guardduty", "_waf", "shield", "aws_iam", "azure_iam", "gcp_iam",
+    "x_ray", "xray", "azure_monitor", "cloud_logging", "cloudtrail",
+})
+
 
 class DataFlowIR(CorridorIR):
     view: Literal["data_flow"] = Field(
         default="data_flow", description="Must be exactly the lowercase string 'data_flow' — no other casing."
     )
     id_prefix: ClassVar[str] = "phase_"
+    _infra_noise_denylist: ClassVar[frozenset[str]] = _INFRA_NOISE_DENYLIST
 
     @classmethod
     def sanitize_raw(cls, data: object) -> object:
         """Pre-parse relocate — see ``SecurityIR.sanitize_raw``."""
-        return cls._relocate_vocabulary(
+        data = cls._relocate_vocabulary(
             data,
             row_ids=_ROW_IDS,
             shelf_anchors={
@@ -46,6 +55,7 @@ class DataFlowIR(CorridorIR):
                 _WHOLE_ROW_SHELF_ID: None,
             },
         )
+        return cls._strip_cross_cutting_infra(data)
 
     @model_validator(mode="before")
     @classmethod
