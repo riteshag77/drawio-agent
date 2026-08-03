@@ -81,6 +81,7 @@ class _CorridorCompiler:
         ``repair_xml`` still runs structural + edge-port polish only.
         """
         geos, routes = layout_corridor_ir(self.ir)
+        self._actor_geos = geos
         all_corridors = [*self.ir.corridors, *self.ir.anchored]
         for corridor in all_corridors:
             cg = geos[corridor.id]
@@ -142,10 +143,38 @@ class _CorridorCompiler:
         container just left of the leftmost row corridor. Right actors
         (saas_egress) render as loose leaves.
         """
+        from app.adapters.outbound.diagram.logical_layout import actor_sort_key_by_endpoint_y
+
         left = [a for a in self.ir.external_actors if a.kind in ("users", "saas_ingress", "on_prem")]
         right = [a for a in self.ir.external_actors if a.kind == "saas_egress"]
 
+        # Absolute leaf centers for primary-port alignment.
+        endpoint_cy: dict[str, float] = {}
+        band_hi = top_y + 400.0
+        for cell_id, g in self._actor_geos.items():
+            if cell_id in {c.id for c in self.ir.corridors}:
+                band_hi = max(band_hi, g.y + g.h)
+            # Leaf relative + parent absolute when parent is a corridor.
+        for corridor in self.ir.corridors:
+            cg = self._actor_geos.get(corridor.id)
+            if cg is None:
+                continue
+            for leaf in corridor.leaves:
+                lg = self._actor_geos.get(leaf.id)
+                if lg is not None:
+                    endpoint_cy[leaf.id] = cg.y + lg.y + lg.h / 2.0
+            band_hi = max(band_hi, cg.y + cg.h)
+
         if left:
+            left = sorted(
+                enumerate(left),
+                key=lambda ia: actor_sort_key_by_endpoint_y(
+                    ia[1].id, self.ir.flows, endpoint_cy,
+                    band_lo=top_y, band_hi=band_hi,
+                    fallback_index=ia[0],
+                ),
+            )
+            left = [a for _, a in left]
             _cols, _rows, content_w, content_h = grid_fill(len(left), cols=1)
             band_w = max(CONTAINER_MIN_W, content_w + CONTAINER_PADDING_X * 2)
             # + geo.LABEL_BAND_H: actors render with verticalLabelPosition=
@@ -167,10 +196,25 @@ class _CorridorCompiler:
                     w=geo.LEAF_W, h=geo.LEAF_H, parent="actors_left",
                 )
 
-        y = top_y
-        for actor in right:
+        if right:
+            right = sorted(
+                enumerate(right),
+                key=lambda ia: actor_sort_key_by_endpoint_y(
+                    ia[1].id, self.ir.flows, endpoint_cy,
+                    band_lo=top_y, band_hi=band_hi,
+                    fallback_index=ia[0],
+                ),
+            )
+            right = [a for _, a in right]
+        placed_y = top_y
+        for i, actor in enumerate(right):
+            pref, _, _ = actor_sort_key_by_endpoint_y(
+                actor.id, self.ir.flows, endpoint_cy,
+                band_lo=top_y, band_hi=band_hi, fallback_index=i,
+            )
+            y = max(placed_y, pref - geo.LEAF_H / 2.0) if endpoint_cy else placed_y
             self.w.vertex(
                 id=actor.id, label=actor.label, style=theme.actor_style(actor.kind),
                 x=row_right + _ACTOR_GAP_X, y=y, w=geo.LEAF_W, h=geo.LEAF_H, parent="1",
             )
-            y += geo.LEAF_H + geo.LABEL_BAND_H + geo.ACTOR_GAP_Y
+            placed_y = y + geo.LEAF_H + geo.LABEL_BAND_H + geo.ACTOR_GAP_Y

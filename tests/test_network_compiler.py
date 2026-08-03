@@ -159,6 +159,7 @@ class DiagnosticsCleanlinessTests(unittest.TestCase):
                 id="vpc",
                 zones=[AvailabilityZone(id="az", label="AZ", subnets=[
                     Subnet(id="app", tier="app", leaves=leaves),
+                    Subnet(id="data", tier="data", leaves=[_leaf("db", "aws_rds", "DB")]),
                 ])],
             )])],
         ))

@@ -102,6 +102,9 @@ def emit_external_actors(
     left_x: float,
     right_x: float,
     top_y: float,
+    flows: list[Flow] | None = None,
+    endpoint_cy: dict[str, float] | None = None,
+    band_hi: float | None = None,
 ) -> None:
     """Place external actors at the root layer: ingress left, egress right.
 
@@ -109,12 +112,49 @@ def emit_external_actors(
     origins differ, since Network's origin is the Cloud box and the corridor
     views' is the row) — callers compute those from their own layout and pass
     them in rather than each reimplementing the partition-and-stack loop.
+
+    When ``flows`` + ``endpoint_cy`` are provided, each column is sorted by the
+    median Y of connected primary endpoints (clamped to the corridor/cloud band).
     """
     left = [a for a in actors if a.kind in ("users", "saas_ingress", "on_prem")]
     right = [a for a in actors if a.kind == "saas_egress"]
+    hi = band_hi if band_hi is not None else top_y + 400.0
+    if flows and endpoint_cy:
+        from app.adapters.outbound.diagram.logical_layout import actor_sort_key_by_endpoint_y
+
+        def _sort_col(col: list[ExternalActor]) -> list[ExternalActor]:
+            keyed = [
+                (actor_sort_key_by_endpoint_y(
+                    a.id, flows, endpoint_cy, band_lo=top_y, band_hi=hi, fallback_index=i,
+                ), a)
+                for i, a in enumerate(col)
+            ]
+            keyed.sort(key=lambda t: t[0])
+            return [a for _, a in keyed]
+
+        left = _sort_col(left)
+        right = _sort_col(right)
 
     for column, x in ((left, left_x), (right, right_x)):
         y = top_y
+        if flows and endpoint_cy and column:
+            # Place each actor near its median port Y when spacing allows.
+            from app.adapters.outbound.diagram.logical_layout import actor_sort_key_by_endpoint_y
+            placed_y = top_y
+            for i, actor in enumerate(column):
+                pref, _, _ = actor_sort_key_by_endpoint_y(
+                    actor.id, flows, endpoint_cy, band_lo=top_y, band_hi=hi, fallback_index=i,
+                )
+                y = max(placed_y, pref - geo.LEAF_H / 2.0)
+                writer.vertex(
+                    id=actor.id,
+                    label=actor.label,
+                    style=theme.actor_style(actor.kind),
+                    x=x, y=y, w=geo.LEAF_W, h=geo.LEAF_H,
+                    parent="1",
+                )
+                placed_y = y + geo.LEAF_H + geo.LABEL_BAND_H + geo.ACTOR_GAP_Y
+            continue
         for actor in column:
             writer.vertex(
                 id=actor.id,

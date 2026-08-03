@@ -40,7 +40,11 @@ from app.adapters.outbound.diagram.compiler.shared import (
     emit_leaf_grid,
     leaf_label,
 )
-from app.adapters.outbound.diagram.logical_layout import Geo
+from app.adapters.outbound.diagram.logical_layout import (
+    Geo,
+    align_leaves_across_containers,
+    order_leaves_by_flow,
+)
 from app.domain.ir.network import AvailabilityZone, CrossCuttingGroup, NetworkIR, Subnet, Vpc
 
 
@@ -61,9 +65,28 @@ class _NetworkCompiler:
         self.ir = ir
         self.platform = ir.platform
         self.w = CellWriter(page_name)
+        self._leaf_abs_cy: dict[str, float] = {}
+
+    def _ordered(self, leaves: list) -> list:
+        """Flow-aware order so tier-to-tier arrows stay column-aligned."""
+        return order_leaves_by_flow(list(leaves), self.ir.flows)
+
+    def _record_leaf_centers(
+        self, leaves: list, parent_abs_y: float, *, is_group: bool,
+    ) -> list:
+        """Emit-order leaves and record predicted absolute centers for actor Y."""
+        ordered = self._ordered(leaves)
+        _cw, _ch, cols, _rows = geo.grid_size(len(ordered), is_group=is_group)
+        for index, leaf in enumerate(ordered):
+            row = index // cols if cols else 0
+            cy = parent_abs_y + geo.TITLE_PAD + row * geo.ROW_PITCH_Y + geo.LEAF_H / 2.0
+            self._leaf_abs_cy[leaf.id] = cy
+        return ordered
 
     def run(self) -> str:
         geos = layout_network_ir(self.ir)
+        self._geos = geos
+        self._leaf_abs_cy = {}
         self._emit_cloud(geos)
         g = geos[self.ir.cloud.id]
         emit_external_actors(
@@ -71,6 +94,9 @@ class _NetworkCompiler:
             left_x=g.x - geo.ACTOR_GAP_X - geo.LEAF_W,
             right_x=g.x + g.w + geo.ACTOR_GAP_X,
             top_y=g.y + geo.TITLE_PAD,
+            flows=self.ir.flows,
+            endpoint_cy=self._leaf_abs_cy,
+            band_hi=g.y + g.h,
         )
         emit_flows(self.w, self.ir.flows)
         # This page's container geometry is compiler-final — mark layout="ir"
@@ -82,43 +108,62 @@ class _NetworkCompiler:
 
     # ── containers, bottom-up — geometry from `geos`, structure from the IR ──
 
-    def _emit_subnet(self, subnet: Subnet, parent_id: str, geos: dict[str, Geo]) -> None:
+    def _emit_subnet(
+        self, subnet: Subnet, parent_id: str, geos: dict[str, Geo],
+        *, parent_abs_y: float, leaves: list | None = None,
+    ) -> None:
         g = geos[subnet.id]
-        emit_leaf_grid(self.w, subnet.leaves, subnet.id, is_group=False)
+        abs_y = parent_abs_y + g.y
+        ordered = self._record_leaf_centers(
+            leaves if leaves is not None else subnet.leaves, abs_y, is_group=False,
+        )
+        emit_leaf_grid(self.w, ordered, subnet.id, is_group=False)
         self.w.vertex(
             id=subnet.id, label=f"{subnet.tier.title()} Subnet", style=theme.subnet_style(subnet.tier),
             x=g.x, y=g.y, w=g.w, h=g.h, parent=parent_id,
         )
 
-    def _emit_zone(self, zone: AvailabilityZone, parent_id: str, geos: dict[str, Geo]) -> None:
-        for subnet in zone.subnets:
-            self._emit_subnet(subnet, zone.id, geos)
+    def _emit_zone(
+        self, zone: AvailabilityZone, parent_id: str, geos: dict[str, Geo], *, parent_abs_y: float,
+    ) -> None:
         g = geos[zone.id]
+        abs_y = parent_abs_y + g.y
+        # Cross-tier column alignment: public → app → data share primary-path rows.
+        tier_lists = [self._ordered(s.leaves) for s in zone.subnets]
+        aligned = align_leaves_across_containers(tier_lists, self.ir.flows)
+        for subnet, leaves in zip(zone.subnets, aligned):
+            self._emit_subnet(subnet, zone.id, geos, parent_abs_y=abs_y, leaves=leaves)
         self.w.vertex(
             id=zone.id, label=zone.label, style=theme.zone_style(),
             x=g.x, y=g.y, w=g.w, h=g.h, parent=parent_id,
         )
 
-    def _emit_group(self, group: CrossCuttingGroup, parent_id: str, geos: dict[str, Geo]) -> None:
+    def _emit_group(
+        self, group: CrossCuttingGroup, parent_id: str, geos: dict[str, Geo], *, parent_abs_y: float,
+    ) -> None:
         g = geos[group.id]
-        emit_leaf_grid(self.w, group.leaves, group.id, is_group=True)
+        abs_y = parent_abs_y + g.y
+        ordered = self._record_leaf_centers(group.leaves, abs_y, is_group=True)
+        emit_leaf_grid(self.w, ordered, group.id, is_group=True)
         self.w.vertex(
             id=group.id, label=f"{group.kind.title()} Group", style=theme.group_style(group.kind),
             x=g.x, y=g.y, w=g.w, h=g.h, parent=parent_id,
         )
 
-    def _emit_vpc(self, vpc: Vpc, parent_id: str, geos: dict[str, Geo]) -> None:
+    def _emit_vpc(self, vpc: Vpc, parent_id: str, geos: dict[str, Geo], *, parent_abs_y: float) -> None:
+        g = geos[vpc.id]
+        abs_y = parent_abs_y + g.y
         if vpc.gateway:
-            g = geos[vpc.gateway.id]
+            gg = geos[vpc.gateway.id]
+            self._leaf_abs_cy[vpc.gateway.id] = abs_y + gg.y + gg.h / 2.0
             self.w.vertex(
                 id=vpc.gateway.id, label=leaf_label(vpc.gateway), style=theme.leaf_style(),
-                x=g.x, y=g.y, w=g.w, h=g.h, parent=vpc.id, shape_type=vpc.gateway.shape_type,
+                x=gg.x, y=gg.y, w=gg.w, h=gg.h, parent=vpc.id, shape_type=vpc.gateway.shape_type,
             )
         for zone in vpc.zones:
-            self._emit_zone(zone, vpc.id, geos)
+            self._emit_zone(zone, vpc.id, geos, parent_abs_y=abs_y)
         for group in vpc.groups:
-            self._emit_group(group, vpc.id, geos)
-        g = geos[vpc.id]
+            self._emit_group(group, vpc.id, geos, parent_abs_y=abs_y)
         self.w.vertex(
             id=vpc.id, label=vpc.label, style=theme.vpc_style(self.platform),
             x=g.x, y=g.y, w=g.w, h=g.h, parent=parent_id,
@@ -126,30 +171,37 @@ class _NetworkCompiler:
 
     def _emit_cloud(self, geos: dict[str, Geo]) -> None:
         cloud = self.ir.cloud
+        g = geos[cloud.id]
+        cloud_abs_y = g.y  # root-level → page-absolute
         if cloud.edge_layer:
-            g = geos[cloud.edge_layer.id]
-            emit_leaf_grid(self.w, cloud.edge_layer.leaves, cloud.edge_layer.id, is_group=False)
+            eg = geos[cloud.edge_layer.id]
+            ordered = self._record_leaf_centers(
+                cloud.edge_layer.leaves, cloud_abs_y + eg.y, is_group=False,
+            )
+            emit_leaf_grid(self.w, ordered, cloud.edge_layer.id, is_group=False)
             self.w.vertex(
                 id=cloud.edge_layer.id, label=cloud.edge_layer.label, style=theme.edge_layer_style(),
-                x=g.x, y=g.y, w=g.w, h=g.h, parent=cloud.id,
+                x=eg.x, y=eg.y, w=eg.w, h=eg.h, parent=cloud.id,
             )
         for region in cloud.regions:
+            rg = geos[region.id]
             for vpc in region.vpcs:
-                self._emit_vpc(vpc, region.id, geos)
-            g = geos[region.id]
+                self._emit_vpc(vpc, region.id, geos, parent_abs_y=cloud_abs_y + rg.y)
             self.w.vertex(
                 id=region.id, label=region.label, style=theme.region_style(self.platform),
-                x=g.x, y=g.y, w=g.w, h=g.h, parent=cloud.id,
+                x=rg.x, y=rg.y, w=rg.w, h=rg.h, parent=cloud.id,
             )
         if cloud.connectivity_hubs:
             hub_shelf_id = connectivity_shelf_id(self.ir)
-            g = geos[hub_shelf_id]
-            emit_leaf_grid(self.w, cloud.connectivity_hubs, hub_shelf_id, is_group=False)
+            hg = geos[hub_shelf_id]
+            ordered = self._record_leaf_centers(
+                cloud.connectivity_hubs, cloud_abs_y + hg.y, is_group=False,
+            )
+            emit_leaf_grid(self.w, ordered, hub_shelf_id, is_group=False)
             self.w.vertex(
                 id=hub_shelf_id, label="Connectivity / Hybrid", style=theme.edge_layer_style(),
-                x=g.x, y=g.y, w=g.w, h=g.h, parent=cloud.id,
+                x=hg.x, y=hg.y, w=hg.w, h=hg.h, parent=cloud.id,
             )
-        g = geos[cloud.id]
         self.w.vertex(
             id=cloud.id, label=cloud.label, style=theme.cloud_style(self.platform),
             x=g.x, y=g.y, w=g.w, h=g.h, parent="1",

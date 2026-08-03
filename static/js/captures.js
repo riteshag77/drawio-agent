@@ -75,6 +75,19 @@ function renderCapturedResponse(data) {
     } catch (e) { console.error('Playback: compliance panel error', e); }
 
     try {
+        // Same placeholder as live chat (`#suggestions-panel-body` via displaySuggestions).
+        // Show captured suggestions whenever present — do not gate on the Settings toggle,
+        // or playback silently leaves the Suggestions tab empty even when the capture has them.
+        if (Array.isArray(data.suggestions) && data.suggestions.length) {
+            displaySuggestions(data.suggestions);
+        } else if (typeof clearSuggestionsPanel === 'function') {
+            clearSuggestionsPanel();
+        } else if (typeof displaySuggestions === 'function') {
+            displaySuggestions([]);
+        }
+    } catch (e) { console.error('Playback: suggestions panel error', e); }
+
+    try {
         if (data.llm_usage) {
             displayTokenUsage(data.llm_usage);
         } else {

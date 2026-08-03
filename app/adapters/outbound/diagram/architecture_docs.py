@@ -1671,6 +1671,18 @@ _MAX_STORY_STEPS = 5
 _MAX_STORY_STEPS_LOGICAL = 6
 #: Network primary path often needs edge + gateway + app + data (7 hops).
 _MAX_STORY_STEPS_NETWORK = 7
+#: Business-journey bullets kept short so the panel stays scannable.
+_MAX_BUSINESS_STEPS = 3
+
+
+def story_step_cap(view_title: str = "") -> int:
+    """Single source of truth for panel tech steps and canvas badge count."""
+    title_key = (view_title or "").strip().lower()
+    if title_key == "logical":
+        return _MAX_STORY_STEPS_LOGICAL
+    if title_key == "network":
+        return _MAX_STORY_STEPS_NETWORK
+    return _MAX_STORY_STEPS
 
 
 def _strip_annotation_tag(label: str) -> str:
@@ -1897,7 +1909,7 @@ def _logical_business_steps(xml: str) -> list[str]:
     if plat:
         steps.append(f"Shared platform services: {_join(plat)}.")
 
-    return steps[:6]
+    return steps[:_MAX_BUSINESS_STEPS]
 
 
 def derive_story_markers(xml: str, view_title: str = "") -> list[StepMarker]:
@@ -1906,13 +1918,7 @@ def derive_story_markers(xml: str, view_title: str = "") -> list[StepMarker]:
     LLM involved), and guaranteed to agree with the panel's numbering because
     both read ``_ir_story_steps`` on the *same* xml snapshot.
     """
-    title_key = (view_title or "").strip().lower()
-    if title_key == "logical":
-        cap = _MAX_STORY_STEPS_LOGICAL
-    elif title_key == "network":
-        cap = _MAX_STORY_STEPS_NETWORK
-    else:
-        cap = _MAX_STORY_STEPS
+    cap = story_step_cap(view_title)
     return [
         StepMarker(step_number=i, cell_id=step.target_id)
         for i, step in enumerate(_ir_story_steps(xml, max_steps=cap), start=1)
@@ -2042,12 +2048,7 @@ def synthesize_ir_overview_body(xml: str, view_title: str, system_title: str = "
     ``_trim_overview_panel_value`` cannot erase the badge-correlated steps.
     """
     title_key = (view_title or "").strip().lower()
-    if title_key == "logical":
-        cap = _MAX_STORY_STEPS_LOGICAL
-    elif title_key == "network":
-        cap = _MAX_STORY_STEPS_NETWORK
-    else:
-        cap = _MAX_STORY_STEPS
+    cap = story_step_cap(view_title)
     tech_steps = _ir_story_steps(xml, max_steps=cap)
     if not tech_steps and title_key != "logical":
         return _overview_stub_body(view_title)

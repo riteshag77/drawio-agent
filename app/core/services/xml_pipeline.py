@@ -1376,7 +1376,7 @@ async def run_xml_pipeline(
                 else:
                     diagrams = []
                 from app.adapters.outbound.diagram.edge_routing import (
-                    repark_edge_labels_after_external_routing,
+                    restamp_edge_ports_after_external_routing,
                 )
                 _FOCUSED_PAGES = {"Logical", "Security", "Data flow"}
                 if len(diagrams) <= 1:
@@ -1419,8 +1419,8 @@ async def run_xml_pipeline(
                                 ET.fromstring(candidate)
                                 if candidate.lower().count("<mxfile") > 1:
                                     raise ET.ParseError("nested mxfile after repair")
-                                if single_name in _FOCUSED_PAGES:
-                                    candidate = repark_edge_labels_after_external_routing(candidate)
+                                if single_name in _FOCUSED_PAGES or single_name == "Network":
+                                    candidate = restamp_edge_ports_after_external_routing(candidate)
                                 local_xml = candidate
                                 if logger:
                                     logger.log("mcp", "Libavoid routing applied", level="success")
@@ -1476,8 +1476,8 @@ async def run_xml_pipeline(
                             ET.fromstring(candidate)
                             if candidate.lower().count("<mxfile") > 1:
                                 raise ET.ParseError("nested mxfile")
-                            if name in _FOCUSED_PAGES:
-                                candidate = repark_edge_labels_after_external_routing(candidate)
+                            if name in _FOCUSED_PAGES or name == "Network":
+                                candidate = restamp_edge_ports_after_external_routing(candidate)
                             routed_pages.append((name, ensure_diagram_document(candidate, name)))
                         except ET.ParseError:
                             routed_pages.append((name, page_xml))

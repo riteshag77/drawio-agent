@@ -1114,9 +1114,10 @@ def _trim_overview_panel_value(value: str) -> str:
     Preserves ``data-section`` blocks (lens, howto, business/technical headers,
     numbered tech steps, facts, footer, gaps) with their styling. Caps only
     anonymous step divs and ``data-section=tech`` lines to ``_PANEL_MAX_STEPS``.
-    Older trim flattened every div and erased Logical's "Technical flow"
-    section — badges still numbered the canvas while the panel only showed
-    business bullets.
+    Business bullets (``data-section=biz``) are capped to 3 so the panel stays
+    scannable. Older trim flattened every div and erased Logical's "Technical
+    flow" section — badges still numbered the canvas while the panel only
+    showed business bullets.
     """
     decoded = html.unescape(value or "")
     full_divs = _DIV_FULL.findall(decoded)
@@ -1131,7 +1132,9 @@ def _trim_overview_panel_value(value: str) -> str:
     steps: list[str] = []
     gap_divs: list[str] = []
     tech_count = 0
+    biz_count = 0
     seen_title = False
+    _MAX_BIZ = 3
 
     for div in full_divs:
         low = div.lower()
@@ -1144,6 +1147,7 @@ def _trim_overview_panel_value(value: str) -> str:
 
         if _PRESERVE_SECTION_MARK.search(div):
             is_tech = bool(re.search(r'data-section\s*=\s*["\']tech["\']', low))
+            is_biz = bool(re.search(r'data-section\s*=\s*["\']biz["\']', low))
             if is_tech:
                 tech_count += 1
                 if tech_count > _PANEL_MAX_STEPS:
@@ -1157,6 +1161,11 @@ def _trim_overview_panel_value(value: str) -> str:
                     preserved.append(f"{open_tag}{html.escape(text)}</div>")
                 else:
                     preserved.append(div)
+            elif is_biz:
+                biz_count += 1
+                if biz_count > _MAX_BIZ:
+                    continue
+                preserved.append(div)
             else:
                 preserved.append(div)
             continue
@@ -1417,7 +1426,8 @@ def ensure_overview_panel_position(xml: str) -> str:
     page_w, page_h = _page_size(tree)
     by_id = {c.get("id"): c for c in cells if c.get("id")}
 
-    # Absolute bounds of all architecture vertices (nested leaves included).
+    # Structure hull: top-level containers + actors only — nested leaves must
+    # not push the panel hundreds of px to the right of the architecture.
     other_geoms: list[tuple[float, float, float, float]] = []
     for c in cells:
         if c is panel or c.get("edge") == "1":
@@ -1427,6 +1437,8 @@ def ensure_overview_panel_position(xml: str) -> str:
         if _is_step_badge_cell(c):
             continue
         if c.get("vertex") != "1":
+            continue
+        if (c.get("parent") or "") != "1":
             continue
         geo = _cell_geometry(c)
         if geo is None:
@@ -1491,16 +1503,11 @@ def ensure_overview_panel_position(xml: str) -> str:
 
 
 def ensure_legend_position(xml: str) -> str:
-    """Force the edge-style legend (if present) to sit directly below the Overview Panel.
+    """Pin the edge-style legend below the overview panel, or under the hull.
 
-    geometry_spec asks the LLM for "outside the flow" placement,
-    which is too vague for a wide multi-account diagram — the model has been
-    observed placing the legend at an arbitrary interior point that overlaps
-    real architecture content. This always pins it to the same x as the
-    panel, immediately below the panel's (already-finalized) bottom edge —
-    call this *after* ``ensure_overview_panel_position`` so the panel's
-    position/height are final. No-ops if either the legend or the panel is
-    absent (nothing well-defined to anchor to).
+    When the panel is taller than the architecture hull, place the legend under
+    the hull instead so narrative and legend do not form one tall right column.
+    Call after ``ensure_overview_panel_position``. No-ops if either cell is absent.
     """
     parsed = _parse_docroot(xml)
     if parsed is None:
@@ -1519,7 +1526,32 @@ def ensure_legend_position(xml: str) -> str:
 
     px, py, pw, ph = panel_geo
     lx, ly, lw, lh = legend_geo
-    target_x, target_y = px, py + ph + _LEGEND_GAP
+
+    # Prefer legend under the architecture hull when the panel is taller than
+    # the hull — avoids one tall narrative column swallowing vertical reading.
+    by_id = {c.get("id"): c for c in cells if c.get("id")}
+    page_w, page_h = _page_size(tree)
+    hull_bottom = 0.0
+    hull_left = px
+    for c in cells:
+        if c is panel or c is legend or c.get("edge") == "1":
+            continue
+        if _is_canvas_background_cell(c, page_w, page_h) or _is_step_badge_cell(c):
+            continue
+        if c.get("vertex") != "1" or (c.get("parent") or "") != "1":
+            continue
+        geo = _cell_geometry(c)
+        if geo is None:
+            continue
+        ax, ay = absolute_position(c, by_id)
+        hull_bottom = max(hull_bottom, ay + geo[3])
+        hull_left = min(hull_left, ax)
+
+    if hull_bottom > 0 and ph > (hull_bottom - py) + 40:
+        target_x = hull_left
+        target_y = hull_bottom + _LEGEND_GAP
+    else:
+        target_x, target_y = px, py + ph + _LEGEND_GAP
 
     changed = False
     if abs(target_x - lx) > 0.5 or abs(target_y - ly) > 0.5:
@@ -1530,7 +1562,6 @@ def ensure_legend_position(xml: str) -> str:
             changed = True
         lx, ly = target_x, target_y
 
-    page_w, page_h = _page_size(tree)
     if _grow_page(tree, cells, page_w, page_h,
                   required_h=ly + lh + _OVERVIEW_PANEL_MARGIN):
         changed = True
@@ -1669,7 +1700,8 @@ def apply_step_markers(xml: str, step_markers: list[Any], logger: Any = None) ->
     collisions: dict[str, int] = {}
     added = False
     badge_count = 0
-    max_badges = 6
+    from app.adapters.outbound.diagram.architecture_docs import story_step_cap
+    max_badges = story_step_cap(page_name)
     for marker in step_markers:
         if badge_count >= max_badges:
             break

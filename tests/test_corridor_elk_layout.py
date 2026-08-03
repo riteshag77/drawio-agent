@@ -127,6 +127,43 @@ class ElkCorridorLayoutTests(unittest.TestCase):
         self.assertIn("portal", geos)
         self.assertEqual(routes, {})
 
+    def test_equalize_keeps_routes_when_endpoints_share_dy(self) -> None:
+        """Asymmetric band snaps must not wipe every ELK route — only the
+        edges whose two corridors moved differently."""
+        from app.adapters.outbound.diagram.logical_layout import (
+            _shift_routes_after_equalize,
+        )
+        routes = {
+            "flow_0": [(100.0, 50.0), (200.0, 50.0)],  # both endpoints dy=10
+            "flow_1": [(100.0, 80.0), (300.0, 80.0)],  # asymmetric → drop
+        }
+        dys = {"domain_experience": 10.0, "domain_core": 10.0, "domain_data": 0.0}
+        row_edges = [
+            ("flow_0", "portal", "a"),
+            ("flow_1", "portal", "store"),
+        ]
+        leaf_to = {"portal": "domain_experience", "a": "domain_core", "store": "domain_data"}
+        kept = _shift_routes_after_equalize(routes, dys, row_edges, leaf_to)
+        self.assertIn("flow_0", kept)
+        self.assertEqual(kept["flow_0"], [(100.0, 60.0), (200.0, 60.0)])
+        self.assertNotIn("flow_1", kept)
+
+    def test_row_leaves_reorder_puts_inbound_first(self) -> None:
+        from app.adapters.outbound.diagram.logical_layout import order_leaves_by_flow
+        from app.domain.ir import Flow, Leaf
+        leaves = [
+            Leaf(id="z", shape_type="logical_capability", label="Z"),
+            Leaf(id="a", shape_type="logical_capability", label="A"),
+            Leaf(id="b", shape_type="logical_capability", label="B"),
+        ]
+        flows = [
+            Flow(source="portal", target="a", primary=True),
+            Flow(source="a", target="store", primary=True),
+            Flow(source="b", target="store", primary=False),
+        ]
+        ordered = order_leaves_by_flow(leaves, flows)
+        self.assertEqual([l.id for l in ordered][0], "a")
+
 
 if __name__ == "__main__":
     unittest.main()

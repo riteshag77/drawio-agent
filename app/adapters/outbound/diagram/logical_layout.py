@@ -480,6 +480,7 @@ def _anchor_shelves(
             default_top = row_bottom + INTER_CONTAINER_GAP
         base_top = cursor_by_anchor.get(shelf.anchor_id, default_top)
 
+        shelf.leaves = order_leaves_by_flow(list(shelf.leaves), ir.flows)
         leaf_ids = {leaf.id for leaf in shelf.leaves}
         local_edges = [(s, t) for s, t in all_flows if s in leaf_ids and t in leaf_ids]
         width, height = _place_leaves(shelf.leaves, local_edges, geos)
@@ -576,8 +577,8 @@ def _equalize_row_band(geos: dict[str, Geo], row: list[Corridor]) -> dict[str, f
     path must do the same or Logical/Security look "not auto-aligned".
 
     Returns ``{corridor_id: dy}`` for each row corridor whose Y changed
-    (empty when already aligned) so callers can drop ELK bend points that
-    were computed against the pre-snap coordinates.
+    (empty when already aligned) so callers can shift or drop ELK bend points
+    that were computed against the pre-snap coordinates.
     """
     if not row:
         return {}
@@ -591,6 +592,249 @@ def _equalize_row_band(geos: dict[str, Geo], row: list[Corridor]) -> dict[str, f
                 dys[corridor.id] = dy
             geos[corridor.id] = Geo(x=g.x, y=_ROW_START_Y, w=g.w, h=band_h)
     return dys
+
+
+def _shift_routes_after_equalize(
+    routes: dict[str, list[tuple[float, float]]],
+    dys: dict[str, float],
+    row_edges: list[tuple[str, str, str]],
+    leaf_to_corridor: dict[str, str],
+) -> dict[str, list[tuple[float, float]]]:
+    """Keep ELK bend points when both endpoints moved by the same dy.
+
+    Asymmetric moves (short Experience slid up, tall Core stayed) used to
+    drop *every* route. That threw away good Core↔Data elbows. Only discard
+    a route when its two corridors disagree on dy — those elbows would cut
+    through icons if naively shifted.
+    """
+    if not routes:
+        return routes
+    if not dys:
+        return routes
+    edge_corr = {
+        fid: (leaf_to_corridor.get(src, ""), leaf_to_corridor.get(tgt, ""))
+        for fid, src, tgt in row_edges
+    }
+    kept: dict[str, list[tuple[float, float]]] = {}
+    for fid, points in routes.items():
+        cs, ct = edge_corr.get(fid, ("", ""))
+        dy_s = dys.get(cs, 0.0)
+        dy_t = dys.get(ct, 0.0)
+        if abs(dy_s - dy_t) > 1.0:
+            continue
+        dy = dy_s
+        if abs(dy) <= 1.0:
+            kept[fid] = points
+        else:
+            kept[fid] = [(x, y + dy) for x, y in points]
+    return kept
+
+
+def _longest_primary_chain(idset: set[str], flows: list) -> list[str]:
+    """Longest ``primary=True`` chain that intersects ``idset`` (ids in set only)."""
+    primary = [
+        (f.source, f.target) for f in flows
+        if getattr(f, "primary", True)
+        and f.source in idset and f.target in idset
+    ]
+    if not primary:
+        # Soft: any edge that enters/leaves the set along a primary hop.
+        primary = [
+            (f.source, f.target) for f in flows
+            if getattr(f, "primary", True)
+            and (f.source in idset or f.target in idset)
+        ]
+        primary = [(s, t) for s, t in primary if s in idset and t in idset]
+    if not primary:
+        return []
+    succ: dict[str, list[str]] = defaultdict(list)
+    nodes: set[str] = set()
+    for s, t in primary:
+        succ[s].append(t)
+        nodes.add(s)
+        nodes.add(t)
+    best: list[str] = []
+
+    def dfs(node: str, path: list[str], seen: set[str]) -> None:
+        nonlocal best
+        if len(path) > len(best):
+            best = list(path)
+        for nxt in succ.get(node, ()):
+            if nxt in seen:
+                continue
+            seen.add(nxt)
+            path.append(nxt)
+            dfs(nxt, path, seen)
+            path.pop()
+            seen.remove(nxt)
+
+    for start in nodes:
+        dfs(start, [start], {start})
+    return best
+
+
+def _spine_before_wrap(ordered_ids: list[str], flows: list) -> list[str]:
+    """Prefer longest primary path on row 0; secondary leaves fill lower rows.
+
+    Density threshold = ``LEAF_GRID_MAX_COLS``: if the spine fits in one row,
+    it occupies the front of the list (ELK partition / emit_leaf_grid wrap).
+    """
+    idset = set(ordered_ids)
+    spine = [lid for lid in _longest_primary_chain(idset, flows) if lid in idset]
+    if len(spine) < 2:
+        return ordered_ids
+    spine_set = set(spine)
+    rest = [lid for lid in ordered_ids if lid not in spine_set]
+    # Keep spine contiguous at the front so wrap puts them on earlier rows.
+    max_cols = elk_graph.LEAF_MAX_COLS
+    if len(spine) <= max_cols:
+        return spine + rest
+    # Over-long spine still leads; wrap naturally after max_cols.
+    return spine + rest
+
+
+def order_leaves_by_flow(leaves: list[Leaf], flows: list) -> list[Leaf]:
+    """Reorder leaves for cleaner L→R / top→bottom wiring.
+
+    Uses intra-container edges when present (longest-path + barycenter).
+    Otherwise prefers primary-path entry leaves (inbound from outside) then
+    exit leaves (outbound), preserving relative declaration order as a tiebreak.
+    Then applies spine-before-wrap so the longest primary path prefers row 0.
+    Shared by corridor row ELK grids and Network ``emit_leaf_grid``.
+    """
+    if len(leaves) <= 1:
+        return list(leaves)
+    ids = [leaf.id for leaf in leaves]
+    idset = set(ids)
+    local = [
+        (f.source, f.target) for f in flows
+        if getattr(f, "source", None) in idset and getattr(f, "target", None) in idset
+    ]
+    if not local:
+        # Soft primary-path bias when the container itself has no internal edges.
+        primary = [f for f in flows if getattr(f, "primary", True)]
+        use = primary or list(flows)
+        inbound = {
+            f.target for f in use
+            if f.target in idset and f.source not in idset
+        }
+        outbound = {
+            f.source for f in use
+            if f.source in idset and f.target not in idset
+        }
+        ordered_ids = sorted(
+            ids,
+            key=lambda lid: (
+                0 if lid in inbound else 1,
+                0 if lid in outbound else 1,
+                ids.index(lid),
+            ),
+        )
+    else:
+        ordered_ids, _ = _tile_order(ids, local)
+    ordered_ids = _spine_before_wrap(ordered_ids, flows)
+    by_id = {leaf.id: leaf for leaf in leaves}
+    return [by_id[i] for i in ordered_ids if i in by_id]
+
+
+def align_leaves_across_containers(
+    containers: list[list[Leaf]],
+    flows: list,
+    *,
+    sweeps: int = 4,
+) -> list[list[Leaf]]:
+    """Barycenter leaf list positions so primary edges prefer matching row indices.
+
+    ``containers`` is an ordered sequence of adjacent corridors / Network tiers.
+    Each list is reordered (and returned) so index // max_cols (row) tends to
+    match across a primary hop. Uses alternating forward/backward sweeps so
+    the two sides do not oscillate.
+    """
+    if len(containers) < 2:
+        return containers
+    max_cols = elk_graph.LEAF_MAX_COLS
+    id_to_ci: dict[str, int] = {}
+    for ci, leaves in enumerate(containers):
+        for leaf in leaves:
+            id_to_ci[leaf.id] = ci
+
+    primary = [
+        (f.source, f.target) for f in flows
+        if getattr(f, "primary", True)
+        and f.source in id_to_ci and f.target in id_to_ci
+        and id_to_ci[f.source] != id_to_ci[f.target]
+    ]
+    if not primary:
+        return containers
+
+    orders: list[list[str]] = [[leaf.id for leaf in leaves] for leaves in containers]
+    by_id = {leaf.id: leaf for leaves in containers for leaf in leaves}
+
+    def row_of(ci: int, lid: str) -> float:
+        try:
+            return orders[ci].index(lid) / max_cols
+        except ValueError:
+            return 0.0
+
+    def reorder(ci: int, neighbor: int) -> None:
+        pref: dict[str, list[float]] = defaultdict(list)
+        for s, t in primary:
+            cs, ct = id_to_ci[s], id_to_ci[t]
+            if cs == ci and ct == neighbor:
+                pref[s].append(row_of(neighbor, t))
+            elif ct == ci and cs == neighbor:
+                pref[t].append(row_of(neighbor, s))
+        if not pref:
+            return
+        order = orders[ci]
+
+        def key(lid: str) -> tuple:
+            if lid in pref:
+                return (sum(pref[lid]) / len(pref[lid]), order.index(lid))
+            return (row_of(ci, lid), order.index(lid))
+
+        orders[ci] = sorted(order, key=key)
+
+    for _ in range(sweeps):
+        for ci in range(1, len(orders)):
+            reorder(ci, ci - 1)
+        for ci in range(len(orders) - 2, -1, -1):
+            reorder(ci, ci + 1)
+
+    return [[by_id[i] for i in order if i in by_id] for order in orders]
+
+
+def actor_sort_key_by_endpoint_y(
+    actor_id: str,
+    flows: list,
+    endpoint_cy: dict[str, float],
+    *,
+    band_lo: float,
+    band_hi: float,
+    fallback_index: int = 0,
+) -> tuple[float, int, str]:
+    """Sort key: median absolute Y of connected primary endpoints, clamped to band."""
+    primary = [f for f in flows if getattr(f, "primary", True)] or list(flows)
+    ys: list[float] = []
+    for f in primary:
+        if f.source == actor_id and f.target in endpoint_cy:
+            ys.append(endpoint_cy[f.target])
+        elif f.target == actor_id and f.source in endpoint_cy:
+            ys.append(endpoint_cy[f.source])
+    if ys:
+        mid = sorted(ys)[len(ys) // 2]
+        mid = max(band_lo, min(band_hi, mid))
+    else:
+        mid = band_lo + fallback_index * geo.ROW_PITCH_Y
+    return (mid, fallback_index, actor_id)
+
+
+def _reorder_row_leaves(row: list[Corridor], flows: list) -> None:
+    """Mutate each row corridor's ``leaves`` into flow-aware order before ELK."""
+    ordered = [order_leaves_by_flow(list(corridor.leaves), flows) for corridor in row]
+    aligned = align_leaves_across_containers(ordered, flows)
+    for corridor, leaves in zip(row, aligned):
+        corridor.leaves = leaves
 
 
 def layout_corridor_ir(ir: CorridorIR) -> tuple[dict[str, Geo], dict[str, list[tuple[float, float]]]]:
@@ -608,6 +852,8 @@ def layout_corridor_ir(ir: CorridorIR) -> tuple[dict[str, Geo], dict[str, list[t
         geos: dict[str, Geo] = {}
         _anchor_shelves(ir, geos, row_right=_ROW_START_X, row_bottom=_ROW_START_Y)
         return geos, {}
+
+    _reorder_row_leaves(row, ir.flows)
 
     leaf_to_corridor: dict[str, str] = {
         leaf.id: corridor.id for corridor in row for leaf in corridor.leaves
@@ -640,15 +886,76 @@ def layout_corridor_ir(ir: CorridorIR) -> tuple[dict[str, Geo], dict[str, list[t
     result = run_elk(graph)
     geos, routes = _parse_elk_corridor_result(result, row)
 
-    # Snap the row to one Y/H band. ELK bend points were computed against the
-    # pre-snap Y's —
-    # drop them when any corridor moved so edge_routing' local router
-    # re-anchors against the equalized geometry (naive dy-shifting of
-    # orthogonal elbows cuts through nodes).
-    if _equalize_row_band(geos, row):
-        routes = {}
+    # Snap the row to one Y/H band. Shift bend points when both endpoints
+    # moved together; drop only asymmetrically moved routes (local router
+    # re-anchors those).
+    dys = _equalize_row_band(geos, row)
+    if dys:
+        routes = _shift_routes_after_equalize(routes, dys, row_edges, leaf_to_corridor)
+
+    # Soft absolute-Y nudge so primary cross-corridor hops share a band.
+    _nudge_primary_leaf_bands(geos, row, ir.flows)
 
     row_right = max(g.x + g.w for cid, g in geos.items() if cid in row_ids)
     row_bottom = max(g.y + g.h for cid, g in geos.items() if cid in row_ids)
     _anchor_shelves(ir, geos, row_right=row_right, row_bottom=row_bottom)
     return geos, routes
+
+
+def _nudge_primary_leaf_bands(
+    geos: dict[str, Geo],
+    row: list[Corridor],
+    flows: list,
+    *,
+    sweeps: int = 3,
+) -> None:
+    """Nudge relative leaf Y toward median absolute Y of primary neighbours.
+
+    Keeps discrete row slots inside each corridor (no overlaps): after computing
+    preferred absolute centers, leaves are reassigned to existing row Y values
+    in preference order.
+    """
+    leaf_to_c = {leaf.id: c for c in row for leaf in c.leaves}
+    primary = [
+        f for f in flows
+        if getattr(f, "primary", True)
+        and f.source in leaf_to_c and f.target in leaf_to_c
+        and leaf_to_c[f.source].id != leaf_to_c[f.target].id
+    ]
+    if not primary:
+        return
+
+    def abs_cy(lid: str) -> float:
+        c = leaf_to_c[lid]
+        g = geos[lid]
+        return geos[c.id].y + g.y + g.h / 2.0
+
+    for _ in range(sweeps):
+        pref: dict[str, list[float]] = defaultdict(list)
+        for f in primary:
+            pref[f.source].append(abs_cy(f.target))
+            pref[f.target].append(abs_cy(f.source))
+        for corridor in row:
+            leaves = [leaf for leaf in corridor.leaves if leaf.id in geos]
+            if len(leaves) <= 1:
+                continue
+            slot_ys = sorted({round(geos[leaf.id].y, 1) for leaf in leaves})
+            if len(slot_ys) <= 1:
+                continue
+
+            def pref_abs(leaf: Leaf) -> float:
+                if leaf.id in pref:
+                    return sum(pref[leaf.id]) / len(pref[leaf.id])
+                return abs_cy(leaf.id)
+
+            # Group by column (x); within each column assign ascending slots by preference.
+            by_x: dict[float, list[Leaf]] = defaultdict(list)
+            for leaf in leaves:
+                by_x[round(geos[leaf.id].x, 1)].append(leaf)
+            for col_leaves in by_x.values():
+                col_leaves.sort(key=lambda leaf: (pref_abs(leaf), leaf.id))
+                for i, leaf in enumerate(col_leaves):
+                    slot = slot_ys[min(i, len(slot_ys) - 1)]
+                    g = geos[leaf.id]
+                    if abs(g.y - slot) > 0.5:
+                        geos[leaf.id] = Geo(x=g.x, y=slot, w=g.w, h=g.h)

@@ -18,10 +18,31 @@ from app.adapters.outbound.llm.providers import get_provider, normalize_provider
 from app.adapters.outbound.llm.response_parse import extract_mermaid
 from app.core.ports.llm import LlmPort, get_llm
 from app.domain.entities import DiagramEditPlan, MermaidDiagram, XmlDiagram
+from app.domain.entities.xml_diagram import DiagramSuggestion
 from app.domain.ir import IR_TYPES_BY_VIEW, NetworkIR
+from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from app.core.logging import StepLogger
+
+
+class _FollowupSuggestions(BaseModel):
+    """Lightweight structured output for IR-path follow-up suggestions.
+
+    IR schemas deliberately omit suggestions (nodes-then-edges generation order);
+    when the user enables suggestions we ask for them in a second tiny call.
+    """
+
+    suggestions: list[DiagramSuggestion] = Field(
+        default_factory=list,
+        description="Exactly 2–3 concrete follow-up architecture improvements.",
+    )
+
+
+_SUGGESTIONS_SYSTEM = (
+    "You are a principal cloud architect. Given a brief inventory of an architecture "
+    "just generated, propose follow-up improvements. Return only the suggestions list."
+)
 
 _EDIT_PLAN_SYSTEM = """You plan surgical edits to an existing draw.io architecture diagram.
 Given the user request and a summary of current cell ids/labels, output a DiagramEditPlan.
@@ -636,6 +657,119 @@ def generate_corridor_ir(
     )
 
 
+def _ir_inventory_lines(ir: object, *, limit: int = 40) -> list[str]:
+    """Short label inventory from a NetworkIR or CorridorIR for suggestion prompts."""
+    lines: list[str] = []
+    title = getattr(ir, "title", "") or ""
+    if title:
+        lines.append(f"Title: {title}")
+    # Corridor leaves
+    for corridor in getattr(ir, "corridors", None) or []:
+        for leaf in getattr(corridor, "leaves", None) or []:
+            lab = getattr(leaf, "label", "") or getattr(leaf, "id", "")
+            if lab:
+                lines.append(lab)
+    for shelf in getattr(ir, "anchored", None) or []:
+        for leaf in getattr(shelf, "leaves", None) or []:
+            lab = getattr(leaf, "label", "") or getattr(leaf, "id", "")
+            if lab:
+                lines.append(lab)
+    # Network hierarchy — prefer the typed iterator when present.
+    iter_leaves = getattr(ir, "iter_leaves", None)
+    if callable(iter_leaves):
+        for leaf in iter_leaves():
+            lab = getattr(leaf, "label", "") or getattr(leaf, "id", "")
+            if lab:
+                lines.append(lab)
+    else:
+        cloud = getattr(ir, "cloud", None)
+        if cloud is not None:
+            for region in getattr(cloud, "regions", None) or []:
+                for vpc in getattr(region, "vpcs", None) or []:
+                    for zone in getattr(vpc, "zones", None) or []:
+                        for subnet in getattr(zone, "subnets", None) or []:
+                            for leaf in getattr(subnet, "leaves", None) or []:
+                                lab = getattr(leaf, "label", "") or getattr(leaf, "id", "")
+                                if lab:
+                                    lines.append(lab)
+                    for group in getattr(vpc, "groups", None) or []:
+                        for leaf in getattr(group, "leaves", None) or []:
+                            lab = getattr(leaf, "label", "") or getattr(leaf, "id", "")
+                            if lab:
+                                lines.append(lab)
+            edge = getattr(cloud, "edge_layer", None)
+            if edge is not None:
+                for leaf in getattr(edge, "leaves", None) or []:
+                    lab = getattr(leaf, "label", "") or getattr(leaf, "id", "")
+                    if lab:
+                        lines.append(lab)
+    for actor in getattr(ir, "external_actors", None) or []:
+        lab = getattr(actor, "label", "") or getattr(actor, "id", "")
+        if lab:
+            lines.append(f"Actor: {lab}")
+    # Dedupe preserving order
+    seen: set[str] = set()
+    out: list[str] = []
+    for line in lines:
+        key = line.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(line)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _generate_followup_suggestions(
+    *,
+    ir: object,
+    view: str,
+    user_request: str,
+    provider_key: str,
+    llm: LlmPort,
+    logger: "StepLogger | None",
+    applied_suggestions: list[str] | None,
+) -> list[DiagramSuggestion]:
+    """Second-pass suggestions for the IR path (IR JSON has no suggestions field)."""
+    inventory = _ir_inventory_lines(ir)
+    applied_block = build_applied_suggestions_block(applied_suggestions)
+    human = "\n".join([
+        build_suggestions_instruction_block(True),
+        "",
+        f"Primary view: {view}",
+        f"User request: {(user_request or '')[:800]}",
+        "Architecture inventory (labels):",
+        *[f"- {line}" for line in inventory],
+        applied_block,
+    ]).strip()
+    try:
+        parsed = llm(
+            _SUGGESTIONS_SYSTEM,
+            human,
+            provider_key,
+            _FollowupSuggestions,
+            logger,
+            None,
+        )
+    except Exception as exc:
+        if logger:
+            logger.log(
+                "suggestions",
+                f"Follow-up suggestions skipped: {exc}",
+                level="warning",
+            )
+        return []
+    sugg = list(parsed.suggestions or []) if parsed is not None else []
+    if logger:
+        logger.log(
+            "suggestions",
+            f"Generated {len(sugg)} follow-up suggestion(s)",
+            level="success" if sugg else "warning",
+        )
+    return sugg
+
+
 def generate_xml_diagram_from_ir(
     view: str,
     user_request: str,
@@ -673,6 +807,19 @@ def generate_xml_diagram_from_ir(
         ir = generate_corridor_ir(view_key, user_request, **kwargs)
         xml = compile_corridor_ir(ir, page_name=_IR_PAGE_NAMES[view_key])
 
+    sugg: list[DiagramSuggestion] = []
+    if include_suggestions:
+        provider_key = normalize_provider_key(provider)
+        sugg = _generate_followup_suggestions(
+            ir=ir,
+            view=view_key,
+            user_request=user_request,
+            provider_key=provider_key,
+            llm=llm or get_llm(),
+            logger=logger,
+            applied_suggestions=applied_suggestions,
+        )
+
     if logger:
         logger.log("ir_compile", f"Compiled {_IR_PAGE_NAMES[view_key]} IR to draw.io XML", level="success", details={
             "xml_chars": len(xml), "xml": xml,
@@ -680,7 +827,7 @@ def generate_xml_diagram_from_ir(
     return XmlDiagram(
         xml=xml,
         assistant_message=f"Generated {ir.title or _IR_PAGE_NAMES[view_key]} diagram.",
-        suggestions=[],
+        suggestions=sugg,
         step_markers=[],
         ir_title=ir.title or "",
     )

@@ -59,6 +59,211 @@ _CORRIDOR_LANE_PX = 140.0
 _CORRIDOR_BAND_STEP = 28.0
 # Two runs must share at least this much travel to count as parallel.
 _CORRIDOR_MIN_SHARED_PX = 60.0
+# Minimum port spacing along a face (physical); capacity = face_len / gap.
+_MIN_PORT_GAP_PX = 14.0
+
+_FACE_RIGHT = ("h", "right", "1", "0.5")
+_FACE_LEFT = ("h", "left", "0", "0.5")
+_FACE_BOTTOM = ("v", "bottom", "0.5", "1")
+_FACE_TOP = ("v", "top", "0.5", "0")
+_ALL_FACES = (_FACE_RIGHT, _FACE_LEFT, _FACE_BOTTOM, _FACE_TOP)
+
+
+def _edge_is_primary(edge: ET.Element) -> bool:
+    style = (edge.get("style") or "").lower()
+    # Secondary flows use dashed stroke in theme.flow_style(primary=False).
+    if "dashed=1" in style:
+        return False
+    return True
+
+
+def _unit(dx: float, dy: float) -> tuple[float, float]:
+    length = (dx * dx + dy * dy) ** 0.5
+    if length < 1e-6:
+        return (1.0, 0.0)
+    return (dx / length, dy / length)
+
+
+def _face_outward(face_name: str) -> tuple[float, float]:
+    return {
+        "right": (1.0, 0.0),
+        "left": (-1.0, 0.0),
+        "bottom": (0.0, 1.0),
+        "top": (0.0, -1.0),
+    }[face_name]
+
+
+def _score_face(
+    face_name: str,
+    toward: tuple[float, float],
+    box: tuple[float, float, float, float],
+    peer: tuple[float, float],
+    obstacles: list[tuple[float, float, float, float]],
+) -> float:
+    """Higher is better: alignment of outward normal to travel + first-hop clearance."""
+    ox, oy = _face_outward(face_name)
+    tx, ty = _unit(toward[0], toward[1])
+    align = ox * tx + oy * ty  # -1..1
+    x, y, w, h = box
+    if face_name == "right":
+        start = (x + w, y + h / 2)
+    elif face_name == "left":
+        start = (x, y + h / 2)
+    elif face_name == "bottom":
+        start = (x + w / 2, y + h)
+    else:
+        start = (x + w / 2, y)
+    hop = [start, (start[0] + ox * 40.0, start[1] + oy * 40.0), peer]
+    blocked = _path_blocked_count(hop, obstacles, _LOGICAL_ROUTE_CLEARANCE)
+    return align * 10.0 - blocked * 3.0
+
+
+def _pick_best_faces(
+    meta: dict,
+    waypoints: list[tuple[float, float]],
+    obstacles: list[tuple[float, float, float, float]],
+) -> dict[str, str]:
+    """Independently score exit and entry faces; prefer ELK first/last hop dirs."""
+    sbox = (meta["sx"], meta["sy"], meta["sw"], meta["sh"])
+    tbox = (meta["tx"], meta["ty"], meta["tw"], meta["th"])
+    scx, scy, tcx, tcy = meta["scx"], meta["scy"], meta["tcx"], meta["tcy"]
+    if waypoints:
+        toward_exit = (waypoints[0][0] - scx, waypoints[0][1] - scy)
+        # Entry face outward should point toward the final approach waypoint.
+        toward_entry = (waypoints[-1][0] - tcx, waypoints[-1][1] - tcy)
+    else:
+        toward_exit = (tcx - scx, tcy - scy)
+        # From target toward source — the side the connector arrives from.
+        toward_entry = (scx - tcx, scy - tcy)
+
+    best_exit = max(
+        _ALL_FACES,
+        key=lambda f: _score_face(f[1], toward_exit, sbox, (tcx, tcy), obstacles),
+    )
+    best_entry = max(
+        _ALL_FACES,
+        key=lambda f: _score_face(f[1], toward_entry, tbox, (scx, scy), obstacles),
+    )
+    return {
+        "exit_axis": best_exit[0],
+        "exit_face": best_exit[1],
+        "exitX": best_exit[2],
+        "exitY": best_exit[3],
+        "entry_axis": best_entry[0],
+        "entry_face": best_entry[1],
+        "entryX": best_entry[2],
+        "entryY": best_entry[3],
+    }
+
+
+def _face_capacity(meta: dict, face_name: str) -> int:
+    span = float(meta.get("sh", 78) if face_name in ("left", "right") else meta.get("sw", 78))
+    return max(1, int(span // _MIN_PORT_GAP_PX))
+
+
+def _even_fractions(n: int) -> list[str]:
+    """Even fan-out: (i+1)/(n+1) along the face — no fixed tuple, no wrap."""
+    if n <= 0:
+        return []
+    return [str(round((i + 1) / (n + 1), 4)) for i in range(n)]
+
+
+def _cross_axis_coord(meta: dict, face_name: str, *, opposite: bool) -> float:
+    """Coordinate along the face axis of the opposite endpoint (for sort)."""
+    if face_name in ("left", "right"):
+        return meta["tcy"] if opposite else meta["scy"]
+    return meta["tcx"] if opposite else meta["scx"]
+
+
+def _assign_face_ports(
+    incidents: list[tuple[ET.Element, dict, bool]],
+    *,
+    end: str,
+) -> bool:
+    """Assign even fractions on shared faces; spill overflow to next-best face.
+
+    ``incidents`` items are ``(edge, meta, is_primary)``. ``end`` is ``exit`` or ``entry``.
+    Primary edges are assigned first so the spine keeps the cleanest faces.
+    """
+    if not incidents:
+        return False
+    changed = False
+    face_key = "exit_face" if end == "exit" else "entry_face"
+    axis_key = "exit_axis" if end == "exit" else "entry_axis"
+    ordered = sorted(incidents, key=lambda it: (0 if it[2] else 1))
+
+    by_face: dict[str, list[tuple[ET.Element, dict, bool]]] = {}
+    for edge, meta, primary in ordered:
+        by_face.setdefault(meta[face_key], []).append((edge, meta, primary))
+
+    final_buckets: dict[str, list[tuple[ET.Element, dict, bool]]] = {}
+    for face, group in by_face.items():
+        sample = group[0][1]
+        if end == "exit":
+            capacity = _face_capacity({"sw": sample["sw"], "sh": sample["sh"]}, face)
+        else:
+            capacity = _face_capacity({"sw": sample["tw"], "sh": sample["th"]}, face)
+        keep, overflow = group[:capacity], group[capacity:]
+        final_buckets.setdefault(face, []).extend(keep)
+        for edge, meta, primary in overflow:
+            sbox = (meta["sx"], meta["sy"], meta["sw"], meta["sh"])
+            tbox = (meta["tx"], meta["ty"], meta["tw"], meta["th"])
+            toward = (meta["tcx"] - meta["scx"], meta["tcy"] - meta["scy"])
+            box = sbox if end == "exit" else tbox
+            peer = (meta["tcx"], meta["tcy"]) if end == "exit" else (meta["scx"], meta["scy"])
+            ranked = sorted(
+                _ALL_FACES,
+                key=lambda f: _score_face(f[1], toward, box, peer, []),
+                reverse=True,
+            )
+            placed = False
+            for alt in ranked:
+                if alt[1] == face:
+                    continue
+                bucket = final_buckets.setdefault(alt[1], [])
+                dims = (
+                    {"sw": meta["sw"], "sh": meta["sh"]}
+                    if end == "exit"
+                    else {"sw": meta["tw"], "sh": meta["th"]}
+                )
+                if len(bucket) >= _face_capacity(dims, alt[1]):
+                    continue
+                meta[face_key] = alt[1]
+                meta[axis_key] = alt[0]
+                if end == "exit":
+                    meta["exitX"], meta["exitY"] = alt[2], alt[3]
+                else:
+                    meta["entryX"], meta["entryY"] = alt[2], alt[3]
+                bucket.append((edge, meta, primary))
+                placed = True
+                break
+            if not placed:
+                final_buckets.setdefault(face, []).append((edge, meta, primary))
+
+    for face, group in final_buckets.items():
+        if not group:
+            continue
+        # Sort by opposite-end cross-axis so fan-out doesn't cross.
+        group.sort(key=lambda it: _cross_axis_coord(it[1], face, opposite=(end == "exit")))
+        fracs = _even_fractions(len(group))
+        axis = group[0][1][axis_key]
+        for (edge, meta, _primary), frac in zip(group, fracs):
+            style = edge.get("style") or ""
+            if end == "exit":
+                if axis == "h":
+                    updates = {"exitX": meta["exitX"], "exitY": frac}
+                else:
+                    updates = {"exitX": frac, "exitY": meta["exitY"]}
+            else:
+                if axis == "h":
+                    updates = {"entryX": meta["entryX"], "entryY": frac}
+                else:
+                    updates = {"entryX": frac, "entryY": meta["entryY"]}
+            new_style = _set_style_kv(style, updates)
+            if new_style != style:
+                edge.set("style", new_style)
+                changed = True
+    return changed
 
 
 def _style_map(style: str) -> dict[str, str]:
@@ -514,13 +719,44 @@ def _park_edge_labels_on_longest_segment(
     edges: list[ET.Element],
     edge_meta: dict[str, dict],
     routed_paths: dict[str, list[tuple[float, float]]],
+    obstacles: list[tuple[float, float, float, float]] | None = None,
 ) -> bool:
-    """Park labelled-edge text on the longest straight segment (mxGeometry offset)."""
-    changed = False
-    for edge in edges:
-        label = (edge.get("value") or "").strip()
-        if not label:
+    """Park labelled-edge text on the clearest mid-segment candidate.
+
+    Candidates: midpoints of each segment at t ∈ {0.25, 0.5, 0.75}.
+    Score = longer segment − penalties for leaf/polyline/label AABB overlap.
+    """
+    obstacles = obstacles or []
+    # Approximate label AABB from text length.
+    def _label_box(cx: float, cy: float, text: str) -> tuple[float, float, float, float]:
+        w = max(40.0, min(220.0, len(text) * 7.0))
+        h = 18.0
+        return (cx - w / 2, cy - h / 2, w, h)
+
+    def _rects_overlap(a: tuple[float, float, float, float], b: tuple[float, float, float, float]) -> bool:
+        return a[0] < b[0] + b[2] and b[0] < a[0] + a[2] and a[1] < b[1] + b[3] and b[1] < a[1] + a[3]
+
+    # Other edge polylines as soft obstacles (sample as thin boxes).
+    poly_obs: list[tuple[float, float, float, float]] = []
+    for eid, pts in routed_paths.items():
+        meta = edge_meta.get(eid)
+        if not meta:
             continue
+        full = [(meta["scx"], meta["scy"]), *pts, (meta["tcx"], meta["tcy"])]
+        for a, b in zip(full, full[1:]):
+            lo_x, hi_x = sorted((a[0], b[0]))
+            lo_y, hi_y = sorted((a[1], b[1]))
+            poly_obs.append((lo_x - 2, lo_y - 2, max(4.0, hi_x - lo_x + 4), max(4.0, hi_y - lo_y + 4)))
+
+    # Shared-trunk label separation: collect chosen positions along similar trunks.
+    placed: list[tuple[float, float, str]] = []  # cx, cy, eid
+    changed = False
+    labelled = [e for e in edges if (e.get("value") or "").strip()]
+    # Process longer labels first so short ones yield space.
+    labelled.sort(key=lambda e: -len((e.get("value") or "").strip()))
+
+    for edge in labelled:
+        label = (edge.get("value") or "").strip()
         eid = edge.get("id") or ""
         meta = edge_meta.get(eid)
         if not meta:
@@ -531,41 +767,68 @@ def _park_edge_labels_on_longest_segment(
             *pts,
             (meta["tcx"], meta["tcy"]),
         ]
-        best_i = 0
-        best_len = 0.0
+        n_segs = max(1, len(full) - 1)
+        candidates: list[tuple[float, float, float, float]] = []  # score, frac, cx, cy
         for i, (a, b) in enumerate(zip(full, full[1:])):
             length = abs(b[0] - a[0]) + abs(b[1] - a[1])
-            if length > best_len:
-                best_len = length
-                best_i = i
-        # Relative offset along the edge: fraction of segment midpoints.
-        # draw.io x/y on relative geometry are -1..1 normalised offsets.
-        # Prefer mid of longest segment ≈ (best_i + 0.5) / (n_segs).
-        n_segs = max(1, len(full) - 1)
-        frac = (best_i + 0.5) / n_segs
-        # Convert to draw.io label offset: x along edge (-1 left .. 1 right of mid)
-        # 0.5 frac → x=0 (mid); earlier → negative.
-        label_x = (frac - 0.5) * 2.0
+            for t in (0.25, 0.5, 0.75):
+                cx = a[0] + (b[0] - a[0]) * t
+                cy = a[1] + (b[1] - a[1]) * t
+                frac = (i + t) / n_segs
+                box = _label_box(cx, cy, label)
+                pen = 0.0
+                for obs in obstacles:
+                    if _rects_overlap(box, obs):
+                        pen += 40.0
+                for obs in poly_obs:
+                    if _rects_overlap(box, obs):
+                        pen += 8.0
+                for px, py, other_id in placed:
+                    if other_id == eid:
+                        continue
+                    if abs(px - cx) + abs(py - cy) < 36.0:
+                        pen += 25.0
+                score = length - pen
+                candidates.append((score, frac, cx, cy))
+
+        if not candidates:
+            continue
+        candidates.sort(key=lambda c: -c[0])
+        best_score, best_frac, best_cx, best_cy = candidates[0]
+        # If best still heavily penalized, try a small signed offset off the stroke.
+        label_x = (best_frac - 0.5) * 2.0
+        label_y = -1.0
+        if best_score < 0:
+            for dy in (-18.0, 18.0, -28.0, 28.0):
+                box = _label_box(best_cx, best_cy + dy, label)
+                if not any(_rects_overlap(box, obs) for obs in obstacles):
+                    label_y = -1.0 if dy < 0 else 1.0
+                    best_cy = best_cy + dy
+                    break
+
         geom = edge.find("mxGeometry")
         if geom is None:
             continue
-        # Only set when different enough
         try:
-            cur = float(geom.get("x") or 0)
+            cur_x = float(geom.get("x") or 0)
         except ValueError:
-            cur = 0.0
-        if abs(cur - label_x) > 0.05:
+            cur_x = 0.0
+        try:
+            cur_y = float(geom.get("y") or 0)
+        except ValueError:
+            cur_y = 0.0
+        if abs(cur_x - label_x) > 0.05:
             geom.set("x", str(round(label_x, 3)))
             changed = True
-        # Soft vertical nudge off the stroke when label present
-        if geom.get("y") in (None, ""):
-            geom.set("y", "-1")
+        if geom.get("y") in (None, "") or abs(cur_y - label_y) > 0.05:
+            geom.set("y", str(label_y))
             changed = True
+        placed.append((best_cx, best_cy, eid))
     return changed
 
 
 def repark_edge_labels_after_external_routing(xml: str) -> str:
-    """Re-park label offsets onto the longest clear run of an externally-routed page.
+    """Re-park label offsets onto the clearest run of an externally-routed page.
 
     Used after libavoid (MCP ``create_diagram(routing="libavoid")``) rewrites a
     Logical/Security/Data-flow page's edges — that call is now the primary
@@ -573,21 +836,23 @@ def repark_edge_labels_after_external_routing(xml: str) -> str:
     no notion of *this app's* label-placement convention. Unlike
     ``fix_edge_anchors_from_geometry``'s focused-view branch, this does **not**
     recompute routing — it only reads the waypoints libavoid already wrote and
-    repositions each label onto the longest straight segment, so text lands in
-    open space instead of on an icon or a bend.
+    repositions each label onto a clear mid-segment.
     """
     parsed = _parse_docroot(xml)
     if parsed is None:
         return xml
     tree, root, is_mxfile, trimmed = parsed
     page_name = _diagram_page_name(tree).lower()
-    if page_name not in {"logical", "security", "data flow", "data_flow"}:
+    if page_name not in {"logical", "security", "data flow", "data_flow", "network"}:
         return xml
     cells = [c for c in root.findall("mxCell") if c.get("id")]
     by_id = {c.get("id"): c for c in cells if c.get("id")}
     edges = [c for c in cells if c.get("edge") == "1"]
     if not edges:
         return xml
+
+    from app.adapters.outbound.diagram.xml_diagnostics import _page_size
+    page_w, page_h = _page_size(tree)
 
     edge_meta: dict[str, dict] = {}
     routed_paths: dict[str, list[tuple[float, float]]] = {}
@@ -606,29 +871,30 @@ def repark_edge_labels_after_external_routing(xml: str) -> str:
             "scx": sx + sw / 2, "scy": sy + sh / 2,
             "tcx": tx + tw / 2, "tcy": ty + th / 2,
         }
-        pts: list[tuple[float, float]] = []
-        geom = edge.find("mxGeometry")
-        if geom is not None:
-            for arr in geom.findall("Array"):
-                if arr.get("as") != "points":
-                    continue
-                for pt in arr.findall("mxPoint"):
-                    try:
-                        pts.append((float(pt.get("x") or 0), float(pt.get("y") or 0)))
-                    except ValueError:
-                        pass
-        routed_paths[eid] = pts
+        routed_paths[eid] = _edge_points(edge)
 
-    if _park_edge_labels_on_longest_segment(edges, edge_meta, routed_paths):
+    obstacles = _logical_obstacle_rects(cells, by_id, set(), page_w, page_h)
+    if _park_edge_labels_on_longest_segment(edges, edge_meta, routed_paths, obstacles):
         return _serialize_docroot(tree, root, is_mxfile, trimmed)
     return xml
 
 
-def fix_edge_anchors_from_geometry(xml: str) -> str:
-    """Set exit/entry anchors from relative source→target placement + parallel offset.
+def restamp_edge_ports_after_external_routing(xml: str) -> str:
+    """Re-stamp exit/entry faces + even fan-out after libavoid without wiping routes.
 
-    On Logical pages, also inserts staggered top/side waypoints so connectors
-    do not run straight through intervening service icons.
+    Libavoid can leave odd sides; this only updates port style keys and then
+    re-parks labels.
+    """
+    stamped = fix_edge_anchors_from_geometry(xml, ports_only=True)
+    return repark_edge_labels_after_external_routing(stamped)
+
+
+def fix_edge_anchors_from_geometry(xml: str, *, ports_only: bool = False) -> str:
+    """Set exit/entry anchors from geometry + direction scoring + even fan-out.
+
+    On Logical/Security/Data-flow/Network pages, also inserts staggered
+    waypoints so connectors do not run straight through intervening icons —
+    unless ``ports_only`` (post-libavoid restamp).
     """
     parsed = _parse_docroot(xml)
     if parsed is None:
@@ -641,32 +907,19 @@ def fix_edge_anchors_from_geometry(xml: str) -> str:
     by_id = {c.get("id"): c for c in cells if c.get("id")}
     page = _diagram_page_name(tree).lower()
     is_focused = page in {"logical", "security", "data flow", "data_flow"}
-    # ELK (see elk_bridge.py) already routed this page's edges at compile time
-    # when the compiler marked the default layer layout="ir" — an edge that
-    # already carries manual waypoints here is ELK's route, not a leftover;
-    # re-running the local search router on it would just overwrite a real
-    # obstacle-avoiding route with a worse guess.
     is_ir_layout = any(c.get("id") == "1" and c.get("layout") == "ir" for c in cells)
-    # Obstacle-avoiding routing (_route_logical_edge) is view-agnostic despite
-    # its name (_logical_obstacle_rects has no Logical-specific assumptions)
-    # — Network never got it because it was designed to rely entirely on
-    # libavoid (LIBAVOID_FOCUSED_VIEWS's docstring), leaving it with no local
-    # fallback for the `local` renderer / libavoid-disabled path, unlike the
-    # three focused views. Kept as its own flag rather than widening
-    # `is_focused` itself so Network's parallel-edge-offset pixel value and
-    # face-spread fractions (both keyed on `is_focused` below) are unaffected
-    # — only routing coverage changes.
-    enable_obstacle_routing = is_focused or page == "network"
+    enable_obstacle_routing = (is_focused or page == "network") and not ports_only
     parallel_px = _LOGICAL_PARALLEL_EDGE_OFFSET_PX if is_focused else _PARALLEL_EDGE_OFFSET_PX
 
     edges = [c for c in cells if c.get("edge") == "1"]
     if not edges:
         return xml
 
-    # Group edges by shared face for spread
-    face_buckets: dict[tuple[str, str, str], list[ET.Element]] = {}
     corridor_buckets: dict[tuple, list[ET.Element]] = {}
     edge_meta: dict[str, dict] = {}
+    # Per source/target cell: list of (edge, meta, primary) for fan-out.
+    exit_incidents: dict[str, list[tuple[ET.Element, dict, bool]]] = {}
+    entry_incidents: dict[str, list[tuple[ET.Element, dict, bool]]] = {}
     changed = False
 
     for edge in edges:
@@ -685,48 +938,38 @@ def fix_edge_anchors_from_geometry(xml: str) -> str:
         scy = sy + sh / 2
         tcx = tx + tw / 2
         tcy = ty + th / 2
-        dx, dy = tcx - scx, tcy - scy
 
-        if abs(dx) >= abs(dy):
-            if dx >= 0:
-                anchors = {"exitX": "1", "exitY": "0.5", "entryX": "0", "entryY": "0.5"}
-                face = ("h", src_id, "right")
-                corridor = ("h", "right", "left")
-            else:
-                anchors = {"exitX": "0", "exitY": "0.5", "entryX": "1", "entryY": "0.5"}
-                face = ("h", src_id, "left")
-                corridor = ("h", "left", "right")
-        else:
-            if dy >= 0:
-                anchors = {"exitX": "0.5", "exitY": "1", "entryX": "0.5", "entryY": "0"}
-                face = ("v", src_id, "bottom")
-                corridor = ("v", "bottom", "top")
-            else:
-                anchors = {"exitX": "0.5", "exitY": "0", "entryX": "0.5", "entryY": "1"}
-                face = ("v", src_id, "top")
-                corridor = ("v", "top", "bottom")
-
-        if corridor[0] == "h":
-            lane = (round(scy / _CORRIDOR_LANE_PX), round(tcy / _CORRIDOR_LANE_PX))
-            travel = (min(scx, tcx), max(scx, tcx))
-        else:
-            lane = (round(scx / _CORRIDOR_LANE_PX), round(tcx / _CORRIDOR_LANE_PX))
-            travel = (min(scy, tcy), max(scy, tcy))
         eid = edge.get("id") or id(edge)
-        edge_meta[str(eid)] = {
-            "travel": travel,
-            "axis": corridor[0],
+        pts = _edge_points(edge)
+        skip_ids = {src_id, tgt_id}
+        obstacles = _logical_obstacle_rects(cells, by_id, skip_ids, page_w, page_h)
+        meta = {
             "sx": sx, "sy": sy, "sw": sw, "sh": sh,
             "tx": tx, "ty": ty, "tw": tw, "th": th,
             "scx": scx, "scy": scy, "tcx": tcx, "tcy": tcy,
         }
+        faces = _pick_best_faces(meta, pts, obstacles)
+        meta.update(faces)
+        if faces["exit_axis"] == "h":
+            meta["travel"] = (min(scx, tcx), max(scx, tcx))
+            meta["axis"] = "h"
+            lane = (round(scy / _CORRIDOR_LANE_PX), round(tcy / _CORRIDOR_LANE_PX))
+            corridor = ("h", faces["exit_face"], faces["entry_face"], *lane)
+        else:
+            meta["travel"] = (min(scy, tcy), max(scy, tcy))
+            meta["axis"] = "v"
+            lane = (round(scx / _CORRIDOR_LANE_PX), round(tcx / _CORRIDOR_LANE_PX))
+            corridor = ("v", faces["exit_face"], faces["entry_face"], *lane)
 
-        # Always stamp natural face ports (next-ai Rules 3/7) — even when ELK
-        # already supplied bend points. Missing exit/entry reads as "lines
-        # coming from the wrong side of the box" in the embed.
+        edge_meta[str(eid)] = meta
+        primary = _edge_is_primary(edge)
+
         style = edge.get("style") or ""
         updates = {
-            **anchors,
+            "exitX": faces["exitX"],
+            "exitY": faces["exitY"],
+            "entryX": faces["entryX"],
+            "entryY": faces["entryY"],
             "exitDx": "0",
             "exitDy": "0",
             "entryDx": "0",
@@ -742,31 +985,24 @@ def fix_edge_anchors_from_geometry(xml: str) -> str:
             edge.set("style", new_style)
             changed = True
 
-        if is_ir_layout and _edge_has_points(edge):
-            # ELK already routed this edge — keep its waypoints; skip shared-
-            # face stagger / local obstacle search that would overwrite them.
-            continue
+        exit_incidents.setdefault(src_id, []).append((edge, meta, primary))
+        entry_incidents.setdefault(tgt_id, []).append((edge, meta, primary))
 
-        face_buckets.setdefault(face, []).append(edge)
-        # Only stagger edges that genuinely share a corridor — bucketing every
-        # left→right edge on the page together pushed anchors off their shapes.
-        corridor_buckets.setdefault((*corridor, *lane), []).append(edge)
-
-    # Spread multiple edges sharing a source face (finer on Logical)
-    spreads = ("0.15", "0.35", "0.5", "0.65", "0.85") if is_focused else ("0.25", "0.5", "0.75")
-    for face, group in face_buckets.items():
-        if len(group) < 2:
+        if is_ir_layout and pts and not ports_only:
             continue
-        axis = face[0]
-        for i, edge in enumerate(group):
-            frac = spreads[i % len(spreads)]
-            style = edge.get("style") or ""
-            if axis == "h":
-                updates = {"exitY": frac, "entryY": frac}
-            else:
-                updates = {"exitX": frac, "entryX": frac}
-            edge.set("style", _set_style_kv(style, updates))
+        corridor_buckets.setdefault(corridor, []).append(edge)
+
+    for _src, incidents in exit_incidents.items():
+        if _assign_face_ports(incidents, end="exit"):
             changed = True
+    for _tgt, incidents in entry_incidents.items():
+        if _assign_face_ports(incidents, end="entry"):
+            changed = True
+
+    if ports_only:
+        if changed:
+            return _serialize_docroot(tree, root, is_mxfile, trimmed)
+        return xml
 
     # CORE parallel-corridor offset: stagger Dx/Dy so stacked orthogonal paths
     # separate. Sequential hops (a→b→c) share a lane but never overlay, so only
@@ -781,8 +1017,6 @@ def fix_edge_anchors_from_geometry(xml: str) -> str:
             for i, edge in enumerate(group):
                 slot = i - (n - 1) / 2.0
                 meta = edge_meta.get(edge.get("id") or "") or {}
-                # Keep the anchor on the shape: a big Dy on a 68px icon starts
-                # the line in empty space beside it.
                 span = min(meta.get("sh", 78.0), meta.get("th", 78.0)) if axis == "h" else \
                     min(meta.get("sw", 78.0), meta.get("tw", 78.0))
                 limit = max(0.0, span / 2.0 - 10.0)
@@ -800,6 +1034,8 @@ def fix_edge_anchors_from_geometry(xml: str) -> str:
                 changed = True
 
     # Route each connector around other icons instead of through them.
+    # Kept ELK routes are preserved; asymmetrically dropped ones (no points)
+    # get a local obstacle route — do not wipe elbows that survived equalize.
     if enable_obstacle_routing:
         frames = [
             (*absolute_position(c, by_id), _cell_geometry(c)[2], _cell_geometry(c)[3])
@@ -814,8 +1050,6 @@ def fix_edge_anchors_from_geometry(xml: str) -> str:
             meta = edge_meta.get(eid)
             if not meta:
                 continue
-            # Capture any pre-existing waypoints (ELK's route, on an IR-layout
-            # page) before possibly routing.
             pts = _edge_points(edge)
             if is_ir_layout and pts:
                 routed_paths[eid] = pts
@@ -827,12 +1061,12 @@ def fix_edge_anchors_from_geometry(xml: str) -> str:
                 edge, meta, obstacles, band_offsets.get(eid, (0.0, 0.0)), frames
             ):
                 changed = True
-            # Capture waypoints for label parking / trunk bundling.
             routed_paths[eid] = _edge_points(edge)
 
         if _bundle_under_corridor_trunks(edges, edge_meta, routed_paths):
             changed = True
-        if _park_edge_labels_on_longest_segment(edges, edge_meta, routed_paths):
+        all_obs = _logical_obstacle_rects(cells, by_id, set(), page_w, page_h)
+        if _park_edge_labels_on_longest_segment(edges, edge_meta, routed_paths, all_obs):
             changed = True
 
     if not changed:
