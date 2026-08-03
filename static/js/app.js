@@ -139,10 +139,20 @@ function toggleXML() {
 
 // ── Main chat dispatch ────────────────────────────────────
 
+/** provider-select's value is either a bare provider key, "custom:<id>", or
+ * "<providerKey>::<modelId>" for a multi-model provider (e.g. NVIDIA NIM). */
+function parseProviderSelectValue(value) {
+    if (!value) return { provider: '', model: null };
+    if (value.startsWith('custom:')) return { provider: value, model: null };
+    const sep = value.indexOf('::');
+    if (sep === -1) return { provider: value, model: null };
+    return { provider: value.slice(0, sep), model: value.slice(sep + 2) };
+}
+
 async function sendMessage(options = {}) {
     const input = document.getElementById('chat-input');
     const text = (options.skipInput ? options.message : input.value).trim();
-    const provider = document.getElementById('provider-select').value;
+    const { provider, model } = parseProviderSelectValue(document.getElementById('provider-select').value);
     const sendBtn = document.getElementById('send-btn');
     const validationFeedback = options.validationFeedback || null;
 
@@ -243,6 +253,7 @@ async function sendMessage(options = {}) {
         const chatBody = {
             messages: chatMessages,
             provider,
+            model,
             custom_provider: (typeof getSelectedCustomProviderPayload === 'function')
                 ? getSelectedCustomProviderPayload()
                 : null,
@@ -468,16 +479,36 @@ async function sendMessage(options = {}) {
 async function initProviderSelect() {
     const select = document.getElementById('provider-select');
     if (!select) return;
+    // The static HTML placeholder is a single hardcoded <option> — only treat
+    // the current value as a real prior selection worth preserving once the
+    // select has actually been populated from /providers at least once.
+    const hadRealOptions = select.options.length > 1;
     const previousValue = select.value;
     try {
         const res = await fetch('/providers');
         const data = await res.json();
         select.innerHTML = '';
+        let defaultValue = data.default || '';
         for (const p of (data.providers || [])) {
-            const opt = document.createElement('option');
-            opt.value = p.key;
-            opt.textContent = p.label;
-            select.appendChild(opt);
+            if (p.models && p.models.length > 1) {
+                // Multi-model provider (e.g. NVIDIA NIM) — one grouped option per
+                // model, matching next-ai-draw-io's "provider header + model list".
+                const group = document.createElement('optgroup');
+                group.label = p.label;
+                for (const modelId of p.models) {
+                    const opt = document.createElement('option');
+                    opt.value = p.key + '::' + modelId;
+                    opt.textContent = modelId;
+                    group.appendChild(opt);
+                }
+                select.appendChild(group);
+                if (p.key === data.default) defaultValue = p.key + '::' + p.models[0];
+            } else {
+                const opt = document.createElement('option');
+                opt.value = p.key;
+                opt.textContent = p.label;
+                select.appendChild(opt);
+            }
         }
         const customProviders = (typeof getCustomProviders === 'function') ? getCustomProviders() : [];
         if (customProviders.length) {
@@ -491,10 +522,10 @@ async function initProviderSelect() {
             }
             select.appendChild(group);
         }
-        if (previousValue && select.querySelector(`option[value="${CSS.escape(previousValue)}"]`)) {
+        if (hadRealOptions && previousValue && select.querySelector(`option[value="${CSS.escape(previousValue)}"]`)) {
             select.value = previousValue;
-        } else if (data.default) {
-            select.value = data.default;
+        } else if (defaultValue) {
+            select.value = defaultValue;
         }
     } catch (err) {
         console.error('Failed to load providers', err);

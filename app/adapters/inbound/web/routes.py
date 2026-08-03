@@ -89,7 +89,12 @@ async def root() -> RedirectResponse:
 async def list_providers() -> dict:
     return {
         "providers": [
-            {"key": spec.key, "label": spec.label or spec.key} for spec in providers_module.PROVIDERS.values()
+            {
+                "key": spec.key,
+                "label": spec.label or spec.key,
+                "models": list(spec.models),
+            }
+            for spec in providers_module.PROVIDERS.values()
         ],
         "default": providers_module.default_provider_key(),
     }
@@ -209,7 +214,8 @@ async def _run_chat(body: ChatRequest, logger: StepLogger, *, on_progress=None) 
     )
     custom_payload = body.custom_provider.model_dump() if body.custom_provider else None
 
-    with providers_module.using_custom_provider(custom_payload):
+    with providers_module.using_custom_provider(custom_payload), \
+            providers_module.using_model_override(body.model):
         if not body.messages:
             raise ValueError("messages must not be empty")
         if body.messages[-1].role != "user":

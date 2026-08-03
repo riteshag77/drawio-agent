@@ -20,7 +20,7 @@ import json
 import os
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -108,6 +108,13 @@ class ProviderSpec:
     # build_langchain_client — since it carries a user-supplied secret that must not
     # outlive the request it came from.
     ephemeral: bool = False
+    # Additional selectable models for one provider entry (e.g. every model NVIDIA
+    # NIM exposes under one API key/base_url) — keeps one JSON record per *provider*
+    # instead of duplicating a whole record per model. Empty means "just
+    # default_model, no picker." A request selects one via `model` (ChatRequest) —
+    # see using_model_override/get_provider below. First entry is the one shown
+    # pre-selected in the UI.
+    models: tuple[str, ...] = ()
 
 
 #: Reserved provider key for a per-request BYOK (bring-your-own-key) provider —
@@ -152,6 +159,10 @@ def _spec_from_record(record: dict) -> ProviderSpec:
             f"providers.json: provider '{key}' has invalid prompt_cache "
             f"'{prompt_cache}' — must be one of {sorted(_VALID_PROMPT_CACHE)}"
         )
+    models_field = record.get("models")
+    if models_field is not None and not isinstance(models_field, list):
+        raise ValueError(f"providers.json: provider '{key}' field 'models' must be a JSON array")
+    models = tuple(str(m).strip() for m in (models_field or []) if str(m).strip())
     return ProviderSpec(
         key=key,
         client_key=client,  # lazily resolved to the real class on first use — see _resolve_client_class
@@ -165,6 +176,7 @@ def _spec_from_record(record: dict) -> ProviderSpec:
         omit_temperature=bool(record.get("omit_temperature")),
         prompt_cache=prompt_cache,
         max_output_tokens=int(record.get("max_output_tokens") or 0),
+        models=models,
     )
 
 
@@ -278,6 +290,25 @@ def _spec_from_custom_payload(payload: dict[str, Any]) -> ProviderSpec:
     )
 
 
+#: Per-request model override for a multi-model provider (e.g. picking one of
+#: NVIDIA NIM's several models under a single provider entry) — same
+#: request-scoped-contextvar pattern as _custom_provider_ctx, and for the same
+#: reason: threading a `model` parameter through every intermediate function
+#: that currently passes a plain `provider: str` would touch ~25+ call sites
+#: for no benefit, since get_provider is the one place a spec is resolved.
+_model_override_ctx: ContextVar[str | None] = ContextVar("model_override", default=None)
+
+
+@contextmanager
+def using_model_override(model: str | None):
+    """Scope a model override (one of a provider's ``models``) to one request."""
+    token = _model_override_ctx.set(model or None)
+    try:
+        yield
+    finally:
+        _model_override_ctx.reset(token)
+
+
 def get_provider(provider: str) -> ProviderSpec:
     key = normalize_provider_key(provider)
     if key == CUSTOM_PROVIDER_KEY:
@@ -290,6 +321,14 @@ def get_provider(provider: str) -> ProviderSpec:
     spec = PROVIDERS.get(key)
     if not spec:
         raise ValueError(f"Unsupported provider: {key}")
+    override = _model_override_ctx.get()
+    if override:
+        if spec.models and override not in spec.models:
+            raise ValueError(
+                f"model {override!r} is not available for provider {key!r} — "
+                f"choose one of {list(spec.models)}"
+            )
+        spec = replace(spec, default_model=override)
     return spec
 
 

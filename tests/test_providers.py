@@ -16,10 +16,51 @@ from app.adapters.outbound.llm.providers import MODEL_IDS, ProviderSpec, get_pro
 
 class ProviderTests(unittest.TestCase):
     def test_gateway_providers_are_registered(self) -> None:
-        for key in ("openrouter", "opencode", "kimi"):
+        for key in ("openrouter", "opencode", "kimi", "nvidia"):
             self.assertIn(key, MODEL_IDS)
             self.assertIsInstance(MODEL_IDS[key], str)
             self.assertTrue(len(MODEL_IDS[key]) > 0)
+
+    def test_nvidia_exposes_multiple_selectable_models(self) -> None:
+        spec = get_provider("nvidia")
+        self.assertEqual(spec.default_model, "z-ai/glm-5.2")
+        self.assertIn("z-ai/glm-5.2", spec.models)
+        self.assertIn("deepseek-ai/deepseek-v4-pro", spec.models)
+        self.assertIn("deepseek-ai/deepseek-v4-flash", spec.models)
+        self.assertIn("minimaxai/minimax-m2.7", spec.models)
+        self.assertIn("minimaxai/minimax-m3", spec.models)
+        self.assertEqual(len(spec.models), 5)
+
+    def test_model_override_selects_an_available_model(self) -> None:
+        from app.adapters.outbound.llm.providers import using_model_override
+
+        with using_model_override("minimaxai/minimax-m3"):
+            spec = get_provider("nvidia")
+        self.assertEqual(spec.default_model, "minimaxai/minimax-m3")
+
+    def test_model_override_rejects_a_model_not_in_the_list(self) -> None:
+        from app.adapters.outbound.llm.providers import using_model_override
+
+        with using_model_override("not-a-real-model"):
+            with self.assertRaises(ValueError):
+                get_provider("nvidia")
+
+    def test_model_override_is_ignored_for_providers_without_a_models_list(self) -> None:
+        """A single-model provider (e.g. claude) has no restriction to enforce —
+        any override is simply applied, matching today's default_model_env pattern."""
+        from app.adapters.outbound.llm.providers import using_model_override
+
+        with using_model_override("claude-opus-4"):
+            spec = get_provider("claude")
+        self.assertEqual(spec.default_model, "claude-opus-4")
+
+    def test_model_override_resets_after_context_exit(self) -> None:
+        from app.adapters.outbound.llm.providers import using_model_override
+
+        with using_model_override("minimaxai/minimax-m3"):
+            pass
+        spec = get_provider("nvidia")
+        self.assertEqual(spec.default_model, "z-ai/glm-5.2")
 
     def test_kimi_omits_temperature(self) -> None:
         from dataclasses import replace

@@ -908,6 +908,18 @@
             color: var(--text-primary);
         }
 
+        /* Without this, optgroup falls back to the browser's UA default (often
+           white-on-black regardless of app theme) since it isn't covered by the
+           plain `select option` rule above — matters now that provider-select
+           groups multi-model providers (NVIDIA, Gemini, OpenRouter, OpenCode)
+           under an <optgroup> label. */
+        .composer-tools select optgroup {
+            background: var(--surface-well);
+            color: var(--text-secondary);
+            font-style: normal;
+            font-weight: 700;
+        }
+
         .composer-btn {
             width: 34px;
             height: 34px;

@@ -62,6 +62,15 @@ class CustomProviderConfig(BaseModel):
 class ChatRequest(BaseModel):
     messages: list[ChatMessage] = Field(max_length=100)
     provider: str = Field(default_factory=_default_provider)
+    model: str | None = Field(
+        default=None,
+        max_length=200,
+        description=(
+            "Selects one of `provider`'s registered `models` (e.g. NVIDIA NIM offers "
+            "several under one provider entry). Ignored for single-model providers and "
+            "for custom_provider (which already names its own model)."
+        ),
+    )
     platform: str = "aws"
     diagram_mode: str = "auto"
     custom_system_message: str = Field(default="", max_length=10_000)

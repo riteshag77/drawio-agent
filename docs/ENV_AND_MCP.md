@@ -48,6 +48,16 @@ MOONSHOT_API_KEY=
 # Optional overrides for Kimi K3 (provider key: kimi)
 # MOONSHOT_BASE_URL=https://api.moonshot.ai/v1
 # KIMI_MODEL=kimi-k3
+NVIDIA_API_KEY=
+# Optional overrides for the default NVIDIA NIM provider (provider key: nvidia) — https://build.nvidia.com
+# NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
+# NVIDIA_MODEL=z-ai/glm-5.2
+# Other build.nvidia.com catalog models are registered as separate provider keys
+# sharing the same NVIDIA_API_KEY (no extra env vars needed):
+#   nvidia_deepseek_pro    -> deepseek-ai/deepseek-v4-pro
+#   nvidia_deepseek_flash  -> deepseek-ai/deepseek-v4-flash
+#   nvidia_minimax_m2_7    -> minimaxai/minimax-m2.7
+#   nvidia_minimax_m3      -> minimaxai/minimax-m3
 PROVIDER_DEFAULT=gemini
 LLM_TIMEOUT=120
 MAX_CONCURRENT_LLM=5

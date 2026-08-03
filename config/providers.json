@@ -23,6 +23,13 @@
     "client": "google",
     "default_model": "gemini-2.5-flash",
     "default_model_env": "GEMINI_MODEL",
+    "models": [
+      "gemini-2.5-flash",
+      "gemini-3.1-flash-lite",
+      "gemini-3-flash-preview",
+      "gemma-4-26b-a4b-it",
+      "gemma-4-31b-it"
+    ],
     "api_key_env": "GOOGLE_API_KEY",
     "structured_output": "json_mode"
   },
@@ -32,6 +39,14 @@
     "client": "openai",
     "default_model": "openai/gpt-4o-mini",
     "default_model_env": "OPENROUTER_MODEL",
+    "models": [
+      "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "nvidia/nemotron-3-super-120b-a12b:free",
+      "nvidia/nemotron-3-nano-30b-a3b:free",
+      "google/gemma-4-26b-a4b-it:free",
+      "openai/gpt-oss-20b:free",
+      "openrouter/free"
+    ],
     "api_key_env": "OPENROUTER_API_KEY",
     "base_url_env": "OPENROUTER_BASE_URL",
     "base_url_default": "https://openrouter.ai/api/v1",
@@ -43,6 +58,10 @@
     "client": "openai",
     "default_model": "big-pickle",
     "default_model_env": "OPENCODE_MODEL",
+    "models": [
+      "nemotron-3-ultra-free",
+      "nemotron-3-super-free"
+    ],
     "api_key_env": "OPENCODE_API_KEY",
     "base_url_env": "OPENCODE_BASE_URL",
     "base_url_default": "https://opencode.ai/zen/v1",
@@ -59,5 +78,23 @@
     "base_url_default": "https://api.moonshot.ai/v1",
     "structured_output": "json_mode",
     "omit_temperature": true
+  },
+  {
+    "key": "nvidia",
+    "label": "NVIDIA NIM",
+    "client": "openai",
+    "default_model": "z-ai/glm-5.2",
+    "default_model_env": "NVIDIA_MODEL",
+    "models": [
+      "z-ai/glm-5.2",
+      "deepseek-ai/deepseek-v4-pro",
+      "deepseek-ai/deepseek-v4-flash",
+      "minimaxai/minimax-m2.7",
+      "minimaxai/minimax-m3"
+    ],
+    "api_key_env": "NVIDIA_API_KEY",
+    "base_url_env": "NVIDIA_BASE_URL",
+    "base_url_default": "https://integrate.api.nvidia.com/v1",
+    "structured_output": "json_mode"
   }
 ]
