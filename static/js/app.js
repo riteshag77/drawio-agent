@@ -267,7 +267,7 @@ async function sendMessage(options = {}) {
             animated_connectors: promptSettings.animated_connectors,
             suggestions: !!promptSettings.suggestions,
             architecture_interview: !!promptSettings.architecture_interview,
-            diagram_views: promptSettings.diagram_views || ['network'],
+            diagram_views: promptSettings.diagram_views || ['logical'],
             adr_notes: !!promptSettings.adr_notes,
             raid_register: !!promptSettings.raid_register,
             save_captures: !!promptSettings.save_captures,

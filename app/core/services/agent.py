@@ -61,6 +61,18 @@ _IMAGE_REPLICATE_HINT = (
     "for unknowns. Prefer fidelity to the attachment over inventing new services."
 )
 
+_IMAGE_REPLICATE_CORRIDOR_ADDENDUM = (
+    "\n\nThis is the {view_label} view, which has its own inclusion/exclusion rules "
+    "in the system prompt above — apply them even while replicating this image. "
+    "The attachment may show infrastructure plumbing (VPC/subnets, security groups, "
+    "load balancers, WAF, monitoring/observability, secrets/KMS, IAM) that this "
+    "view's own rules deliberately exclude — do not draw it here just because it's "
+    "visible in the image; that detail has its own home on Network or Security. "
+    "Extract the image's *topology and relationships* (what connects to what, and in "
+    "what order) faithfully, filtered through this view's lens — not a literal "
+    "1:1 inventory of every box drawn."
+)
+
 _ANIMATED_HINT = (
     "## Animated connectors\n"
     "For edges that represent primary request/data flows, append `flowAnimation=1;` to the edge style."
@@ -357,7 +369,12 @@ def _build_ir_human_content(
     if applied_block:
         parts.append(applied_block)
     if image_replicate:
-        parts.append(_IMAGE_REPLICATE_HINT)
+        hint = _IMAGE_REPLICATE_HINT
+        if view != "network":
+            hint += _IMAGE_REPLICATE_CORRIDOR_ADDENDUM.format(
+                view_label=_IR_PAGE_NAMES.get(view, view.title())
+            )
+        parts.append(hint)
     if context_text and _looks_like_iac(context_text):
         parts.append(_IAC_HINT)
     if len(chat_messages) > 1:

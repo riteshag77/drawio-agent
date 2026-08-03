@@ -29,7 +29,7 @@ function getSelectedDiagramViews() {
     cbs.forEach(function (cb) {
         if (cb.checked) selected.push(cb.value);
     });
-    if (!selected.length) return ['network'];
+    if (!selected.length) return ['logical'];
     const order = ['logical', 'network', 'security', 'data_flow'];
     return order.filter(function (v) { return selected.indexOf(v) !== -1; });
 }
@@ -39,10 +39,10 @@ function onDiagramViewChange() {
     let any = false;
     cbs.forEach(function (cb) { if (cb.checked) any = true; });
     if (!any) {
-        const net = document.querySelector('.diagram-view-cb[value="network"]');
-        if (net) net.checked = true;
+        const logical = document.querySelector('.diagram-view-cb[value="logical"]');
+        if (logical) logical.checked = true;
         if (typeof showToast === 'function') {
-            showToast('At least one diagram view is required — Network kept on', 'info');
+            showToast('At least one diagram view is required — Logical kept on', 'info');
         }
     }
     updateNetworkInsightsVisibility();

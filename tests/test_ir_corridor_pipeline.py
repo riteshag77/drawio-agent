@@ -119,6 +119,36 @@ class ExtraViewFanOutTests(unittest.TestCase):
         self.assertIn("Logical", result["xml"])
         self.assertIn("domain_core", result["xml"])
 
+    def test_image_replicate_reaches_extra_view(self) -> None:
+        """image_replicate must thread through to a corridor view generated as
+        a fan-out page, not just the primary — previously silently dropped."""
+        network_diagram = XmlDiagram(
+            xml=compile_network_ir(realistic_ir()),
+            assistant_message="ok", suggestions=[], step_markers=[], ir_title="Network",
+        )
+        logical_diagram = XmlDiagram(
+            xml=compile_corridor_ir(realistic_logical_ir(), page_name="Logical"),
+            assistant_message="Generated Logical diagram.", suggestions=[], step_markers=[],
+            ir_title="Logical",
+        )
+
+        def _from_ir(view, *_a, **_k):
+            if view == "network":
+                return network_diagram
+            if view == "logical":
+                return logical_diagram
+            raise AssertionError(f"unexpected view {view!r}")
+
+        with _IrEnabled(views="network,logical"), \
+                patch.object(xml_pipeline, "generate_xml_diagram_from_ir", side_effect=_from_ir) as ir_gen, \
+                patch.object(xml_pipeline, "generate_xml_diagram") as direct, \
+                patch.object(xml_pipeline, "resolve_shape_styles", side_effect=_no_styles):
+            _run(diagram_views=["network", "logical"], image_replicate=True)
+
+        direct.assert_not_called()
+        logical_call = next(c for c in ir_gen.call_args_list if c.args[0] == "logical")
+        self.assertTrue(logical_call.kwargs.get("image_replicate"))
+
     def test_extra_view_ir_failure_soft_degrades(self) -> None:
         """Primary succeeds; failed secondary tab is omitted + degraded_features."""
         network_diagram = XmlDiagram(

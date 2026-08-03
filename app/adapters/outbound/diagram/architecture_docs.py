@@ -62,7 +62,7 @@ def normalize_diagram_views(views: list[str] | None) -> list[str]:
     allowed = set(_VIEW_ORDER)
     cleaned = [v.strip().lower() for v in (views or []) if isinstance(v, str) and v.strip()]
     selected = [v for v in _VIEW_ORDER if v in cleaned and v in allowed]
-    return selected or ["network"]
+    return selected or ["logical"]
 
 
 def build_interview_prompt_block(answers: dict[str, str] | None) -> str:

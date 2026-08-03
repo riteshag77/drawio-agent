@@ -6,7 +6,9 @@ import asyncio
 import inspect
 import xml.etree.ElementTree as ET
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field
 
 from app.adapters.outbound.config.env_config import get_config
 from app.adapters.outbound.diagram.drawio_mcp_client import DrawioMcpError, create_diagram, resolve_shape_styles
@@ -211,6 +213,57 @@ def _fallback_gap_analysis(human_prompt: str) -> GapAnalysisResult:
             for g in gaps
         ],
     )
+
+
+class _AttachmentViewClassification(BaseModel):
+    view: Literal["network", "security", "data_flow", "logical"] = Field(
+        description="Which of this tool's diagram lenses the attached image most resembles."
+    )
+
+
+_ATTACHMENT_VIEW_CLASSIFY_SYSTEM = (
+    "You classify an uploaded architecture diagram image (or PDF page) into exactly one of "
+    "four lens categories used by this tool. Judge by the diagram's actual structure and "
+    "labels, not just its general topic.\n\n"
+    "- network: infrastructure/topology diagram — VPCs, subnets, availability zones, load "
+    "balancers, security groups, network appliances, IP-level connectivity.\n"
+    "- security: trust-zone / access-control diagram — trust boundaries, firewalls, IAM, "
+    "encryption/compliance zones.\n"
+    "- data_flow: data pipeline / ETL diagram — sources, processing stages, sinks, data "
+    "movement phases.\n"
+    "- logical: generic business/process/application architecture — the default when the "
+    "image doesn't clearly match one of the three specific lenses above.\n\n"
+    "When in doubt, return logical."
+)
+
+
+def _classify_attachment_view(
+    *,
+    attachment_documents: list[dict] | None,
+    human_prompt: str,
+    provider_key: str,
+    logger: Any,
+) -> str | None:
+    """Best-effort: which view lens an uploaded image most resembles, or None on failure.
+
+    Mirrors ``_run_gap_analysis``'s soft-fail shape — a classification miss never
+    blocks generation, it just falls back to the caller's own default primary view.
+    """
+    if not attachment_documents:
+        return None
+    try:
+        result = get_llm()(
+            _ATTACHMENT_VIEW_CLASSIFY_SYSTEM,
+            f"Request:\n{human_prompt or '(no accompanying text)'}",
+            provider_key, _AttachmentViewClassification, logger, attachment_documents,
+        )
+        return result.view
+    except Exception as exc:
+        if logger:
+            logger.log(
+                "classify", f"Attachment view classification failed: {exc}", level="warning",
+            )
+        return None
 
 
 def _run_gap_analysis(
@@ -439,6 +492,7 @@ def _generate_ir_view_page(
     logger: Any,
     context_text: str | None = None,
     attachment_documents: list[dict[str, Any]] | None = None,
+    image_replicate: bool = False,
 ) -> str | None:
     """IR path for a secondary (extra) view — same generator as primary.
 
@@ -462,6 +516,7 @@ def _generate_ir_view_page(
         view, human_prompt, provider_key, platform_key, logger, None,
         context_text=seeded or None,
         attachment_documents=attachment_documents,
+        image_replicate=image_replicate,
     )
     title = VIEW_PAGE_NAMES.get(view, view)
     return _finalize_view_page_xml(
@@ -832,8 +887,38 @@ async def run_xml_pipeline(
     provider_key = (provider or "claude").strip().lower()
     platform_key = (platform or "aws").strip().lower()
     use_libavoid = get_config().drawio_mcp_libavoid if libavoid is None else bool(libavoid)
+    human_prompt = user_prompt or (messages[-1]["content"] if messages else "")
+
+    # Auto image-replicate when vision attachments are present unless explicitly off
+    if attachment_documents and not image_replicate:
+        image_replicate = True
+
     views = normalize_diagram_views(diagram_views)
-    primary_view = pick_primary_view(views)
+    # An uploaded image may itself depict a specific lens (a Network/VPC topology,
+    # a Security/trust-zone diagram, a Data-flow pipeline) rather than the generic
+    # Logical default — classify it so that lens becomes the faithfully-replicated
+    # primary page, with Logical (and any other checked views) still fanning out
+    # from it, same as today's Network-primary mechanism.
+    detected_view: str | None = None
+    has_image_attachment = attachment_documents and any(
+        (doc.get("mime") or "").startswith("image/") for doc in attachment_documents
+    )
+    if has_image_attachment and not (current_xml or "").strip():
+        await _emit(on_progress, "classify", "Identifying diagram type from image…")
+        detected_view = await run_llm_sync(
+            _classify_attachment_view,
+            attachment_documents=attachment_documents,
+            human_prompt=human_prompt,
+            provider_key=provider_key,
+            logger=logger,
+        )
+        if detected_view and detected_view != "logical" and detected_view not in views:
+            views = normalize_diagram_views([*views, detected_view])
+
+    primary_view = (
+        detected_view if (detected_view and detected_view != "logical")
+        else pick_primary_view(views)
+    )
     primary_page_name = VIEW_PAGE_NAMES.get(primary_view, "Network")
     extra_views = [v for v in views if v != primary_view]
 
@@ -847,18 +932,13 @@ async def run_xml_pipeline(
         "diagram_views": views,
         "primary_view": primary_view,
         "extra_views": extra_views,
+        "detected_view": detected_view,
         "adr_notes": adr_notes,
         "raid_register": raid_register,
     })
     await _emit(on_progress, "llm", "Generating diagram XML…", {
         "platform": platform_key, "provider": provider_key,
     })
-
-    human_prompt = user_prompt or (messages[-1]["content"] if messages else "")
-
-    # Auto image-replicate when vision attachments are present unless explicitly off
-    if attachment_documents and not image_replicate:
-        image_replicate = True
 
     # Pre-generation gap analysis: default missing security/resilience/observability/
     # data components before anything is drawn, so every view (primary + fan-out)
@@ -1049,6 +1129,7 @@ async def run_xml_pipeline(
                 logger=logger,
                 context_text=context,
                 attachment_documents=attachment_documents,
+                image_replicate=image_replicate,
             )
             if not xml:
                 raise ValueError(f"{title} IR view returned empty XML")

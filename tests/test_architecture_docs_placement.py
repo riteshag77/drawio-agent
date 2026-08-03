@@ -35,9 +35,9 @@ def _wrap(inner: str, *, name: str = "Network") -> str:
 
 
 class NormalizeViewsTests(unittest.TestCase):
-    def test_default_network(self) -> None:
-        self.assertEqual(normalize_diagram_views(None), ["network"])
-        self.assertEqual(normalize_diagram_views([]), ["network"])
+    def test_default_logical(self) -> None:
+        self.assertEqual(normalize_diagram_views(None), ["logical"])
+        self.assertEqual(normalize_diagram_views([]), ["logical"])
 
     def test_multi_select_order(self) -> None:
         self.assertEqual(
