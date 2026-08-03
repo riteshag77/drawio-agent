@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, RedirectResponse, Response, StreamingResponse
 
-from app.adapters.inbound.web.schemas import ChatRequest, ParseUrlRequest, PromptRequest
+from app.adapters.inbound.web.schemas import ChatRequest, CustomProviderConfig, ParseUrlRequest, PromptRequest
 from app.adapters.outbound.capture_store import list_captures, load_capture, save_capture
 from app.adapters.outbound.config.env_config import get_config
 from app.adapters.outbound.history_store import (
@@ -93,6 +93,25 @@ async def list_providers() -> dict:
         ],
         "default": providers_module.default_provider_key(),
     }
+
+
+@router.post("/providers/validate")
+async def validate_custom_provider(body: CustomProviderConfig) -> dict:
+    """"Test connection" for a custom (BYOK) provider — never persisted, just probed."""
+    import time
+
+    try:
+        spec = providers_module._spec_from_custom_payload(body.model_dump())
+        providers_module.require_api_key(spec)
+        client = providers_module.build_langchain_client(spec, timeout=15)
+        start = time.monotonic()
+        await asyncio.to_thread(client.invoke, "Reply with exactly: OK")
+        latency_ms = int((time.monotonic() - start) * 1000)
+        return {"valid": True, "latency_ms": latency_ms}
+    except providers_module.MissingApiKeyError as exc:
+        return {"valid": False, "error": str(exc)}
+    except Exception as exc:  # noqa: BLE001 - surfaced to the user as a validation result, not a 500
+        return {"valid": False, "error": str(exc)[:300]}
 
 
 @router.get("/health")
@@ -182,101 +201,108 @@ async def generate_diagram(body: PromptRequest, request: Request):
 
 async def _run_chat(body: ChatRequest, logger: StepLogger, *, on_progress=None) -> dict[str, Any]:
     platform = (body.platform or "aws").strip().lower()
-    provider = (body.provider or "claude").strip().lower()
+    # A custom_provider payload always wins over `provider` — the pipeline routes
+    # every LLM call in this request through it via the context manager below.
+    provider = (
+        providers_module.CUSTOM_PROVIDER_KEY if body.custom_provider
+        else (body.provider or "claude").strip().lower()
+    )
+    custom_payload = body.custom_provider.model_dump() if body.custom_provider else None
 
-    if not body.messages:
-        raise ValueError("messages must not be empty")
-    if body.messages[-1].role != "user":
-        raise ValueError("Last message must be from the user")
+    with providers_module.using_custom_provider(custom_payload):
+        if not body.messages:
+            raise ValueError("messages must not be empty")
+        if body.messages[-1].role != "user":
+            raise ValueError("Last message must be from the user")
 
-    messages = [m.model_dump() for m in body.messages]
-    last_user = messages[-1]["content"] if messages else ""
-    applied_suggestions = body.applied_suggestions or []
+        messages = [m.model_dump() for m in body.messages]
+        last_user = messages[-1]["content"] if messages else ""
+        applied_suggestions = body.applied_suggestions or []
 
-    intent = classify_intent(last_user, diagram_mode=body.diagram_mode, platform=platform)
-    has_attachments = bool(body.attachment_documents) or bool(body.context_text)
-    if intent == "simple" and has_attachments:
-        # The mermaid/"simple" path never forwards attachments to the LLM — only
-        # run_xml_pipeline does, so an attached file must not be routed away from it.
-        intent = "cloud"
-    if intent == "simple" and body.current_xml and len(body.current_xml) > 200:
-        # A stale "simple" diagram_mode setting must never derail an in-progress
-        # cloud-diagram edit (e.g. applying a WAF/Compliance suggestion) onto the
-        # Mermaid path — that path returns xml=None and would replace the existing
-        # cloud diagram with an unrelated flowchart.
-        intent = "cloud"
-    if on_progress:
-        await on_progress("intent", f"Classified as {intent}", {"intent": intent})
+        intent = classify_intent(last_user, diagram_mode=body.diagram_mode, platform=platform)
+        has_attachments = bool(body.attachment_documents) or bool(body.context_text)
+        if intent == "simple" and has_attachments:
+            # The mermaid/"simple" path never forwards attachments to the LLM — only
+            # run_xml_pipeline does, so an attached file must not be routed away from it.
+            intent = "cloud"
+        if intent == "simple" and body.current_xml and len(body.current_xml) > 200:
+            # A stale "simple" diagram_mode setting must never derail an in-progress
+            # cloud-diagram edit (e.g. applying a WAF/Compliance suggestion) onto the
+            # Mermaid path — that path returns xml=None and would replace the existing
+            # cloud diagram with an unrelated flowchart.
+            intent = "cloud"
+        if on_progress:
+            await on_progress("intent", f"Classified as {intent}", {"intent": intent})
 
-    # Architecture interview — only when setting is on and answers not yet provided.
-    # Skip when surgically editing an existing diagram (current_xml present).
-    if (
-        intent != "simple"
-        and body.architecture_interview
-        and not body.interview_answers
-        and not (body.current_xml and len(body.current_xml) > 200)
-    ):
-        from app.adapters.outbound.diagram.architecture_docs import INTERVIEW_QUESTIONS
-        questions = INTERVIEW_QUESTIONS
-        lines = [
-            "Before I draw the architecture, please answer these questions "
-            "(reply in one message):",
-            "",
-        ]
-        for i, q in enumerate(questions, start=1):
-            lines.append(f"{i}. {q['prompt']}")
-        msg = "\n".join(lines)
-        logger.log("interview", "Architecture interview required", details={"questions": len(questions)})
-        return {
-            "status": "success",
-            "interview_required": True,
-            "interview_questions": questions,
-            "assistant_message": msg,
-            "xml": None,
-            "mermaid": None,
-            "diagram_type": None,
-            "suggestions": [],
-            "logs": logger.to_list(),
-        }
+        # Architecture interview — only when setting is on and answers not yet provided.
+        # Skip when surgically editing an existing diagram (current_xml present).
+        if (
+            intent != "simple"
+            and body.architecture_interview
+            and not body.interview_answers
+            and not (body.current_xml and len(body.current_xml) > 200)
+        ):
+            from app.adapters.outbound.diagram.architecture_docs import INTERVIEW_QUESTIONS
+            questions = INTERVIEW_QUESTIONS
+            lines = [
+                "Before I draw the architecture, please answer these questions "
+                "(reply in one message):",
+                "",
+            ]
+            for i, q in enumerate(questions, start=1):
+                lines.append(f"{i}. {q['prompt']}")
+            msg = "\n".join(lines)
+            logger.log("interview", "Architecture interview required", details={"questions": len(questions)})
+            return {
+                "status": "success",
+                "interview_required": True,
+                "interview_questions": questions,
+                "assistant_message": msg,
+                "xml": None,
+                "mermaid": None,
+                "diagram_type": None,
+                "suggestions": [],
+                "logs": logger.to_list(),
+            }
 
-    if intent == "simple":
-        result = await _with_request_timeout(run_llm_sync(
-            generate_mermaid_diagram, last_user, provider, logger, messages, applied_suggestions,
-            include_suggestions=body.suggestions,
-        ))
-        response = _mermaid_response(result, logger)
-    else:
-        await _snapshot_pre_edit(body)
-        response = await _with_request_timeout(run_xml_pipeline(
-            user_prompt=None, messages=messages, provider=provider, platform=platform,
-            logger=logger,
-            custom_system_message=_sanitize_custom_msg(body.custom_system_message),
-            diagram_renderer=body.diagram_renderer,
-            applied_suggestions=applied_suggestions,
-            three_d=body.three_d,
-            cost_estimate=body.cost_estimate,
-            well_architected=body.well_architected,
-            compliance=body.compliance,
-            compliance_frameworks=body.compliance_frameworks,
-            context_text=body.context_text,
-            attachment_documents=[a.model_dump() for a in body.attachment_documents] if body.attachment_documents else None,
-            current_xml=body.current_xml,
-            libavoid=body.libavoid,
-            image_replicate=body.image_replicate,
-            image_mode=body.image_mode,
-            animated_connectors=body.animated_connectors,
-            include_suggestions=body.suggestions,
-            diagram_views=body.diagram_views,
-            adr_notes=body.adr_notes,
-            raid_register=body.raid_register,
-            interview_answers=body.interview_answers,
-            on_progress=on_progress,
-        ))
+        if intent == "simple":
+            result = await _with_request_timeout(run_llm_sync(
+                generate_mermaid_diagram, last_user, provider, logger, messages, applied_suggestions,
+                include_suggestions=body.suggestions,
+            ))
+            response = _mermaid_response(result, logger)
+        else:
+            await _snapshot_pre_edit(body)
+            response = await _with_request_timeout(run_xml_pipeline(
+                user_prompt=None, messages=messages, provider=provider, platform=platform,
+                logger=logger,
+                custom_system_message=_sanitize_custom_msg(body.custom_system_message),
+                diagram_renderer=body.diagram_renderer,
+                applied_suggestions=applied_suggestions,
+                three_d=body.three_d,
+                cost_estimate=body.cost_estimate,
+                well_architected=body.well_architected,
+                compliance=body.compliance,
+                compliance_frameworks=body.compliance_frameworks,
+                context_text=body.context_text,
+                attachment_documents=[a.model_dump() for a in body.attachment_documents] if body.attachment_documents else None,
+                current_xml=body.current_xml,
+                libavoid=body.libavoid,
+                image_replicate=body.image_replicate,
+                image_mode=body.image_mode,
+                animated_connectors=body.animated_connectors,
+                include_suggestions=body.suggestions,
+                diagram_views=body.diagram_views,
+                adr_notes=body.adr_notes,
+                raid_register=body.raid_register,
+                interview_answers=body.interview_answers,
+                on_progress=on_progress,
+            ))
 
-    if body.save_captures:
-        await asyncio.to_thread(save_capture, body.model_dump(), response)
-    await _record_history(body, response, last_user)
-    return response
+        if body.save_captures:
+            await asyncio.to_thread(save_capture, body.model_dump(), response)
+        await _record_history(body, response, last_user)
+        return response
 
 
 async def _snapshot_pre_edit(body: ChatRequest) -> None:

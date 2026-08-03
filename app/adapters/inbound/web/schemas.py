@@ -43,6 +43,22 @@ class AttachmentDocument(BaseModel):
     data: str  # base64-encoded file bytes
 
 
+class CustomProviderConfig(BaseModel):
+    """A per-request bring-your-own-key provider — never persisted server-side.
+
+    Stored client-side only (browser localStorage); sent fresh on each request
+    that opts into it. See app/adapters/outbound/llm/providers.py's
+    using_custom_provider/_spec_from_custom_payload for how this becomes an
+    ephemeral (uncached) ProviderSpec for the duration of one request.
+    """
+
+    label: str = Field(default="Custom", max_length=80)
+    client: Literal["openai", "anthropic", "google"]
+    api_key: str = Field(max_length=500)
+    base_url: str = Field(default="", max_length=500)
+    model: str = Field(max_length=200)
+
+
 class ChatRequest(BaseModel):
     messages: list[ChatMessage] = Field(max_length=100)
     provider: str = Field(default_factory=_default_provider)
@@ -78,6 +94,14 @@ class ChatRequest(BaseModel):
     raid_register: bool = False
     save_captures: bool = False
     interview_answers: dict[str, str] | None = None
+    custom_provider: CustomProviderConfig | None = Field(
+        default=None,
+        description=(
+            "A user-supplied provider (own API key/base_url/model) for this request only. "
+            "When present, overrides `provider` — the pipeline routes to it regardless of "
+            "what `provider` is set to."
+        ),
+    )
     session_id: str | None = Field(
         default=None,
         max_length=128,

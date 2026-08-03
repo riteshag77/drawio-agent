@@ -326,6 +326,38 @@
                         </div>
                     </div>
 
+                    <div class="drawer-group" data-group="custom-providers">
+                        <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
+                            <span class="drawer-group-title">Custom providers</span>
+                            <span class="drawer-group-chevron" aria-hidden="true"></span>
+                        </button>
+                        <div class="drawer-group-body" hidden>
+                        <small style="color:var(--text-muted)">Bring your own API key/endpoint — OpenAI/Anthropic/Google-compatible. Stored only in your browser; sent per-request, never saved on the server. A local endpoint (e.g. Ollama at http://localhost:11434/v1) works fine here.</small>
+                        <div id="custom-provider-list" class="template-list"></div>
+                        <div id="custom-provider-form" hidden>
+                            <label for="custom-provider-label">Display name</label>
+                            <input type="text" id="custom-provider-label" placeholder="e.g. My Ollama">
+                            <label for="custom-provider-client">Client</label>
+                            <select id="custom-provider-client">
+                                <option value="openai" selected>OpenAI-compatible</option>
+                                <option value="anthropic">Anthropic-compatible</option>
+                                <option value="google">Google (Gemini)-compatible</option>
+                            </select>
+                            <label for="custom-provider-api-key">API key</label>
+                            <input type="password" id="custom-provider-api-key" placeholder="sk-…" autocomplete="off">
+                            <label for="custom-provider-base-url">Base URL (optional)</label>
+                            <input type="text" id="custom-provider-base-url" placeholder="http://localhost:11434/v1">
+                            <label for="custom-provider-model">Model ID</label>
+                            <input type="text" id="custom-provider-model" placeholder="e.g. llama3.1">
+                            <div class="composer-actions">
+                                <button type="button" class="btn-soft" onclick="addCustomProvider()">Save provider</button>
+                                <button type="button" class="btn-chat-clear" onclick="toggleCustomProviderForm(false)">Cancel</button>
+                            </div>
+                        </div>
+                        <button type="button" class="btn-soft" id="custom-provider-add-btn" onclick="toggleCustomProviderForm(true)">＋ Add custom provider</button>
+                        </div>
+                    </div>
+
                     <div class="drawer-group" data-group="advanced">
                         <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
                             <span class="drawer-group-title">Advanced</span>
@@ -622,6 +654,7 @@
     <script src="/static/js/theme.js?v=20260724f"></script>
     <script src="/static/js/resizer.js?v=20260724f"></script>
     <script src="/static/js/settings.js?v=20260726b"></script>
+    <script src="/static/js/custom-providers.js?v=20260803a"></script>
     <script src="/static/js/prompt-settings.js?v=20260726b"></script>
     <script src="/static/js/diagram.js?v=20260726b"></script>
     <script src="/static/js/voice-commands.js?v=20260726b"></script>

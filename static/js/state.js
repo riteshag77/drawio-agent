@@ -29,6 +29,7 @@ const DIAGRAM_VIEWS_STORAGE_KEY = 'drawio-agent-diagram-views';
 const ADR_NOTES_STORAGE_KEY = 'drawio-agent-adr-notes';
 const RAID_REGISTER_STORAGE_KEY = 'drawio-agent-raid-register';
 const SAVE_CAPTURES_STORAGE_KEY = 'drawio-agent-save-captures';
+const CUSTOM_PROVIDERS_STORAGE_KEY = 'drawio-agent-custom-providers'; // [{id,label,client,api_key,base_url,model}] — browser-only, sent per-request
 const MAX_VLM_CLIENT_RETRIES = 0; // Show banner only — auto /chat regen feels like endless loading
 
 /** Pending interview answers for the next generate (cleared after successful diagram). */

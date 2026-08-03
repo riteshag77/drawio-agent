@@ -18,10 +18,13 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 from app.adapters.outbound.config.env_config import EnvConfigAdapter, get_config
 
@@ -97,6 +100,20 @@ class ProviderSpec:
     # time) — see _cached_langchain_client. Explicit per-provider override available via
     # providers.json's "max_output_tokens" field.
     max_output_tokens: int = 0
+    # Set only on a per-request custom (BYOK) provider spec built by
+    # _spec_from_custom_payload — bypasses api_key_env lookup entirely.
+    api_key_inline: str = ""
+    # True only for a synthetic spec built from a request's custom_provider payload.
+    # Such a spec is never registry-backed and must never be cached — see
+    # build_langchain_client — since it carries a user-supplied secret that must not
+    # outlive the request it came from.
+    ephemeral: bool = False
+
+
+#: Reserved provider key for a per-request BYOK (bring-your-own-key) provider —
+#: never a real registry entry. A request selects it by sending provider="custom"
+#: alongside a custom_provider payload; see using_custom_provider/get_provider below.
+CUSTOM_PROVIDER_KEY = "custom"
 
 
 def _resolve_default_model(record: dict, key: str) -> str:
@@ -167,6 +184,11 @@ def _build_registry() -> dict[str, ProviderSpec]:
         spec = _spec_from_record(record)
         if spec.key in registry:
             raise ValueError(f"Duplicate provider key in providers.json: '{spec.key}'")
+        if spec.key == CUSTOM_PROVIDER_KEY:
+            raise ValueError(
+                f"providers.json: '{CUSTOM_PROVIDER_KEY}' is a reserved provider key "
+                "(used for per-request bring-your-own-key providers) and cannot be configured here."
+            )
         registry[spec.key] = spec
     if not registry:
         raise ValueError("providers.json contains zero providers")
@@ -191,8 +213,80 @@ def normalize_provider_key(provider: str) -> str:
     return (provider or default_provider_key()).strip().lower()
 
 
+#: Per-request custom (BYOK) provider payload — set for the duration of one
+#: request via using_custom_provider, read by get_provider when the caller
+#: asks for CUSTOM_PROVIDER_KEY. asyncio.to_thread (used by run_llm_sync)
+#: propagates the current context into its worker thread, so this is visible
+#: to the actual LLM call even though it runs off the request's own coroutine.
+_custom_provider_ctx: ContextVar[dict[str, Any] | None] = ContextVar(
+    "custom_provider_payload", default=None
+)
+
+
+@contextmanager
+def using_custom_provider(payload: dict[str, Any] | None):
+    """Scope a custom_provider payload to one request.
+
+    Always reset on exit (even on error) so a payload never leaks into a
+    later request reusing the same worker thread/task.
+    """
+    token = _custom_provider_ctx.set(payload)
+    try:
+        yield
+    finally:
+        _custom_provider_ctx.reset(token)
+
+
+def _validate_custom_base_url(base_url: str) -> str:
+    """Light well-formedness check only — no IP-range/SSRF blocking.
+
+    Deliberate: this app is a personal/local dev tool, and the most realistic
+    custom-provider use case (a local Ollama/LM Studio/LAN gateway) *is* a
+    private address. Still reject obviously malformed input.
+    """
+    url = (base_url or "").strip()
+    if not url:
+        return ""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"custom provider base_url {url!r} must start with http:// or https://")
+    if not parsed.hostname:
+        raise ValueError(f"custom provider base_url {url!r} must include a hostname")
+    return url.rstrip("/")
+
+
+def _spec_from_custom_payload(payload: dict[str, Any]) -> ProviderSpec:
+    """Build a synthetic, ephemeral ProviderSpec from one request's custom_provider
+    payload (label/client/api_key/base_url/model — see CustomProviderConfig)."""
+    client = str(payload.get("client") or "").strip().lower()
+    if client not in _CLIENT_KEYS:
+        raise ValueError(
+            f"custom provider: unsupported client {client!r} — must be one of {sorted(_CLIENT_KEYS)}"
+        )
+    model = str(payload.get("model") or "").strip()
+    if not model:
+        raise ValueError("custom provider: 'model' is required")
+    base_url = _validate_custom_base_url(str(payload.get("base_url") or ""))
+    return ProviderSpec(
+        key=CUSTOM_PROVIDER_KEY,
+        client_key=client,
+        default_model=model,
+        api_key_inline=str(payload.get("api_key") or "").strip(),
+        base_url_default=base_url,
+        label=str(payload.get("label") or "Custom").strip() or "Custom",
+        ephemeral=True,
+    )
+
+
 def get_provider(provider: str) -> ProviderSpec:
     key = normalize_provider_key(provider)
+    if key == CUSTOM_PROVIDER_KEY:
+        payload = _custom_provider_ctx.get()
+        if payload is None:
+            raise ValueError(
+                "provider='custom' requires a custom_provider payload on the request"
+            )
+        return _spec_from_custom_payload(payload)
     spec = PROVIDERS.get(key)
     if not spec:
         raise ValueError(f"Unsupported provider: {key}")
@@ -216,6 +310,10 @@ class MissingApiKeyError(ValueError):
 
 
 def require_api_key(spec: ProviderSpec) -> None:
+    if spec.ephemeral:
+        if not spec.api_key_inline:
+            raise MissingApiKeyError("Custom provider requires an API key.")
+        return
     if spec.api_key_env and not _env_api_key(spec.api_key_env):
         raise MissingApiKeyError(f"{spec.api_key_env} environment variable is not set.")
 
@@ -260,23 +358,31 @@ def _env_api_key(env_name: str) -> str | None:
     return key or None
 
 
-@lru_cache(maxsize=64)
-def _cached_langchain_client(spec: ProviderSpec, timeout: int) -> BaseChatModel:
-    client_cls = spec.client_class or _resolve_client_class(spec.client_key)
+def _client_kwargs(spec: ProviderSpec, timeout: int) -> dict[str, Any]:
     kwargs: dict[str, Any] = {"model": spec.default_model, "timeout": timeout}
     if not spec.omit_temperature:
         kwargs["temperature"] = 0
     # Always pass the key explicitly when configured — ChatAnthropic/OpenAI will
     # otherwise only see a raw env var, and quoted .env values can silently 401.
-    if spec.api_key_env:
-        key = _env_api_key(spec.api_key_env)
-        if key:
-            kwargs["api_key"] = key
+    # A custom (ephemeral) spec's inline key always wins over any env lookup.
+    key = spec.api_key_inline or (_env_api_key(spec.api_key_env) if spec.api_key_env else None)
+    if key:
+        kwargs["api_key"] = key
+    # A literal base_url_default (no base_url_env) must still be honoured —
+    # that's exactly the shape a custom-provider spec has.
     if spec.base_url_env:
         kwargs["base_url"] = resolve_gateway_base_url(spec)
+    elif spec.base_url_default:
+        kwargs["base_url"] = normalize_gateway_base_url(spec.base_url_default, spec.base_url_default)
     token_kwarg = _MAX_TOKENS_KWARG.get(spec.client_key, "max_tokens")
     kwargs[token_kwarg] = spec.max_output_tokens or _DEFAULT_MAX_OUTPUT_TOKENS
-    return client_cls(**kwargs)
+    return kwargs
+
+
+@lru_cache(maxsize=64)
+def _cached_langchain_client(spec: ProviderSpec, timeout: int) -> BaseChatModel:
+    client_cls = spec.client_class or _resolve_client_class(spec.client_key)
+    return client_cls(**_client_kwargs(spec, timeout))
 
 
 def build_langchain_client(spec: ProviderSpec, *, timeout: int) -> BaseChatModel:
@@ -288,7 +394,14 @@ def build_langchain_client(spec: ProviderSpec, *, timeout: int) -> BaseChatModel
     repair → compliance) and across requests, instead of rebuilding a fresh
     client (and connection pool) on every call. The client *library* import
     itself is deferred to this first call — see ``_resolve_client_class``.
+
+    ``spec.ephemeral`` (a per-request custom/BYOK spec) always skips this
+    cache and builds directly — a user-supplied secret must never sit in a
+    long-lived process-wide cache across requests.
     """
     if spec.client_class is None and not spec.client_key:
         raise ValueError(f"Provider {spec.key} does not use a LangChain client.")
+    if spec.ephemeral:
+        client_cls = spec.client_class or _resolve_client_class(spec.client_key)
+        return client_cls(**_client_kwargs(spec, timeout))
     return _cached_langchain_client(spec, timeout)

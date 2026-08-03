@@ -243,6 +243,9 @@ async function sendMessage(options = {}) {
         const chatBody = {
             messages: chatMessages,
             provider,
+            custom_provider: (typeof getSelectedCustomProviderPayload === 'function')
+                ? getSelectedCustomProviderPayload()
+                : null,
             validation_provider: promptSettings.validation_provider,
             platform: selectedPlatform,
             diagram_mode: options.platformConvert ? 'cloud' : getDiagramMode(),
@@ -465,6 +468,7 @@ async function sendMessage(options = {}) {
 async function initProviderSelect() {
     const select = document.getElementById('provider-select');
     if (!select) return;
+    const previousValue = select.value;
     try {
         const res = await fetch('/providers');
         const data = await res.json();
@@ -475,7 +479,23 @@ async function initProviderSelect() {
             opt.textContent = p.label;
             select.appendChild(opt);
         }
-        if (data.default) select.value = data.default;
+        const customProviders = (typeof getCustomProviders === 'function') ? getCustomProviders() : [];
+        if (customProviders.length) {
+            const group = document.createElement('optgroup');
+            group.label = 'Custom';
+            for (const p of customProviders) {
+                const opt = document.createElement('option');
+                opt.value = 'custom:' + p.id;
+                opt.textContent = p.label;
+                group.appendChild(opt);
+            }
+            select.appendChild(group);
+        }
+        if (previousValue && select.querySelector(`option[value="${CSS.escape(previousValue)}"]`)) {
+            select.value = previousValue;
+        } else if (data.default) {
+            select.value = data.default;
+        }
     } catch (err) {
         console.error('Failed to load providers', err);
     }
@@ -492,6 +512,7 @@ initProviderSelect();
 hideValidationBanner();
 updateSendStopButtons();
 loadTemplates();
+if (typeof loadCustomProviders === 'function') loadCustomProviders();
 if (typeof initVoiceCommands === 'function') initVoiceCommands();
 initVoiceInput();
 ensureDrawioFrame();
