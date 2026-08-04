@@ -122,6 +122,12 @@ function bindDrawioMessages(iframe) {
             if (!isSending) {
                 setComposerRunStatus('Ready — ask for changes or try another prompt', 'success');
             }
+            // A full 'load' always resets the editor to the first page.
+            currentDrawioPageIndex = 0;
+            if (pendingFocusPageIndex) {
+                switchToDrawioPage(pendingFocusPageIndex);
+                pendingFocusPageIndex = null;
+            }
         }
 
         if (msg.event === 'error') {
@@ -157,6 +163,40 @@ function bindDrawioMessages(iframe) {
     };
 
     window.addEventListener('message', messageHandler);
+}
+
+/** Index of the <diagram name="..."> page matching pageName (case-insensitive), or -1. */
+function drawioPageIndexByName(xml, pageName) {
+    if (!xml || !pageName) return -1;
+    const re = /<diagram\b[^>]*\bname="([^"]*)"/g;
+    let match;
+    let idx = 0;
+    while ((match = re.exec(xml)) !== null) {
+        if ((match[1] || '').toLowerCase() === pageName.toLowerCase()) return idx;
+        idx++;
+    }
+    return -1;
+}
+
+/** Arranges for the editor to land on pageName once the next diagram finishes loading. */
+function requestDrawioFocusOnLoad(pageName, xml) {
+    const idx = drawioPageIndexByName(xml, pageName);
+    pendingFocusPageIndex = idx >= 0 ? idx : null;
+}
+
+/** Steps the draw.io page tab from the (tracked) current page to targetIndex.
+ *  draw.io's embed postMessage protocol has no "select page N" action, only the
+ *  editor's own previousPage/nextPage actions — so we walk there one page at a time. */
+function switchToDrawioPage(targetIndex) {
+    if (!drawioReady || targetIndex == null || targetIndex === currentDrawioPageIndex) return;
+    const iframe = document.getElementById('drawio-frame');
+    if (!iframe || !iframe.contentWindow) return;
+    const step = targetIndex > currentDrawioPageIndex ? 'nextPage' : 'previousPage';
+    const steps = Math.abs(targetIndex - currentDrawioPageIndex);
+    for (let i = 0; i < steps; i++) {
+        iframe.contentWindow.postMessage(JSON.stringify({ action: 'invokeAction', actionName: step }), DRAWIO_ORIGIN);
+    }
+    currentDrawioPageIndex = targetIndex;
 }
 
 function loadMermaidIntoEditor(mermaid) {

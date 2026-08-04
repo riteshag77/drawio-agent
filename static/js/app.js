@@ -402,6 +402,9 @@ async function sendMessage(options = {}) {
             if (data.well_architected) {
                 displayWellArchitected(data.well_architected);
                 updateRightPanelVisibility();
+                if (typeof requestDrawioFocusOnLoad === 'function') requestDrawioFocusOnLoad('Network', data.xml);
+            } else {
+                hideWellArchitectedPanel();
             }
         } catch (e) { console.error('WAF panel error', e); }
 
@@ -410,6 +413,10 @@ async function sendMessage(options = {}) {
                 window._lastComplianceData = data.compliance;
                 displayCompliance(data.compliance);
                 updateRightPanelVisibility();
+                if (typeof requestDrawioFocusOnLoad === 'function') requestDrawioFocusOnLoad('Network', data.xml);
+            } else {
+                window._lastComplianceData = null;
+                hideCompliancePanel();
             }
         } catch (e) { console.error('Compliance panel error', e); }
 

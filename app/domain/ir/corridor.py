@@ -367,3 +367,31 @@ class CorridorIR(DiagramIR):
                 "between them; a diagram with no relationships is not useful"
             )
         return errors
+
+    def _orphan_errors(self) -> list[str]:
+        """Every leaf/actor must touch at least one flow — opt-in, not part of
+        the shared ``semantic_errors()`` above.
+
+        Logical is flat with no grouping box, so an unconnected leaf/actor is
+        genuinely invisible-as-connected there (see ``LogicalIR.semantic_errors``,
+        which calls this). Security/Data-flow are deliberately NOT wired to
+        this: their zone/phase boxes are real containers, and a passive leaf
+        like CloudWatch sitting in the Detect zone with no drawn edge is a
+        normal, valid diagram there — trying to require flow-touching for every
+        leaf on those two views rejected legitimate fixtures when tried.
+        """
+        all_leaf_and_actor_ids = self.leaf_ids() | {a.id for a in self.external_actors}
+        if len(all_leaf_and_actor_ids) < 2:
+            return []
+        touched: set[str] = set()
+        for flow in self.flows:
+            touched.add(flow.source)
+            touched.add(flow.target)
+        orphans = sorted(all_leaf_and_actor_ids - touched)
+        if not orphans:
+            return []
+        return [
+            f"these leaves/actors have no flow connecting them to anything: "
+            f"{', '.join(orphans)} — an unconnected node reads as broken, not just "
+            "unlabeled; connect each one to the story or remove it"
+        ]

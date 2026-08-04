@@ -79,7 +79,8 @@ domain columns:
 4. `domain_platform` — shared platform / observability (optional; omit if unused)
 
 Anchored shelf: `domain_saas` — external SaaS products (Stripe, Workday, Okta as
-egress), anchored under `domain_data` in JSON. Use when 2+ egress SaaS products
+egress), anchored under `domain_data` in JSON. 
+Use when 2+ egress SaaS products
 appear, or one important partner (e.g. Stripe) sits outside the primary cloud
 path. Cloud `aws_*`/`gcp_*`/`azure_*` leaves may render inside one dashed cloud
 group; React/portal and SaaS egress stay outside that group.

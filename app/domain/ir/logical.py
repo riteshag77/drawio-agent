@@ -91,7 +91,9 @@ class LogicalIR(CorridorIR):
 
     def semantic_errors(self) -> list[str]:
         """Hard density/overcrowding rules, plus two story-completeness rules:
-        no unconnected leaf/actor, no replica/standby duplicate of a store.
+        no unconnected leaf/actor (``CorridorIR._orphan_errors`` — Logical-only,
+        see that method's docstring for why Security/Data-flow opt out), no
+        replica/standby duplicate of a store.
 
         Logical has no container nesting to fall back on (unlike Network) and
         no visible zone box (unlike Security) — a leaf or actor with zero
@@ -102,6 +104,7 @@ class LogicalIR(CorridorIR):
         alone, for the same reliability reason as ``_strip_cross_cutting_infra``.
         """
         errors = super().semantic_errors()
+        errors.extend(self._orphan_errors())
         total = sum(len(c.leaves) for c in self.corridors) + sum(len(s.leaves) for s in self.anchored)
         if total > 14:
             errors.append(
@@ -113,21 +116,6 @@ class LogicalIR(CorridorIR):
                 errors.append(
                     f"{corridor.id} has {len(corridor.leaves)} leaves — keep ≤5 "
                     "per domain/shelf; merge or omit padding capabilities"
-                )
-
-        all_leaf_and_actor_ids = self.leaf_ids() | {a.id for a in self.external_actors}
-        if len(all_leaf_and_actor_ids) >= 2:
-            touched: set[str] = set()
-            for flow in self.flows:
-                touched.add(flow.source)
-                touched.add(flow.target)
-            orphans = sorted(all_leaf_and_actor_ids - touched)
-            if orphans:
-                errors.append(
-                    f"these leaves/actors have no flow connecting them to anything: "
-                    f"{', '.join(orphans)} — Logical is a flat storyboard with no "
-                    "grouping box, so an unconnected node reads as broken, not just "
-                    "unlabeled; connect each one to the story or remove it"
                 )
 
         for corridor in list(self.corridors) + list(self.anchored):

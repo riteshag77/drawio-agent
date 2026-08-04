@@ -2054,6 +2054,51 @@ def _collinear_overlap_ratio(
     return overlap / shorter if shorter > 0 else 0.0
 
 
+def _validate_orphan_leaves(cells: list[ET.Element], page_name: str) -> list[str]:
+    """Flags leaves/actors with zero edges touching them — Logical only.
+
+    Logical is flat with no grouping box (see ``CorridorIR._orphan_errors``),
+    so an unconnected leaf/actor there is genuinely broken, not just
+    under-annotated. Security/Data-flow are deliberately excluded: their
+    zone/phase boxes are real containers, and a passive leaf (CloudWatch
+    sitting in the Detect zone with no drawn edge) is a normal, valid diagram
+    there — see ``_orphan_errors`` for why the same rule rejected legitimate
+    fixtures when tried on those two views.
+
+    ``CorridorIR.semantic_errors()`` already rejects this at fresh-generation
+    time, but surgical edits patch raw XML directly (``diagram_edits.py``) with
+    no equivalent IR-level check, so a ``delete_node``/``disconnect`` op can
+    silently strand a node that generation would have refused to ship. This is
+    the same "informational only, logged for visibility" pass as the rest of
+    ``validate_layout`` — it does not attempt to invent a repair.
+    """
+    if page_name != "logical":
+        return []
+    touched: set[str] = set()
+    for c in cells:
+        if c.get("edge") == "1":
+            src, tgt = c.get("source"), c.get("target")
+            if src:
+                touched.add(src)
+            if tgt:
+                touched.add(tgt)
+
+    issues: list[str] = []
+    for cell in cells:
+        if cell.get("vertex") != "1" or _is_container_cell(cell) or _is_edge_label_cell(cell):
+            continue
+        if _is_overview_panel_cell(cell) or _is_legend_cell(cell) or _is_step_badge_cell(cell):
+            continue
+        cid = cell.get("id")
+        if not cid or cid in touched:
+            continue
+        label = cell.get("value") or cid
+        issues.append(
+            f"layout: {label!r} has no flow connecting it to the diagram — looks disconnected"
+        )
+    return issues
+
+
 def validate_layout(xml: str) -> list[str]:
     """Informational, best-effort layout/edge-routing validation pass (Fix 2e).
 
@@ -2077,6 +2122,7 @@ def validate_layout(xml: str) -> list[str]:
     issues.extend(_validate_sibling_container_overlaps(cells))
     issues.extend(_validate_tier_heights(cells, by_id, page_name))
     issues.extend(_validate_edges(cells, by_id, page_w, page_h))
+    issues.extend(_validate_orphan_leaves(cells, page_name))
     return issues
 
 
