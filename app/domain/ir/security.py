@@ -26,8 +26,6 @@ class SecurityIR(CorridorIR):
     view: Literal["security"] = Field(
         default="security", description="Must be exactly the lowercase string 'security' — no other casing."
     )
-    id_prefix: ClassVar[str] = "zone_"
-
     @classmethod
     def sanitize_raw(cls, data: object) -> object:
         """Pre-parse relocate for LangChain json_mode paths that surface the

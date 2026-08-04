@@ -6,8 +6,15 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from langchain_core.messages import HumanMessage
+from pydantic import BaseModel
 
 from app.adapters.outbound.llm.llm_client import _build_human_message, call_llm
+
+
+class _DummyOutput(BaseModel):
+    """Stand-in structured-output type for tests exercising retry plumbing."""
+
+    ok: bool = True
 
 
 class BuildHumanMessageTests(unittest.TestCase):
@@ -122,7 +129,7 @@ class CallLlmTransientRetryTests(unittest.TestCase):
             [_TransientError(429), _TransientError(429), {"raw": raw_msg, "parsed": expected, "parsing_error": None}]
         )
 
-        result = call_llm("system", "human", "gemini", dict, None, None)
+        result = call_llm("system", "human", "gemini", _DummyOutput, None, None)
 
         self.assertEqual(result, expected)
         # Two retries needed (attempts 2 and 3 succeed on the 3rd call) -> sleep called twice, backoff doubling.
@@ -146,7 +153,7 @@ class CallLlmTransientRetryTests(unittest.TestCase):
         mock_build_client.return_value = _mock_provider_chain(_TransientError(429))
 
         with self.assertRaises(ValueError) as ctx:
-            call_llm("system", "human", "gemini", dict, None, None)
+            call_llm("system", "human", "gemini", _DummyOutput, None, None)
 
         self.assertIn("gemini", str(ctx.exception))
         self.assertEqual(mock_sleep.call_count, 1)
@@ -168,7 +175,7 @@ class CallLlmTransientRetryTests(unittest.TestCase):
         mock_build_client.return_value = _mock_provider_chain(_TransientError(429))
 
         with self.assertRaises(ValueError):
-            call_llm("system", "human", "gemini", dict, None, None)
+            call_llm("system", "human", "gemini", _DummyOutput, None, None)
 
         mock_sleep.assert_not_called()
 

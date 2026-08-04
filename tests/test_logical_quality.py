@@ -64,6 +64,7 @@ def _uneven_logical_ir() -> LogicalIR:
         )],
         external_actors=[ExternalActor(id="persona", kind="users", label="Persona")],
         flows=[
+            Flow(source="persona", target="portal"),
             Flow(source="portal", target="a"),
             Flow(source="a", target="b"),
             Flow(source="b", target="c"),

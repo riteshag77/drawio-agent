@@ -39,7 +39,6 @@ class DataFlowIR(CorridorIR):
     view: Literal["data_flow"] = Field(
         default="data_flow", description="Must be exactly the lowercase string 'data_flow' — no other casing."
     )
-    id_prefix: ClassVar[str] = "phase_"
     _infra_noise_denylist: ClassVar[frozenset[str]] = _INFRA_NOISE_DENYLIST
 
     @classmethod

@@ -83,7 +83,7 @@ class LogicalVocabularyTests(unittest.TestCase):
                 Corridor(id="domain_data", label="Data", leaves=[_leaf("store")]),
             ],
             anchored=[AnchoredCorridor(id="domain_saas", label="SaaS", anchor_id="domain_data", leaves=[_leaf("wd")])],
-            flows=[Flow(source="portal", target="store")],
+            flows=[Flow(source="portal", target="store"), Flow(source="store", target="wd")],
         )
         self.assertEqual(ir.semantic_errors(), [])
 

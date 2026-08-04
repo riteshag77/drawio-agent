@@ -49,15 +49,26 @@ MOONSHOT_API_KEY=
 # MOONSHOT_BASE_URL=https://api.moonshot.ai/v1
 # KIMI_MODEL=kimi-k3
 NVIDIA_API_KEY=
-# Optional overrides for the default NVIDIA NIM provider (provider key: nvidia) — https://build.nvidia.com
+# Optional overrides for the NVIDIA NIM provider (provider key: nvidia) — https://build.nvidia.com
 # NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
-# NVIDIA_MODEL=z-ai/glm-5.2
-# Other build.nvidia.com catalog models are registered as separate provider keys
-# sharing the same NVIDIA_API_KEY (no extra env vars needed):
-#   nvidia_deepseek_pro    -> deepseek-ai/deepseek-v4-pro
-#   nvidia_deepseek_flash  -> deepseek-ai/deepseek-v4-flash
-#   nvidia_minimax_m2_7    -> minimaxai/minimax-m2.7
-#   nvidia_minimax_m3      -> minimaxai/minimax-m3
+# NVIDIA_MODEL=openai/gpt-oss-120b
+# NVIDIA_MODEL only sets the process-wide fallback default. The other
+# selectable models below live under the *same* "nvidia" provider key (one
+# API key, one base_url) — a request picks one of them per-call via the
+# `model` field (ChatRequest) / the UI's model picker, not a separate env var
+# or provider key (see config/providers.json's "nvidia".models, ordered
+# fast -> advanced; verify current IDs against your own key's catalog with
+# `curl -H "Authorization: Bearer $NVIDIA_API_KEY" https://integrate.api.nvidia.com/v1/models`
+# since NVIDIA's free-tier catalog changes over time):
+#   openai/gpt-oss-20b               fast, small
+#   nvidia/nemotron-3-nano-30b-a3b   fast, small MoE
+#   meta/llama-3.3-70b-instruct      fast-moderate, well-proven
+#   openai/gpt-oss-120b              balanced (default — fast and reliable in practice)
+#   deepseek-ai/deepseek-v4-flash    balanced
+#   nvidia/nemotron-3-super-120b-a12b balanced MoE
+#   deepseek-ai/deepseek-v4-pro      advanced, coding-strong
+#   moonshotai/kimi-k2.6             advanced, long-horizon
+#   z-ai/glm-5.2                     most advanced — noticeably slower, can take minutes under load
 PROVIDER_DEFAULT=gemini
 LLM_TIMEOUT=120
 MAX_CONCURRENT_LLM=5

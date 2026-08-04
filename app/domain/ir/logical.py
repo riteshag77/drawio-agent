@@ -45,7 +45,6 @@ class LogicalIR(CorridorIR):
     view: Literal["logical"] = Field(
         default="logical", description="Must be exactly the lowercase string 'logical' — no other casing."
     )
-    id_prefix: ClassVar[str] = "domain_"
     _infra_noise_denylist: ClassVar[frozenset[str]] = _INFRA_NOISE_DENYLIST
 
     @classmethod

@@ -127,7 +127,7 @@ def realistic_logical_ir() -> LogicalIR:
                 _leaf("catalog", "aws_dynamodb", "Catalog"),
             ]),
             Corridor(id="domain_data", label="Data", leaves=[_leaf("warehouse", "aws_redshift", "Warehouse")]),
-            Corridor(id="domain_platform", label="Platform", leaves=[_leaf("obs", "aws_cloudwatch", "Observability")]),
+            Corridor(id="domain_platform", label="Platform", leaves=[_leaf("obs", "aws_eventbridge", "Event Bus")]),
         ],
         anchored=[AnchoredCorridor(
             id="domain_saas", label="SaaS", anchor_id="domain_data",
@@ -144,6 +144,7 @@ def realistic_logical_ir() -> LogicalIR:
             Flow(source="orders", target="catalog"),
             Flow(source="orders", target="warehouse"),
             Flow(source="warehouse", target="segment"),
+            Flow(source="orders", target="obs", label="Publishes order events"),
         ],
     )
 

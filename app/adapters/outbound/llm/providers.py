@@ -398,7 +398,13 @@ def _env_api_key(env_name: str) -> str | None:
 
 
 def _client_kwargs(spec: ProviderSpec, timeout: int) -> dict[str, Any]:
-    kwargs: dict[str, Any] = {"model": spec.default_model, "timeout": timeout}
+    # max_retries=0: every underlying SDK (openai/anthropic/google) has its own
+    # hidden retry-on-timeout loop (openai defaults to 2) that stacks silently
+    # on top of `timeout` — one "call" can become 2-3x `timeout` of wall-clock
+    # before our own llm_client retry/backoff or provider fallback ever sees
+    # the failure. Our own retry policy (config.llm_max_retries, deliberately
+    # narrow — see env_config.llm_max_retries) is the only retry loop we want.
+    kwargs: dict[str, Any] = {"model": spec.default_model, "timeout": timeout, "max_retries": 0}
     if not spec.omit_temperature:
         kwargs["temperature"] = 0
     # Always pass the key explicitly when configured — ChatAnthropic/OpenAI will

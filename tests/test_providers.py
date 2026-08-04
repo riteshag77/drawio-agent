@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -22,21 +23,36 @@ class ProviderTests(unittest.TestCase):
             self.assertTrue(len(MODEL_IDS[key]) > 0)
 
     def test_nvidia_exposes_multiple_selectable_models(self) -> None:
+        # default_model is env-overridable (NVIDIA_MODEL) by design — assert
+        # it against a clean environment rather than the .env file's current
+        # value, so this test doesn't depend on ambient process state.
+        with patch.dict("os.environ", {}, clear=False):
+            os.environ.pop("NVIDIA_MODEL", None)
+            reload_providers()
+            try:
+                spec = get_provider("nvidia")
+                self.assertEqual(spec.default_model, "openai/gpt-oss-120b")
+            finally:
+                reload_providers()
         spec = get_provider("nvidia")
-        self.assertEqual(spec.default_model, "z-ai/glm-5.2")
-        self.assertIn("z-ai/glm-5.2", spec.models)
+        # models (the fixed catalog) is never env-overridden — ordered
+        # fast -> advanced; the fastest tier leads (also the UI's
+        # pre-selected pick — see providers.py's models doc).
+        self.assertEqual(spec.models[0], "openai/gpt-oss-20b")
+        self.assertEqual(spec.models[-1], "z-ai/glm-5.2")
+        self.assertIn("openai/gpt-oss-120b", spec.models)
         self.assertIn("deepseek-ai/deepseek-v4-pro", spec.models)
         self.assertIn("deepseek-ai/deepseek-v4-flash", spec.models)
-        self.assertIn("minimaxai/minimax-m2.7", spec.models)
-        self.assertIn("minimaxai/minimax-m3", spec.models)
-        self.assertEqual(len(spec.models), 5)
+        self.assertIn("nvidia/nemotron-3-nano-30b-a3b", spec.models)
+        self.assertIn("moonshotai/kimi-k2.6", spec.models)
+        self.assertEqual(len(spec.models), 9)
 
     def test_model_override_selects_an_available_model(self) -> None:
         from app.adapters.outbound.llm.providers import using_model_override
 
-        with using_model_override("minimaxai/minimax-m3"):
+        with using_model_override("z-ai/glm-5.2"):
             spec = get_provider("nvidia")
-        self.assertEqual(spec.default_model, "minimaxai/minimax-m3")
+        self.assertEqual(spec.default_model, "z-ai/glm-5.2")
 
     def test_model_override_rejects_a_model_not_in_the_list(self) -> None:
         from app.adapters.outbound.llm.providers import using_model_override
@@ -57,10 +73,10 @@ class ProviderTests(unittest.TestCase):
     def test_model_override_resets_after_context_exit(self) -> None:
         from app.adapters.outbound.llm.providers import using_model_override
 
-        with using_model_override("minimaxai/minimax-m3"):
+        before = get_provider("nvidia").default_model
+        with using_model_override("z-ai/glm-5.2"):
             pass
-        spec = get_provider("nvidia")
-        self.assertEqual(spec.default_model, "z-ai/glm-5.2")
+        self.assertEqual(get_provider("nvidia").default_model, before)
 
     def test_kimi_omits_temperature(self) -> None:
         from dataclasses import replace

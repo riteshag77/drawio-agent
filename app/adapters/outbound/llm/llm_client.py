@@ -164,6 +164,27 @@ def _build_human_message(human_content: str, attachments: list[dict] | None) -> 
     return HumanMessage(content=content_blocks)
 
 
+def _json_schema_block(output_type: type) -> str:
+    """Render the JSON-schema instruction appended for ``json_mode`` providers.
+
+    ``with_structured_output(method="json_mode")`` only sets response_format —
+    unlike ``function_calling``, it does not itself force the model to see the
+    schema, so the shape has to be spelled out in the prompt or the provider is
+    free to guess field names (and drop required ones).
+    """
+    schema = json.dumps(output_type.model_json_schema(), ensure_ascii=False)
+    return (
+        "\n\nReturn ONLY valid JSON that conforms exactly to this JSON schema — every field must be a "
+        "top-level key of this schema's type, not restructured or decomposed into a different shape:\n" + schema
+    )
+
+
+def _append_text(message: HumanMessage, text: str) -> HumanMessage:
+    if isinstance(message.content, str):
+        return HumanMessage(content=message.content + text)
+    return HumanMessage(content=[*message.content, {"type": "text", "text": text}])
+
+
 def call_llm(
     system_prompt: str,
     human_content: str,
@@ -189,7 +210,10 @@ def call_llm(
         })
 
     method = spec.structured_output
-    messages = [build_system_message(spec, system_prompt), _build_human_message(human_content, attachment_documents)]
+    human_message = _build_human_message(human_content, attachment_documents)
+    if method == "json_mode":
+        human_message = _append_text(human_message, _json_schema_block(output_type))
+    messages = [build_system_message(spec, system_prompt), human_message]
     timeout = get_config().llm_timeout_seconds
     llm = build_langchain_client(spec, timeout=timeout)
 
@@ -223,11 +247,9 @@ def call_llm(
         except OutputParserException as exc:
             if logger:
                 logger.log("llm", f"Structured output failed validation, retrying once: {exc}", level="warning")
-            schema = json.dumps(output_type.model_json_schema(), ensure_ascii=False)
             corrective = HumanMessage(content=(
                 "Your previous response failed schema validation: " + _truncate(str(exc), 800) +
-                "\n\nReturn ONLY valid JSON that conforms exactly to this JSON schema — every field must be a "
-                "top-level key of this schema's type, not restructured or decomposed into a different shape:\n" + schema
+                _json_schema_block(output_type)
             ))
             raw_result = _invoke(messages + [corrective])
             if raw_result.get("parsed") is None:

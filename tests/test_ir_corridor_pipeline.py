@@ -49,7 +49,9 @@ class PrimaryCorridorViewTests(unittest.TestCase):
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["generation_path"], "ir")
         cells = {c.get("id") for c in ET.fromstring(result["xml"]).iter("mxCell")}
-        self.assertIn("domain_core", cells)
+        # Logical renders as a flat storyboard — no domain_core box — so assert
+        # on a leaf that belongs to it instead (see corridor.py module docstring).
+        self.assertIn("orgchart", cells)
         self.assertIn("workday", cells)
         self.assertIn("overview_panel", cells)
 
@@ -117,7 +119,9 @@ class ExtraViewFanOutTests(unittest.TestCase):
         self.assertIn("network", called_views)
         self.assertIn("logical", called_views)
         self.assertIn("Logical", result["xml"])
-        self.assertIn("domain_core", result["xml"])
+        # Logical renders as a flat storyboard — no domain_core box — so assert
+        # on a leaf that belongs to it instead (see corridor.py module docstring).
+        self.assertIn("orgchart", result["xml"])
 
     def test_image_replicate_reaches_extra_view(self) -> None:
         """image_replicate must thread through to a corridor view generated as

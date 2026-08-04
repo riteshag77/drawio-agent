@@ -19,6 +19,7 @@ Off unless ``PROVIDER_FALLBACK_ORDER`` is set, so default behaviour is unchanged
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from typing import TYPE_CHECKING, Any
 
 from langchain_core.exceptions import OutputParserException
@@ -29,6 +30,7 @@ from app.adapters.outbound.llm.providers import (
     MissingApiKeyError,
     get_provider,
     normalize_provider_key,
+    using_model_override,
 )
 
 if TYPE_CHECKING:
@@ -89,10 +91,17 @@ def call_llm_with_fallback(
 
     for index, provider_key in enumerate(chain):
         try:
-            result = call_llm(
-                system_prompt, human_content, provider_key, output_type,
-                logger, attachment_documents,
-            )
+            # A model override picked for the primary provider (e.g. one of
+            # NVIDIA's catalog entries) is meaningless — and often invalid —
+            # for a different fallback provider; clear it so the fallback
+            # hop uses that provider's own default_model instead of
+            # inheriting a model ID from a different vendor's catalog.
+            override_scope = using_model_override(None) if index > 0 else nullcontext()
+            with override_scope:
+                result = call_llm(
+                    system_prompt, human_content, provider_key, output_type,
+                    logger, attachment_documents,
+                )
             if index > 0 and logger:
                 logger.log(
                     "llm_fallback",

@@ -380,6 +380,28 @@ class ProviderFailoverTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 call_llm_with_fallback("sys", "human", "claude", str, None, None)
 
+    def test_model_override_does_not_bleed_into_a_fallback_provider(self) -> None:
+        """A model picked from nvidia's own catalog must not be forced onto a
+        fallback provider with a different (or no) catalog — that broke a real
+        request with a 400 invalid-model-ID from the fallback provider."""
+        from app.adapters.outbound.llm.providers import _model_override_ctx, using_model_override
+
+        seen_overrides: list[str | None] = []
+
+        def fake_call_llm(system, human, provider, output_type, logger=None, attachments=None):
+            seen_overrides.append(_model_override_ctx.get())
+            if provider == "nvidia":
+                raise ValueError("429 quota exceeded")
+            return "diagram-from-openai"
+
+        with _Env(PROVIDER_FALLBACK_ORDER="openai"), \
+                patch("app.adapters.outbound.llm.fallback.call_llm", fake_call_llm), \
+                using_model_override("z-ai/glm-5.2"):
+            result = call_llm_with_fallback("sys", "human", "nvidia", str, None, None)
+
+        self.assertEqual(result, "diagram-from-openai")
+        self.assertEqual(seen_overrides, ["z-ai/glm-5.2", None])
+
 
 if __name__ == "__main__":
     unittest.main()

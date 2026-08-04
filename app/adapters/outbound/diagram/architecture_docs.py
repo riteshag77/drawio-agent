@@ -1980,9 +1980,9 @@ def derive_story_markers(xml: str, view_title: str = "") -> list[StepMarker]:
     ]
 
 
-#: Corridor id prefix per view — the same vocabulary each ``CorridorIR``
-#: subclass enforces (``domain.ir.corridor.CorridorIR.id_prefix``). Network
-#: has no corridor row at all, so it is deliberately absent here.
+#: Corridor id prefix per view — matches each ``CorridorIR`` subclass's own
+#: fixed vocabulary (``_ROW_IDS`` in logical.py/security.py/data_flow.py).
+#: Network has no corridor row at all, so it is deliberately absent here.
 _CORRIDOR_PREFIX_BY_VIEW: dict[str, tuple[str, str]] = {
     "logical": ("domain_", "domain"),
     "security": ("zone_", "zone"),

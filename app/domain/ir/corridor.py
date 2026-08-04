@@ -75,12 +75,6 @@ class CorridorIR(DiagramIR):
     mechanism.
     """
 
-    #: Id prefix every corridor (row and anchored) must use — set by each
-    #: subclass so "the diagram is laid out by a deterministic engine that
-    #: finds corridors by this exact id" is enforced once, not copy-pasted
-    #: three times.
-    id_prefix: ClassVar[str] = ""
-
     #: Shape-type substrings that are unambiguous cross-cutting infrastructure
     #: (observability/secrets/IAM/edge-security) for this view — empty by
     #: default (Security legitimately hosts these). Set by Logical/Data-flow;
@@ -178,6 +172,28 @@ class CorridorIR(DiagramIR):
                 shelf["anchor_id"] = None
             elif required in present_row_ids:
                 shelf["anchor_id"] = required
+
+        # A corridor id that is neither a row id nor a shelf id is not a
+        # mis-slotting (that's the swap above) — it's an invented id outside
+        # the fixed vocabulary entirely (a live capture showed a weaker model
+        # emitting id="cloud" as a generic wrapper in Logical/Data-flow/
+        # Security alike). Its leaves are usually fine; only the grouping id
+        # is wrong. Fold them into the last recognized row corridor rather
+        # than hard-failing the whole view over one bad id — but only when
+        # there is a valid row corridor to fold into; otherwise leave the
+        # data alone and let the real structural error surface.
+        known = row_ids | shelf_anchors.keys()
+        valid_row = [c for c in new_row if isinstance(c, dict) and c.get("id") in row_ids]
+        stray = [c for c in (*new_row, *new_shelves) if isinstance(c, dict) and c.get("id") not in known]
+        if valid_row and stray:
+            target = valid_row[-1]
+            merged = list(target["leaves"]) if isinstance(target.get("leaves"), list) else []
+            for corridor in stray:
+                if isinstance(corridor.get("leaves"), list):
+                    merged.extend(corridor["leaves"])
+            target["leaves"] = merged
+            new_row = [c for c in new_row if not (isinstance(c, dict) and c.get("id") not in known)]
+            new_shelves = [c for c in new_shelves if not (isinstance(c, dict) and c.get("id") not in known)]
 
         data["corridors"] = new_row
         data["anchored"] = new_shelves
@@ -285,16 +301,13 @@ class CorridorIR(DiagramIR):
         return kept + bridged
 
     @model_validator(mode="after")
-    def _check_prefixes_and_uniqueness(self) -> "CorridorIR":
-        prefix = self.id_prefix
-        if prefix:
-            for corridor in self.all_corridors():
-                if not corridor.id.startswith(prefix):
-                    raise ValueError(
-                        f"corridor id {corridor.id!r} must start with {prefix!r} — the "
-                        "layout engine finds corridors by this exact prefix, not by label"
-                    )
-
+    def _check_uniqueness(self) -> "CorridorIR":
+        """Cross-field checks with a single owner: exact corridor-id
+        vocabulary is each subclass's own job (``_check_domain_vocabulary`` /
+        ``_check_zone_vocabulary`` / ``_check_phase_vocabulary``) — this used
+        to *also* check ``id_prefix`` here, which only ever duplicated a
+        weaker version of the same subclass check (every vocabulary id
+        already has the right prefix by construction), so it's gone."""
         counts: Counter[str] = Counter()
         for corridor in self.all_corridors():
             counts[corridor.id] += 1
