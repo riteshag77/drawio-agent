@@ -172,6 +172,36 @@ class ViewFixerTests(unittest.TestCase):
         edge = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "e1")
         self.assertTrue((edge.get("value") or "").strip())
 
+    def test_edge_label_defaults_replaces_off_vocabulary_non_blank_label(self) -> None:
+        """Regression: a live capture showed Security-view edges keeping a
+        Data-flow-style label ('SQL read/write', 'Cache get/set') carried over
+        from shared-story IR generation — non-blank, so the old blank-only
+        check never touched it, and view_conformance flagged it as
+        edge_vocab_mismatch, dropping the view's quality score below the
+        75-point gate."""
+        xml = _wrap(
+            _leaf("app", "App", 40, "aws_ecs")
+            + _leaf("db", "Data store", 240, "aws_rds")
+            + '<mxCell id="e1" edge="1" parent="1" source="app" target="db" value="SQL read/write">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        out = apply_edge_label_defaults(xml, view="security")
+        edge = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "e1")
+        label = (edge.get("value") or "").strip().lower()
+        self.assertNotEqual(label, "sql read/write")
+        self.assertIn("private path", label)  # app->data default for security
+
+    def test_edge_label_defaults_leaves_on_vocabulary_label_alone(self) -> None:
+        xml = _wrap(
+            _leaf("app", "App", 40, "aws_ecs")
+            + _leaf("db", "Data store", 240, "aws_rds")
+            + '<mxCell id="e1" edge="1" parent="1" source="app" target="db" value="mTLS">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        out = apply_edge_label_defaults(xml, view="security")
+        edge = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "e1")
+        self.assertEqual((edge.get("value") or "").strip(), "mTLS")
+
     def test_gap_nodes(self) -> None:
         from app.adapters.outbound.diagram.view_fixers import append_gaps_to_overview_panel
         from app.adapters.outbound.diagram.xml_diagnostics import _trim_overview_panel_value

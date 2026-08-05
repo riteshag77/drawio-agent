@@ -378,6 +378,75 @@ class CurrentXmlPromptAssemblyTests(unittest.TestCase):
             generate_xml_diagram("draw a VPC", provider="claude", platform="aws", llm=lambda *a: None)
         self.assertIn("three_d=True", str(ctx.exception))
 
+    def test_applicable_false_with_purely_additive_ops_applies_anyway(self) -> None:
+        """Regression: a live capture showed an 8-item "Apply All" gap-fix batch
+        get applicable=false from the edit-plan LLM (plausible caution on a long
+        list), which forced a full IR regenerate that silently dropped an entire
+        AZ, a DB replica, a DLQ, and two NAT gateways from the existing diagram.
+        A plan built only from add_node/connect ops can never remove anything —
+        it must be applied even when the LLM itself was unsure, rather than
+        thrown away for a regenerate that risks real content loss."""
+        from app.core.services.agent import generate_xml_diagram
+        from app.domain.entities import DiagramEditOp, DiagramEditPlan
+
+        def fake_llm(system_prompt, human_content, provider, output_type, logger, attachments):
+            if output_type is DiagramEditPlan:
+                return DiagramEditPlan(
+                    applicable=False,
+                    ops=[
+                        DiagramEditOp(op="add_node", id="kms", label="KMS", shape_type="aws_kms", parent="1"),
+                        DiagramEditOp(op="add_node", id="waf", label="WAF", shape_type="aws_waf", parent="1"),
+                        DiagramEditOp(op="connect", source="waf", target="kms"),
+                    ],
+                    assistant_message="Added KMS and WAF.",
+                )
+            raise AssertionError("should not fall through to IR regeneration")
+
+        prior_xml = (
+            '<mxfile><diagram><mxGraphModel><root>'
+            '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            '<mxCell id="app" value="App" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            "</root></mxGraphModel></diagram></mxfile>"
+        )
+        diagram = generate_xml_diagram(
+            "Please update the diagram to address the following:\n1. Add KMS.\n2. Add WAF.",
+            provider="claude",
+            platform="aws",
+            current_xml=prior_xml,
+            llm=fake_llm,
+        )
+        self.assertIn('id="kms"', diagram.xml)
+        self.assertIn('id="waf"', diagram.xml)
+        self.assertIn('id="app"', diagram.xml, "pre-existing node must survive an additive-only override")
+
+    def test_applicable_false_with_destructive_ops_still_raises(self) -> None:
+        """A plan containing delete_node/disconnect is not guaranteed safe to
+        apply blind — the override must only cover purely additive plans."""
+        from app.core.services.agent import NonSurgicalEditError, generate_xml_diagram
+        from app.domain.entities import DiagramEditOp, DiagramEditPlan
+
+        def fake_llm(system_prompt, human_content, provider, output_type, logger, attachments):
+            if output_type is DiagramEditPlan:
+                return DiagramEditPlan(applicable=False, ops=[DiagramEditOp(op="delete_node", id="app")])
+            raise AssertionError("should not call XML generation")
+
+        prior_xml = (
+            '<mxfile><diagram><mxGraphModel><root>'
+            '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            '<mxCell id="app" value="App" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            "</root></mxGraphModel></diagram></mxfile>"
+        )
+        with self.assertRaises(NonSurgicalEditError):
+            generate_xml_diagram(
+                "remove the app server",
+                provider="claude",
+                platform="aws",
+                current_xml=prior_xml,
+                llm=fake_llm,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

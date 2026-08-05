@@ -761,23 +761,47 @@ _VENDOR_PREFIXES = ("aws_", "gcp_", "azure_")
 _VENDOR_STENCIL_MAP = {"aws4": "aws_", "gcp2": "gcp_", "azure2": "azure_"}
 _VENDOR_STENCIL_PATTERN = re.compile(r'mxgraph\.(aws4|gcp2|azure2)\.(\w+)')
 
+#: The IR/compiler vocabulary (config/references/aws_stencils.txt) uses the
+#: full descriptive mxgraph stencil name for these two — "application_load_
+#: balancer" / "network_load_balancer" — but cost_estimator.py/
+#: well_architected.py/compliance.py's static service-key configs all use the
+#: short AWS acronym. Once MCP resolves and styles a leaf, its shape_type
+#: attribute is gone and all that's left to detect it by is the stencil path
+#: in its style — which then decodes as the long form, silently failing every
+#: "is a load balancer present" check even though the icon is right there.
+#: Normalize to the short form other configs already standardize on (see
+#: view_conformance.py, which independently has to alias both spellings).
+_SERVICE_KEY_ALIASES = {
+    "aws_application_load_balancer": "aws_alb",
+    "aws_network_load_balancer": "aws_nlb",
+}
+
 
 def find_service_keys(xml: str) -> list[str]:
     """Return unique vendor-prefixed service keys (``aws_``/``gcp_``/``azure_``) referenced in draw.io XML.
 
-    Shared by cost_estimator.py, well_architected.py, and compliance.py — all three
-    need the same lookup (LLM-owned ``shape_type`` first, falling back to parsing
-    official stencil paths for XML that never carried ``shape_type``, e.g. a
-    user-uploaded pre-existing diagram).
+    Shared by cost_estimator.py, well_architected.py, and compliance.py — all
+    three need the same lookup. Combines two sources rather than treating them
+    as an either/or fallback: the LLM-owned ``shape_type`` attribute (present
+    on a leaf only until MCP successfully resolves and styles it —
+    ``apply_mcp_styles`` strips ``shape_type`` solely for cells it actually
+    re-styled, leaving it in place for anything MCP failed to resolve), and
+    the resolved draw.io stencil path itself (what survives on a leaf MCP DID
+    resolve, or on XML that never carried ``shape_type`` at all, e.g. a
+    user-uploaded pre-existing diagram). A document is routinely a genuine mix
+    of both — after a partial MCP resolution, or a surgical edit that added
+    fresh (unresolved) nodes alongside already-resolved ones — so scanning
+    only whichever source happens to be present, instead of both, silently
+    under-detects half the document.
     """
     keys: list[str] = []
     for m in re.finditer(r'shape_type\s*=\s*"([^"]+)"', xml):
         st = m.group(1).strip().lower()
         if st.startswith(_VENDOR_PREFIXES):
             keys.append(st)
-    if not keys:
-        for m in _VENDOR_STENCIL_PATTERN.finditer(xml):
-            keys.append(_VENDOR_STENCIL_MAP[m.group(1)] + m.group(2).lower())
+    for m in _VENDOR_STENCIL_PATTERN.finditer(xml):
+        keys.append(_VENDOR_STENCIL_MAP[m.group(1)] + m.group(2).lower())
+    keys = [_SERVICE_KEY_ALIASES.get(k, k) for k in keys]
     return list(dict.fromkeys(keys))
 
 

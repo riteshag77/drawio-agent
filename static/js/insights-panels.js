@@ -694,25 +694,23 @@ async function applyInsightFixes(items) {
         if (!result || result.outcome !== 'success') return; // error/stopped toast already shown by finishChatRun
 
         var xmlAfter = currentXml;
-        var xmlAfterLower = (xmlAfter || '').toLowerCase();
         var anyChange = xmlAfter !== xmlBefore;
-        var satisfied = items.filter(function (it) {
-            var svcs = it.missing_services || [];
-            if (!svcs.length) return anyChange; // no concrete hint — fall back to "did anything change"
-            return svcs.some(function (s) {
-                return xmlAfterLower.indexOf('shape_type="' + s.toLowerCase() + '"') !== -1;
-            });
-        });
+        // Trust the server's success + "diagram changed" signal for every item that
+        // was part of THIS apply call, rather than requiring an exact
+        // shape_type="<missing_service>" substring match — the LLM may legitimately
+        // use a different-but-valid shape_type for the same service. A stricter
+        // per-item match used to leave an already-applied finding's checkbox
+        // checked, so the *next* Apply click silently re-bundled it with a new
+        // finding into one multi-item request — which is far more likely to trip
+        // the edit-plan LLM's applicable=false fallback (a full IR regenerate that
+        // does not preserve prior additions) than a genuine single-item apply.
+        var satisfied = anyChange ? items : [];
         satisfied.forEach(function (it) { appliedInsightKeys.add(it.key); });
         if (satisfied.length) markInsightItemsApplied(satisfied);
 
         if (satisfied.length === 0) {
             if (typeof showToast === 'function') {
                 showToast('The diagram did not change — try rephrasing or applying findings individually.', 'warning');
-            }
-        } else if (satisfied.length < items.length) {
-            if (typeof showToast === 'function') {
-                showToast('Applied ' + satisfied.length + ' of ' + items.length + ' findings — the rest may need a follow-up request.', 'warning');
             }
         }
     } finally {

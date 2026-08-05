@@ -16,6 +16,8 @@ from app.adapters.outbound.diagram.mode import is_xml_pipeline_mode
 from app.adapters.outbound.diagram.xml_diagnostics import (
     apply_step_markers,
     diagnose_xml,
+    ensure_legend_position,
+    ensure_overview_panel_position,
     repair_xml,
     reposition_step_badges,
     validate_layout,
@@ -299,7 +301,11 @@ def _run_gap_analysis(
             return result
     except Exception as exc:
         if logger:
-            details = {"quota_exceeded": True, "feature": "Gap analysis"} if is_quota_or_rate_limit_error(exc) else None
+            details = (
+                {"quota_exceeded": True, "feature": "Gap analysis"}
+                if is_quota_or_rate_limit_error(exc)
+                else {"degraded": True, "feature": "Gap analysis", "reason": str(exc)}
+            )
             logger.log("gap", f"Gap analysis LLM failed: {exc}", level="warning", details=details)
     return _fallback_gap_analysis(human_prompt)
 
@@ -325,7 +331,11 @@ def _generate_adr_list(
             return list(pack.adrs)
     except Exception as exc:
         if logger:
-            details = {"quota_exceeded": True, "feature": "ADR notes"} if is_quota_or_rate_limit_error(exc) else None
+            details = (
+                {"quota_exceeded": True, "feature": "ADR notes"}
+                if is_quota_or_rate_limit_error(exc)
+                else {"degraded": True, "feature": "ADR notes", "reason": str(exc)}
+            )
             logger.log("docs", f"ADR LLM failed: {exc}", level="warning", details=details)
     return _fallback_adrs()
 
@@ -351,7 +361,11 @@ def _generate_raid_list(
             return list(pack.raid)
     except Exception as exc:
         if logger:
-            details = {"quota_exceeded": True, "feature": "RAID register"} if is_quota_or_rate_limit_error(exc) else None
+            details = (
+                {"quota_exceeded": True, "feature": "RAID register"}
+                if is_quota_or_rate_limit_error(exc)
+                else {"degraded": True, "feature": "RAID register", "reason": str(exc)}
+            )
             logger.log("docs", f"RAID LLM failed: {exc}", level="warning", details=details)
     return _fallback_raid()
 
@@ -642,6 +656,38 @@ def _summarize_llm_usage(logger: Any) -> dict[str, Any] | None:
     }
 
 
+def _refresh_overview_and_legend_positions(xml: str) -> str:
+    """Re-run ``ensure_overview_panel_position``/``ensure_legend_position``
+    across EVERY page of a (possibly multi-page) document, not just the first.
+
+    Both fixers use ``xml_diagnostics._parse_docroot`` → ``_find_diagram_root``,
+    which only ever looks at the *first* ``<diagram>`` in an mxfile — correct
+    for their other call sites (single-page XML at that point in the
+    pipeline), but by the time this runs, ``xml_output`` is the merged
+    multi-page mxfile and the page that actually grew (typically the primary
+    view, e.g. Network) is very often NOT page 1 in tab order (Logical is,
+    per ``VIEW_ORDER``). Fixing only page 1 silently no-ops for every other
+    page — mirrors how ``fit_containers_to_children``/``apply_mcp_styles``
+    already handle "every ``<root>``" for the same reason.
+    """
+    if "<mxfile" not in (xml or ""):
+        return ensure_legend_position(ensure_overview_panel_position(xml))
+    try:
+        tree = ET.fromstring(xml)
+    except ET.ParseError:
+        return xml
+    names = [d.get("name") or f"Page-{i + 1}" for i, d in enumerate(tree.findall("diagram"))]
+    if len(names) <= 1:
+        return ensure_legend_position(ensure_overview_panel_position(xml))
+    pages: list[tuple[str, str]] = []
+    for name in names:
+        page = extract_page_by_name(xml, name) or xml
+        page = ensure_overview_panel_position(page)
+        page = ensure_legend_position(page)
+        pages.append((name, page))
+    return merge_mxfile_pages(pages)
+
+
 def _collect_degraded_features(logger: Any) -> list[dict[str, str]]:
     """Surface parallel branches that soft-failed (quota, quality gate, or
     branch exception) so the UI can show one banner instead of a missing tab.
@@ -847,9 +893,12 @@ async def _generate_primary_page(
             seeded = "\n\n".join(
                 p for p in (
                     enriched_context,
-                    "EXISTING DIAGRAM INVENTORY — preserve this system's topology and "
-                    "labels where possible; apply only the user's requested changes "
-                    "(do not invent an unrelated architecture):\n" + inv,
+                    "EXISTING DIAGRAM INVENTORY — every item below already exists on this "
+                    "diagram (including anything added by an earlier edit in this session) "
+                    "and MUST still appear in your output with its topology and labels intact "
+                    "unless the user's request explicitly asks to remove or replace it. Apply "
+                    "only the requested changes on top of this inventory — do not invent an "
+                    "unrelated architecture and do not silently drop an existing item:\n" + inv,
                 ) if p
             )
             return await _ir_primary(context_override=seeded), True
@@ -1547,7 +1596,13 @@ async def run_xml_pipeline(
                 )
         except Exception as exc:
             if logger:
-                logger.log("views", f"Extra views merge skipped: {exc}", level="warning")
+                # A requested secondary view (Security/Data-flow/etc.) silently
+                # not appearing as a tab is exactly the "missing secondary tab"
+                # case _collect_degraded_features exists for — must flag degraded.
+                logger.log(
+                    "views", f"Extra views merge skipped: {exc}", level="warning",
+                    details={"degraded": True, "feature": "extra views", "reason": str(exc)},
+                )
 
     # Apply icon styles to all pages; resolve any new shape_types from extras.
     preview_url = None
@@ -1727,6 +1782,15 @@ async def run_xml_pipeline(
     # Containers / libavoid can shift leaves after badges were parked.
     xml_output = reposition_step_badges(xml_output)
 
+    # repair_xml() already positioned the Overview Panel/legend once, earlier
+    # in this function — but on the surgical-edit path (apply_diagram_edits
+    # strips layout="ir" on any geometry op), fit_containers_to_children above
+    # is what actually grows a container to enclose a newly added node, and it
+    # runs AFTER that first pass. Recompute now that final bounds are settled;
+    # both fixers no-op if the geometry is already correct (fresh IR path,
+    # where layout="ir" made fit_containers_to_children a no-op above).
+    xml_output = _refresh_overview_and_legend_positions(xml_output)
+
     if logger:
         try:
             from app.adapters.outbound.diagram.xml_diagnostics import count_edge_crossings
@@ -1773,7 +1837,14 @@ async def run_xml_pipeline(
                 )
         except Exception as exc:
             if logger:
-                logger.log("docs", f"Documentation pages skipped: {exc}", level="warning")
+                # adr_list/raid_list were already generated (real LLM output) —
+                # failing to attach them to the diagram here silently discards
+                # a feature the user explicitly toggled on, same class of bug
+                # as the suggestions-call swallow this pattern was added for.
+                logger.log(
+                    "docs", f"Documentation pages skipped: {exc}", level="warning",
+                    details={"degraded": True, "feature": "ADR/RAID pages", "reason": str(exc)},
+                )
 
 
     # Final circuit breaker — every escaping/corruption bug hit so far surfaced

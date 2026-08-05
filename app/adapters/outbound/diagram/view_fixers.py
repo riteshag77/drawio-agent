@@ -11,7 +11,7 @@ from app.adapters.outbound.diagram.architecture_docs import (
     _plain_cell_label,
     ensure_saas_labels_on_logical,
 )
-from app.adapters.outbound.diagram.view_conformance import _FORBIDDEN_BY_VIEW, _service_leaves
+from app.adapters.outbound.diagram.view_conformance import _EDGE_VOCAB, _FORBIDDEN_BY_VIEW, _service_leaves
 from app.adapters.outbound.diagram.xml_diagnostics import remove_dangling_edges
 from app.adapters.outbound.diagram.xml_tools import ensure_diagram_document
 
@@ -404,7 +404,18 @@ def drop_nonsensical_logical_edges(page_xml: str, *, view: str = "") -> str:
 
 
 def apply_edge_label_defaults(page_xml: str, *, view: str) -> str:
-    """Fill blank edge labels from source/target tiers using the view lexicon."""
+    """Fill blank OR off-vocabulary edge labels from source/target tiers using the view lexicon.
+
+    An edge whose label already uses this view's own vocabulary (e.g. "TLS" on
+    Security — see ``view_conformance._EDGE_VOCAB``) is left untouched. A
+    non-blank label that ISN'T on-vocabulary gets replaced the same way a
+    blank one already does — this is what a Security-view edge inheriting a
+    Data-flow-style label like "SQL read/write" or "Cache get/set" from
+    shared-story IR generation looks like: technically non-blank, but not a
+    security-relevant description, and exactly what ``view_conformance``'s
+    ``edge_vocab_mismatch`` check flags. Filling *blank* labels alone doesn't
+    catch this since the LLM did write something — just the wrong lens's label.
+    """
     title = VIEW_PAGE_NAMES.get(view, view)
     tree = _parse(page_xml, title)
     if tree is None:
@@ -412,13 +423,15 @@ def apply_edge_label_defaults(page_xml: str, *, view: str) -> str:
     defaults = _EDGE_DEFAULTS.get(view)
     if not defaults:
         return page_xml
+    vocab = _EDGE_VOCAB.get(view, ())
     by_id = {c.get("id"): c for c in tree.iter("mxCell") if c.get("id")}
     changed = False
     for cell in tree.iter("mxCell"):
         if cell.get("edge") != "1":
             continue
-        if (_plain_cell_label(cell.get("value") or "") or "").strip():
-            continue
+        current = (_plain_cell_label(cell.get("value") or "") or "").strip()
+        if current and (not vocab or any(v in current.lower() for v in vocab)):
+            continue  # blank -> always fill; non-blank -> only replace if off-vocabulary
         src = by_id.get(cell.get("source") or "")
         tgt = by_id.get(cell.get("target") or "")
         if src is None or tgt is None:

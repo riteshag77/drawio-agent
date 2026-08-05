@@ -617,6 +617,40 @@ class EnsureOverviewPanelPositionTests(unittest.TestCase):
         w = float(panel.find("mxGeometry").get("width"))
         self.assertEqual(w, 500.0)
 
+    def test_reposition_after_container_growth_clears_new_bounds(self) -> None:
+        """Regression: a surgical edit that adds a node into an existing container
+        grows that container via fit_containers_to_children AFTER repair_xml's one
+        ensure_overview_panel_position pass already ran — leaving the panel pinned
+        against the container's smaller, pre-growth width. xml_pipeline.py now
+        re-runs this fixer after that later growth; this asserts the fixer itself
+        does the right thing when called against the grown geometry, which is what
+        makes that second call effective."""
+        xml = _wrap(
+            '<mxCell id="cloud" value="AWS Cloud" style="container=1;" vertex="1" parent="1">'
+            '<mxGeometry x="200" y="100" width="600" height="400" as="geometry"/></mxCell>'
+            '<mxCell id="overview_panel" value="&lt;div&gt;Title&lt;/div&gt;&lt;div&gt;1. Step.&lt;/div&gt;" '
+            'style="rounded=1;html=1;" vertex="1" parent="1">'
+            '<mxGeometry x="820" y="100" width="400" height="160" as="geometry"/></mxCell>'
+        )
+        # First pass (mirrors repair_xml's call, before the container has grown)
+        # — panel already clear of the container at its original width, so it's
+        # left alone.
+        once = ensure_overview_panel_position(xml)
+        panel = next(c for c in ET.fromstring(once).iter("mxCell") if c.get("id") == "overview_panel")
+        self.assertEqual(float(panel.find("mxGeometry").get("x")), 820.0)
+
+        # Simulate fit_containers_to_children widening the container to enclose a
+        # node a surgical edit just added — now it overlaps the still-820 panel.
+        tree = ET.fromstring(once)
+        cloud = next(c for c in tree.iter("mxCell") if c.get("id") == "cloud")
+        cloud.find("mxGeometry").set("width", "900")
+        grown = ET.tostring(tree, encoding="unicode")
+        twice = ensure_overview_panel_position(grown)
+        panel = next(c for c in ET.fromstring(twice).iter("mxCell") if c.get("id") == "overview_panel")
+        px, pw = float(panel.find("mxGeometry").get("x")), float(panel.find("mxGeometry").get("width"))
+        self.assertGreaterEqual(px, 200.0 + 900.0, "panel must clear the grown container's right edge")
+        self.assertGreater(pw, 0.0)
+
 
 class EnsureOverviewPanelParentRootTests(unittest.TestCase):
     """Regression for a defect found via live-generation review (Part 6): a Security

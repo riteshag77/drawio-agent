@@ -48,6 +48,14 @@ _SUGGESTIONS_SYSTEM = (
     "just generated, propose follow-up improvements. Return only the suggestions list."
 )
 
+#: Op kinds that can never remove existing content — a plan built only from
+#: these is safe to apply even if the LLM itself flagged applicable=false.
+_NON_DESTRUCTIVE_OPS = frozenset({"add_node", "connect", "relabel", "update_shape", "move"})
+
+
+def _is_purely_additive(ops: list) -> bool:
+    return bool(ops) and all((getattr(o, "op", None) or "") in _NON_DESTRUCTIVE_OPS for o in ops)
+
 _EDIT_PLAN_SYSTEM = """You plan surgical edits to an existing draw.io architecture diagram.
 Given the user request and a summary of current cell ids/labels, output a DiagramEditPlan.
 Set applicable=true ONLY if a small set of ops fully satisfies the request (add/remove/connect/move/relabel).
@@ -56,6 +64,17 @@ If the request is a numbered/bulleted list of separate findings (e.g. compliance
 gaps), it is one request with multiple parts — every part needs its own op(s), not just the first
 or easiest few. Do not stop after satisfying some of the items: either cover all of them or set
 applicable=false so the system regenerates the whole diagram instead of half-applying the list.
+Adding missing services (the common compliance/WAF gap-fix shape — e.g. "add a KMS key", "add a WAF
+in front of X") is ALWAYS a small edit, NO MATTER HOW MANY are listed: one add_node per missing
+service (plus connect if the finding implies a relationship) fully satisfies each one. A batch of 8
+independent "add missing service X" findings is exactly as small an edit as a batch of 1 — it's still
+just 8 independent add_node ops, not a redesign. List length alone is never a reason for
+applicable=false. Only use applicable=false when a request genuinely requires restructuring existing
+topology (replacing a component, merging tiers, changing the AZ/subnet layout) — never for a long
+list of pure additions. Regenerating via IR is NOT a reliable preserve-everything operation: it WILL
+silently drop existing nodes (subnets, AZs, queues, replicas) that a text summary doesn't perfectly
+capture. When in doubt between applicable=true with more ops vs. applicable=false, prefer
+applicable=true — an incomplete but additive patch is always better than a lossy full rebuild.
 Never invent ids that must already exist unless op is add_node (then provide a new id).
 For add_node, include shape_type for leaf services and a reasonable parent id from the diagram;
 omit x/y and the system will place the node for you, clear of every existing sibling.
@@ -237,19 +256,41 @@ def generate_xml_diagram(
                 logger=logger, messages=chat_messages,
                 include_suggestions=include_suggestions, llm=_llm,
             )
-            if plan.applicable and plan.ops:
-                patched = apply_diagram_edits(current_xml, plan)
+            effective_plan = plan
+            override_reason = None
+            if not plan.applicable and _is_purely_additive(plan.ops):
+                # The LLM flagged this batch as too large for a surgical edit —
+                # common on an "Apply All" of many independent gap-fix findings
+                # (e.g. 8 separate "add missing service X" asks bundled into one
+                # request) — but every op it DID generate is purely additive (no
+                # delete_node/disconnect). Applying them is strictly safer than
+                # NonSurgicalEditError's fallback: a full IR regenerate is NOT a
+                # reliable preserve-everything operation — a live capture showed
+                # it silently drop an entire AZ, a DB replica, a DLQ, and two NAT
+                # gateways from an otherwise-untouched diagram. An incomplete but
+                # additive patch beats a lossy full rebuild.
+                effective_plan = plan.model_copy(update={"applicable": True})
+                override_reason = "LLM marked not-applicable but every op was purely additive"
+
+            if effective_plan.applicable and effective_plan.ops:
+                patched = apply_diagram_edits(current_xml, effective_plan)
                 if logger:
+                    message = f"Applied {len(effective_plan.ops)} surgical ops"
+                    if override_reason:
+                        message += f" ({override_reason} — applying anyway to avoid a lossy full regenerate)"
                     logger.log(
                         "surgical_edit",
-                        f"Applied {len(plan.ops)} surgical ops",
+                        message,
                         level="success",
-                        details={"ops": [o.op for o in plan.ops]},
+                        details={
+                            "ops": [o.op for o in effective_plan.ops],
+                            "llm_applicable": plan.applicable,
+                        },
                     )
-                sugg = (plan.suggestions or []) if include_suggestions else []
+                sugg = (effective_plan.suggestions or []) if include_suggestions else []
                 return XmlDiagram(
                     xml=patched,
-                    assistant_message=plan.assistant_message or "Updated diagram.",
+                    assistant_message=effective_plan.assistant_message or "Updated diagram.",
                     suggestions=sugg,
                 )
             if logger:
@@ -918,30 +959,49 @@ def _generate_followup_suggestions(
         *[f"- {line}" for line in inventory],
         applied_block,
     ]).strip()
-    try:
-        parsed = llm(
-            _SUGGESTIONS_SYSTEM,
-            human,
-            provider_key,
-            _FollowupSuggestions,
-            logger,
-            None,
-        )
-    except Exception as exc:
+    # Two attempts total — retries BOTH a raised exception AND a technically
+    # successful call that ignores "never leave suggestions empty" and returns
+    # zero items. The user-visible symptom (nothing in the panel) is identical
+    # either way, so both are worth one retry before giving up.
+    sugg: list[DiagramSuggestion] = []
+    last_exc: Exception | None = None
+    for _attempt in range(2):
+        try:
+            parsed = llm(
+                _SUGGESTIONS_SYSTEM,
+                human,
+                provider_key,
+                _FollowupSuggestions,
+                logger,
+                None,
+            )
+            last_exc = None
+        except Exception as exc:
+            last_exc = exc
+            parsed = None
+        sugg = list(parsed.suggestions or []) if parsed is not None else []
+        if sugg:
+            break
+
+    if not sugg:
         if logger:
+            # details={"degraded": ...} is what makes this surface as a UI toast
+            # via xml_pipeline._collect_degraded_features — without it, either
+            # failure mode (a raised exception, or a "successful" empty
+            # response) is completely invisible: status stays "success",
+            # suggestions is just an empty list, indistinguishable from the
+            # LLM legitimately declining to suggest anything.
+            reason = str(last_exc) if last_exc is not None else "LLM returned an empty suggestions list"
             logger.log(
                 "suggestions",
-                f"Follow-up suggestions skipped: {exc}",
+                f"Follow-up suggestions empty after retry: {reason}",
                 level="warning",
+                details={"degraded": True, "feature": "suggestions", "reason": reason},
             )
         return []
-    sugg = list(parsed.suggestions or []) if parsed is not None else []
+
     if logger:
-        logger.log(
-            "suggestions",
-            f"Generated {len(sugg)} follow-up suggestion(s)",
-            level="success" if sugg else "warning",
-        )
+        logger.log("suggestions", f"Generated {len(sugg)} follow-up suggestion(s)", level="success")
     return sugg
 
 
