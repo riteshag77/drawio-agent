@@ -76,8 +76,16 @@ silently drop existing nodes (subnets, AZs, queues, replicas) that a text summar
 capture. When in doubt between applicable=true with more ops vs. applicable=false, prefer
 applicable=true — an incomplete but additive patch is always better than a lossy full rebuild.
 Never invent ids that must already exist unless op is add_node (then provide a new id).
-For add_node, include shape_type for leaf services and a reasonable parent id from the diagram;
-omit x/y and the system will place the node for you, clear of every existing sibling.
+For add_node, ALWAYS include shape_type and a reasonable parent id from the diagram — a node with no
+shape_type renders as an unstyled grey box, which is never the goal. Many requests name a
+configuration/feature of an existing AWS service rather than a distinct one with its own icon (e.g.
+"VPC Flow Logs" is a CloudWatch Logs feature, "S3 Object Lock"/"S3 Replica Bucket"/"S3 VPC Endpoint"
+are all S3, "CloudTrail log file integrity validation" is a CloudTrail setting) — for these, use the
+underlying service's own shape_type (aws_cloudwatch, aws_s3, aws_cloudtrail) with a label that keeps
+the specific detail (e.g. label "S3 Object Lock", shape_type "aws_s3"), rather than leaving shape_type
+blank. Only when a request is a genuinely distinct, named AWS service (e.g. "AWS Config") should its
+own dedicated shape_type be used.
+Omit x/y and the system will place the node for you, clear of every existing sibling.
 When suggestions are requested, always fill `suggestions` with 2–3 concrete follow-up improvements.
 """
 
@@ -288,6 +296,23 @@ def generate_xml_diagram(
                         },
                     )
                 sugg = (effective_plan.suggestions or []) if include_suggestions else []
+                if include_suggestions and not sugg:
+                    # The edit-plan LLM's own suggestions field came back empty —
+                    # same "never leave suggestions empty" non-compliance the IR
+                    # path's _generate_followup_suggestions already retries and
+                    # flags degraded for. Route through that SAME shared,
+                    # already-hardened function instead of silently returning
+                    # nothing here too — "suggestions on" should behave
+                    # identically regardless of which path produced the diagram.
+                    sugg = _generate_followup_suggestions(
+                        inventory=_xml_labels_inventory(patched),
+                        view=primary_view or "network",
+                        user_request=hint,
+                        provider_key=provider_key,
+                        llm=_llm,
+                        logger=logger,
+                        applied_suggestions=applied_suggestions,
+                    )
                 return XmlDiagram(
                     xml=patched,
                     assistant_message=effective_plan.assistant_message or "Updated diagram.",
@@ -937,9 +962,47 @@ def _ir_inventory_lines(ir: object, *, limit: int = 40) -> list[str]:
     return out
 
 
+def _xml_labels_inventory(xml: str, *, limit: int = 40) -> list[str]:
+    """Short label inventory from raw draw.io XML — the surgical-edit path's
+    equivalent of ``_ir_inventory_lines`` (which needs a typed IR object the
+    edit path never builds one of)."""
+    import xml.etree.ElementTree as ET
+
+    from app.adapters.outbound.diagram.xml_tools import ensure_diagram_document
+
+    try:
+        tree = ET.fromstring(ensure_diagram_document(xml or "", "Architecture"))
+    except ET.ParseError:
+        return []
+    lines: list[str] = []
+    for cell in tree.iter("mxCell"):
+        if cell.get("vertex") != "1" or cell.get("edge") == "1":
+            continue
+        cid = cell.get("id") or ""
+        if cid in ("overview_panel", "legend_box") or cid.startswith("step_badge_"):
+            continue
+        style = cell.get("style") or ""
+        if "container=1" in style or "swimlane" in style:
+            continue
+        label = (cell.get("value") or "").strip()
+        if label:
+            lines.append(label)
+    seen: set[str] = set()
+    out: list[str] = []
+    for line in lines:
+        key = line.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(line)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def _generate_followup_suggestions(
     *,
-    ir: object,
+    inventory: list[str],
     view: str,
     user_request: str,
     provider_key: str,
@@ -947,8 +1010,13 @@ def _generate_followup_suggestions(
     logger: "StepLogger | None",
     applied_suggestions: list[str] | None,
 ) -> list[DiagramSuggestion]:
-    """Second-pass suggestions for the IR path (IR JSON has no suggestions field)."""
-    inventory = _ir_inventory_lines(ir)
+    """Ask for follow-up suggestions from a plain label inventory — shared by
+    every generation path (IR, surgical edit) so "suggestions on" behaves the
+    same regardless of which path produced the diagram, instead of each path
+    reimplementing its own version with its own reliability. Callers build
+    ``inventory`` however fits their own IR/XML shape (see
+    ``_ir_inventory_lines`` for the IR-typed case).
+    """
     applied_block = build_applied_suggestions_block(applied_suggestions)
     human = "\n".join([
         build_suggestions_instruction_block(True),
@@ -1046,7 +1114,7 @@ def generate_xml_diagram_from_ir(
     if include_suggestions:
         provider_key = normalize_provider_key(provider)
         sugg = _generate_followup_suggestions(
-            ir=ir,
+            inventory=_ir_inventory_lines(ir),
             view=view_key,
             user_request=user_request,
             provider_key=provider_key,

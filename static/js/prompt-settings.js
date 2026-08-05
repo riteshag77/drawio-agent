@@ -275,4 +275,5 @@ function initPromptSettings() {
     toggleWellArchitectedPanel();
     toggleCompliancePanel();
     toggleSuggestionsPanel();
+    if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
 }

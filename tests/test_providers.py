@@ -447,6 +447,51 @@ class CurrentXmlPromptAssemblyTests(unittest.TestCase):
                 llm=fake_llm,
             )
 
+    def test_surgical_edit_falls_back_to_shared_suggestions_when_plan_returns_none(self) -> None:
+        """"Suggestions on" must behave the same regardless of which path
+        produced the diagram — the edit-plan LLM's own `suggestions` field
+        coming back empty (the same "never leave suggestions empty"
+        non-compliance the IR path already retries for) must not silently
+        propagate as an empty list; it should fall back to the same shared,
+        already-hardened follow-up-suggestions call the IR path uses."""
+        from app.core.services.agent import _FollowupSuggestions, generate_xml_diagram
+        from app.domain.entities import DiagramEditOp, DiagramEditPlan
+        from app.domain.entities.xml_diagram import DiagramSuggestion
+
+        def fake_llm(system_prompt, human_content, provider, output_type, logger, attachments):
+            if output_type is DiagramEditPlan:
+                return DiagramEditPlan(
+                    applicable=True,
+                    ops=[DiagramEditOp(op="add_node", id="kms", label="KMS", shape_type="aws_kms", parent="1")],
+                    assistant_message="Added KMS.",
+                    suggestions=[],  # edit-plan LLM left this empty despite being asked
+                )
+            if output_type is _FollowupSuggestions:
+                return _FollowupSuggestions(
+                    suggestions=[DiagramSuggestion(text="Add a WAF", category="security")],
+                )
+            raise AssertionError(f"unexpected output_type: {output_type}")
+
+        prior_xml = (
+            '<mxfile><diagram><mxGraphModel><root>'
+            '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            '<mxCell id="app" value="App" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            "</root></mxGraphModel></diagram></mxfile>"
+        )
+        diagram = generate_xml_diagram(
+            "add a KMS key",
+            provider="claude",
+            platform="aws",
+            current_xml=prior_xml,
+            include_suggestions=True,
+            llm=fake_llm,
+        )
+        self.assertEqual(len(diagram.suggestions), 1)
+        self.assertEqual(diagram.suggestions[0].text, "Add a WAF")
+        self.assertIn('id="kms"', diagram.xml)
+        self.assertIn('id="app"', diagram.xml, "existing node must survive")
+
 
 if __name__ == "__main__":
     unittest.main()

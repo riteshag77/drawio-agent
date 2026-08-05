@@ -197,19 +197,45 @@ function appendChatBubble(role, content) {
     container.scrollTop = container.scrollHeight;
 }
 
-function implementSuggestions(suggestions, suggWrap) {
+async function implementSuggestions(suggestions, suggWrap) {
     if (!suggestions || suggestions.length === 0) return;
     var items = suggestions.map(normalizeSuggestionItem).filter(Boolean);
     if (!items.length) return;
-    registerAppliedSuggestions(items);
-    markSuggestionWrapApplied(suggWrap || document.getElementById('suggestions-wrap'), items.map(function (i) { return i.text; }));
     const msg = 'Implement these suggestions:\n' + items.map(function (s, i) {
         var cat = s.category && s.category !== 'general' ? ' [' + s.category + ']' : '';
         return (i + 1) + '. ' + s.text + cat;
     }).join('\n');
     document.getElementById('chat-input').value = msg;
     autoResizeChatInput();
-    sendMessage();
+
+    // Same verified-before-marking pattern as applyInsightFixes() (WAF/
+    // Compliance apply): only mark a suggestion applied once the request
+    // actually succeeded AND the diagram actually changed — marking it
+    // upfront (the old behavior) meant a failed/no-op request still showed
+    // "Applied", hiding the one signal the user had that nothing happened.
+    var xmlBefore = typeof currentXml !== 'undefined' ? currentXml : null;
+    var wrapEl = suggWrap || document.getElementById('suggestions-wrap');
+    var selBtn = document.getElementById('suggestions-apply-selected');
+    var allBtn = document.getElementById('suggestions-apply-all');
+    if (selBtn) selBtn.disabled = true;
+    if (allBtn) allBtn.disabled = true;
+    try {
+        var result = await sendMessage();
+        if (!result || result.outcome !== 'success') return; // error/stopped toast already shown
+
+        var anyChange = currentXml !== xmlBefore;
+        if (!anyChange) {
+            if (typeof showToast === 'function') {
+                showToast('The diagram did not change — try rephrasing or applying suggestions individually.', 'warning');
+            }
+            return;
+        }
+        registerAppliedSuggestions(items);
+        markSuggestionWrapApplied(wrapEl, items.map(function (i) { return i.text; }));
+    } finally {
+        if (selBtn) selBtn.disabled = false;
+        if (allBtn) allBtn.disabled = false;
+    }
 }
 
 function clearChat() {

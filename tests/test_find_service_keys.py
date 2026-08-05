@@ -66,6 +66,46 @@ class FindServiceKeysTests(unittest.TestCase):
         keys = find_service_keys(xml)
         self.assertEqual(keys.count("aws_s3"), 1)
 
+    def test_normalizes_route53_underscore_variant(self) -> None:
+        xml = '<mxCell id="a" style="shape=mxgraph.aws4.productIcon;prIcon=mxgraph.aws4.route_53;" vertex="1"/>'
+        self.assertIn("aws_route53", find_service_keys(xml))
+
+    def test_normalizes_elasticache_cache_node_stencil(self) -> None:
+        xml = '<mxCell id="a" style="shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.cache_node;" vertex="1"/>'
+        self.assertIn("aws_elasticache", find_service_keys(xml))
+
+    def test_normalizes_cloudwatch_alarm_stencil(self) -> None:
+        xml = '<mxCell id="a" style="shape=mxgraph.aws4.alarm;" vertex="1"/>'
+        self.assertIn("aws_cloudwatch", find_service_keys(xml))
+
+    def test_normalizes_azure_load_balancer(self) -> None:
+        xml = '<mxCell id="a" style="shape=mxgraph.azure2.load_balancer;" vertex="1"/>'
+        self.assertIn("azure_lb", find_service_keys(xml))
+
+    def test_normalizes_azure_application_gateway(self) -> None:
+        xml = '<mxCell id="a" style="shape=mxgraph.azure2.application_gateway;" vertex="1"/>'
+        self.assertIn("azure_agw", find_service_keys(xml))
+
+    def test_normalizes_gcp_cloud_load_balancing(self) -> None:
+        xml = '<mxCell id="a" style="shape=mxgraph.gcp2.cloud_load_balancing;" vertex="1"/>'
+        self.assertIn("gcp_lb", find_service_keys(xml))
+
+    def test_stencil_wrapper_name_is_not_treated_as_a_service(self) -> None:
+        """resourceIcon/productIcon are the stencil-wrapper prefix, not a
+        service — matching them as if they were one is a false positive that
+        showed up in a live capture (aws_resourceicon, aws_producticon)."""
+        xml = (
+            '<mxCell id="a" style="shape=mxgraph.aws4.resourceIcon;'
+            'resIcon=mxgraph.aws4.kms;" vertex="1"/>'
+            '<mxCell id="b" style="shape=mxgraph.aws4.productIcon;'
+            'prIcon=mxgraph.aws4.sqs;" vertex="1"/>'
+        )
+        keys = find_service_keys(xml)
+        self.assertNotIn("aws_resourceicon", keys)
+        self.assertNotIn("aws_producticon", keys)
+        self.assertIn("aws_kms", keys)
+        self.assertIn("aws_sqs", keys)
+
 
 if __name__ == "__main__":
     unittest.main()

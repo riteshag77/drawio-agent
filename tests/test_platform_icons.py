@@ -82,6 +82,73 @@ class PickStyleTests(unittest.TestCase):
         self.assertIsNotNone(pick)
         self.assertIn("mxgraph.aws4", pick or "")
 
+    def test_pick_style_prefers_relevant_match_over_first_result(self) -> None:
+        """Regression: a live capture showed search_shapes top-ranking
+        "aws_kms" to the Kinesis Data Firehose icon — a completely unrelated
+        service — and _pick_style blindly trusted that ranking (styles[0])
+        with no check that the pick had anything to do with what was asked
+        for. Among same-platform candidates, prefer whichever one actually
+        matches the requested shape_type."""
+        styles = [
+            "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.kinesis_data_firehose;",
+            "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.kms;",
+        ]
+        pick = _pick_style(styles, "aws", "aws_kms")
+        self.assertIn("resIcon=mxgraph.aws4.kms;", pick or "")
+
+    def test_pick_style_recognizes_acronym_vs_full_name_alias(self) -> None:
+        """"alb" and "application_load_balancer" share zero tokens, so plain
+        token overlap alone can't recognize them as the same service — this
+        must reuse the same alias table find_service_keys() already relies
+        on, so an unrelated candidate never wins by default just because the
+        correct one happens to be spelled differently than the query."""
+        styles = [
+            "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.classic_load_balancer;",
+            "shape=mxgraph.aws4.application_load_balancer;",
+        ]
+        pick = _pick_style(styles, "aws", "aws_alb")
+        self.assertIn("application_load_balancer", pick or "")
+
+    def test_pick_style_falls_back_to_first_when_nothing_is_relevant(self) -> None:
+        """No candidate matches the query at all — same behavior as before
+        this fix (first same-platform candidate), not a hard failure."""
+        styles = [
+            "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.ec2;",
+            "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;",
+        ]
+        pick = _pick_style(styles, "aws", "aws_totally_unrelated_service")
+        self.assertIn("resIcon=mxgraph.aws4.ec2;", pick or "")
+
+    def test_pick_style_relevance_never_crosses_platform(self) -> None:
+        """Relevance-scoring must only break ties WITHIN the platform-matched
+        set — it must never promote an off-platform style over an on-platform
+        one, even if the off-platform one happens to score higher."""
+        styles = [
+            "aspect=fixed;image;image=img/lib/azure2/Storage/kms.svg;",
+            "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.ec2;",
+        ]
+        pick = _pick_style(styles, "aws", "aws_kms")
+        self.assertIn("mxgraph.aws4", pick or "")
+
+    def test_relevance_score_rejects_substring_collision_across_words(self) -> None:
+        """"iam" is a literal substring of "diagram" — a naive `if core in name`
+        check would wrongly score this a match. Token-based comparison must
+        not, since "diagram" is one whole token, not the token "iam"."""
+        from app.adapters.outbound.diagram.drawio_mcp_client import _relevance_score
+
+        self.assertEqual(
+            _relevance_score("aws_iam", "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.diagram;"),
+            0,
+        )
+
+    def test_pick_style_does_not_false_match_on_shared_fragment(self) -> None:
+        styles = [
+            "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.diagram;",
+            "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.iam;",
+        ]
+        pick = _pick_style(styles, "aws", "aws_iam")
+        self.assertIn("resIcon=mxgraph.aws4.iam;", pick or "")
+
     def test_prefix_infers_cloud_under_multi_fallback(self) -> None:
         self.assertEqual(_platform_from_shape_type("aws_lambda", "multi"), "aws")
         self.assertEqual(_platform_from_shape_type("gcp_cloud_run", "multi"), "gcp")

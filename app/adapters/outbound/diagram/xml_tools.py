@@ -771,10 +771,39 @@ _VENDOR_STENCIL_PATTERN = re.compile(r'mxgraph\.(aws4|gcp2|azure2)\.(\w+)')
 #: "is a load balancer present" check even though the icon is right there.
 #: Normalize to the short form other configs already standardize on (see
 #: view_conformance.py, which independently has to alias both spellings).
+#: This app targets AWS/GCP/Azure — the mismatch isn't AWS-specific, it's
+#: structural: every platform's icon catalog (config/references/*.txt) names
+#: stencils descriptively (what the icon depicts), while
+#: well_architected.py/compliance.py/cost_estimator.py's static service
+#: configs use each platform's short/official service code. Once MCP resolves
+#: and styles a leaf, its shape_type attribute is gone and all that's left to
+#: detect it by is the stencil path in its style — which decodes as the
+#: descriptive name, silently failing an "is X present" check even though the
+#: icon is right there in the diagram. Confirmed via live captures for AWS;
+#: the Azure/GCP entries below are the same pattern cross-checked directly
+#: against config/references/azure-icons-common.txt and
+#: config/references/gcp-icons-common.txt against the short codes those two
+#: files' own service configs check for — add more here as they surface,
+#: same shape.
 _SERVICE_KEY_ALIASES = {
+    # AWS
     "aws_application_load_balancer": "aws_alb",
     "aws_network_load_balancer": "aws_nlb",
+    "aws_route_53": "aws_route53",  # Route 53's own stencil name has the underscore
+    "aws_cache_node": "aws_elasticache",  # ElastiCache's stencil is named after its node type
+    "aws_alarm": "aws_cloudwatch",  # CloudWatch's stencil is literally its Alarm icon
+    "aws_cloudwatch_2": "aws_cloudwatch",  # AWS4 ships a "_2" alternate-design variant of several icons
+    # Azure
+    "azure_load_balancer": "azure_lb",
+    "azure_application_gateway": "azure_agw",
+    # GCP
+    "gcp_cloud_load_balancing": "gcp_lb",
 }
+#: Stencil-path wrapper names, not real services — the regex fallback below
+#: matches `mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.<real-name>` on
+#: BOTH the wrapper ("resourceIcon"/"productIcon") and the real target; only
+#: the real target is a service.
+_STENCIL_WRAPPER_NAMES = frozenset({"resourceicon", "producticon"})
 
 
 def find_service_keys(xml: str) -> list[str]:
@@ -800,7 +829,10 @@ def find_service_keys(xml: str) -> list[str]:
         if st.startswith(_VENDOR_PREFIXES):
             keys.append(st)
     for m in _VENDOR_STENCIL_PATTERN.finditer(xml):
-        keys.append(_VENDOR_STENCIL_MAP[m.group(1)] + m.group(2).lower())
+        name = m.group(2).lower()
+        if name in _STENCIL_WRAPPER_NAMES:
+            continue
+        keys.append(_VENDOR_STENCIL_MAP[m.group(1)] + name)
     keys = [_SERVICE_KEY_ALIASES.get(k, k) for k in keys]
     return list(dict.fromkeys(keys))
 

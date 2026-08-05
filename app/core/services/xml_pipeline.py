@@ -28,6 +28,7 @@ from app.adapters.outbound.diagram.xml_tools import (
     ensure_diagram_document,
     extract_shape_types,
     extract_page_by_name,
+    find_service_keys,
     fit_containers_to_children,
     guarantee_loadable_xml,
     normalize_platform_styles,
@@ -1790,6 +1791,51 @@ async def run_xml_pipeline(
     # both fixers no-op if the geometry is already correct (fresh IR path,
     # where layout="ir" made fit_containers_to_children a no-op above).
     xml_output = _refresh_overview_and_legend_positions(xml_output)
+
+    # cost/WAF/compliance above ran in parallel with MCP icon resolution
+    # against primary_xml_snapshot (a pre-resolution snapshot, deliberately —
+    # so they don't wait on MCP) — accurate for what the LLM/edit intended,
+    # but MCP occasionally resolves a shape_type to the wrong icon (confirmed
+    # via live captures: KMS resolving to the Kinesis Data Firehose stencil),
+    # and that divergence compounds turn over turn on the surgical-edit path
+    # specifically: the NEXT edit's current_xml starts from THIS turn's
+    # already-resolved (possibly already-wrong) output, with no shape_type
+    # left for that later snapshot to fall back on — which is what made a
+    # passing Well-Architected check flip to failing one edit later with no
+    # findings actually regressing. Re-run against the final, fully-resolved
+    # XML so the response always matches what the user actually sees,
+    # instead of a guess from before icons were resolved.
+    if (cost_estimate or well_architected or compliance) and "network" in views and primary_xml_snapshot:
+        final_network_xml = extract_page_by_name(xml_output, "Network") or xml_output
+        # Skip the redundant re-run entirely when MCP resolution didn't
+        # actually change what services are detectable (e.g. diagram_renderer
+        # == "local", which skips MCP outright, or a resolution that simply
+        # confirmed the same services) — compare the SERVICE SET, not the raw
+        # XML string, since geometry/whitespace changes from
+        # fit_containers_to_children etc. don't affect what cost/WAF/
+        # compliance actually analyze.
+        if set(find_service_keys(final_network_xml)) != set(find_service_keys(primary_xml_snapshot)):
+            if cost_estimate:
+                cost_data = await asyncio.to_thread(estimate_monthly_cost, final_network_xml, platform_key)
+            if well_architected:
+                waf_data = await asyncio.to_thread(assess_well_architected, final_network_xml, platform_key)
+                if logger:
+                    logger.log(
+                        "waf", f"Well-Architected (post-resolve): {waf_data['overall_status']}",
+                        level="info", details={"well_architected": waf_data},
+                    )
+            if compliance:
+                compliance_data = await asyncio.to_thread(
+                    assess_compliance, xml=final_network_xml, platform=platform_key,
+                    frameworks=compliance_frameworks,
+                    provider=provider_key if compliance_frameworks else None,
+                    logger=logger,
+                )
+                if logger:
+                    logger.log(
+                        "compliance", "Compliance assessment (post-resolve) complete",
+                        level="info", details={"compliance": compliance_data},
+                    )
 
     if logger:
         try:

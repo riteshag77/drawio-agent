@@ -41,7 +41,7 @@ class FollowupSuggestionsDegradedTests(unittest.TestCase):
             raise RuntimeError("provider timeout")
 
         result = _generate_followup_suggestions(
-            ir=object(), view="network", user_request="add a database",
+            inventory=["App Server", "RDS"], view="network", user_request="add a database",
             provider_key="claude", llm=always_fails, logger=logger, applied_suggestions=None,
         )
 
@@ -63,7 +63,7 @@ class FollowupSuggestionsDegradedTests(unittest.TestCase):
             return _empty_suggestions()
 
         result = _generate_followup_suggestions(
-            ir=object(), view="network", user_request="add a database",
+            inventory=["App Server", "RDS"], view="network", user_request="add a database",
             provider_key="claude", llm=always_empty, logger=logger, applied_suggestions=None,
         )
 
@@ -84,7 +84,7 @@ class FollowupSuggestionsDegradedTests(unittest.TestCase):
             return _real_suggestions()
 
         result = _generate_followup_suggestions(
-            ir=object(), view="network", user_request="add a database",
+            inventory=["App Server", "RDS"], view="network", user_request="add a database",
             provider_key="claude", llm=fails_once_then_real, logger=logger, applied_suggestions=None,
         )
 
@@ -102,7 +102,7 @@ class FollowupSuggestionsDegradedTests(unittest.TestCase):
             return _empty_suggestions() if len(calls) == 1 else _real_suggestions()
 
         result = _generate_followup_suggestions(
-            ir=object(), view="network", user_request="add a database",
+            inventory=["App Server", "RDS"], view="network", user_request="add a database",
             provider_key="claude", llm=empty_once_then_real, logger=logger, applied_suggestions=None,
         )
 
@@ -120,7 +120,7 @@ class FollowupSuggestionsDegradedTests(unittest.TestCase):
             return _real_suggestions()
 
         result = _generate_followup_suggestions(
-            ir=object(), view="network", user_request="add a database",
+            inventory=["App Server", "RDS"], view="network", user_request="add a database",
             provider_key="claude", llm=real_content, logger=logger, applied_suggestions=None,
         )
 

@@ -334,6 +334,7 @@ function toggleSuggestionsPanel() {
     var panel = document.getElementById('suggestions-panel');
     var body = document.getElementById('suggestions-panel-body');
     if (!panel) return;
+    if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
     if (document.getElementById('suggestions-toggle')?.checked) {
         panel.classList.add('active');
         if (body && !body.querySelector('.chat-suggestion-item')) {

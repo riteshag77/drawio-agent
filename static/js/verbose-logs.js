@@ -75,6 +75,7 @@ function setLogPanelOpen(open) {
     document.getElementById('verbose-toggle').checked = open;
     localStorage.setItem(VERBOSE_STORAGE_KEY, open ? '1' : '0');
     updateRightPanelVisibility();
+    if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
 }
 
 function toggleVerbosePanel() {

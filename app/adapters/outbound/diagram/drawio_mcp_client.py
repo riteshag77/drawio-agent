@@ -10,7 +10,23 @@ from typing import TYPE_CHECKING, Any
 
 from app.adapters.outbound.config.env_config import get_config
 from app.adapters.outbound.diagram.style_cache import cache_get, cache_put, clear_style_cache, memory_empty
-from app.adapters.outbound.diagram.xml_tools import coerce_drawio_xml
+from app.adapters.outbound.diagram.xml_tools import _SERVICE_KEY_ALIASES, coerce_drawio_xml
+
+#: name -> canonical short code, derived from the SAME alias table
+#: find_service_keys() uses post-hoc (e.g. "application_load_balancer" ->
+#: "alb"). Reused here so pick-time relevance scoring recognizes an acronym
+#: shape_type ("aws_alb") as relevant to a full-name candidate
+#: ("application_load_balancer") — without this, a query for "alb" scores
+#: EVERY candidate 0 (no shared token with the acronym), so if search_shapes
+#: returns both a correct "application_load_balancer" result and an
+#: unrelated one, this app couldn't tell them apart and just kept trusting
+#: search_shapes' own ranking for exactly the acronym-style services the
+#: alias table exists for.
+_STENCIL_NAME_ALIASES = {
+    long.split("_", 1)[1]: short.split("_", 1)[1]
+    for long, short in _SERVICE_KEY_ALIASES.items()
+    if "_" in long and "_" in short
+}
 
 if TYPE_CHECKING:
     from app.core.logging import StepLogger
@@ -385,6 +401,82 @@ def _platform_style_predicate(platform: str):
     return lambda low: needle in low or "resourceicon" in low or "mxgraph.aws4" in low
 
 
+_RESICON_PATTERN = re.compile(r'(?:resicon|pricon)=mxgraph\.\w+\.([a-z0-9_]+)')
+_SHAPE_PATTERN = re.compile(r'shape=mxgraph\.\w+\.([a-z0-9_]+)')
+_STENCIL_WRAPPER_NAMES = frozenset({"resourceicon", "producticon"})
+
+
+def _stencil_name(style: str) -> str:
+    """The service/icon name a style string actually renders.
+
+    Tries resIcon=/prIcon= first — the actual target icon on the common
+    ``shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.<name>`` form —
+    before falling back to a standalone ``shape=mxgraph.aws4.<name>`` (e.g.
+    ALB, which has no separate resIcon). Must not just take the leftmost
+    ``mxgraph.*.*`` match in the string: a plain regex .search() on both
+    patterns at once matches "shape=mxgraph.aws4.resourceIcon" (the WRAPPER,
+    always first in the string) before ever reaching the real resIcon target
+    later in the same style — silently extracting the wrong name.
+    """
+    low = (style or "").lower()
+    m = _RESICON_PATTERN.search(low)
+    if m:
+        return m.group(1)
+    m = _SHAPE_PATTERN.search(low)
+    if m and m.group(1) not in _STENCIL_WRAPPER_NAMES:
+        return m.group(1)
+    return ""
+
+
+def _relevance_score(shape_type: str, style: str) -> int:
+    """Whole-token overlap between the requested shape_type's core name and
+    what a candidate style actually renders — deliberately NOT a raw
+    substring check: "iam" is a substring of "diagram", "s3" is a substring
+    of any word containing that letter+digit pair, etc., so matching on
+    substrings risks a false match to some unrelated service that merely
+    happens to share a fragment. Splitting both names on "_" and requiring a
+    WHOLE token to match avoids that class of false positive; the tradeoff is
+    it won't bridge an acronym to its expansion (e.g. "alb" vs
+    "application_load_balancer" share no token) — that specific, known class
+    of mismatch is handled separately and exactly by
+    ``xml_tools._SERVICE_KEY_ALIASES``, not by this heuristic.
+
+    search_shapes ranks its own results, and this app previously trusted
+    that ranking blindly (``styles[0]``) — confirmed via live captures that
+    this occasionally top-ranks to something with no real relation to the
+    query at all (a leaf labeled "AWS KMS" resolving to the Kinesis Data
+    Firehose icon, which shares zero tokens with "kms"). This doesn't
+    replace search_shapes' ranking — it only breaks ties among same-platform
+    candidates in favor of the one that actually looks like what was asked
+    for, when more than one option exists.
+    """
+    core = (shape_type or "").lower()
+    for prefix in ("aws_", "gcp_", "azure_"):
+        if core.startswith(prefix):
+            core = core[len(prefix):]
+            break
+    name = _stencil_name(style)
+    if not core or not name:
+        return 0
+    if core == name:
+        return 100
+    # An acronym query (e.g. "alb") vs a full-name candidate
+    # ("application_load_balancer") shares no token at all — check the same
+    # alias table find_service_keys() uses post-hoc, so a known acronym/
+    # full-name pair scores as a real match here too, not just after the
+    # fact.
+    if _STENCIL_NAME_ALIASES.get(name) == core:
+        return 100
+    core_tokens = {t for t in core.split("_") if t}
+    name_tokens = {t for t in name.split("_") if t}
+    if not core_tokens or not name_tokens:
+        return 0
+    if core_tokens.issubset(name_tokens) or name_tokens.issubset(core_tokens):
+        return 80
+    overlap = core_tokens & name_tokens
+    return 20 * len(overlap)
+
+
 def _pick_style(styles: list[str], platform: str = "aws", shape_type: str = "") -> str | None:
     if not styles:
         return None
@@ -430,12 +522,14 @@ def _pick_style(styles: list[str], platform: str = "aws", shape_type: str = "") 
         if not pick.endswith(";"):
             pick += ";"
         return pick
-    pick = styles[0]
-    for style in styles:
-        low = style.lower()
-        if prefer(low):
-            pick = style
-            break
+    same_platform = [s for s in styles if prefer(s.lower())] or styles
+    # Break ties in favor of whichever same-platform candidate actually looks
+    # like the requested service, instead of blindly trusting search_shapes'
+    # own top result — see _relevance_score. Python's max() keeps the first
+    # occurrence on a tie, so this is a no-op (identical to the old
+    # first-match behavior) whenever nothing scores above 0 or shape_type
+    # wasn't given, and never picks anything outside the same-platform set.
+    pick = max(same_platform, key=lambda s: _relevance_score(shape_type, s))
     if not pick.endswith(";"):
         pick += ";"
     return pick

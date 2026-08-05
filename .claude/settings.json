@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node verify_theme.js)",
+      "Bash(node scripts/validate_palette.js)"
+    ]
+  }
+}

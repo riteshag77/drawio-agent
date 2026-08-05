@@ -29,6 +29,29 @@ function switchInsightsTab(tab) {
     if (logPanel) logPanel.classList.add('open');
 }
 
+/** Suggestions / Logs tab buttons only make sense when their own toggle is
+ * on — Cost and WAF/Compliance stay always-visible (they're gated by the
+ * Network-view checkbox already, via updateNetworkInsightsVisibility). If
+ * the currently active tab is one that just got hidden, fall back to Cost
+ * (always visible) instead of leaving an invisible tab selected. */
+function updateInsightsTabVisibility() {
+    var suggTab = document.querySelector('.insights-tab[data-tab="suggestions"]');
+    var logsTab = document.querySelector('.insights-tab[data-tab="logs"]');
+    var suggOn = !!document.getElementById('suggestions-toggle')?.checked;
+    var logsOn = !!document.getElementById('verbose-toggle')?.checked;
+    if (suggTab) suggTab.hidden = !suggOn;
+    if (logsTab) logsTab.hidden = !logsOn;
+
+    var activeTab = document.querySelector('.insights-tab.active');
+    var activeHidden = activeTab && (
+        (activeTab.dataset.tab === 'suggestions' && !suggOn)
+        || (activeTab.dataset.tab === 'logs' && !logsOn)
+    );
+    if (activeHidden && typeof switchInsightsTab === 'function') {
+        switchInsightsTab('cost');
+    }
+}
+
 function switchMobilePane(pane) {
     document.body.dataset.mobilePane = pane;
     document.querySelectorAll('.mobile-tab').forEach((btn) => {

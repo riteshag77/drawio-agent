@@ -152,6 +152,50 @@ class NetworkE2ETests(unittest.TestCase):
         waf.assert_called_once()
         self.assertEqual(result.get("well_architected"), waf_payload)
 
+    def test_waf_recomputes_when_mcp_resolution_changes_detected_services(self) -> None:
+        """Regression: WAF/cost/compliance run in parallel with MCP icon
+        resolution, against a pre-resolution XML snapshot — so if MCP
+        resolves a shape_type to a DIFFERENT service than what was actually
+        requested (confirmed via a live capture: a KMS leaf resolving to the
+        Kinesis Data Firehose icon), the response kept reporting the
+        pre-resolution guess. That guess can look like the diagram passed a
+        check the actual rendered diagram would fail. Must re-run against the
+        final XML whenever the detected service set diverges — and must NOT
+        re-run when it doesn't (see test_waf_runs_when_network_selected,
+        which asserts exactly one call for the unchanged case)."""
+        diagram = XmlDiagram(xml=NETWORK_FIXTURE, assistant_message="ok", suggestions=[], step_markers=[])
+
+        async def _fake_resolve(shape_types, **_k):
+            # Simulate MCP mis-resolving "aws_ecs" to a completely different
+            # service's icon — same shape as the real KMS->Kinesis bug.
+            if "aws_ecs" in shape_types:
+                return {"aws_ecs": "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;"}
+            return {}
+
+        with patch.object(xml_pipeline, "generate_xml_diagram_from_ir", return_value=diagram), \
+                patch.object(xml_pipeline, "resolve_shape_styles", side_effect=_fake_resolve), \
+                patch.object(
+                    xml_pipeline, "assess_well_architected",
+                    wraps=xml_pipeline.assess_well_architected,
+                ) as waf:
+            result = asyncio.run(xml_pipeline.run_xml_pipeline(
+                user_prompt="network with waf",
+                provider="gemini",
+                platform="aws",
+                logger=StepLogger(),
+                diagram_renderer="mcp",
+                diagram_views=["network"],
+                well_architected=True,
+            ))
+        self.assertEqual(waf.call_count, 2, "must re-run once resolution changed what's detectable")
+        services = result.get("well_architected", {}).get("services_analyzed")
+        self.assertIsNotNone(services)
+        # The final result must reflect the RESOLVED xml (ecs no longer
+        # present as ecs — it now renders as lambda), not the pre-resolution
+        # snapshot's original aws_ecs detection.
+        xml_out = result.get("xml") or ""
+        self.assertIn("resIcon=mxgraph.aws4.lambda", xml_out)
+
 
 if __name__ == "__main__":
     unittest.main()
