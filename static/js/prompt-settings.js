@@ -201,7 +201,6 @@ function toggleCostPanelPreview() {
         panel.classList.add('active');
         body.innerHTML = '<div class="cost-empty">Generate a diagram to see cost estimates</div>';
         if (total) total.textContent = 'A$--';
-        if (typeof switchInsightsTab === 'function') switchInsightsTab('cost');
     } else {
         panel.classList.remove('active');
         body.innerHTML = '';

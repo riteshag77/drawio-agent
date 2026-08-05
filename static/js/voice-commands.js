@@ -179,7 +179,6 @@ function voiceApplyInsightAction(mode, source) {
         }
     }
     if (typeof switchInsightsTab === 'function') switchInsightsTab('waf');
-    if (typeof markInsightItemsApplied === 'function') markInsightItemsApplied(items);
     if (typeof applyInsightFixes === 'function') applyInsightFixes(items);
     return null;
 }

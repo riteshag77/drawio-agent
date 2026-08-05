@@ -137,7 +137,6 @@ function renderCostDonut(catTotals, grandTotal) {
 }
 
 function displayCostEstimate(costData) {
-    if (typeof switchInsightsTab === 'function') switchInsightsTab('cost');
     if (!costData) return;
     const panel = document.getElementById('cost-panel');
     const body = document.getElementById('cost-panel-body');
@@ -340,7 +339,6 @@ function toggleSuggestionsPanel() {
         if (body && !body.querySelector('.chat-suggestion-item')) {
             body.innerHTML = '<div class="suggestions-empty">Generate a diagram to see follow-up suggestions</div>';
         }
-        if (typeof switchInsightsTab === 'function') switchInsightsTab('suggestions');
     } else {
         panel.classList.remove('active');
         clearSuggestionsPanel({ keepPlaceholder: true });
@@ -422,7 +420,6 @@ function displaySuggestions(suggestions) {
             selectAllCb.disabled = true;
         }
         updateRightPanelVisibility();
-        if (typeof switchInsightsTab === 'function') switchInsightsTab('suggestions');
         return;
     }
 
@@ -520,7 +517,6 @@ function displaySuggestions(suggestions) {
     }
     if (typeof updateSuggestionWrapActions === 'function') updateSuggestionWrapActions(wrap);
     updateRightPanelVisibility();
-    if (typeof switchInsightsTab === 'function') switchInsightsTab('suggestions');
 }
 
 function initSuggestionsPanel() {
@@ -568,7 +564,6 @@ function toggleWellArchitectedPanel() {
         panel.classList.add('active');
         if (body) body.innerHTML = '<div class="waf-empty">Generate a diagram to see Well-Architected review</div>';
         if (badge) { badge.textContent = '--'; badge.className = 'waf-overall-badge'; }
-        if (typeof switchInsightsTab === 'function') switchInsightsTab('waf');
     } else {
         panel.classList.remove('active');
         if (body) body.innerHTML = '';
@@ -585,12 +580,6 @@ function hideWellArchitectedPanel() {
         localStorage.setItem(WELL_ARCHITECTED_KEY, '0');
         updateRightPanelVisibility();
     }
-}
-
-var appliedInsightKeys = new Set();
-
-function isInsightApplied(key) {
-    return appliedInsightKeys.has(key);
 }
 
 // Shared select-all/apply controls spanning both the WAF and Compliance
@@ -621,18 +610,6 @@ function refreshUnifiedInsightControls() {
         selectAllCb.indeterminate = checked.length > 0 && checked.length < pending.length;
         selectAllCb.disabled = pending.length === 0;
     }
-}
-
-function markInsightItemsApplied(items) {
-    var keys = {};
-    items.forEach(function (it) { keys[it.key] = true; });
-    allInsightItems().forEach(function (r) {
-        if (!keys[r.key]) return;
-        r.checkbox.checked = false;
-        r.checkbox.disabled = true;
-        if (r.badge) r.badge.hidden = false;
-    });
-    refreshUnifiedInsightControls();
 }
 
 function _setInsightApplyButtonsDisabled(disabled) {
@@ -694,25 +671,12 @@ async function applyInsightFixes(items) {
         var result = await sendMessage();
         if (!result || result.outcome !== 'success') return; // error/stopped toast already shown by finishChatRun
 
-        var xmlAfter = currentXml;
-        var anyChange = xmlAfter !== xmlBefore;
-        // Trust the server's success + "diagram changed" signal for every item that
-        // was part of THIS apply call, rather than requiring an exact
-        // shape_type="<missing_service>" substring match — the LLM may legitimately
-        // use a different-but-valid shape_type for the same service. A stricter
-        // per-item match used to leave an already-applied finding's checkbox
-        // checked, so the *next* Apply click silently re-bundled it with a new
-        // finding into one multi-item request — which is far more likely to trip
-        // the edit-plan LLM's applicable=false fallback (a full IR regenerate that
-        // does not preserve prior additions) than a genuine single-item apply.
-        var satisfied = anyChange ? items : [];
-        satisfied.forEach(function (it) { appliedInsightKeys.add(it.key); });
-        if (satisfied.length) markInsightItemsApplied(satisfied);
-
-        if (satisfied.length === 0) {
-            if (typeof showToast === 'function') {
-                showToast('The diagram did not change — try rephrasing or applying findings individually.', 'warning');
-            }
+        // No client-side "applied" bookkeeping: the WAF/compliance panels
+        // above already re-rendered from this response's fresh analysis, so
+        // any finding that's actually resolved is simply gone from the list;
+        // anything still shown is still failing and stays selectable to retry.
+        if (currentXml === xmlBefore && typeof showToast === 'function') {
+            showToast('The diagram did not change — try rephrasing or applying findings individually.', 'warning');
         }
     } finally {
         _setInsightApplyButtonsDisabled(false);
@@ -720,7 +684,6 @@ async function applyInsightFixes(items) {
 }
 
 function displayWellArchitected(wafData) {
-    if (typeof switchInsightsTab === 'function') switchInsightsTab('waf');
     if (!wafData) return;
     console.log('WAF data received', wafData.overall_status, wafData.pillars?.length, 'pillars');
     var panel = document.getElementById('well-architected-panel');
@@ -735,7 +698,6 @@ function displayWellArchitected(wafData) {
     badge.textContent = status.toUpperCase();
     badge.className = 'waf-overall-badge ' + status;
     body.innerHTML = '';
-    appliedInsightKeys.forEach(function (k) { if (k.indexOf('waf:') === 0) appliedInsightKeys.delete(k); });
     var pillars = wafData.pillars || [];
     if (pillars.length === 0) {
         body.innerHTML = '<div class="waf-empty">No recommendations available</div>';
@@ -769,7 +731,7 @@ function displayWellArchitected(wafData) {
             desc.textContent = p.description;
             div.appendChild(desc);
         }
-        (p.findings || []).forEach(function (f, findingIdx) {
+        (p.findings || []).forEach(function (f) {
             var finding = document.createElement('div');
             finding.className = 'waf-finding';
             var dot = document.createElement('span');
@@ -783,21 +745,12 @@ function displayWellArchitected(wafData) {
                 rec.className = 'waf-finding-recommendation';
                 rec.textContent = '→ ' + f.recommendation;
                 text.appendChild(rec);
-                var key = 'waf:' + pillarIdx + ':' + findingIdx;
-                var applied = isInsightApplied(key);
                 var cb = document.createElement('input');
                 cb.type = 'checkbox';
                 cb.className = 'suggestion-checkbox item-checkbox';
-                cb.disabled = applied;
-                cb.checked = applied;
                 cb.addEventListener('change', refreshUnifiedInsightControls);
                 finding.insertBefore(cb, dot);
-                var badge = document.createElement('span');
-                badge.className = 'suggestion-applied-badge';
-                badge.textContent = 'Applied';
-                badge.hidden = !applied;
-                text.appendChild(badge);
-                wafItems.push({ key: key, message: f.message || '', recommendation: f.recommendation, missing_services: f.missing_services || [], checkbox: cb, badge: badge });
+                wafItems.push({ message: f.message || '', recommendation: f.recommendation, missing_services: f.missing_services || [], checkbox: cb });
             }
             finding.appendChild(text);
             div.appendChild(finding);
@@ -826,7 +779,6 @@ function toggleCompliancePanel() {
     if (document.getElementById('compliance-toggle').checked) {
         panel.classList.add('active');
         if (body) body.innerHTML = '<div class="compliance-empty">Generate a diagram to see compliance assessment results</div>';
-        if (typeof switchInsightsTab === 'function') switchInsightsTab('waf');
     } else {
         panel.classList.remove('active');
         if (body) body.innerHTML = '';
@@ -845,7 +797,6 @@ function hideCompliancePanel() {
 }
 
 function displayCompliance(compData) {
-    if (typeof switchInsightsTab === 'function') switchInsightsTab('waf');
     if (!compData || !compData.frameworks) return;
     var panel = document.getElementById('compliance-panel');
     var tabs = document.getElementById('compliance-tabs');
@@ -855,7 +806,6 @@ function displayCompliance(compData) {
     var toggle = document.getElementById('compliance-toggle');
     if (toggle) toggle.checked = true;
     localStorage.setItem(COMPLIANCE_KEY, '1');
-    appliedInsightKeys.forEach(function (k) { if (k.indexOf('compliance:') === 0) appliedInsightKeys.delete(k); });
 
     var frameworks = compData.frameworks;
     var fwIds = Object.keys(frameworks);
@@ -926,9 +876,8 @@ function switchComplianceTab(fwId) {
                 var sevIcon = sev === 'high' ? '&#x2717;' : sev === 'medium' ? '&#x26A0;' : '&#x2713;';
                 html += '<div class="compliance-finding ' + sev + '">';
                 if (f.recommendation) {
-                    var applied = isInsightApplied('compliance:' + fwId + ':' + ctrlIdx + ':' + findingIdx);
                     html += '<input type="checkbox" class="suggestion-checkbox item-checkbox" data-ctrl-idx="' + ctrlIdx
-                        + '" data-finding-idx="' + findingIdx + '"' + (applied ? ' checked disabled' : '') + '>';
+                        + '" data-finding-idx="' + findingIdx + '">';
                 }
                 html += '<span class="compliance-finding-dot compliance-severity-' + sev + '">' + sevIcon + '</span>';
                 html += '<div class="compliance-finding-text">';
@@ -938,7 +887,6 @@ function switchComplianceTab(fwId) {
                 }
                 if (f.recommendation) {
                     html += '<span class="compliance-finding-rec">&#x2192; ' + escapeHtml(f.recommendation) + '</span>';
-                    html += '<span class="suggestion-applied-badge"' + (isInsightApplied('compliance:' + fwId + ':' + ctrlIdx + ':' + findingIdx) ? '' : ' hidden') + '>Applied</span>';
                 }
                 html += '</div>';
                 html += '</div>';
@@ -970,9 +918,7 @@ function switchComplianceTab(fwId) {
         var findingIdx = parseInt(cb.getAttribute('data-finding-idx'), 10);
         var finding = (controls[ctrlIdx] && controls[ctrlIdx].findings || [])[findingIdx];
         if (!finding) return;
-        var badge = cb.parentElement.querySelector('.suggestion-applied-badge');
-        var key = 'compliance:' + fwId + ':' + ctrlIdx + ':' + findingIdx;
-        complianceItems.push({ key: key, message: finding.message || '', recommendation: finding.recommendation, missing_services: finding.missing_services || [], checkbox: cb, badge: badge });
+        complianceItems.push({ message: finding.message || '', recommendation: finding.recommendation, missing_services: finding.missing_services || [], checkbox: cb });
         cb.addEventListener('change', refreshUnifiedInsightControls);
     });
 
