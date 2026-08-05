@@ -7,6 +7,7 @@ import xml.etree.ElementTree as ET
 
 from app.adapters.outbound.diagram.xml_diagnostics import (
     apply_step_markers,
+    center_unresolved_leaf_labels,
     diagnose_xml,
     ensure_leaf_labels,
     ensure_legend_position,
@@ -1038,6 +1039,56 @@ class MoveOverviewAndLegendToEndTests(unittest.TestCase):
         ids = [c.get("id") for c in ET.fromstring(out).iter("mxCell")]
         self.assertEqual(set(ids[-2:]), {"overview_panel", "legend_box"})
         self.assertEqual(ids[-1], "overview_panel")
+
+
+class CenterUnresolvedLeafLabelsTests(unittest.TestCase):
+    _PLACEHOLDER_STYLE = (
+        "rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;"
+        "fontColor=#333333;verticalLabelPosition=bottom;verticalAlign=top;"
+        "align=center;fontSize=11;"
+    )
+
+    def test_centers_label_on_a_genuinely_unresolved_leaf(self) -> None:
+        xml = _wrap(
+            f'<mxCell id="cfg" value="AWS Config" style="{self._PLACEHOLDER_STYLE}" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = center_unresolved_leaf_labels(xml)
+        cell = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "cfg")
+        style = cell.get("style") or ""
+        self.assertIn("verticalAlign=middle", style)
+        self.assertIn("align=center", style)
+        self.assertNotIn("verticalLabelPosition", style)
+
+    def test_leaves_a_resolved_icon_alone(self) -> None:
+        xml = _wrap(
+            '<mxCell id="lambda" value="Lambda" style="shape=mxgraph.aws4.resourceIcon;'
+            'resIcon=mxgraph.aws4.lambda;fillColor=#ED7100;verticalLabelPosition=bottom;'
+            'verticalAlign=top;align=center;" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        self.assertEqual(center_unresolved_leaf_labels(xml), xml)
+
+    def test_is_idempotent(self) -> None:
+        xml = _wrap(
+            f'<mxCell id="cfg" value="AWS Config" style="{self._PLACEHOLDER_STYLE}" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        once = center_unresolved_leaf_labels(xml)
+        self.assertEqual(center_unresolved_leaf_labels(once), once)
+
+    def test_ignores_containers_and_chrome_cells(self) -> None:
+        xml = _wrap(
+            '<mxCell id="cloud" value="AWS Cloud" style="rounded=1;container=1;'
+            'fillColor=#f5f5f5;" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="600" height="400" as="geometry"/></mxCell>'
+            '<mxCell id="overview_panel" value="&lt;div&gt;Title&lt;/div&gt;" '
+            'style="rounded=1;html=1;fillColor=#f5f5f5;" vertex="1" parent="1">'
+            '<mxGeometry x="900" y="40" width="400" height="200" as="geometry"/></mxCell>'
+        )
+        self.assertEqual(center_unresolved_leaf_labels(xml), xml)
 
 
 if __name__ == "__main__":

@@ -501,6 +501,38 @@ class ShapeTypeAndStyleTests(unittest.TestCase):
         self.assertIn("verticalLabelPosition=bottom", merged)
         self.assertIn("fontSize=12", merged)
 
+    def test_merge_drawio_styles_fills_missing_resource_icon_geometry(self) -> None:
+        """Regression: a live capture's raw MCP response (logged pre-merge)
+        omitted rounded/strokeWidth/labelPosition entirely for one icon while
+        every other icon on the same page had them — since the merge only
+        overrides keys MCP actually specifies, the gap fell back to the
+        add_node placeholder's own rougher defaults (rounded=1, no border),
+        making that one node visibly inconsistent with the rest of the
+        diagram despite resolving "successfully." MCP still wins whenever it
+        DOES specify one of these — this only fills genuine gaps."""
+        base = (  # diagram_edits._PLACEHOLDER_STYLE shape
+            "rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;"
+            "fontColor=#333333;verticalLabelPosition=bottom;verticalAlign=top;"
+            "align=center;fontSize=11;"
+        )
+        mcp = (  # a real captured raw MCP response, missing rounded/strokeWidth/labelPosition
+            "sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#8C4FFF;"
+            "strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;"
+            "align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;"
+            "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.kinesis_data_firehose;"
+        )
+        merged = merge_drawio_styles(base, mcp)
+        self.assertIn("rounded=0", merged)
+        self.assertIn("strokeWidth=1", merged)
+        self.assertIn("labelPosition=center", merged)
+
+    def test_merge_drawio_styles_mcp_geometry_still_wins(self) -> None:
+        base = "rounded=1;fillColor=#f5f5f5;"
+        mcp = "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.ec2;rounded=1;strokeWidth=3;"
+        merged = merge_drawio_styles(base, mcp)
+        self.assertIn("rounded=1", merged)
+        self.assertIn("strokeWidth=3", merged)
+
     def test_apply_mcp_styles_miss_leaves_cell_unchanged(self) -> None:
         xml = (
             '<mxfile host="app.diagrams.net"><diagram name="A" id="d1">'

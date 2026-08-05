@@ -15,6 +15,7 @@ from app.adapters.outbound.diagram.drawio_mcp_client import DrawioMcpError, crea
 from app.adapters.outbound.diagram.mode import is_xml_pipeline_mode
 from app.adapters.outbound.diagram.xml_diagnostics import (
     apply_step_markers,
+    center_unresolved_leaf_labels,
     diagnose_xml,
     ensure_legend_position,
     ensure_overview_panel_position,
@@ -658,34 +659,43 @@ def _summarize_llm_usage(logger: Any) -> dict[str, Any] | None:
 
 
 def _refresh_overview_and_legend_positions(xml: str) -> str:
-    """Re-run ``ensure_overview_panel_position``/``ensure_legend_position``
-    across EVERY page of a (possibly multi-page) document, not just the first.
+    """Re-run ``ensure_overview_panel_position``/``ensure_legend_position``/
+    ``center_unresolved_leaf_labels`` across EVERY page of a (possibly
+    multi-page) document, not just the first.
 
-    Both fixers use ``xml_diagnostics._parse_docroot`` → ``_find_diagram_root``,
-    which only ever looks at the *first* ``<diagram>`` in an mxfile — correct
-    for their other call sites (single-page XML at that point in the
-    pipeline), but by the time this runs, ``xml_output`` is the merged
-    multi-page mxfile and the page that actually grew (typically the primary
-    view, e.g. Network) is very often NOT page 1 in tab order (Logical is,
-    per ``VIEW_ORDER``). Fixing only page 1 silently no-ops for every other
-    page — mirrors how ``fit_containers_to_children``/``apply_mcp_styles``
-    already handle "every ``<root>``" for the same reason.
+    All three fixers use ``xml_diagnostics._parse_docroot`` →
+    ``_find_diagram_root``, which only ever looks at the *first*
+    ``<diagram>`` in an mxfile — correct for their other call sites
+    (single-page XML at that point in the pipeline), but by the time this
+    runs, ``xml_output`` is the merged multi-page mxfile and the page that
+    actually grew/got new icons resolved (typically the primary view, e.g.
+    Network) is very often NOT page 1 in tab order (Logical is, per
+    ``VIEW_ORDER``). Fixing only page 1 silently no-ops for every other page
+    — mirrors how ``fit_containers_to_children``/``apply_mcp_styles``
+    already handle "every ``<root>``" for the same reason. Running
+    ``center_unresolved_leaf_labels`` here specifically (not inside
+    ``repair_xml``, which runs before MCP resolution) is what makes it only
+    ever touch a leaf that's STILL unresolved once MCP has had its shot, not
+    one merely pending resolution.
     """
+    def _finalize(page_xml: str) -> str:
+        page_xml = ensure_overview_panel_position(page_xml)
+        page_xml = ensure_legend_position(page_xml)
+        return center_unresolved_leaf_labels(page_xml)
+
     if "<mxfile" not in (xml or ""):
-        return ensure_legend_position(ensure_overview_panel_position(xml))
+        return _finalize(xml)
     try:
         tree = ET.fromstring(xml)
     except ET.ParseError:
         return xml
     names = [d.get("name") or f"Page-{i + 1}" for i, d in enumerate(tree.findall("diagram"))]
     if len(names) <= 1:
-        return ensure_legend_position(ensure_overview_panel_position(xml))
+        return _finalize(xml)
     pages: list[tuple[str, str]] = []
     for name in names:
         page = extract_page_by_name(xml, name) or xml
-        page = ensure_overview_panel_position(page)
-        page = ensure_legend_position(page)
-        pages.append((name, page))
+        pages.append((name, _finalize(page)))
     return merge_mxfile_pages(pages)
 
 

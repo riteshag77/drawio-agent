@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import glob
 import json
 import logging
 import os
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from logging.handlers import TimedRotatingFileHandler
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.adapters.outbound.config.env_config import get_config
@@ -86,14 +86,22 @@ _LOGGER.addHandler(_console)
 _log_dir = _config.log_dir
 try:
     os.makedirs(_log_dir, exist_ok=True)
-    # Rotates at midnight into drawio-agent.log.YYYY-MM-DD (TimedRotatingFileHandler's
-    # default suffix for when="midnight"); the active file stays at the same
-    # well-known drawio-agent.log path in between rollovers. backupCount prunes
-    # rotated files older than the retention window instead of keeping them forever.
-    _file = TimedRotatingFileHandler(
-        os.path.join(_log_dir, "drawio-agent.log"),
-        when="midnight",
-        backupCount=_config.log_retention_days,
+    # One file per calendar day, named at process start (drawio-agent-
+    # YYYY-MM-DD.log) — deliberately NOT TimedRotatingFileHandler(when=
+    # "midnight"), which rotates by renaming the active file at the moment a
+    # log record crosses midnight. That rename silently stopped working
+    # here: file logging went dead mid-session with no rotated
+    # ".2026-08-04"-suffixed file ever appearing, on Windows, under
+    # run.py's reload=True (which restarts the worker process — and Windows
+    # can refuse to rename a file another process, or even the same
+    # process's own still-open handle, has open). A plain FileHandler on an
+    # already-dated filename needs no rename at all, so there's nothing to
+    # fail; the tradeoff is a run that stays up across midnight keeps
+    # appending to the previous day's file instead of rolling over
+    # mid-process, which is a far smaller cost than losing all logging.
+    _log_date = datetime.now().strftime("%Y-%m-%d")
+    _file = logging.FileHandler(
+        os.path.join(_log_dir, f"drawio-agent-{_log_date}.log"),
         encoding="utf-8",
     )
     _file.setLevel(logging.DEBUG)
@@ -104,6 +112,17 @@ try:
         )
     )
     _LOGGER.addHandler(_file)
+
+    # Retention: prune files older than the window instead of relying on
+    # TimedRotatingFileHandler's backupCount (which pruned on its own
+    # rollover — now replaced by this per-start sweep).
+    _cutoff = datetime.now() - timedelta(days=_config.log_retention_days)
+    for _old_path in glob.glob(os.path.join(_log_dir, "drawio-agent-*.log")):
+        try:
+            if datetime.fromtimestamp(os.path.getmtime(_old_path)) < _cutoff:
+                os.remove(_old_path)
+        except OSError:
+            pass  # best-effort cleanup only
 except OSError:
     pass  # non-fatal: file logging unavailable
 

@@ -27,9 +27,11 @@ from typing import Any
 from app.adapters.outbound.diagram.xml_tools import (
     _cell_geometry,
     _find_diagram_root,
+    _format_style,
     _is_canvas_background_cell,
     _is_container_cell,
     _page_size,
+    _parse_style,
 )
 
 _RESERVED_IDS = {"0", "1"}
@@ -1405,6 +1407,57 @@ def ensure_overview_panel_parent_root(xml: str) -> str:
         if geom is not None:
             geom.set("x", str(abs_x))
             geom.set("y", str(abs_y))
+        changed = True
+    if not changed:
+        return xml
+    return _serialize_docroot(tree, root, is_mxfile, trimmed)
+
+
+#: A leaf still carrying this flat grey fill, with no mxgraph stencil/shape
+#: reference at all, never got a real icon — see diagram_edits._PLACEHOLDER_STYLE
+#: and compiler/theme.py's leaf_style base (both use this exact fill for a
+#: leaf pending — or, if MCP never resolves it, permanently lacking — an icon).
+_UNRESOLVED_LEAF_FILLS = ("#f5f5f5", "#F5F5F5")
+
+
+def center_unresolved_leaf_labels(xml: str) -> str:
+    """A leaf with no resolved icon reads far more like intentional content,
+    not a broken/tiny icon, with its name centered inside the box instead of
+    left in the "caption below an icon" position that convention uses for
+    every leaf that DOES have one.
+
+    Runs after MCP resolution finishes (repair_xml's own pass runs before
+    it — see xml_pipeline.py) so it only ever touches what's STILL
+    unresolved at that point, never something MCP simply hadn't gotten to
+    yet. No-ops on anything with a real stencil/shape reference.
+    """
+    parsed = _parse_docroot(xml)
+    if parsed is None:
+        return xml
+    tree, root, is_mxfile, trimmed = parsed
+    changed = False
+    for cell in root.iter("mxCell"):
+        if cell.get("vertex") != "1" or cell.get("edge") == "1":
+            continue
+        style = cell.get("style") or ""
+        if not style or "mxgraph." in style or "resIcon=" in style or "prIcon=" in style:
+            continue  # has a real stencil — not an unresolved placeholder
+        if not any(f"fillColor={c}" in style for c in _UNRESOLVED_LEAF_FILLS):
+            continue
+        if (
+            _is_container_cell(cell) or _is_overview_panel_cell(cell)
+            or _is_legend_cell(cell) or _is_step_badge_cell(cell)
+        ):
+            continue
+        style_map = _parse_style(style)
+        if style_map.get("verticalAlign") == "middle" and "verticalLabelPosition" not in style_map:
+            continue  # already centered — idempotent
+        style_map.pop("verticalLabelPosition", None)
+        style_map.pop("labelPosition", None)
+        style_map["verticalAlign"] = "middle"
+        style_map["align"] = "center"
+        style_map.setdefault("fontColor", "#333333")  # dark, readable on the light grey fill
+        cell.set("style", _format_style(style_map))
         changed = True
     if not changed:
         return xml

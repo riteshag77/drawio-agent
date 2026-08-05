@@ -881,6 +881,19 @@ def _format_style(parts: dict[str, str]) -> str:
     return text if text.endswith(";") or not text else text + ";"
 
 
+#: search_shapes returns inconsistently detailed styles per icon — confirmed
+#: directly from live capture logs (the raw pre-merge MCP response): most
+#: resourceIcon/productIcon stencils come back with rounded=0;strokeWidth=1;
+#: labelPosition=center, but some omit all three. Since the merge below only
+#: overrides keys the MCP style actually specifies, an icon missing these
+#: fell back to the add_node placeholder's own rougher defaults (rounded=1,
+#: no border) — visibly different from every other, more fully templated
+#: icon on the same page even though both resolved "successfully." Filled in
+#: only when NEITHER side specifies them, so an explicit value from either
+#: the placeholder or MCP always wins.
+_RESOURCE_ICON_DEFAULTS = {"rounded": "0", "strokeWidth": "1", "labelPosition": "center"}
+
+
 def merge_drawio_styles(base: str, mcp: str) -> str:
     """Merge MCP stencil style into an LLM placeholder style.
 
@@ -898,6 +911,17 @@ def merge_drawio_styles(base: str, mcp: str) -> str:
     for key in _STYLE_PRESERVE_KEYS:
         if key in base_map:
             merged[key] = base_map[key]
+    mcp_low = mcp.lower()
+    if "resourceicon" in mcp_low or "producticon" in mcp_low:
+        # MCP wins if it specifies one of these; otherwise force the clean
+        # canonical default — NOT merged.setdefault(), which would be a
+        # no-op here: the placeholder always already supplies rounded=1
+        # (see diagram_edits._PLACEHOLDER_STYLE), so the key is never
+        # actually "missing" from merged, only missing from what MCP itself
+        # returned.
+        for key, value in _RESOURCE_ICON_DEFAULTS.items():
+            if key not in mcp_map:
+                merged[key] = value
     return _format_style(merged)
 
 
