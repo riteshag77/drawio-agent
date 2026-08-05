@@ -389,12 +389,20 @@ async function sendMessage(options = {}) {
 
         clearAttachments();
 
+        // NOTE: a response missing cost_estimate/well_architected/compliance means
+        // *this turn* didn't compute it (e.g. a surgical edit, a non-"network" view
+        // this request, or a simple/Mermaid diagram) — it does NOT mean the user
+        // wants the setting off. Only the explicit hide*Panel()/voice "hide X panel"
+        // path may uncheck the toggle and persist that to localStorage; a response
+        // handler must re-sync the panel to whatever the toggle already says
+        // (toggle*Panel()), never flip the toggle itself, or a single unrelated
+        // request permanently disables a setting the user turned on.
         try {
             if (data.cost_estimate) {
                 displayCostEstimate(data.cost_estimate);
                 updateRightPanelVisibility();
-            } else {
-                hideCostEstimate();
+            } else if (typeof toggleCostPanelPreview === 'function') {
+                toggleCostPanelPreview();
             }
         } catch (e) { console.error('Cost panel error', e); }
 
@@ -403,8 +411,8 @@ async function sendMessage(options = {}) {
                 displayWellArchitected(data.well_architected);
                 updateRightPanelVisibility();
                 if (typeof requestDrawioFocusOnLoad === 'function') requestDrawioFocusOnLoad('Network', data.xml);
-            } else {
-                hideWellArchitectedPanel();
+            } else if (typeof toggleWellArchitectedPanel === 'function') {
+                toggleWellArchitectedPanel();
             }
         } catch (e) { console.error('WAF panel error', e); }
 
@@ -416,7 +424,7 @@ async function sendMessage(options = {}) {
                 if (typeof requestDrawioFocusOnLoad === 'function') requestDrawioFocusOnLoad('Network', data.xml);
             } else {
                 window._lastComplianceData = null;
-                hideCompliancePanel();
+                if (typeof toggleCompliancePanel === 'function') toggleCompliancePanel();
             }
         } catch (e) { console.error('Compliance panel error', e); }
 

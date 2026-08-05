@@ -52,8 +52,13 @@ _EDIT_PLAN_SYSTEM = """You plan surgical edits to an existing draw.io architectu
 Given the user request and a summary of current cell ids/labels, output a DiagramEditPlan.
 Set applicable=true ONLY if a small set of ops fully satisfies the request (add/remove/connect/move/relabel).
 Set applicable=false for redesigns, layout overhauls, or when you are unsure — the system will regenerate.
+If the request is a numbered/bulleted list of separate findings (e.g. compliance or Well-Architected
+gaps), it is one request with multiple parts — every part needs its own op(s), not just the first
+or easiest few. Do not stop after satisfying some of the items: either cover all of them or set
+applicable=false so the system regenerates the whole diagram instead of half-applying the list.
 Never invent ids that must already exist unless op is add_node (then provide a new id).
-For add_node, include shape_type for leaf services and a reasonable parent id from the diagram.
+For add_node, include shape_type for leaf services and a reasonable parent id from the diagram;
+omit x/y and the system will place the node for you, clear of every existing sibling.
 When suggestions are requested, always fill `suggestions` with 2–3 concrete follow-up improvements.
 """
 

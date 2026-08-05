@@ -231,6 +231,13 @@ async def _run_chat(body: ChatRequest, logger: StepLogger, *, on_progress=None) 
             # The mermaid/"simple" path never forwards attachments to the LLM — only
             # run_xml_pipeline does, so an attached file must not be routed away from it.
             intent = "cloud"
+        if intent == "simple" and (body.cost_estimate or body.well_architected or body.compliance):
+            # Cost/Well-Architected/Compliance are cloud-only insights — _mermaid_response
+            # never populates them. Routing to Mermaid here would silently return a
+            # response with none of the requested data (worse: on the very first
+            # message, before any current_xml exists for a later surgical edit to fix),
+            # making the toggle look broken/reset on the frontend for no reason.
+            intent = "cloud"
         if intent == "simple" and body.current_xml and len(body.current_xml) > 200:
             # A stale "simple" diagram_mode setting must never derail an in-progress
             # cloud-diagram edit (e.g. applying a WAF/Compliance suggestion) onto the

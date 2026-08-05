@@ -78,6 +78,69 @@ def _ensure_geometry(cell: ET.Element, x: float, y: float, w: float = 78, h: flo
         geom.set("relative", "1")
 
 
+#: Grid pitch for auto-placed add_node cells — matches the compiler's own
+#: leaf pitch (geometry_spec.DATA_CANONICAL_PITCH / ROW_PITCH_Y) closely
+#: enough to look intentional, without importing the compiler's constants
+#: into an unrelated surgical-edit module.
+_PLACE_PITCH_X = 200.0
+_PLACE_PITCH_Y = 130.0
+_PLACE_PAD = 10.0
+
+
+def _sibling_rects(cells: dict[str, ET.Element], parent: str) -> list[tuple[float, float, float, float]]:
+    """Geometry of every existing vertex sharing ``parent`` — the collision set
+    a newly added node under that same parent must clear."""
+    rects: list[tuple[float, float, float, float]] = []
+    for cell in cells.values():
+        if cell.get("vertex") != "1" or cell.get("parent") != parent:
+            continue
+        geom = cell.find("mxGeometry")
+        if geom is None:
+            continue
+        try:
+            rects.append((
+                float(geom.get("x", 0)), float(geom.get("y", 0)),
+                float(geom.get("width", 78)), float(geom.get("height", 78)),
+            ))
+        except (TypeError, ValueError):
+            continue
+    return rects
+
+
+def _rects_overlap(a: tuple[float, float, float, float], b: tuple[float, float, float, float]) -> bool:
+    ax, ay, aw, ah = a
+    bx, by, bw, bh = b
+    return (
+        ax < bx + bw + _PLACE_PAD and bx < ax + aw + _PLACE_PAD
+        and ay < by + bh + _PLACE_PAD and by < ay + ah + _PLACE_PAD
+    )
+
+
+def _place_new_node(
+    rects: list[tuple[float, float, float, float]],
+    desired_x: float | None, desired_y: float | None,
+    w: float = 78.0, h: float = 78.0,
+) -> tuple[float, float]:
+    """Pick a spot for a new sibling that doesn't land on top of an existing one.
+
+    Trusts an explicit, non-colliding (x, y) from the LLM as-is. Otherwise
+    (omitted, or colliding — e.g. two ``add_node`` ops in the same batch both
+    defaulting to the same spot) scans a grid to the right of the parent's
+    existing content until it finds a free cell.
+    """
+    if desired_x is not None and desired_y is not None:
+        if not any(_rects_overlap((desired_x, desired_y, w, h), r) for r in rects):
+            return desired_x, desired_y
+    base_x = desired_x if desired_x is not None else (max((r[0] + r[2] for r in rects), default=40.0) + 80.0)
+    base_y = desired_y if desired_y is not None else min((r[1] for r in rects), default=40.0)
+    for row in range(40):
+        for col in range(8):
+            x, y = base_x + col * _PLACE_PITCH_X, base_y + row * _PLACE_PITCH_Y
+            if not any(_rects_overlap((x, y, w, h), r) for r in rects):
+                return x, y
+    return base_x, base_y
+
+
 def apply_diagram_edits(xml: str, plan: DiagramEditPlan) -> str:
     """Apply surgical ops to ``xml``. Raises ValueError on unusable input.
 
@@ -125,7 +188,9 @@ def _apply_one(
         })
         if op.shape_type:
             cell.set("shape_type", op.shape_type)
-        _ensure_geometry(cell, op.x if op.x is not None else 40, op.y if op.y is not None else 40)
+        rects = _sibling_rects(cells, parent)
+        x, y = _place_new_node(rects, op.x, op.y)
+        _ensure_geometry(cell, x, y)
         cells[cid] = cell
         existing.add(cid)
         return

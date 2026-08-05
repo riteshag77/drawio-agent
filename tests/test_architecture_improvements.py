@@ -163,6 +163,47 @@ class SurgicalEditTests(unittest.TestCase):
         edges = [(c.get("source"), c.get("target")) for c in tree.iter("mxCell") if c.get("edge") == "1"]
         self.assertEqual(edges, [])
 
+    def test_add_node_batch_does_not_overlap(self):
+        """Several add_node ops in one plan (e.g. applying a batch of compliance/WAF
+        gap findings) must each land clear of existing siblings and each other —
+        not stacked on the same default (or duplicate LLM-supplied) coordinate."""
+        base = (
+            '<mxfile><diagram><mxGraphModel><root>'
+            '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            '<mxCell id="app" value="App" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/>'
+            '</mxCell>'
+            '</root></mxGraphModel></diagram></mxfile>'
+        )
+        plan = DiagramEditPlan(applicable=True, ops=[
+            DiagramEditOp(op="add_node", id="kms", label="KMS", shape_type="aws_kms", parent="1"),
+            DiagramEditOp(op="add_node", id="waf", label="WAF", shape_type="aws_waf", parent="1"),
+            # Explicit but colliding coordinate — mirrors an LLM repeating a default.
+            DiagramEditOp(op="add_node", id="shield", label="Shield", shape_type="aws_shield", parent="1", x=40, y=40),
+        ])
+        out = apply_diagram_edits(base, plan)
+        tree = ET.fromstring(out)
+        rects = []
+        for c in tree.iter("mxCell"):
+            if c.get("vertex") == "1":
+                g = c.find("mxGeometry")
+                rects.append((
+                    c.get("id"), float(g.get("x")), float(g.get("y")),
+                    float(g.get("width")), float(g.get("height")),
+                ))
+
+        def overlaps(a, b):
+            _, ax, ay, aw, ah = a
+            _, bx, by, bw, bh = b
+            return ax < bx + bw and bx < ax + aw and ay < by + bh and by < ay + ah
+
+        for i in range(len(rects)):
+            for j in range(i + 1, len(rects)):
+                self.assertFalse(
+                    overlaps(rects[i], rects[j]),
+                    f"{rects[i][0]} overlaps {rects[j][0]}: {rects[i]} vs {rects[j]}",
+                )
+
     def test_relabel_keeps_ir_layout_marker(self):
         """Label-only edits must not unlock fit (preserves corridor band)."""
         base = (
