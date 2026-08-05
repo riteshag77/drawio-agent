@@ -172,6 +172,23 @@ class SemanticRuleTests(unittest.TestCase):
         # Missing public/edge/gateway is a warning (corrective pass), not a hard error.
         self.assertTrue(any("ingress" in w for w in ir.semantic_warnings()))
 
+    def test_partial_orphan_actor_is_an_error(self) -> None:
+        ir = self._ir_with_security_group()
+        ir.external_actors = [
+            ExternalActor(id="users", kind="users", label="Users"),
+            ExternalActor(id="partner", kind="saas_egress", label="Partner API"),
+        ]
+        ir.flows = [Flow(source="users", target="ecs1")]  # "partner" never touches a flow
+        errors = ir.semantic_errors()
+        self.assertTrue(any("partner" in e and "no flow" in e for e in errors))
+
+    def test_all_actors_connected_reports_no_orphan_error(self) -> None:
+        ir = self._ir_with_security_group()
+        ir.external_actors = [ExternalActor(id="users", kind="users", label="Users")]
+        ir.flows = [Flow(source="users", target="ecs1")]
+        errors = ir.semantic_errors()
+        self.assertFalse(any("no flow" in e for e in errors))
+
     def test_four_plus_leaves_require_two_subnet_tiers(self) -> None:
         leaves = [_leaf(f"svc{i}") for i in range(4)]
         zone = AvailabilityZone(

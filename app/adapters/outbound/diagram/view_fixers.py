@@ -85,33 +85,78 @@ def _parse(page_xml: str, title: str) -> ET.Element | None:
 def _splice_through_dropped_nodes(
     root: ET.Element, drop_ids: set[str],
 ) -> list[ET.Element]:
-    """Rewire edges through a dropped pass-through node instead of deleting them.
+    """Rewire edges through dropped pass-through nodes instead of deleting them.
 
     A node like a NAT Gateway relaying app→SaaS egress is forbidden in the
     Security view, but the *connection* it represents (app calls SaaS) is
     real and should survive as a direct edge — otherwise dropping the node
     silently erases the relationship from the diagram instead of just its
     (out-of-scope) mechanism.
+
+    Walks the full chain when *consecutive* nodes are dropped (e.g. Logical
+    hides both CDN and ALB, sitting back-to-back as ``Users -> CDN -> ALB ->
+    App``) — a single-hop-only bridge would need each dropped node's
+    neighbor to already be a survivor, which isn't true mid-chain, so it
+    would silently drop the whole run instead of bridging it.
     """
     edges = [c for c in root.findall("mxCell") if c.get("edge") == "1"]
+    # Seed with surviving (non-dropped) edges so a cross-product bridge is
+    # never synthesized where a direct edge already connects two surviving
+    # nodes — dedup spans both pre-existing and newly-spliced pairs.
+    seen_pairs = {
+        (e.get("source") or "", e.get("target") or "")
+        for e in edges
+        if (e.get("source") or "") not in drop_ids and (e.get("target") or "") not in drop_ids
+    }
+    out_by_source: dict[str, list[ET.Element]] = {}
+    for e in edges:
+        src = e.get("source") or ""
+        if src:
+            out_by_source.setdefault(src, []).append(e)
+
+    def _terminal_edges(node: str, visiting: frozenset[str]) -> list[tuple[str, ET.Element]]:
+        """Every (surviving target, last-hop edge) reachable by walking
+        forward from ``node`` through a run of dropped nodes.
+
+        ``visiting`` guards against a cycle inside the dropped run turning
+        this into an infinite recursion.
+        """
+        if node in visiting:
+            return []
+        visiting = visiting | {node}
+        found: list[tuple[str, ET.Element]] = []
+        for out_edge in out_by_source.get(node, ()):
+            tgt = out_edge.get("target") or ""
+            if not tgt:
+                continue
+            if tgt in drop_ids:
+                found.extend(_terminal_edges(tgt, visiting))
+            else:
+                found.append((tgt, out_edge))
+        return found
+
     spliced: list[ET.Element] = []
-    for did in drop_ids:
-        incoming = [e for e in edges if e.get("target") == did and (e.get("source") or "") not in drop_ids]
-        outgoing = [e for e in edges if e.get("source") == did and (e.get("target") or "") not in drop_ids]
-        if not incoming or not outgoing:
+    i = 0
+    for anchor_edge in edges:
+        src = anchor_edge.get("source") or ""
+        first_hop = anchor_edge.get("target") or ""
+        if not src or src in drop_ids or first_hop not in drop_ids:
             continue
-        in_edge = incoming[0]
-        for i, out_edge in enumerate(outgoing):
+        for tgt, terminal_edge in _terminal_edges(first_hop, frozenset({src})):
+            if not tgt or src == tgt or (src, tgt) in seen_pairs:
+                continue
+            seen_pairs.add((src, tgt))
             new_edge = ET.Element("mxCell")
-            new_edge.set("id", f"{did}_splice_{i}")
+            new_edge.set("id", f"splice_{i}")
+            i += 1
             new_edge.set("edge", "1")
-            new_edge.set("parent", out_edge.get("parent") or in_edge.get("parent") or "1")
-            new_edge.set("source", in_edge.get("source") or "")
-            new_edge.set("target", out_edge.get("target") or "")
-            label = out_edge.get("value") or in_edge.get("value") or ""
+            new_edge.set("parent", terminal_edge.get("parent") or anchor_edge.get("parent") or "1")
+            new_edge.set("source", src)
+            new_edge.set("target", tgt)
+            label = terminal_edge.get("value") or anchor_edge.get("value") or ""
             if label:
                 new_edge.set("value", label)
-            style = out_edge.get("style") or in_edge.get("style") or ""
+            style = terminal_edge.get("style") or anchor_edge.get("style") or ""
             if style:
                 new_edge.set("style", style)
             geom = ET.SubElement(new_edge, "mxGeometry")

@@ -794,6 +794,58 @@ class ResolveDuplicateIdsTests(unittest.TestCase):
         _, diag = repair_xml(xml)
         self.assertEqual([e for e in diag.errors if "duplicate id" in e], [])
 
+    def test_default_call_without_warnings_list_is_unaffected(self) -> None:
+        xml = _wrap(
+            '<mxCell id="dup" value="First" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="dup" value="Second" vertex="1" parent="1">'
+            '<mxGeometry x="300" y="0" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        out = resolve_duplicate_ids(xml)  # positional-only call, no crash
+        tree = ET.fromstring(out)
+        ids = [c.get("id") for c in tree.iter("mxCell")]
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_rebind_warning_fires_when_an_edge_references_a_deduped_id(self) -> None:
+        xml = _wrap(
+            '<mxCell id="dup" value="First" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="dup" value="Second" vertex="1" parent="1">'
+            '<mxGeometry x="300" y="0" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="other" value="Other" vertex="1" parent="1">'
+            '<mxGeometry x="600" y="0" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="e1" edge="1" parent="1" source="other" target="dup">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        warnings: list[str] = []
+        resolve_duplicate_ids(xml, warnings)
+        self.assertTrue(any("dup" in w for w in warnings))
+
+    def test_no_warning_when_no_edge_references_the_duplicated_id(self) -> None:
+        xml = _wrap(
+            '<mxCell id="dup" value="First" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="dup" value="Second" vertex="1" parent="1">'
+            '<mxGeometry x="300" y="0" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        warnings: list[str] = []
+        resolve_duplicate_ids(xml, warnings)
+        self.assertEqual(warnings, [])
+
+    def test_repair_xml_surfaces_rebind_warning(self) -> None:
+        xml = _wrap(
+            '<mxCell id="dup" value="First" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="dup" value="Second" vertex="1" parent="1">'
+            '<mxGeometry x="300" y="0" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="other" value="Other" vertex="1" parent="1">'
+            '<mxGeometry x="600" y="0" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="e1" edge="1" parent="1" source="other" target="dup">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        _, diag = repair_xml(xml)
+        self.assertTrue(any("dup" in w for w in diag.warnings))
+
 
 class ResolveOrphanedParentsTests(unittest.TestCase):
     def test_cell_with_missing_parent_is_reparented_to_root(self) -> None:

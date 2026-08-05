@@ -634,6 +634,13 @@ function markInsightItemsApplied(items) {
     refreshUnifiedInsightControls();
 }
 
+function _setInsightApplyButtonsDisabled(disabled) {
+    var selBtn = document.getElementById('insight-apply-selected');
+    var allBtn = document.getElementById('insight-apply-all');
+    if (selBtn) selBtn.disabled = disabled;
+    if (allBtn) allBtn.disabled = disabled;
+}
+
 function initInsightSelection() {
     var selectAllCb = document.getElementById('insight-select-all');
     var selBtn = document.getElementById('insight-apply-selected');
@@ -650,7 +657,6 @@ function initInsightSelection() {
         selBtn.onclick = function () {
             var items = allInsightItems().filter(function (r) { return !r.checkbox.disabled && r.checkbox.checked; });
             if (items.length === 0) { if (typeof showError === 'function') showError('Select at least one finding to apply.'); return; }
-            markInsightItemsApplied(items);
             applyInsightFixes(items);
         };
     }
@@ -658,26 +664,60 @@ function initInsightSelection() {
         allBtn.onclick = function () {
             var items = allInsightItems().filter(function (r) { return !r.checkbox.disabled; });
             if (items.length === 0) { if (typeof showError === 'function') showError('All findings are already applied.'); return; }
-            markInsightItemsApplied(items);
             applyInsightFixes(items);
         };
     }
 }
 
-function applyInsightFixes(items) {
+async function applyInsightFixes(items) {
     if (!items || items.length === 0) return;
     var text = 'Please update the diagram to address the following:\n' + items.map(function (it, i) {
         var line = (i + 1) + '. ' + it.message;
-        if (it.recommendation) line += ' — ' + it.recommendation;
+        if (it.missing_services && it.missing_services.length) {
+            line += ' — Add one of: ' + it.missing_services.join(', ') + '.';
+            if (it.recommendation) line += ' (' + it.recommendation + ')';
+        } else if (it.recommendation) {
+            line += ' — ' + it.recommendation;
+        }
         return line;
     }).join('\n');
-    items.forEach(function (it) { appliedInsightKeys.add(it.key); });
     var input = document.getElementById('chat-input');
     if (input) {
         input.value = text;
         if (typeof autoResizeChatInput === 'function') autoResizeChatInput();
     }
-    sendMessage();
+
+    var xmlBefore = currentXml;
+    _setInsightApplyButtonsDisabled(true);
+    try {
+        var result = await sendMessage();
+        if (!result || result.outcome !== 'success') return; // error/stopped toast already shown by finishChatRun
+
+        var xmlAfter = currentXml;
+        var xmlAfterLower = (xmlAfter || '').toLowerCase();
+        var anyChange = xmlAfter !== xmlBefore;
+        var satisfied = items.filter(function (it) {
+            var svcs = it.missing_services || [];
+            if (!svcs.length) return anyChange; // no concrete hint — fall back to "did anything change"
+            return svcs.some(function (s) {
+                return xmlAfterLower.indexOf('shape_type="' + s.toLowerCase() + '"') !== -1;
+            });
+        });
+        satisfied.forEach(function (it) { appliedInsightKeys.add(it.key); });
+        if (satisfied.length) markInsightItemsApplied(satisfied);
+
+        if (satisfied.length === 0) {
+            if (typeof showToast === 'function') {
+                showToast('The diagram did not change — try rephrasing or applying findings individually.', 'warning');
+            }
+        } else if (satisfied.length < items.length) {
+            if (typeof showToast === 'function') {
+                showToast('Applied ' + satisfied.length + ' of ' + items.length + ' findings — the rest may need a follow-up request.', 'warning');
+            }
+        }
+    } finally {
+        _setInsightApplyButtonsDisabled(false);
+    }
 }
 
 function displayWellArchitected(wafData) {
@@ -758,7 +798,7 @@ function displayWellArchitected(wafData) {
                 badge.textContent = 'Applied';
                 badge.hidden = !applied;
                 text.appendChild(badge);
-                wafItems.push({ key: key, message: f.message || '', recommendation: f.recommendation, checkbox: cb, badge: badge });
+                wafItems.push({ key: key, message: f.message || '', recommendation: f.recommendation, missing_services: f.missing_services || [], checkbox: cb, badge: badge });
             }
             finding.appendChild(text);
             div.appendChild(finding);
@@ -933,7 +973,7 @@ function switchComplianceTab(fwId) {
         if (!finding) return;
         var badge = cb.parentElement.querySelector('.suggestion-applied-badge');
         var key = 'compliance:' + fwId + ':' + ctrlIdx + ':' + findingIdx;
-        complianceItems.push({ key: key, message: finding.message || '', recommendation: finding.recommendation, checkbox: cb, badge: badge });
+        complianceItems.push({ key: key, message: finding.message || '', recommendation: finding.recommendation, missing_services: finding.missing_services || [], checkbox: cb, badge: badge });
         cb.addEventListener('change', refreshUnifiedInsightControls);
     });
 

@@ -249,6 +249,7 @@ class NetworkIR(DiagramIR):
                 "flows is empty but external_actors is not — add the edges connecting "
                 "actors into the network; actors with no connections are not useful"
             )
+        errors.extend(self._external_actor_orphan_errors())
 
         for flow in self.flows:
             if flow.source in forbidden or flow.target in forbidden:
@@ -288,6 +289,31 @@ class NetworkIR(DiagramIR):
                     "public/app/data (e.g. public edge + app, or app + data)"
                 )
         return errors
+
+    def _external_actor_orphan_errors(self) -> list[str]:
+        """Every external actor must touch at least one flow.
+
+        Mirrors ``CorridorIR._orphan_errors`` but scoped to ``external_actors``
+        only — NOT leaves. Network conveys meaning through container nesting (a
+        passive leaf like CloudWatch sitting in a subnet with no drawn edge is
+        valid, same reasoning Security/Data-flow use to opt leaves out of the
+        corridor version of this check); an external actor with nothing to
+        connect to is never intentional, exactly like the total-empty-flows
+        check above — this catches the *partial* case where some actors are
+        wired in and one or more others are not.
+        """
+        touched: set[str] = set()
+        for flow in self.flows:
+            touched.add(flow.source)
+            touched.add(flow.target)
+        orphans = sorted(a.id for a in self.external_actors if a.id not in touched)
+        if not orphans:
+            return []
+        return [
+            f"these external actors have no flow connecting them to the network: "
+            f"{', '.join(orphans)} — an actor with no connections is not useful, "
+            "connect each one or remove it"
+        ]
 
     def semantic_warnings(self) -> list[str]:
         """Judgment-call thoroughness — one best-effort IR correction, never blocks."""

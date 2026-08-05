@@ -561,7 +561,7 @@ def resolve_reserved_id_reuse(xml: str) -> str:
     return _serialize_docroot(tree, root, is_mxfile, trimmed)
 
 
-def resolve_duplicate_ids(xml: str) -> str:
+def resolve_duplicate_ids(xml: str, warnings: list[str] | None = None) -> str:
     """Rename earlier occurrences of a duplicate id, keeping the last one.
 
     Every other id-keyed lookup in this file already treats the *last*
@@ -577,6 +577,12 @@ def resolve_duplicate_ids(xml: str) -> str:
     resolvable without semantic judgment, but this never produces a
     dangling reference or drops content. Reserved ids are
     ``resolve_reserved_id_reuse``'s job, not this fixer's — must run after it.
+
+    ``warnings``, if given, gets one entry per rebind that a surviving edge
+    could plausibly be affected by — defense in depth only (see above: which
+    occurrence an edge "meant" is inherently ambiguous, so this can't
+    distinguish a correct reference from a silently-rebound one, it can only
+    flag that duplicates existed and an edge touches the surviving id).
     """
     parsed = _parse_docroot(xml)
     if parsed is None:
@@ -586,6 +592,7 @@ def resolve_duplicate_ids(xml: str) -> str:
     cells = [c for c in root.findall("mxCell") if c.get("id")]
     existing_ids = {c.get("id") for c in cells}
     seen_from_end: set[str] = set()
+    renamed_original_ids: set[str] = set()
     changed = False
     for cell in reversed(cells):
         cid = cell.get("id") or ""
@@ -594,8 +601,25 @@ def resolve_duplicate_ids(xml: str) -> str:
         if cid in seen_from_end:
             cell.set("id", _fresh_id(cid, existing_ids))
             changed = True
+            renamed_original_ids.add(cid)
         else:
             seen_from_end.add(cid)
+
+    if changed and warnings is not None:
+        referencing = {
+            cid for cid in renamed_original_ids
+            if any(
+                c.get("edge") == "1" and (c.get("source") == cid or c.get("target") == cid)
+                for c in cells
+            )
+        }
+        if referencing:
+            warnings.append(
+                f"duplicate id(s) {', '.join(sorted(referencing))} were resolved by keeping the "
+                "last occurrence in document order — any edge referencing that id now silently "
+                "binds to the kept cell, which may not be the element originally intended "
+                "(verify edges near these ids point at the expected shapes)"
+            )
 
     if not changed:
         return xml
@@ -2133,8 +2157,9 @@ def repair_xml(xml: str) -> tuple[str, XmlDiagnostics]:
     re-lays out corridors/leaves. The same thin chain runs for IR and for
     rare non-IR (3D / surgical) pages — LLM-era pitch/journey mutators are gone.
     """
+    dup_id_warnings: list[str] = []
     fixed = resolve_reserved_id_reuse(xml)
-    fixed = resolve_duplicate_ids(fixed)
+    fixed = resolve_duplicate_ids(fixed, dup_id_warnings)
     fixed = resolve_orphaned_parents(fixed)
     fixed = resolve_parent_cycles(fixed)
     fixed = ensure_valid_vertex_geometry(fixed)
@@ -2173,4 +2198,6 @@ def repair_xml(xml: str) -> tuple[str, XmlDiagnostics]:
     fixed = ensure_legend_position(fixed)
     fixed = ensure_overview_panel_parent_root(fixed)
     fixed = move_overview_and_legend_to_end(fixed)
-    return fixed, diagnose_xml(fixed)
+    diagnostics = diagnose_xml(fixed)
+    diagnostics.warnings.extend(dup_id_warnings)
+    return fixed, diagnostics

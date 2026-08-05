@@ -335,7 +335,7 @@ async function sendMessage(options = {}) {
                 outcome: 'success',
                 message: 'Answer the interview questions in chat, then send again.',
             });
-            return;
+            return { outcome: 'success' };
         }
 
         pendingInterviewAnswers = null;
@@ -447,6 +447,7 @@ async function sendMessage(options = {}) {
             message: 'Done — diagram updated. Pan and zoom in the preview.',
         });
         appendVerboseLog('client', 'Chat turn complete', 'success');
+        return { outcome: 'success' };
     } catch (err) {
         console.error(err);
         if (options.platformConvert && options.previousPlatform) {
@@ -459,6 +460,7 @@ async function sendMessage(options = {}) {
                 outcome: 'stopped',
                 message: 'Stopped — edit your message and send again when ready.',
             });
+            return { outcome: 'stopped' };
         } else {
             if (!options.skipInput || !options.platformConvert) chatMessages.pop();
             setTyping(false);
@@ -467,6 +469,7 @@ async function sendMessage(options = {}) {
                 outcome: 'error',
                 message: err.message || 'Request failed. Check the server logs.',
             });
+            return { outcome: 'error' };
         }
     } finally {
         chatAbortController = null;

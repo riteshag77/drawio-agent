@@ -124,6 +124,29 @@ class ViewFixerTests(unittest.TestCase):
         self.assertIn("app", ids)
         self.assertIn("db", ids)
 
+    def test_drop_forbidden_bridges_all_incoming_sources(self) -> None:
+        """Fan-in > 1 into a forbidden pass-through node: every incoming
+        source must be bridged to the outgoing target, not just the first."""
+        xml = _wrap(
+            _leaf("app1", "Orders API", 40, "aws_ecs")
+            + _leaf("app2", "Billing API", 40, "aws_ecs")
+            + _leaf("nat", "NAT Gateway", 240, "aws_waf")
+            + _leaf("saas", "Stripe", 440, "aws_ecs")
+            + '<mxCell id="e1" edge="1" parent="1" source="app1" target="nat" value="Egress">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+            + '<mxCell id="e2" edge="1" parent="1" source="app2" target="nat" value="Egress">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+            + '<mxCell id="e3" edge="1" parent="1" source="nat" target="saas" value="Calls">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        out = drop_forbidden_nodes(xml, view="logical")
+        tree = ET.fromstring(out)
+        ids = {c.get("id") for c in tree.iter("mxCell")}
+        self.assertNotIn("nat", ids)
+        edges = {(c.get("source"), c.get("target")) for c in tree.iter("mxCell") if c.get("edge") == "1"}
+        self.assertIn(("app1", "saas"), edges)
+        self.assertIn(("app2", "saas"), edges)
+
     def test_relabel_preserves_shape_type(self) -> None:
         xml = _wrap(_leaf("db", "Aurora", 40, "aws_rds"))
         out = relabel_generic_data_stores(xml, view="logical")

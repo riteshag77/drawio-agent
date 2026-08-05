@@ -45,6 +45,27 @@ def _new_id(prefix: str, existing: set[str]) -> str:
     return f"{prefix}_{uuid.uuid4().hex}"
 
 
+def _edge_exists(cells: dict[str, ET.Element], source: str, target: str) -> bool:
+    return any(
+        cell.get("edge") == "1" and cell.get("source") == source and cell.get("target") == target
+        for cell in cells.values()
+    )
+
+
+def _new_edge_cell(root: ET.Element, eid: str, source: str, target: str, label: str, style: str) -> ET.Element:
+    cell = ET.SubElement(root, "mxCell", {
+        "id": eid,
+        "value": label or "",
+        "style": style or _EDGE_STYLE,
+        "edge": "1",
+        "parent": "1",
+        "source": source,
+        "target": target,
+    })
+    ET.SubElement(cell, "mxGeometry", {"relative": "1", "as": "geometry"})
+    return cell
+
+
 def _ensure_geometry(cell: ET.Element, x: float, y: float, w: float = 78, h: float = 78) -> None:
     geom = cell.find("mxGeometry")
     if geom is None:
@@ -112,6 +133,34 @@ def _apply_one(
     if kind == "delete_node":
         if not op.id or op.id not in cells:
             return
+        # Bridge predecessor -> successor around the deleted node before it's
+        # gone, so removing a pass-through step (e.g. "delete the cache")
+        # doesn't sever the chain it sat in. Single-hop only — edges into/out
+        # of op.id itself, not through cascaded children — mirroring
+        # CorridorIR._bridge_removed_leaves's cross-product approach.
+        incoming = [
+            c for c in cells.values() if c.get("edge") == "1" and c.get("target") == op.id
+        ]
+        outgoing = [
+            c for c in cells.values() if c.get("edge") == "1" and c.get("source") == op.id
+        ]
+        bridges: list[tuple[str, str, str, str]] = []  # (source, target, label, style)
+        seen_pairs: set[tuple[str, str]] = set()
+        for in_edge in incoming:
+            src = in_edge.get("source") or ""
+            if not src or src not in cells:
+                continue
+            for out_edge in outgoing:
+                tgt = out_edge.get("target") or ""
+                if not tgt or tgt not in cells:
+                    continue
+                if src == tgt or (src, tgt) in seen_pairs or _edge_exists(cells, src, tgt):
+                    continue
+                seen_pairs.add((src, tgt))
+                label = out_edge.get("value") or in_edge.get("value") or ""
+                style = out_edge.get("style") or in_edge.get("style") or ""
+                bridges.append((src, tgt, label, style))
+
         # Cascade: children of this node, then edges touching any removed id.
         to_remove = {op.id}
         changed = True
@@ -135,6 +184,12 @@ def _apply_one(
             root.remove(cell)
             cells.pop(eid, None)
             existing.discard(eid)
+
+        for src, tgt, label, style in bridges:
+            eid = _new_id("e", existing)
+            cell = _new_edge_cell(root, eid, src, tgt, label, style)
+            cells[eid] = cell
+            existing.add(eid)
         return
 
     if kind == "relabel":
@@ -168,6 +223,10 @@ def _apply_one(
             return
         if op.source not in cells or op.target not in cells:
             return
+        if op.source == op.target:
+            return  # self-loop is never meaningful
+        if _edge_exists(cells, op.source, op.target):
+            return  # exact duplicate — no-op
         eid = op.edge_id if op.edge_id and op.edge_id not in existing else _new_id("e", existing)
         cell = ET.SubElement(root, "mxCell", {
             "id": eid,
@@ -195,6 +254,7 @@ def _apply_one(
                     root.remove(cell)
                     cells.pop(eid, None)
                     existing.discard(eid)
+                    break  # "disconnect A from B" means remove the connection, singular
 
 
 _SMALL_EDIT_RE = re.compile(

@@ -165,6 +165,7 @@ def _analyze_rule_based(
                 "message": ctrl.get("description", f"Missing {ctrl.get('name', ctrl_id)}"),
                 "recommendation": ctrl.get("recommendation", ""),
                 "affected_services": affected_list[:10],
+                "missing_services": required,
             })
             total_fail += 1
         else:

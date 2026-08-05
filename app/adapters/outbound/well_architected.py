@@ -77,7 +77,7 @@ PILLAR_SERVICE_MAP: dict[str, tuple[set[str], str, str]] = {
 }
 
 
-def _pillar_findings(pillar_key: str, services: list[str]) -> list[dict[str, str]]:
+def _pillar_findings(pillar_key: str, services: list[str], platform: str) -> list[dict[str, str]]:
     service_set, _, _ = PILLAR_SERVICE_MAP[pillar_key]
     matched = [s for s in services if s in service_set]
     unmatched = [s for s in services if s not in service_set]
@@ -94,10 +94,14 @@ def _pillar_findings(pillar_key: str, services: list[str]) -> list[dict[str, str
     for rec in missing:
         has_any = any(m in services for m in rec["services"])
         if not has_any:
+            platform_matches = [s for s in rec["services"] if s.startswith(platform + "_")]
             findings.append({
                 "severity": rec["severity"],
                 "message": rec["message"],
                 "recommendation": rec["recommendation"],
+                # Fall back to the full cross-cloud list when the diagram's platform has no
+                # exact match — better an ambiguous hint than none for the edit-plan LLM.
+                "missing_services": platform_matches or rec["services"],
             })
 
     return findings
@@ -201,6 +205,9 @@ def _pillar_status(findings: list[dict[str, str]]) -> str:
 
 
 def assess_well_architected(xml: str, platform: str = "aws") -> dict[str, Any]:
+    platform_key = (platform or "aws").strip().lower()
+    if platform_key not in ("aws", "gcp", "azure"):
+        platform_key = "aws"
     services = find_service_keys(xml)
     pillars_result: list[dict[str, Any]] = []
     total_pass = 0
@@ -208,7 +215,7 @@ def assess_well_architected(xml: str, platform: str = "aws") -> dict[str, Any]:
     total_fail = 0
 
     for key, pillar_info in PILLARS.items():
-        findings = _pillar_findings(key, services)
+        findings = _pillar_findings(key, services, platform_key)
         status = _pillar_status(findings)
         if status == "pass":
             total_pass += 1
