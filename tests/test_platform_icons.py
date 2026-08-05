@@ -160,6 +160,16 @@ class PickStyleTests(unittest.TestCase):
         self.assertEqual(_shape_query("azure_app_service", "multi"), "azure app service")
         self.assertEqual(_shape_query("aws_lambda", "multi"), "lambda")
 
+    def test_shape_query_expands_kms_acronym(self) -> None:
+        """Regression: multiple live captures confirmed a bare "kms" query
+        consistently top-ranks search_shapes to the Kinesis Data Firehose
+        icon — expanding to the full service name is what actually fixes
+        this (re-ranking the returned candidates can't help when a real KMS
+        match was never among them in the first place)."""
+        query = _shape_query("aws_kms", "aws")
+        self.assertIn("kms", query)
+        self.assertIn("key management", query)
+
     def test_shape_query_external_actors(self) -> None:
         self.assertEqual(_shape_query("aws_users", "aws"), "aws4 users")
         self.assertEqual(_shape_query("aws_client", "aws"), "aws4 client")

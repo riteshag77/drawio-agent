@@ -161,6 +161,20 @@ _LOGICAL_BUILTIN_STYLES: dict[str, str] = {
 }
 
 
+#: A handful of AWS acronyms confirmed, via multiple live captures, to search
+#: badly against search_shapes' index as a bare 2-3 letter string — "kms"
+#: alone consistently top-ranks to the Kinesis Data Firehose icon, which has
+#: no real relation to Key Management Service. Expanding to the full service
+#: name fixes the query itself rather than only re-ranking whatever comes
+#: back (see _relevance_score/_pick_style, which can't recover a match that
+#: was never in the returned candidates at all). Only services with
+#: confirmed-bad results are listed here — no pre-emptive guessing at every
+#: short acronym.
+_QUERY_EXPANSIONS = {
+    "kms": "kms key management service encryption",
+}
+
+
 def _shape_query(shape_type: str, platform: str) -> str:
     st = (shape_type or "").lower()
     if st in _LOGICAL_SHAPE_QUERIES:
@@ -181,6 +195,7 @@ def _shape_query(shape_type: str, platform: str) -> str:
             break
     else:
         name = st.replace("_", " ")
+    name = _QUERY_EXPANSIONS.get(name, name)
     if resolved == "gcp":
         return f"gcp {name}"
     if resolved == "azure":
