@@ -109,6 +109,41 @@ class PickStyleTests(unittest.TestCase):
         pick = _pick_style(styles, "aws", "aws_alb")
         self.assertIn("application_load_balancer", pick or "")
 
+    def test_pick_style_never_falls_back_to_a_different_vendors_icon(self) -> None:
+        """Regression: a live capture with platform="aws" had search_shapes
+        return zero real mxgraph.aws4 candidates for an ALB query — only a
+        well-named but wrong-vendor mxgraph.alibaba_cloud.alb_application_
+        load_balancer_01 style. The old `same_platform = [...] or styles`
+        fallback let relevance-by-name scoring pick that wrong-vendor style
+        anyway, since its name matched even though its vendor didn't —
+        silently rendering an Alibaba Cloud icon on an AWS diagram. A miss
+        (None, handled as mcp_miss — the LLM's placeholder stays) must win
+        over any off-vendor icon, no matter how well its name matches."""
+        styles = [
+            "rounded=0;whiteSpace=wrap;html=1;fillColor=#FF6A00;"
+            "shape=mxgraph.alibaba_cloud.alb_application_load_balancer_01;",
+        ]
+        pick = _pick_style(styles, "aws", "aws_alb")
+        self.assertIsNone(pick)
+
+    def test_pick_style_never_falls_back_to_a_different_vendor_under_multi_cloud(self) -> None:
+        """The real multi-cloud resolution loop (drawio_mcp_client._resolve_chunk)
+        never calls _pick_style with platform="multi" literally — it first maps
+        each leaf's shape_type to a concrete vendor via _platform_from_shape_type
+        (azure_* -> "azure", gcp_* -> "gcp", else "aws"), then resolves against
+        that. Confirm a GCP leaf on a multi-cloud diagram can't pick up an
+        AWS/Alibaba/etc. candidate just because that's all search_shapes
+        returned — same guarantee as the single-cloud case, just reached
+        through the multi-cloud vendor-inference step first."""
+        gcp_leaf_vendor = _platform_from_shape_type("gcp_cloud_run", "multi")
+        self.assertEqual(gcp_leaf_vendor, "gcp")
+        styles = [
+            "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;",
+            "shape=mxgraph.alibaba_cloud.ecs;",
+        ]
+        pick = _pick_style(styles, gcp_leaf_vendor, "gcp_cloud_run")
+        self.assertIsNone(pick)
+
     def test_pick_style_falls_back_to_first_when_nothing_is_relevant(self) -> None:
         """No candidate matches the query at all — same behavior as before
         this fix (first same-platform candidate), not a hard failure."""

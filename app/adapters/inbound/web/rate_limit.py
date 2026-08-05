@@ -28,7 +28,7 @@ _WINDOW_SECONDS = 60.0
 
 #: Only generation endpoints are limited. Health/readiness probes, static assets
 #: and history reads are cheap and must stay available even under throttling.
-_LIMITED_PATHS = ("/chat", "/chat/stream", "/generate", "/download")
+_LIMITED_PATHS = ("/chat", "/chat/stream", "/generate", "/download", "/analyze")
 
 _hits: dict[str, deque[float]] = defaultdict(deque)
 _lock = threading.Lock()

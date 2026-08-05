@@ -8,7 +8,7 @@ function updateLogCount() {
 function appendVerboseLog(step, message, level = 'info', details = null, timestamp = null) {
     if (!verboseLogging) return;
 
-    const body = document.getElementById('verbose-log-body');
+    const body = document.getElementById('verbose-log-entries');
     const empty = body.querySelector('.log-empty');
     if (empty) empty.remove();
 
@@ -55,7 +55,7 @@ function appendVerboseLog(step, message, level = 'info', details = null, timesta
 }
 
 function clearVerboseLogs() {
-    const body = document.getElementById('verbose-log-body');
+    const body = document.getElementById('verbose-log-entries');
     body.innerHTML = '<div class="log-empty">Log cleared. Generate a diagram to see new pipeline steps.</div>';
     logEntryCount = 0;
     updateLogCount();

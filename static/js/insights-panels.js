@@ -555,6 +555,56 @@ function initSuggestionsPanel() {
 
 // ── Well-Architected Panel ────────────────────────────────
 
+/** Turning WAF/Compliance on only takes effect on the *next* chat turn by
+ * default — if a diagram already exists, that reads as "I turned this on
+ * and nothing happened." Re-runs the check against the current diagram via
+ * POST /analyze (split out from the full /chat pipeline) and renders results
+ * immediately, same as if this turn's response had included them. */
+async function rerunWafComplianceCheck() {
+    if (typeof currentXml !== 'string' || !currentXml.trim()) return;
+    var wafOn = !!document.getElementById('well-architected-toggle')?.checked;
+    var compOn = !!document.getElementById('compliance-toggle')?.checked;
+    if (!wafOn && !compOn) return;
+
+    var providerSelect = document.getElementById('provider-select');
+    var provider = (providerSelect && typeof parseProviderSelectValue === 'function')
+        ? parseProviderSelectValue(providerSelect.value).provider
+        : undefined;
+    var payload = {
+        xml: currentXml,
+        platform: (typeof selectedPlatform !== 'undefined' && selectedPlatform) || 'aws',
+        well_architected: wafOn,
+        compliance: compOn,
+    };
+    if (provider) payload.provider = provider;
+    if (compOn && typeof getSelectedComplianceFrameworks === 'function') {
+        payload.compliance_frameworks = getSelectedComplianceFrameworks();
+    }
+
+    try {
+        var res = await fetch('/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        var data = await res.json();
+        if (!res.ok || data.status !== 'success') {
+            if (typeof showToast === 'function') {
+                showToast('Could not refresh the check: ' + (data.detail || 'server error'), 'warning');
+            }
+            return;
+        }
+        if (wafOn) displayWellArchitected(data.well_architected);
+        if (compOn) {
+            window._lastComplianceData = data.compliance;
+            displayCompliance(data.compliance);
+        }
+    } catch (e) {
+        console.error('WAF/compliance re-check failed', e);
+        if (typeof showToast === 'function') showToast('Could not refresh the check — network error.', 'warning');
+    }
+}
+
 function toggleWellArchitectedPanel() {
     var panel = document.getElementById('well-architected-panel');
     var body = document.getElementById('waf-panel-body');
@@ -564,6 +614,7 @@ function toggleWellArchitectedPanel() {
         panel.classList.add('active');
         if (body) body.innerHTML = '<div class="waf-empty">Generate a diagram to see Well-Architected review</div>';
         if (badge) { badge.textContent = '--'; badge.className = 'waf-overall-badge'; }
+        rerunWafComplianceCheck();
     } else {
         panel.classList.remove('active');
         if (body) body.innerHTML = '';
@@ -779,6 +830,7 @@ function toggleCompliancePanel() {
     if (document.getElementById('compliance-toggle').checked) {
         panel.classList.add('active');
         if (body) body.innerHTML = '<div class="compliance-empty">Generate a diagram to see compliance assessment results</div>';
+        rerunWafComplianceCheck();
     } else {
         panel.classList.remove('active');
         if (body) body.innerHTML = '';

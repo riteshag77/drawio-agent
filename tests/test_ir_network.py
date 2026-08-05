@@ -220,6 +220,32 @@ class SemanticRuleTests(unittest.TestCase):
         )
         self.assertFalse(any("only one subnet tier" in e for e in ir2.semantic_errors()))
 
+    def test_four_plus_leaves_with_zero_flows_and_no_actors_is_an_error(self) -> None:
+        """Regression: a live capture had a schema-valid NetworkIR — 14 leaves,
+        0 external_actors, 0 flows — compile straight to a Network page with
+        43 cells and not one arrow. The external_actors-gated empty-flows rule
+        never fires when there are no actors at all, so a network of real
+        service leaves with zero connectivity sailed through undetected."""
+        leaves = [_leaf(f"svc{i}") for i in range(4)]
+        zone = AvailabilityZone(
+            id="az1", label="AZ",
+            subnets=[
+                Subnet(id="pub", tier="public", leaves=[_leaf("alb", "aws_alb", "ALB")]),
+                Subnet(id="app1", tier="app", leaves=leaves),
+            ],
+        )
+        ir = NetworkIR(
+            cloud=CloudBoundary(
+                id="cloud", label="AWS",
+                regions=[Region(id="r", label="us-east-1", vpcs=[Vpc(id="vpc", zones=[zone])])],
+            ),
+            platform="aws",
+        )
+        self.assertEqual(ir.external_actors, [])
+        self.assertEqual(ir.flows, [])
+        errors = ir.semantic_errors()
+        self.assertTrue(any("zero flows" in e for e in errors))
+
     def test_long_edge_labels_are_truncated_not_rejected(self) -> None:
         """One chatty label must never fail a whole build (cap is 6 words)."""
         flow = Flow(source="a", target="b", label="sends an encrypted payload over the wire")

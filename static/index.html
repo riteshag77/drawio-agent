@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/styles.css?v=20260726b">
+    <link rel="stylesheet" href="/static/styles.css?v=20260805b">
     <link rel="stylesheet" href="/static/themes/midnight-slate.css?v=20260724f">
     <link rel="stylesheet" href="/static/themes/daylight.css?v=20260724f">
     <link rel="stylesheet" href="/static/themes/aurora-contrast.css?v=20260724f">
@@ -533,32 +533,27 @@
 
         <!-- Right: insights (cost / WAF / compliance / logs) -->
         <aside id="log-panel" class="log-panel">
-            <div class="log-panel-header">
-                <div class="title-block">
-                    <h2>Diagram Insights</h2>
-                    <p>Network assessments, suggestions, and pipeline logs</p>
-                </div>
-                <div class="log-panel-actions">
-                    <span id="log-count-badge" class="log-count-badge">0 entries</span>
-                    <button type="button" class="btn-log-action" onclick="clearVerboseLogs()">Clear logs</button>
-                    <button type="button" class="btn-log-action" onclick="closeLogPanel()" title="Close panel">✕</button>
-                </div>
-            </div>
             <div class="insights-tabs" role="tablist" aria-label="Insights">
-                <button type="button" class="insights-tab active" data-tab="cost" role="tab" aria-selected="true" onclick="switchInsightsTab('cost')">Cost</button>
-                <button type="button" class="insights-tab" data-tab="waf" role="tab" aria-selected="false" onclick="switchInsightsTab('waf')">WAF / Compliance</button>
-                <button type="button" class="insights-tab" data-tab="suggestions" role="tab" aria-selected="false" onclick="switchInsightsTab('suggestions')">Suggestions</button>
-                <button type="button" class="insights-tab" data-tab="logs" role="tab" aria-selected="false" onclick="switchInsightsTab('logs')">Logs</button>
+                <button type="button" class="insights-tab active" data-tab="cost" role="tab" aria-selected="true" onclick="switchInsightsTab('cost')">
+                    <svg class="insights-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                    Cost
+                </button>
+                <button type="button" class="insights-tab" data-tab="waf" role="tab" aria-selected="false" onclick="switchInsightsTab('waf')">
+                    <svg class="insights-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+                    WAF/Compliance
+                </button>
+                <button type="button" class="insights-tab" data-tab="suggestions" role="tab" aria-selected="false" onclick="switchInsightsTab('suggestions')">
+                    <svg class="insights-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></svg>
+                    Suggestions
+                </button>
+                <button type="button" class="insights-tab" data-tab="logs" role="tab" aria-selected="false" onclick="switchInsightsTab('logs')">
+                    <svg class="insights-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                    Logs
+                </button>
             </div>
             <div class="insights-tab-panels">
             <div id="network-insights-panel" class="insights-panel network-insights-panel active" data-panel="cost">
             <div id="cost-panel" class="cost-panel network-insight-section active">
-                <div class="cost-panel-header">
-                    <div class="cost-panel-header-left">
-                        <svg class="cost-panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-                        <h3>Cost Estimate</h3>
-                    </div>
-                </div>
                 <div class="cost-panel-total">
                     <span id="cost-total-amount" class="cost-total-amount">A$0</span>
                     <span class="cost-total-period">per month estimated</span>
@@ -576,12 +571,6 @@
                     </label>
                 </div>
                 <div id="well-architected-panel" class="waf-panel">
-                    <div class="waf-panel-header">
-                        <div class="waf-panel-header-left">
-                            <svg class="waf-panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
-                            <h3>Well-Architected Review</h3>
-                        </div>
-                    </div>
                     <div class="waf-panel-summary">
                         <span id="waf-overall-badge" class="waf-overall-badge">--</span>
                         <span class="waf-summary-text">Generate a diagram to assess against Well-Architected pillars</span>
@@ -589,12 +578,6 @@
                     <div id="waf-panel-body" class="waf-panel-body"></div>
                 </div>
                 <div id="compliance-panel" class="compliance-panel">
-                    <div class="compliance-header">
-                        <div class="compliance-header-left">
-                            <svg class="compliance-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><path d="M12 2a10 10 0 1 0 10 10h-10V2z"/><path d="M12 2v10h10"/></svg>
-                            <h3>Compliance</h3>
-                        </div>
-                    </div>
                     <div class="compliance-tabs" id="compliance-tabs"></div>
                     <div class="compliance-legend">
                         <span class="legend-item legend-pass">&#x25CF; Pass</span>
@@ -611,13 +594,6 @@
                 </div>
             </div>
             <div id="suggestions-panel" class="suggestions-panel insights-panel" data-panel="suggestions" hidden>
-                <div class="suggestions-panel-header">
-                    <div class="suggestions-panel-header-left">
-                        <svg class="suggestions-panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></svg>
-                        <h3>Suggestions</h3>
-                    </div>
-                    <button type="button" class="suggestions-panel-close" onclick="hideSuggestionsPanel()" aria-label="Hide suggestions panel">&times;</button>
-                </div>
                 <div class="chat-suggestions" id="suggestions-wrap">
                     <div class="chat-suggestions-header" id="suggestions-select-all-row" hidden>
                         <div class="chat-suggestions-title">Follow-up improvements</div>
@@ -636,7 +612,13 @@
                 </div>
             </div>
             <div id="verbose-log-body" class="log-panel-body insights-panel" data-panel="logs" hidden>
-                <div class="log-empty">Turn on <strong>Pipeline logs</strong> in Settings, then generate a diagram to see each step here with full details.</div>
+                <div class="log-panel-body-header">
+                    <span id="log-count-badge" class="log-count-badge">0 entries</span>
+                    <button type="button" class="btn-log-action" onclick="clearVerboseLogs()">Clear logs</button>
+                </div>
+                <div id="verbose-log-entries">
+                    <div class="log-empty">Turn on <strong>Pipeline logs</strong> in Settings, then generate a diagram to see each step here with full details.</div>
+                </div>
             </div>
             </div>
         </aside>
@@ -667,7 +649,7 @@
     <script src="/static/js/run-controls.js?v=20260726b"></script>
     <script src="/static/js/verbose-logs.js?v=20260805a"></script>
     <script src="/static/js/insights-ui.js?v=20260805a"></script>
-    <script src="/static/js/insights-panels.js?v=20260805d"></script>
+    <script src="/static/js/insights-panels.js?v=20260805e"></script>
     <script src="/static/js/captures.js?v=20260726b"></script>
     <script src="/static/js/app.js?v=20260805a"></script>
 </body>

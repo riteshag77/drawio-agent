@@ -158,11 +158,15 @@ class DiagnosticsCleanlinessTests(unittest.TestCase):
             regions=[Region(id="r", label="us-east-1", vpcs=[Vpc(
                 id="vpc",
                 zones=[AvailabilityZone(id="az", label="AZ", subnets=[
+                    Subnet(id="pub", tier="public", leaves=[_leaf("alb", "aws_alb", "ALB")]),
                     Subnet(id="app", tier="app", leaves=leaves),
                     Subnet(id="data", tier="data", leaves=[_leaf("db", "aws_rds", "DB")]),
                 ])],
             )])],
-        ))
+            # Routed around the wrapping grid on purpose, not through it — this
+            # fixture's job is grid spacing, not edge routing through a
+            # multi-row grid (a separate, pre-existing routing behavior).
+        ), flows=[Flow(source="alb", target="db")])
         diag = diagnose_xml(compile_network_ir(ir))
         self.assertEqual(diag.errors, [])
         self.assertEqual(diag.warnings, [])

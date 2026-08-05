@@ -121,5 +121,18 @@ class ChatRequest(BaseModel):
     )
 
 
+class AnalyzeRequest(BaseModel):
+    """Re-run Well-Architected/compliance checks against an already-generated
+    diagram — e.g. the user turns the toggle on after the diagram already
+    exists, rather than only picking up the setting on the next chat turn."""
+
+    xml: str = Field(max_length=1_500_000)
+    platform: str = "aws"
+    provider: str = Field(default_factory=_default_provider)
+    well_architected: bool = True
+    compliance: bool = True
+    compliance_frameworks: list[str] | None = None
+
+
 class ParseUrlRequest(BaseModel):
     url: str = Field(max_length=2048)

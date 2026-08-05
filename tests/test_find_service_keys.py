@@ -78,6 +78,20 @@ class FindServiceKeysTests(unittest.TestCase):
         xml = '<mxCell id="a" style="shape=mxgraph.aws4.alarm;" vertex="1"/>'
         self.assertIn("aws_cloudwatch", find_service_keys(xml))
 
+    def test_normalizes_kms_data_encryption_key_stencil(self) -> None:
+        """Regression: aws_kms's cached MCP resolution (data/mcp_style_cache.
+        sqlite3) is exclusively mxgraph.aws4.data_encryption_key — there is no
+        stencil literally named "kms" in the aws4 library. Without this alias,
+        well_architected.py/compliance.py never recognized a KMS node the LLM
+        had actually added and MCP had actually resolved, and kept reporting
+        "no encryption service" every turn — confirmed via a live capture
+        where the user applied this exact fix twice for that reason."""
+        xml = (
+            '<mxCell id="a" style="shape=mxgraph.aws4.resourceIcon;'
+            'resIcon=mxgraph.aws4.data_encryption_key;" vertex="1"/>'
+        )
+        self.assertIn("aws_kms", find_service_keys(xml))
+
     def test_normalizes_azure_load_balancer(self) -> None:
         xml = '<mxCell id="a" style="shape=mxgraph.azure2.load_balancer;" vertex="1"/>'
         self.assertIn("azure_lb", find_service_keys(xml))

@@ -793,6 +793,14 @@ _SERVICE_KEY_ALIASES = {
     "aws_cache_node": "aws_elasticache",  # ElastiCache's stencil is named after its node type
     "aws_alarm": "aws_cloudwatch",  # CloudWatch's stencil is literally its Alarm icon
     "aws_cloudwatch_2": "aws_cloudwatch",  # AWS4 ships a "_2" alternate-design variant of several icons
+    # KMS's aws4 stencil is named after the icon's visual (a key), not the
+    # service — confirmed the ONLY entry ever cached for aws_kms (data/
+    # mcp_style_cache.sqlite3). Without this alias, well_architected.py/
+    # compliance.py never recognize a KMS node the LLM actually added and
+    # MCP actually resolved, and keep reporting "no encryption service"
+    # forever — confirmed via a live capture where the user applied this
+    # exact fix twice because compliance kept re-flagging it as missing.
+    "aws_data_encryption_key": "aws_kms",
     # Azure
     "azure_load_balancer": "azure_lb",
     "azure_application_gateway": "azure_agw",

@@ -232,8 +232,26 @@ class NetworkIR(DiagramIR):
         errors = self._base_flow_errors()
         known = self.all_ids()
         forbidden = self.no_edge_ids()
+        leaf_n = len(list(self.iter_leaves()))
 
-        if not self.flows and self.external_actors:
+        if not self.flows and leaf_n >= 4:
+            # A real capture showed a schema-valid NetworkIR — 14 leaves, 0
+            # external_actors, 0 flows — render as an unconnected pile of
+            # icons with not one arrow on the page. The gate below (added
+            # first) only fires when external_actors is non-empty, so a
+            # network with real service leaves but no actors sailed straight
+            # through. A Network view exists specifically to show traffic
+            # connectivity between tiers, not just inventory (that's what
+            # container nesting is for) — 4+ services with zero flows is
+            # never a legitimate Network diagram. Same leaf_n>=4 threshold as
+            # the subnet-tier rule below, for the same "tiny fixtures stay
+            # allowed" reason.
+            errors.append(
+                "network has 4+ services but zero flows — a Network view exists to show "
+                "traffic connectivity between tiers; add edges for at least the primary "
+                "request path (e.g. public edge -> app tier -> data tier)"
+            )
+        elif not self.flows and self.external_actors:
             # `flows` defaults to an empty list, so Pydantic never flags a
             # diagram that omits every connection — but external actors
             # (Users, an IdP, a SaaS integration) floating with zero edges
@@ -275,7 +293,6 @@ class NetworkIR(DiagramIR):
 
         # Thoroughness: schema-valid single-tier dumps with many leaves are not useful.
         # Tiny fixtures (1–3 leaves) stay allowed for compiler/unit tests.
-        leaf_n = len(list(self.iter_leaves()))
         if leaf_n >= 4:
             tiers: set[str] = set()
             for region in self.cloud.regions:

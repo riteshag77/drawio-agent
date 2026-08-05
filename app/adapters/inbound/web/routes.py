@@ -8,9 +8,11 @@ from typing import Any
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, RedirectResponse, Response, StreamingResponse
 
-from app.adapters.inbound.web.schemas import ChatRequest, CustomProviderConfig, ParseUrlRequest, PromptRequest
+from app.adapters.inbound.web.schemas import AnalyzeRequest, ChatRequest, CustomProviderConfig, ParseUrlRequest, PromptRequest
 from app.adapters.outbound.capture_store import list_captures, load_capture, save_capture
+from app.adapters.outbound.compliance import assess_compliance
 from app.adapters.outbound.config.env_config import get_config
+from app.adapters.outbound.well_architected import assess_well_architected
 from app.adapters.outbound.history_store import (
     delete_session,
     get_version,
@@ -458,6 +460,48 @@ async def chat_diagram_stream(body: ChatRequest, request: Request):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.post("/analyze")
+async def analyze_diagram(body: AnalyzeRequest, request: Request):
+    """Re-run Well-Architected/compliance against an existing diagram.
+
+    Split out from ``/chat`` so turning the WAF/Compliance toggle on after a
+    diagram already exists shows results immediately instead of only taking
+    effect on the *next* chat turn.
+    """
+    logger = _logger_from_request(request)
+    xml = (body.xml or "").strip()
+    if not xml:
+        return JSONResponse(status_code=400, content={"status": "error", "detail": "xml is required"})
+
+    waf_data = None
+    compliance_data = None
+    try:
+        if body.well_architected:
+            waf_data = await asyncio.to_thread(assess_well_architected, xml, body.platform)
+        if body.compliance:
+            compliance_data = await asyncio.to_thread(
+                assess_compliance,
+                xml=xml,
+                platform=body.platform,
+                frameworks=body.compliance_frameworks,
+                provider=body.provider,
+                logger=logger,
+            )
+    except Exception as exc:
+        logger.log("error", str(exc), level="error")
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "detail": str(exc), "logs": logger.to_list()},
+        )
+
+    return {
+        "status": "success",
+        "well_architected": waf_data,
+        "compliance": compliance_data,
+        "logs": logger.to_list(),
+    }
 
 
 @router.get("/captures")

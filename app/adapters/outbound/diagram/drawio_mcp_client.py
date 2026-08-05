@@ -537,7 +537,21 @@ def _pick_style(styles: list[str], platform: str = "aws", shape_type: str = "") 
         if not pick.endswith(";"):
             pick += ";"
         return pick
-    same_platform = [s for s in styles if prefer(s.lower())] or styles
+    same_platform = [s for s in styles if prefer(s.lower())]
+    if not same_platform:
+        # search_shapes occasionally returns zero candidates from the
+        # requested vendor's own library at all — confirmed via a live
+        # capture where an AWS "Application Load Balancer" query came back
+        # with only a well-named but wrong-vendor
+        # mxgraph.alibaba_cloud.alb_application_load_balancer_01 candidate.
+        # The old `or styles` fallback let _relevance_score's name-based
+        # scoring pick that purely because its name matched the query,
+        # silently rendering an Alibaba Cloud icon on an AWS diagram — one
+        # find_service_keys can never even detect afterward, since it isn't
+        # an aws_/gcp_/azure_ stencil at all. A miss here (None, handled as
+        # mcp_miss — the LLM's placeholder stays) is a far smaller failure
+        # than a confidently-wrong-vendor icon.
+        return None
     # Break ties in favor of whichever same-platform candidate actually looks
     # like the requested service, instead of blindly trusting search_shapes'
     # own top result — see _relevance_score. Python's max() keeps the first
