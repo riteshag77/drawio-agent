@@ -33,6 +33,18 @@ class FindServiceKeysTests(unittest.TestCase):
         )
         self.assertIn("aws_lambda", find_service_keys(xml))
 
+    def test_service_attribute_wins_over_a_stencil_name_with_no_alias(self) -> None:
+        """service= (stamped by apply_mcp_styles at resolution time) is the
+        LLM's own ground-truth key — it must be detected even when the
+        resolved stencil name has no entry in _SERVICE_KEY_ALIASES at all,
+        which is the entire point of not relying solely on reverse-engineering
+        the service from draw.io's arbitrary stencil name."""
+        xml = (
+            '<mxCell id="a" service="aws_kms" style="shape=mxgraph.aws4.'
+            'resourceIcon;resIcon=mxgraph.aws4.some_never_aliased_icon;" vertex="1"/>'
+        )
+        self.assertIn("aws_kms", find_service_keys(xml))
+
     def test_detects_both_sources_in_the_same_mixed_document(self) -> None:
         """The exact real-world shape after a surgical edit: some leaves still
         carry a raw shape_type (unresolved), others have already been

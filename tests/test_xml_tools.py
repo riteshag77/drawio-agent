@@ -14,6 +14,7 @@ from app.adapters.outbound.diagram.xml_tools import (
     coerce_drawio_xml,
     ensure_diagram_document,
     extract_shape_types,
+    find_service_keys,
     fit_containers_to_children,
     guarantee_loadable_xml,
     merge_drawio_styles,
@@ -460,6 +461,25 @@ class ShapeTypeAndStyleTests(unittest.TestCase):
         self.assertIn("fontSize=12", style)
         self.assertIn("aspect=fixed", style)
         self.assertIn("A &amp; B", out)
+        # The original semantic key survives resolution as a permanent
+        # attribute — find_service_keys() trusts this over reverse-engineering
+        # the service from whatever stencil name MCP happened to pick.
+        self.assertEqual(cell.get("service"), "aws_lambda")
+
+    def test_apply_mcp_styles_service_key_survives_even_for_an_unaliased_stencil_name(self) -> None:
+        """Regression: the whole point of stamping service= is that a resolved
+        leaf is detectable by well_architected.py/compliance.py/cost_estimator.py
+        even when MCP's stencil choice has no entry in _SERVICE_KEY_ALIASES at
+        all — not just for the handful of mismatches discovered and aliased by
+        hand so far (see aws_data_encryption_key -> aws_kms)."""
+        xml = (
+            '<mxCell id="a" value="Svc" shape_type="aws_totally_novel_service" '
+            'style="fillColor=#F5F5F5;" vertex="1" parent="1">'
+            '<mxGeometry width="78" height="78" as="geometry"/></mxCell>'
+        )
+        mcp = "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.some_unrelated_icon_name;"
+        out = apply_mcp_styles(xml, {"aws_totally_novel_service": mcp})
+        self.assertIn("aws_totally_novel_service", find_service_keys(out))
 
     def test_apply_mcp_styles_all_multipage_roots(self) -> None:
         """Icons must apply on every page — first-root-only left Network grey."""

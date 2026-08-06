@@ -818,20 +818,37 @@ def find_service_keys(xml: str) -> list[str]:
     """Return unique vendor-prefixed service keys (``aws_``/``gcp_``/``azure_``) referenced in draw.io XML.
 
     Shared by cost_estimator.py, well_architected.py, and compliance.py — all
-    three need the same lookup. Combines two sources rather than treating them
-    as an either/or fallback: the LLM-owned ``shape_type`` attribute (present
-    on a leaf only until MCP successfully resolves and styles it —
-    ``apply_mcp_styles`` strips ``shape_type`` solely for cells it actually
-    re-styled, leaving it in place for anything MCP failed to resolve), and
-    the resolved draw.io stencil path itself (what survives on a leaf MCP DID
-    resolve, or on XML that never carried ``shape_type`` at all, e.g. a
-    user-uploaded pre-existing diagram). A document is routinely a genuine mix
-    of both — after a partial MCP resolution, or a surgical edit that added
-    fresh (unresolved) nodes alongside already-resolved ones — so scanning
-    only whichever source happens to be present, instead of both, silently
-    under-detects half the document.
+    three need the same lookup. Combines three sources, most-trusted first:
+
+    1. ``service="..."`` — the LLM's original semantic key, stamped
+       permanently by ``apply_mcp_styles`` once a leaf is resolved. Ground
+       truth: never wrong regardless of which vendor stencil MCP picked, so
+       nothing downstream needs to guess or alias it.
+    2. ``shape_type="..."`` — the same LLM-owned key, but only present before
+       resolution (``apply_mcp_styles`` deletes it once a leaf gets a
+       ``service=`` in its place); this is what a leaf MCP hasn't gotten to
+       yet still carries.
+    3. The resolved draw.io stencil path itself, via ``_SERVICE_KEY_ALIASES``
+       — the only fallback for XML with neither of the above, e.g. a
+       user-uploaded pre-existing diagram that never went through this app's
+       own MCP resolution at all. draw.io's own catalog names icons after
+       what they depict, not the service (KMS -> "data_encryption_key",
+       ElastiCache -> "cache_node", CloudWatch -> "alarm"...), so this path
+       needs a growing alias table and can silently under-detect a service
+       whose stencil name isn't in it yet — sources 1/2 exist precisely so
+       this app's own diagrams never depend on that table being complete.
+
+    A document is routinely a genuine mix of all three — after a partial MCP
+    resolution, or a surgical edit that added fresh (unresolved) nodes
+    alongside already-resolved ones — so scanning only whichever source
+    happens to be present, instead of all of them, silently under-detects
+    part of the document.
     """
     keys: list[str] = []
+    for m in re.finditer(r'\bservice\s*=\s*"([^"]+)"', xml):
+        st = m.group(1).strip().lower()
+        if st.startswith(_VENDOR_PREFIXES):
+            keys.append(st)
     for m in re.finditer(r'shape_type\s*=\s*"([^"]+)"', xml):
         st = m.group(1).strip().lower()
         if st.startswith(_VENDOR_PREFIXES):
@@ -937,8 +954,18 @@ def apply_mcp_styles(xml: str, style_overrides: dict[str, str]) -> str:
     """Merge MCP styles onto cells whose ``shape_type`` matches *style_overrides*.
 
     Uses ElementTree so MCP style strings with ``&`` / quotes are escaped safely.
-    Matching ``shape_type`` attributes are removed after a successful merge.
-    Cells whose shape_type is missing from *style_overrides* are left unchanged.
+    A resolved cell keeps its original semantic key permanently as ``service=``
+    (find_service_keys() reads this first) and loses the transient
+    ``shape_type`` (which only ever meant "still needs MCP resolution").
+    Splitting these apart is what lets find_service_keys() trust the LLM's own
+    answer instead of reverse-engineering the service from whatever stencil
+    name MCP happened to pick — draw.io's own catalog names icons after what
+    they depict (KMS -> "data_encryption_key", ElastiCache -> "cache_node",
+    CloudWatch -> "alarm"...), an open-ended, ever-growing set no alias table
+    can fully cover; confirmed by a live capture where a resolved KMS node
+    (mxgraph.aws4.data_encryption_key) went undetected by well_architected.py/
+    compliance.py until that one specific alias was added by hand. Cells
+    whose shape_type is missing from *style_overrides* are left unchanged.
     """
     if not style_overrides or not xml:
         return xml
@@ -985,6 +1012,7 @@ def apply_mcp_styles(xml: str, style_overrides: dict[str, str]) -> str:
                 continue
             base_style = cell.get("style") or ""
             cell.set("style", merge_drawio_styles(base_style, resolved))
+            cell.set("service", st)
             del cell.attrib["shape_type"]
             changed = True
 
