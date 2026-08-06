@@ -29,6 +29,15 @@ function switchInsightsTab(tab) {
     if (logPanel) logPanel.classList.add('open');
 }
 
+/** Shows/hides the small spinner on a tab button while its own /analyze
+ * re-check (rerunCostEstimateCheck/rerunWafComplianceCheck/
+ * rerunSuggestionsCheck) is in flight — visible even if the user is looking
+ * at a different tab while it loads. */
+function setTabLoading(tab, isLoading) {
+    const btn = document.querySelector('.insights-tab[data-tab="' + tab + '"]');
+    if (btn) btn.classList.toggle('loading', !!isLoading);
+}
+
 /** Suggestions / Logs tab buttons only make sense when their own toggle is
  * on — Cost and WAF/Compliance stay always-visible (they're gated by the
  * Network-view checkbox already, via updateNetworkInsightsVisibility). If

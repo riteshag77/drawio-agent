@@ -129,6 +129,7 @@ class AnalyzeRequest(BaseModel):
     xml: str = Field(max_length=1_500_000)
     platform: str = "aws"
     provider: str = Field(default_factory=_default_provider)
+    cost_estimate: bool = False
     well_architected: bool = True
     compliance: bool = True
     compliance_frameworks: list[str] | None = None

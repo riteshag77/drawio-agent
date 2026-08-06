@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/styles.css?v=20260805c">
+    <link rel="stylesheet" href="/static/styles.css?v=20260805d">
     <link rel="stylesheet" href="/static/themes/midnight-slate.css?v=20260724f">
     <link rel="stylesheet" href="/static/themes/daylight.css?v=20260724f">
     <link rel="stylesheet" href="/static/themes/aurora-contrast.css?v=20260724f">
@@ -536,14 +536,17 @@
             <div class="insights-tabs" role="tablist" aria-label="Insights">
                 <button type="button" class="insights-tab active" data-tab="cost" role="tab" aria-selected="true" onclick="switchInsightsTab('cost')">
                     <svg class="insights-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                    <svg class="insights-tab-spinner" viewBox="0 0 24 24" fill="none"><path d="M12 4 L5 18 L19 18 Z" stroke="currentColor" stroke-width="1.2" stroke-opacity="0.35" stroke-linejoin="round"/><circle class="node n1" cx="12" cy="4" r="2.3" fill="currentColor"/><circle class="node n2" cx="5" cy="18" r="2.3" fill="currentColor"/><circle class="node n3" cx="19" cy="18" r="2.3" fill="currentColor"/></svg>
                     Cost
                 </button>
                 <button type="button" class="insights-tab" data-tab="waf" role="tab" aria-selected="false" onclick="switchInsightsTab('waf')">
                     <svg class="insights-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+                    <svg class="insights-tab-spinner" viewBox="0 0 24 24" fill="none"><path d="M12 4 L5 18 L19 18 Z" stroke="currentColor" stroke-width="1.2" stroke-opacity="0.35" stroke-linejoin="round"/><circle class="node n1" cx="12" cy="4" r="2.3" fill="currentColor"/><circle class="node n2" cx="5" cy="18" r="2.3" fill="currentColor"/><circle class="node n3" cx="19" cy="18" r="2.3" fill="currentColor"/></svg>
                     WAF/Compliance
                 </button>
                 <button type="button" class="insights-tab" data-tab="suggestions" role="tab" aria-selected="false" onclick="switchInsightsTab('suggestions')">
                     <svg class="insights-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></svg>
+                    <svg class="insights-tab-spinner" viewBox="0 0 24 24" fill="none"><path d="M12 4 L5 18 L19 18 Z" stroke="currentColor" stroke-width="1.2" stroke-opacity="0.35" stroke-linejoin="round"/><circle class="node n1" cx="12" cy="4" r="2.3" fill="currentColor"/><circle class="node n2" cx="5" cy="18" r="2.3" fill="currentColor"/><circle class="node n3" cx="19" cy="18" r="2.3" fill="currentColor"/></svg>
                     Suggestions
                 </button>
                 <button type="button" class="insights-tab" data-tab="logs" role="tab" aria-selected="false" onclick="switchInsightsTab('logs')">
@@ -640,7 +643,7 @@
     <script src="/static/js/resizer.js?v=20260724f"></script>
     <script src="/static/js/settings.js?v=20260726b"></script>
     <script src="/static/js/custom-providers.js?v=20260803a"></script>
-    <script src="/static/js/prompt-settings.js?v=20260805b"></script>
+    <script src="/static/js/prompt-settings.js?v=20260805c"></script>
     <script src="/static/js/diagram.js?v=20260726b"></script>
     <script src="/static/js/voice-commands.js?v=20260805a"></script>
     <script src="/static/js/voice.js?v=20260726b"></script>
@@ -651,8 +654,8 @@
     <script src="/static/js/platform-ui.js?v=20260724f"></script>
     <script src="/static/js/run-controls.js?v=20260726b"></script>
     <script src="/static/js/verbose-logs.js?v=20260805a"></script>
-    <script src="/static/js/insights-ui.js?v=20260805a"></script>
-    <script src="/static/js/insights-panels.js?v=20260805g"></script>
+    <script src="/static/js/insights-ui.js?v=20260805b"></script>
+    <script src="/static/js/insights-panels.js?v=20260805h"></script>
     <script src="/static/js/captures.js?v=20260726b"></script>
     <script src="/static/js/app.js?v=20260805a"></script>
 </body>

@@ -30,6 +30,27 @@ class AnalyzeRouteTests(unittest.TestCase):
         res = client.post("/analyze", json={"xml": "   "})
         self.assertEqual(res.status_code, 400)
 
+    def test_cost_estimate_only(self) -> None:
+        client = self._client()
+        res = client.post("/analyze", json={
+            "xml": _LAMBDA_XML, "platform": "aws", "provider": "",
+            "cost_estimate": True, "well_architected": False, "compliance": False,
+        })
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertEqual(body["status"], "success")
+        self.assertIsNotNone(body["cost_estimate"])
+        self.assertIsNone(body["well_architected"])
+        self.assertEqual(body["cost_estimate"]["services_matched"], 1)
+
+    def test_cost_estimate_off_by_default(self) -> None:
+        client = self._client()
+        res = client.post("/analyze", json={
+            "xml": _LAMBDA_XML, "well_architected": False, "compliance": False,
+        })
+        self.assertEqual(res.status_code, 200)
+        self.assertIsNone(res.json()["cost_estimate"])
+
     def test_well_architected_only(self) -> None:
         client = self._client()
         res = client.post("/analyze", json={

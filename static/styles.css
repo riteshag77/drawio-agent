@@ -2786,6 +2786,33 @@
 .insights-tab.active .insights-tab-icon {
     opacity: 1;
 }
+.insights-tab-spinner {
+    display: none;
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+}
+.insights-tab.loading .insights-tab-icon {
+    display: none;
+}
+.insights-tab.loading .insights-tab-spinner {
+    display: block;
+}
+/* A tiny pulsing node graph, not a generic ring — three service nodes
+   lighting up in sequence around their connecting edges, like data moving
+   through the architecture while its data loads. */
+.insights-tab-spinner .node {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: insights-tab-node-pulse 1.2s ease-in-out infinite;
+}
+.insights-tab-spinner .n1 { animation-delay: 0s; }
+.insights-tab-spinner .n2 { animation-delay: 0.15s; }
+.insights-tab-spinner .n3 { animation-delay: 0.3s; }
+@keyframes insights-tab-node-pulse {
+    0%, 100% { opacity: 0.25; transform: scale(0.75); }
+    40% { opacity: 1; transform: scale(1.15); }
+}
 .insights-panel-close {
     flex: 0 0 auto;
     display: flex;

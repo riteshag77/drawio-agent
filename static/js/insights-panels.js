@@ -136,6 +136,51 @@ function renderCostDonut(catTotals, grandTotal) {
     wrap.appendChild(legend);
 }
 
+/** Same reasoning as rerunWafComplianceCheck/rerunSuggestionsCheck — turning
+ * Cost Estimate on only takes effect on the *next* chat turn by default,
+ * which reads as "I turned this on and nothing happened" if a diagram
+ * already exists. Re-runs against the current diagram via POST /analyze and
+ * renders immediately, same as if this turn's response had included it. */
+async function rerunCostEstimateCheck() {
+    if (typeof currentXml !== 'string' || !currentXml.trim()) return;
+    if (!document.getElementById('cost-estimate-toggle')?.checked) return;
+
+    var providerSelect = document.getElementById('provider-select');
+    var provider = (providerSelect && typeof parseProviderSelectValue === 'function')
+        ? parseProviderSelectValue(providerSelect.value).provider
+        : undefined;
+    var payload = {
+        xml: currentXml,
+        platform: (typeof selectedPlatform !== 'undefined' && selectedPlatform) || 'aws',
+        cost_estimate: true,
+        well_architected: false,
+        compliance: false,
+    };
+    if (provider) payload.provider = provider;
+
+    if (typeof setTabLoading === 'function') setTabLoading('cost', true);
+    try {
+        var res = await fetch('/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        var data = await res.json();
+        if (!res.ok || data.status !== 'success') {
+            if (typeof showToast === 'function') {
+                showToast('Could not refresh cost estimate: ' + (data.detail || 'server error'), 'warning');
+            }
+            return;
+        }
+        displayCostEstimate(data.cost_estimate);
+    } catch (e) {
+        console.error('Cost estimate re-check failed', e);
+        if (typeof showToast === 'function') showToast('Could not refresh cost estimate — network error.', 'warning');
+    } finally {
+        if (typeof setTabLoading === 'function') setTabLoading('cost', false);
+    }
+}
+
 function displayCostEstimate(costData) {
     if (!costData) return;
     const panel = document.getElementById('cost-panel');
@@ -361,6 +406,7 @@ async function rerunSuggestionsCheck() {
     };
     if (provider) payload.provider = provider;
 
+    if (typeof setTabLoading === 'function') setTabLoading('suggestions', true);
     try {
         var res = await fetch('/analyze', {
             method: 'POST',
@@ -378,6 +424,8 @@ async function rerunSuggestionsCheck() {
     } catch (e) {
         console.error('Suggestions re-check failed', e);
         if (typeof showToast === 'function') showToast('Could not refresh suggestions — network error.', 'warning');
+    } finally {
+        if (typeof setTabLoading === 'function') setTabLoading('suggestions', false);
     }
 }
 
@@ -634,6 +682,7 @@ async function rerunWafComplianceCheck() {
         payload.compliance_frameworks = getSelectedComplianceFrameworks();
     }
 
+    if (typeof setTabLoading === 'function') setTabLoading('waf', true);
     try {
         var res = await fetch('/analyze', {
             method: 'POST',
@@ -655,6 +704,8 @@ async function rerunWafComplianceCheck() {
     } catch (e) {
         console.error('WAF/compliance re-check failed', e);
         if (typeof showToast === 'function') showToast('Could not refresh the check — network error.', 'warning');
+    } finally {
+        if (typeof setTabLoading === 'function') setTabLoading('waf', false);
     }
 }
 

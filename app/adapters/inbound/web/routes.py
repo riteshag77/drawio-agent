@@ -12,6 +12,7 @@ from app.adapters.inbound.web.schemas import AnalyzeRequest, ChatRequest, Custom
 from app.adapters.outbound.capture_store import list_captures, load_capture, save_capture
 from app.adapters.outbound.compliance import assess_compliance
 from app.adapters.outbound.config.env_config import get_config
+from app.adapters.outbound.cost_estimator import estimate_monthly_cost
 from app.adapters.outbound.well_architected import assess_well_architected
 from app.adapters.outbound.history_store import (
     delete_session,
@@ -464,7 +465,7 @@ async def chat_diagram_stream(body: ChatRequest, request: Request):
 
 @router.post("/analyze")
 async def analyze_diagram(body: AnalyzeRequest, request: Request):
-    """Re-run Well-Architected/compliance/suggestions against an existing diagram.
+    """Re-run cost/Well-Architected/compliance/suggestions against an existing diagram.
 
     Split out from ``/chat`` so turning any of these toggles on after a
     diagram already exists shows results immediately instead of only taking
@@ -475,10 +476,13 @@ async def analyze_diagram(body: AnalyzeRequest, request: Request):
     if not xml:
         return JSONResponse(status_code=400, content={"status": "error", "detail": "xml is required"})
 
+    cost_data = None
     waf_data = None
     compliance_data = None
     suggestions_data = None
     try:
+        if body.cost_estimate:
+            cost_data = await asyncio.to_thread(estimate_monthly_cost, xml, body.platform)
         if body.well_architected:
             waf_data = await asyncio.to_thread(assess_well_architected, xml, body.platform)
         if body.compliance:
@@ -509,6 +513,7 @@ async def analyze_diagram(body: AnalyzeRequest, request: Request):
 
     return {
         "status": "success",
+        "cost_estimate": cost_data,
         "well_architected": waf_data,
         "compliance": compliance_data,
         "suggestions": suggestions_data,
