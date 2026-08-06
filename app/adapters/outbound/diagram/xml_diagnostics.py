@@ -108,6 +108,10 @@ _PANEL_MIN_HEIGHT = 140.0
 _PANEL_MAX_HEIGHT = 820.0
 _PANEL_MAX_STEPS = 8
 _PANEL_MAX_STEP_CHARS = 140
+#: Shared by _trim_overview_panel_value (what actually survives trimming) and
+#: _estimate_panel_content_height (how tall the box gets sized) — one
+#: constant so the two can never silently drift apart.
+_PANEL_MAX_BIZ = 3
 
 _ACTOR_SHAPE_TYPES = {
     "aws_users", "aws_user", "users", "user", "aws_client", "client", "aws_mobile_client",
@@ -1165,7 +1169,6 @@ def _trim_overview_panel_value(value: str) -> str:
     tech_count = 0
     biz_count = 0
     seen_title = False
-    _MAX_BIZ = 3
 
     for div in full_divs:
         low = div.lower()
@@ -1194,7 +1197,7 @@ def _trim_overview_panel_value(value: str) -> str:
                     preserved.append(div)
             elif is_biz:
                 biz_count += 1
-                if biz_count > _MAX_BIZ:
+                if biz_count > _PANEL_MAX_BIZ:
                     continue
                 preserved.append(div)
             else:
@@ -1223,17 +1226,77 @@ def _trim_overview_panel_value(value: str) -> str:
     return "".join(out_parts)
 
 
-def _estimate_panel_content_height(value: str) -> float:
-    """Estimate the overview panel's actual needed height from its real text.
+def _estimate_panel_content_width(value: str) -> float:
+    """Pick a panel width from real content volume, between the documented
+    min/max (see geometry_spec).
 
-    Cap at ``_PANEL_MAX_HEIGHT`` so oversized essays cannot balloon the page.
-    Gap-section lines are included and may raise the cap slightly.
+    Only height used to respond to content — width was clamped into the
+    valid range if the LLM emitted something outside it, but never *grown*
+    from whatever it started at. A wall of short one-line tech steps reads
+    fine at the minimum width, but several full-sentence business_notes
+    bullets wrap into far more lines than necessary in a narrow box, which is
+    what actually drove a "text grew, box didn't expand" report — the box
+    did grow taller, just not wider, so it read as an ever-taller narrow
+    column instead of a comfortably wide, shorter block.
     """
     decoded = html.unescape(value or "")
     full_divs = _DIV_FULL.findall(decoded) or [decoded]
+    total_chars = 0
+    seen_title = False
+    for div in full_divs:
+        text = _TAG_STRIP.sub("", div).strip()
+        if not text:
+            continue
+        if not seen_title:
+            seen_title = True
+            continue
+        total_chars += len(text)
+    # Interpolate: content-light panels stay compact; a few hundred
+    # characters of real body text (roughly 3 business bullets and a handful
+    # of tech steps) grows the panel toward the documented max.
+    lo, hi = 300, 900
+    if total_chars <= lo:
+        return _OVERVIEW_PANEL_MIN_W
+    if total_chars >= hi:
+        return _OVERVIEW_PANEL_MAX_W
+    frac = (total_chars - lo) / (hi - lo)
+    return _OVERVIEW_PANEL_MIN_W + frac * (_OVERVIEW_PANEL_MAX_W - _OVERVIEW_PANEL_MIN_W)
+
+
+def _estimate_panel_content_height(value: str, panel_width: float = _OVERVIEW_PANEL_MIN_W) -> float:
+    """Estimate the overview panel's actual needed height from its real text.
+
+    Mirrors ``_trim_overview_panel_value``'s own per-section caps — "biz"
+    capped at ``_PANEL_MAX_BIZ``, "tech" at ``_PANEL_MAX_STEPS``, every other
+    section (lens/howto/purpose/biz-header/tech-header/facts/footer) counted
+    unconditionally — instead of one flat "8 items total, regardless of
+    section" counter. That flat counter predates business_notes: once the
+    panel started adding a biz-header + up to 3 biz divs, real content (a
+    live capture showed all 4 tech steps AND the footer) silently fell past
+    the shared budget and contributed zero height, even though
+    ``_trim_overview_panel_value`` kept every one of them — the box was
+    being sized as if the panel ended right after "Business journey". Cap at
+    ``_PANEL_MAX_HEIGHT`` so oversized essays cannot balloon the page.
+    Gap-section lines are included and may raise the cap slightly.
+
+    ``panel_width`` scales the assumed characters-per-line — a panel grown
+    wide by ``_estimate_panel_content_width`` wraps text into noticeably
+    fewer lines than one left at the minimum width, so a fixed line-length
+    assumption regardless of actual width either wastes space (box far
+    taller than the wide panel needs) or clips it (box too short for a
+    narrow one). ``_PANEL_CHARS_PER_LINE`` is calibrated for the minimum
+    width; scale proportionally from there.
+    """
+    decoded = html.unescape(value or "")
+    full_divs = _DIV_FULL.findall(decoded) or [decoded]
+    chars_per_line = max(
+        _PANEL_CHARS_PER_LINE,
+        int(_PANEL_CHARS_PER_LINE * (panel_width / _OVERVIEW_PANEL_MIN_W)),
+    )
 
     total = _PANEL_TITLE_BAND + _PANEL_BOTTOM_PAD
-    step_count = 0
+    tech_count = 0
+    biz_count = 0
     gap_lines = 0
     seen_title = False
     for div in full_divs:
@@ -1250,11 +1313,23 @@ def _estimate_panel_content_height(value: str) -> float:
         if not seen_title:
             seen_title = True
             continue
-        step_count += 1
-        if step_count > _PANEL_MAX_STEPS:
-            continue
-        text = text[:_PANEL_MAX_STEP_CHARS]
-        lines = max(1, -(-len(text) // _PANEL_CHARS_PER_LINE))
+        is_tech = bool(isinstance(div, str) and re.search(r'data-section\s*=\s*["\']tech["\']', div, re.IGNORECASE))
+        is_biz = bool(isinstance(div, str) and re.search(r'data-section\s*=\s*["\']biz["\']', div, re.IGNORECASE))
+        if is_tech:
+            tech_count += 1
+            if tech_count > _PANEL_MAX_STEPS:
+                continue
+            text = text[:_PANEL_MAX_STEP_CHARS]
+        elif is_biz:
+            biz_count += 1
+            if biz_count > _PANEL_MAX_BIZ:
+                continue
+            # No char cap here — _trim_overview_panel_value preserves biz
+            # bullets in full regardless of length; capping the estimate
+            # would under-count a long one and undersize the box for it.
+        else:
+            text = text[:_PANEL_MAX_STEP_CHARS]
+        lines = max(1, -(-len(text) // chars_per_line))
         total += lines * _PANEL_LINE_HEIGHT + _PANEL_BLOCK_GAP
     max_h = _PANEL_MAX_HEIGHT + (gap_lines * _PANEL_LINE_HEIGHT if gap_lines else 0)
     # Absolute ceiling even with gap lines added — same +40 headroom over the
@@ -1532,27 +1607,32 @@ def ensure_overview_panel_position(xml: str) -> str:
 
     px, py, pw, ph = panel_geo
 
-    # Shrink/grow height to the panel's actual text content — independent of
-    # whether the panel needs to move, so a stale LLM-emitted height never
-    # survives regardless of position.
-    needed_h = _estimate_panel_content_height(panel.get("value") or "")
-    if abs(needed_h - ph) > 0.5:
-        ph = needed_h
-        geom_el = panel.find("mxGeometry")
-        if geom_el is not None:
-            geom_el.set("height", str(ph))
-            changed = True
-
-    # Gap B (Fix 3): width was read once above and never reassigned — an LLM
-    # emitting a panel outside the documented ~400-640px range previously
-    # sailed through uncorrected. Same shrink-or-grow philosophy as the
-    # height correction just above, and as Fix 2's container sizing.
-    clamped_w = min(max(pw, _OVERVIEW_PANEL_MIN_W), _OVERVIEW_PANEL_MAX_W)
+    # Width first, height second — height's line-wrap assumption scales off
+    # the *final* width, so a wide panel (more chars per line) is credited
+    # with the shorter box it actually needs instead of being sized as if it
+    # were still at the minimum width. Gap B (Fix 3): width used to only be
+    # clamped into the documented ~400-640px range if the LLM emitted
+    # something outside it, never *grown* from whatever it started at — see
+    # _estimate_panel_content_width's own docstring for why that under-
+    # served the richer business_notes content specifically.
+    target_w = _estimate_panel_content_width(panel.get("value") or "")
+    clamped_w = min(max(target_w, _OVERVIEW_PANEL_MIN_W), _OVERVIEW_PANEL_MAX_W)
     if abs(clamped_w - pw) > 0.5:
         pw = clamped_w
         geom_el = panel.find("mxGeometry")
         if geom_el is not None:
             geom_el.set("width", str(pw))
+            changed = True
+
+    # Shrink/grow height to the panel's actual text content — independent of
+    # whether the panel needs to move, so a stale LLM-emitted height never
+    # survives regardless of position.
+    needed_h = _estimate_panel_content_height(panel.get("value") or "", panel_width=pw)
+    if abs(needed_h - ph) > 0.5:
+        ph = needed_h
+        geom_el = panel.find("mxGeometry")
+        if geom_el is not None:
+            geom_el.set("height", str(ph))
             changed = True
 
     if other_geoms:

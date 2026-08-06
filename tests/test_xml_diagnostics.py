@@ -6,6 +6,8 @@ import unittest
 import xml.etree.ElementTree as ET
 
 from app.adapters.outbound.diagram.xml_diagnostics import (
+    _estimate_panel_content_height,
+    _estimate_panel_content_width,
     apply_step_markers,
     center_unresolved_leaf_labels,
     diagnose_xml,
@@ -604,8 +606,18 @@ class EnsureOverviewPanelPositionTests(unittest.TestCase):
         w = float(panel.find("mxGeometry").get("width"))
         self.assertGreaterEqual(w, 400.0)
 
-    def test_in_range_panel_width_is_a_noop(self) -> None:
-        """Idempotency matters — repair_xml may re-run this fixer."""
+    def test_panel_width_is_idempotent(self) -> None:
+        """Idempotency matters — repair_xml may re-run this fixer.
+
+        Width is now driven by real content volume (see
+        _estimate_panel_content_width), not just clamped from whatever the
+        LLM emitted — so an "in range" starting width is no longer preserved
+        verbatim (a live capture showed this was exactly why a panel with
+        rich business_notes content stayed narrow: 420px sat comfortably
+        inside the old clamp-only range and so never grew). What must still
+        hold is a stable fixed point: running the fixer again must not keep
+        changing the width turn over turn.
+        """
         xml = _wrap(
             '<mxCell id="cloud" value="AWS Cloud" style="container=1;" vertex="1" parent="1">'
             '<mxGeometry x="200" y="100" width="600" height="400" as="geometry"/></mxCell>'
@@ -613,10 +625,13 @@ class EnsureOverviewPanelPositionTests(unittest.TestCase):
             'style="rounded=1;html=1;" vertex="1" parent="1">'
             '<mxGeometry x="840" y="100" width="500" height="160" as="geometry"/></mxCell>'
         )
-        out = ensure_overview_panel_position(xml)
-        panel = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "overview_panel")
-        w = float(panel.find("mxGeometry").get("width"))
-        self.assertEqual(w, 500.0)
+        once = ensure_overview_panel_position(xml)
+        twice = ensure_overview_panel_position(once)
+        w1 = float(next(c for c in ET.fromstring(once).iter("mxCell") if c.get("id") == "overview_panel").find("mxGeometry").get("width"))
+        w2 = float(next(c for c in ET.fromstring(twice).iter("mxCell") if c.get("id") == "overview_panel").find("mxGeometry").get("width"))
+        self.assertEqual(w1, w2)
+        self.assertGreaterEqual(w1, 400.0)
+        self.assertLessEqual(w1, 640.0)
 
     def test_reposition_after_container_growth_clears_new_bounds(self) -> None:
         """Regression: a surgical edit that adds a node into an existing container
@@ -651,6 +666,95 @@ class EnsureOverviewPanelPositionTests(unittest.TestCase):
         px, pw = float(panel.find("mxGeometry").get("x")), float(panel.find("mxGeometry").get("width"))
         self.assertGreaterEqual(px, 200.0 + 900.0, "panel must clear the grown container's right edge")
         self.assertGreater(pw, 0.0)
+
+
+def _panel_value(*divs: str) -> str:
+    """Build an escaped overview-panel value attribute from raw (unescaped)
+    div markup, matching what synthesize_ir_overview_body itself produces."""
+    import html as _html
+
+    return _html.escape("".join(divs))
+
+
+class EstimatePanelContentHeightTests(unittest.TestCase):
+    """Regression: a live capture showed a Logical panel with a populated
+    business_notes section — biz-header + 3 biz bullets — silently drop its
+    OWN 4 tech steps and footer from the height estimate entirely, because
+    the old counter was one flat "8 items total, regardless of section"
+    budget that predates business_notes. _trim_overview_panel_value kept
+    every one of those divs; the height estimate just never counted them,
+    so the box was sized as if the panel ended right after "Business
+    journey" — real, kept content silently clipped."""
+
+    def test_tech_steps_and_footer_survive_the_height_estimate_alongside_a_full_biz_section(self) -> None:
+        value = _panel_value(
+            '<div style="font-size:22px;font-weight:bold;">Title</div>',
+            '<div data-section="biz-header" style="font-size:13px;">Business journey</div>',
+            '<div data-section="biz" style="font-size:14px;">' + ("x" * 180) + '</div>',
+            '<div data-section="biz" style="font-size:14px;">' + ("x" * 180) + '</div>',
+            '<div data-section="biz" style="font-size:14px;">' + ("x" * 180) + '</div>',
+            '<div data-section="tech-header" style="font-size:13px;">Technical flow (badges)</div>',
+            '<div data-section="tech" style="font-size:14px;">1. A to B.</div>',
+            '<div data-section="tech" style="font-size:14px;">2. B to C.</div>',
+            '<div data-section="tech" style="font-size:14px;">3. C to D.</div>',
+            '<div data-section="tech" style="font-size:14px;">4. D to E.</div>',
+            '<div data-section="footer" style="font-size:12px;">Out of scope: ...</div>',
+        )
+        # Height with the tail sections (4 tech + footer) present must be
+        # taller than the same content with them removed — proof they are
+        # actually contributing to the estimate, not silently dropped.
+        without_tail = _panel_value(
+            '<div style="font-size:22px;font-weight:bold;">Title</div>',
+            '<div data-section="biz-header" style="font-size:13px;">Business journey</div>',
+            '<div data-section="biz" style="font-size:14px;">' + ("x" * 180) + '</div>',
+            '<div data-section="biz" style="font-size:14px;">' + ("x" * 180) + '</div>',
+            '<div data-section="biz" style="font-size:14px;">' + ("x" * 180) + '</div>',
+        )
+        with_tail_h = _estimate_panel_content_height(value)
+        without_tail_h = _estimate_panel_content_height(without_tail)
+        self.assertGreater(with_tail_h, without_tail_h)
+
+    def test_biz_section_capped_at_three_matching_trim(self) -> None:
+        value = _panel_value(
+            '<div style="font-size:22px;font-weight:bold;">Title</div>',
+            *[f'<div data-section="biz" style="font-size:14px;">Bullet {i}</div>' for i in range(6)],
+        )
+        h_six = _estimate_panel_content_height(value)
+        value_three = _panel_value(
+            '<div style="font-size:22px;font-weight:bold;">Title</div>',
+            *[f'<div data-section="biz" style="font-size:14px;">Bullet {i}</div>' for i in range(3)],
+        )
+        h_three = _estimate_panel_content_height(value_three)
+        # The 4th-6th bullets are dropped by _trim_overview_panel_value before
+        # this ever runs in production, so the estimate must not keep
+        # growing past 3 either — otherwise the box would be sized for text
+        # that was never actually kept.
+        self.assertEqual(h_six, h_three)
+
+    def test_wider_panel_needs_less_height_for_the_same_content(self) -> None:
+        value = _panel_value(
+            '<div style="font-size:22px;font-weight:bold;">Title</div>',
+            '<div data-section="biz" style="font-size:14px;">' + ("word " * 40) + '</div>',
+        )
+        narrow = _estimate_panel_content_height(value, panel_width=400.0)
+        wide = _estimate_panel_content_height(value, panel_width=640.0)
+        self.assertLess(wide, narrow)
+
+
+class EstimatePanelContentWidthTests(unittest.TestCase):
+    def test_light_content_stays_at_minimum_width(self) -> None:
+        value = _panel_value(
+            '<div style="font-size:22px;font-weight:bold;">Title</div>',
+            '<div data-section="tech" style="font-size:14px;">1. A to B.</div>',
+        )
+        self.assertEqual(_estimate_panel_content_width(value), 400.0)
+
+    def test_heavy_content_grows_toward_maximum_width(self) -> None:
+        value = _panel_value(
+            '<div style="font-size:22px;font-weight:bold;">Title</div>',
+            *[f'<div data-section="biz" style="font-size:14px;">{"word " * 100}</div>' for _ in range(3)],
+        )
+        self.assertEqual(_estimate_panel_content_width(value), 640.0)
 
 
 class EnsureOverviewPanelParentRootTests(unittest.TestCase):
