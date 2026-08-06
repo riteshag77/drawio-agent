@@ -2786,6 +2786,29 @@
 .insights-tab.active .insights-tab-icon {
     opacity: 1;
 }
+.insights-panel-close {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    margin-left: 2px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 4px;
+}
+.insights-panel-close svg {
+    width: 13px;
+    height: 13px;
+}
+.insights-panel-close:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
 .insights-tab-panels {
     flex: 1;
     min-height: 0;

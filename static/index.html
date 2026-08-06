@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/styles.css?v=20260805b">
+    <link rel="stylesheet" href="/static/styles.css?v=20260805c">
     <link rel="stylesheet" href="/static/themes/midnight-slate.css?v=20260724f">
     <link rel="stylesheet" href="/static/themes/daylight.css?v=20260724f">
     <link rel="stylesheet" href="/static/themes/aurora-contrast.css?v=20260724f">
@@ -549,6 +549,9 @@
                 <button type="button" class="insights-tab" data-tab="logs" role="tab" aria-selected="false" onclick="switchInsightsTab('logs')">
                     <svg class="insights-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
                     Logs
+                </button>
+                <button type="button" class="insights-panel-close" onclick="closeLogPanel()" title="Close panel" aria-label="Close insights panel">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                 </button>
             </div>
             <div class="insights-tab-panels">
