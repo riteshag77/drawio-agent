@@ -130,8 +130,22 @@ class LogicalIR(CorridorIR):
         return errors
 
     def semantic_warnings(self) -> list[str]:
-        """Cache-aside companion for enterprise profile SaaS — not thin Cognito demos."""
+        """Cache-aside companion for enterprise profile SaaS — not thin Cognito demos.
+
+        Also nudges for ``business_notes``: a live capture confirmed the
+        model's raw structured output can omit it entirely even with the
+        field described in the prompt, because it has a default and is
+        therefore never in the schema's "required" set. A judgment call (a
+        tiny fixture genuinely may not need a paragraph), so this is a nudge
+        via the one-shot corrective pass, not a hard block.
+        """
         warnings: list[str] = []
+        if not self.business_notes and len(self.leaf_ids()) >= 2:
+            warnings.append(
+                "business_notes is empty — add 1-3 short bullets translating this journey "
+                "into plain-language business terms (see the Business narrative section of "
+                "your instructions)"
+            )
         saas_shelf = next((s for s in self.anchored if s.id == _SHELF_ID), None)
         if saas_shelf is None:
             return warnings

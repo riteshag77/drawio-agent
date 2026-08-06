@@ -367,4 +367,16 @@ class NetworkIR(DiagramIR):
                     "external_actors present but no public subnet, edge layer, or gateway — "
                     "add a clear ingress path for actors into the network"
                 )
+        # A live capture confirmed the model's raw structured output can omit
+        # business_notes entirely even with the field described in the
+        # prompt, because it has a default and is therefore never in the
+        # schema's "required" set. A judgment call (not every tiny network
+        # needs a paragraph), so this is a nudge via the one-shot corrective
+        # pass, not a hard block like the zero-flows rule in semantic_errors.
+        if leaf_n >= 4 and not self.business_notes:
+            warnings.append(
+                "business_notes is empty — add 1-3 short bullets translating this network's "
+                "infrastructure into business-outcome terms (see the Business narrative "
+                "section of your instructions)"
+            )
         return warnings

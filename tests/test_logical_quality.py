@@ -181,7 +181,11 @@ class LogicalOverviewTests(unittest.TestCase):
         self.assertIn("Technical flow", body)
         self.assertIn("Business:", body)
         self.assertIn("Portal", body)
-        self.assertIn("Core work", body)
+        # realistic_logical_ir() carries its own business_notes now — the
+        # panel must prefer that LLM-authored wording over the mechanical
+        # "Core work is delivered by..." template (see
+        # test_llm_authored_business_notes_win_over_the_mechanical_fallback).
+        self.assertIn("Customers sign in through Okta", body)
         self.assertIn("cloud boundary", body.lower())
         # Facts line for flat Logical mentions services/flows (not domain counts).
         self.assertTrue("service" in body.lower() or "flow" in body.lower())
@@ -206,8 +210,19 @@ class LogicalOverviewTests(unittest.TestCase):
 
     def test_empty_business_notes_falls_back_to_mechanical_steps(self) -> None:
         """business_notes defaults to [] — Logical must never regress to
-        showing nothing just because the LLM omitted it this turn."""
-        ir = realistic_logical_ir()
+        showing nothing just because the LLM omitted it this turn.
+
+        Uses a single-leaf IR (below the 2-leaf threshold semantic_errors()
+        now enforces business_notes at) purely so this stays compilable with
+        business_notes genuinely empty — real-sized diagrams are now required
+        to populate it (see NetworkIR/CorridorIR.semantic_errors), so this
+        fallback mainly covers small fixtures and any validation-retry edge
+        case, not the common path anymore."""
+        ir = LogicalIR(
+            corridors=[Corridor(id="domain_core", label="Core", leaves=[_leaf("orders", "aws_lambda", "Orders")])],
+            external_actors=[ExternalActor(id="persona", kind="users", label="Persona")],
+            flows=[Flow(source="persona", target="orders")],
+        )
         self.assertEqual(ir.business_notes, [])
         xml = _compile(ir)
         body = synthesize_ir_overview_body(xml, "Logical", "Demo System")

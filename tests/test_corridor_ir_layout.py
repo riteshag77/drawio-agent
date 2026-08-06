@@ -146,6 +146,12 @@ def realistic_logical_ir() -> LogicalIR:
             Flow(source="warehouse", target="segment"),
             Flow(source="orders", target="obs", label="Publishes order events"),
         ],
+        business_notes=[
+            "Customers sign in through Okta before reaching the Portal, so only "
+            "verified users can place orders.",
+            "Every order is recorded in the Warehouse, giving the business a "
+            "permanent record even after the customer's session ends.",
+        ],
     )
 
 
