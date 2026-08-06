@@ -100,6 +100,19 @@ class CorridorIR(DiagramIR):
             "this view's story, referencing only leaf/actor ids already declared above."
         ),
     )
+    # Declared last, same reasoning as flows above: only worth summarizing
+    # once everything else is decided. Populated on the Logical view (the
+    # business journey a request takes); left empty elsewhere — Security/
+    # Data-flow's own prompts don't ask for it.
+    business_notes: list[str] = Field(
+        default_factory=list,
+        description=(
+            "1-3 short bullets (1-2 sentences each) describing the business journey "
+            "in plain language — who does what and why it matters, not just which "
+            "services are involved. Define any technical term inline the first time "
+            "it's used. Leave empty if this view's own instructions don't ask for it."
+        ),
+    )
 
     # ── id collection ──────────────────────────────────────────────────
 

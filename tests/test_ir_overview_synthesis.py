@@ -87,6 +87,31 @@ class SynthesizeIrOverviewBodyTests(unittest.TestCase):
         body = synthesize_ir_overview_body("not xml at all <<<", "Logical", "System")
         self.assertIn("Logical architecture", body)
 
+    def test_network_business_notes_render_as_a_business_impact_section(self) -> None:
+        """The LLM's own business_notes bullets — stamped through compiled XML
+        by CellWriter.set_business_notes, read back by _read_business_notes —
+        must reach the Network panel. Network previously had no business
+        section at all."""
+        ir = _realistic_network_ir()
+        ir.business_notes = [
+            "The load balancer spreads traffic across app servers so a spike doesn't take the portal down.",
+            "Employee records sit in a private data subnet with no direct path from the internet.",
+        ]
+        xml = compile_network_ir(ir)
+        body = synthesize_ir_overview_body(xml, "Network", "System")
+        self.assertIn("Business impact", body)
+        self.assertIn("spreads traffic across app servers", body)
+        self.assertIn("private data subnet", body)
+        self.assertIn('data-section=&quot;biz&quot;', body)
+
+    def test_network_has_no_business_section_when_ir_left_it_empty(self) -> None:
+        """business_notes defaults to [] — Network must degrade cleanly to
+        today's behavior (no Business section) rather than emitting an empty
+        header, for any IR that doesn't populate it."""
+        xml = compile_network_ir(_realistic_network_ir())
+        body = synthesize_ir_overview_body(xml, "Network", "System")
+        self.assertNotIn("Business impact", body)
+
 
 class EnsureIrOverviewPanelTests(unittest.TestCase):
     def test_injects_panel_when_missing(self) -> None:

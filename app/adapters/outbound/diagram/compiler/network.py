@@ -99,6 +99,7 @@ class _NetworkCompiler:
             band_hi=g.y + g.h,
         )
         emit_flows(self.w, self.ir.flows)
+        self.w.set_business_notes(self.ir.business_notes)
         # This page's container geometry is compiler-final — mark layout="ir"
         # so fit_containers_to_children does not reflow it (same as corridor).
         self.w.mark_layout_authoritative()

@@ -65,7 +65,8 @@ Users often send short briefs across different business domains. Map them to
 | "Insurance claims intake with broker submissions" | Claimant/Broker → Claims API → Underwriting service → Policy DB; policy admin vendor as `saas_egress` |
 
 Always: plan the L→R ranks and primary path mentally, then emit the JSON object
-with `external_actors`, `corridors`, `anchored`, `flows` (flows last).
+with `external_actors`, `corridors`, `anchored`, `flows`, `business_notes`
+(flows before business_notes — both last).
 
 ## Corridor vocabulary (fixed ids) — JSON ranks only (not drawn boxes)
 
@@ -115,6 +116,28 @@ User / Persona (`kind=users`) on the left. Identity can be:
 - **External IdP** as `saas_ingress` (Okta / Auth0) flowing into the portal.
 
 Canonical L→R: `User → Client → Auth → API → Compute → Data → [SaaS]`.
+
+## Business narrative (`business_notes`)
+
+Once the diagram itself is fully decided, add 1-3 short bullets (1-2
+sentences each) to `business_notes` — the "why this exists" a non-technical
+stakeholder reads. Not a restatement of the flow edges. Each bullet:
+
+- Plain language, no unexplained acronyms — define any technical term inline
+  the first time it appears (e.g. "API Gateway (the single front door all
+  requests pass through)").
+- Explains *why* that part matters to the business/customer, not just which
+  service is involved.
+- Stays ONE bullet — this renders as a single line in the diagram's overview
+  panel, not a paragraph.
+
+Bad (generic, no "why"): "Users reach the product via Web Portal."
+Good: "Customers sign in through the Web Portal — before anything else
+happens, Cognito confirms they're really who they say they are, so no one
+can act on someone else's account."
+
+Leave `business_notes` empty only if the request is too abstract/generic to
+say anything specific (rare).
 
 ## Leaf vocabulary
 
@@ -171,6 +194,11 @@ Never TLS/WAF/JSON-payload-class vocabulary — that belongs to Security / Data-
     {"source": "apigw", "target": "lambda", "label": "Forwards Request", "primary": true},
     {"source": "lambda", "target": "ddb", "label": "Fetch User Data", "primary": true},
     {"source": "lambda", "target": "react", "label": "Return Data (JSON)", "primary": false}
+  ],
+  "business_notes": [
+    "Customers sign in through the React Client — Cognito confirms they're really who they say they are before anything else happens, so no one can act on someone else's account.",
+    "Once signed in, every request goes through API Gateway (the single front door all requests pass through) to AWS Lambda, the code that actually does the work — nothing runs without going through it first.",
+    "User data is permanently kept in DynamoDB, so the business always has an up-to-date record even between logins."
   ]
 }
 ```

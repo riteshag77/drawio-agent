@@ -22,6 +22,7 @@ cloud                        AWS Cloud / Azure / Google Cloud
   connectivity_hubs[]        Transit Gateway / VPN / Direct Connect / PrivateLink
 external_actors[]            users | saas_ingress | saas_egress | on_prem
 flows[]                      source -> target request path
+business_notes[]             1-3 short bullets, decided last (see below)
 ```
 
 ## How to answer short user prompts
@@ -170,10 +171,42 @@ stopping at the gateway or CDN is incomplete.
   {"source": "cdn", "target": "alb", "primary": true},
   {"source": "alb", "target": "orders_api", "primary": true},
   {"source": "orders_api", "target": "orders_db", "primary": true}
+],
+"business_notes": [
+  "The load balancer (ALB) spreads incoming orders across multiple app servers, so a big sale doesn't take checkout down for everyone at once.",
+  "Orders DB sits in a private data subnet with no direct path from the internet — customer order data can only be reached through the application itself, never by someone probing the network directly."
 ]
 ```
 
 **Never return `"flows": []` when `external_actors` is non-empty.**
+
+## Business narrative (`business_notes`)
+
+Once the topology and flows are fully decided, add 1-3 short bullets (1-2
+sentences each) to `business_notes` — translate the infrastructure choices
+into what they **protect or guarantee for the business**, not just what
+they're named. This is a different angle from Logical's "business journey":
+Network's reader wants to know why this deployment shape is safe/resilient,
+not what a request does step by step.
+
+- Plain language, no unexplained acronyms — define any technical term inline
+  the first time it appears.
+- Tie each bullet to a real element of *this* diagram (the gateway, the data
+  tier's isolation, Multi-AZ, a security group) — not a generic infra
+  platitude that could apply to any diagram.
+- Stays ONE bullet — this renders as a single line in the overview panel,
+  not a paragraph.
+
+Bad (generic, not tied to this diagram): "The cloud provides scalability and
+security."
+Good: "The load balancer spreads incoming traffic across multiple app
+servers, so a traffic spike doesn't take checkout down for everyone at
+once." / "The database sits in a private data subnet with no direct path
+from the internet — customer records can only be reached through the
+application itself, never by someone probing the network directly."
+
+Leave `business_notes` empty only if the request is too abstract/generic to
+say anything specific (rare).
 
 ## leaves
 

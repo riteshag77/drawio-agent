@@ -167,6 +167,7 @@ class _CorridorCompiler:
             flat_actors=flat,
         )
         emit_flows(self.w, self.ir.flows, routes=routes)
+        self.w.set_business_notes(self.ir.business_notes)
 
         legend_body = build_legend(self.ir)
         if legend_body is not None:

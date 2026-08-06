@@ -188,6 +188,32 @@ class LogicalOverviewTests(unittest.TestCase):
         out = ensure_ir_overview_panel(xml, "Logical", "Demo System")
         self.assertIn("overview_panel", out)
 
+    def test_llm_authored_business_notes_win_over_the_mechanical_fallback(self) -> None:
+        """When the LLM populates business_notes, use its own wording instead
+        of the generic template sentences ("Users reach the product via X.")
+        — richer, per-request, defines terms and explains why, not just what."""
+        ir = realistic_logical_ir()
+        ir.business_notes = [
+            "Customers sign in through the Portal — Cognito confirms who they "
+            "are before anything else happens, so no one can act on someone "
+            "else's account.",
+        ]
+        xml = _compile(ir)
+        body = synthesize_ir_overview_body(xml, "Logical", "Demo System")
+        self.assertIn("Business journey", body)
+        self.assertIn("Cognito confirms who they are", body)
+        self.assertNotIn("Core work is delivered by", body)
+
+    def test_empty_business_notes_falls_back_to_mechanical_steps(self) -> None:
+        """business_notes defaults to [] — Logical must never regress to
+        showing nothing just because the LLM omitted it this turn."""
+        ir = realistic_logical_ir()
+        self.assertEqual(ir.business_notes, [])
+        xml = _compile(ir)
+        body = synthesize_ir_overview_body(xml, "Logical", "Demo System")
+        self.assertIn("Business journey", body)
+        self.assertIn("Core work", body)
+
 
 if __name__ == "__main__":
     unittest.main()

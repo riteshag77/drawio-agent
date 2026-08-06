@@ -148,6 +148,18 @@ class NetworkIR(DiagramIR):
             "path plus sparse secondary paths, referencing only ids already declared above."
         ),
     )
+    # Declared last on purpose, same reasoning as flows above: the model
+    # should only summarize the business impact of this network AFTER it has
+    # fully decided the topology, not before.
+    business_notes: list[str] = Field(
+        default_factory=list,
+        description=(
+            "1-3 short bullets (1-2 sentences each) translating this network's "
+            "infrastructure choices into business-outcome terms — what each part "
+            "protects or guarantees, not just what it's named. Plain language; "
+            "define any technical term inline the first time it's used."
+        ),
+    )
 
     # ── id collection ──────────────────────────────────────────────────
 

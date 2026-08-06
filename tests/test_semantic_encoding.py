@@ -112,6 +112,32 @@ class MxCellStampingTests(unittest.TestCase):
         other_edge = next(e for e in edges if e.get("classification") is None)
         self.assertIsNone(other_edge.get("protection"), "none is the default; must not be stamped")
 
+    def test_business_notes_default_empty_leaves_no_attribute(self) -> None:
+        """The default (unpopulated) case — Security's own prompt doesn't ask
+        for business_notes — must not leave a pointless empty attribute on
+        the page root."""
+        root = self._compile()
+        root_cell = next(c for c in root.iter("mxCell") if c.get("id") == "1")
+        self.assertIsNone(root_cell.get("business_notes"))
+
+    def test_business_notes_stamped_on_page_root_as_json(self) -> None:
+        """synthesize_ir_overview_body only ever sees compiled XML, never the
+        live IR object — this JSON-encoded attribute on cell id="1" is the
+        only way the LLM's own business_notes wording reaches it."""
+        import json
+
+        ir = SecurityIR(
+            corridors=[
+                Corridor(id="zone_public", label="Public", leaves=[_leaf("dns", "Route 53")]),
+            ],
+            business_notes=["Route 53 keeps DNS resolution available even if one region fails."],
+        )
+        xml = compile_corridor_ir(ir, page_name="Security")
+        root = ET.fromstring(xml)
+        root_cell = next(c for c in root.iter("mxCell") if c.get("id") == "1")
+        stamped = json.loads(root_cell.get("business_notes"))
+        self.assertEqual(stamped, ["Route 53 keeps DNS resolution available even if one region fails."])
+
 
 if __name__ == "__main__":
     unittest.main()

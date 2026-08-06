@@ -365,6 +365,38 @@ class ViewEnrichmentFixerTests(unittest.TestCase):
         self.assertEqual(by_id["app"].get("shape_type"), "aws_ec2")
         self.assertNotIn("shape=ellipse", by_id["shield"].get("style") or "")
 
+    def test_inject_shape_types_never_touches_an_external_actor(self) -> None:
+        """Regression: a live capture showed Security/Data-flow's "Users"
+        external-actor cell (styled correctly and completely by
+        theme.actor_style() at compile time, with no shape_type at all — it
+        never needs MCP resolution) end up with resIcon=mxgraph.aws4.lambda.
+        Root cause: this function assigns *any* shape_type-less, non-container
+        vertex a shape_type by inferred tier when no direct label match is
+        found — and _infer_view_leaf_tier("Users") falls through to the "app"
+        (compute) tier default, so the tier fallback grabbed whatever compute
+        entry the primary inventory had (Lambda here). Logical already avoids
+        this because assign_logical_shape_types runs first and gives its own
+        actor a real shape_type ("logical_actor") before this function ever
+        sees it — Security/Data-flow have no equivalent, so the actor must be
+        excluded here directly instead."""
+        from app.adapters.outbound.diagram.architecture_docs import inject_shape_types_from_primary
+
+        primary = _wrap(
+            '<mxCell id="lambda" value="Checkout Fn" shape_type="aws_lambda" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        page = _wrap(
+            '<mxCell id="users" value="Users" '
+            'style="shape=mxgraph.aws4.user;sketch=0;fillColor=#232F3E;" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>',
+            name="Security",
+        )
+        out = inject_shape_types_from_primary(page, primary)
+        cell = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "users")
+        self.assertIsNone(cell.get("shape_type"))
+        self.assertNotIn("resIcon=mxgraph.aws4.lambda", cell.get("style") or "")
+        self.assertIn("shape=mxgraph.aws4.user", cell.get("style") or "")
+
     def test_logical_assigns_mcp_shape_types(self) -> None:
         from app.adapters.outbound.diagram.architecture_docs import assign_logical_shape_types
 

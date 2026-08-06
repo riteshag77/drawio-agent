@@ -8,6 +8,7 @@ an unparseable document.
 
 from __future__ import annotations
 
+import json
 import xml.etree.ElementTree as ET
 
 
@@ -74,6 +75,25 @@ class CellWriter:
         for cell in self._root:
             if cell.get("id") == "1":
                 cell.set("layout", "ir")
+                return
+
+    def set_business_notes(self, notes: list[str]) -> None:
+        """Stamp the IR's LLM-authored business bullets on the page root (id="1"),
+        JSON-encoded, same "custom attribute rides through the pipeline
+        untouched" convention as ``shape_type``/``criticality`` above.
+
+        Read back by ``architecture_docs._read_business_notes`` once the page
+        is compiled — ``synthesize_ir_overview_body`` never sees the live IR
+        object, only compiled XML, so this is the only way the LLM's own
+        wording reaches the overview panel instead of a heuristic guess at it.
+        No-ops on an empty list so pages that never populate ``business_notes``
+        (Security/Data-flow today) don't carry a pointless empty attribute.
+        """
+        if not notes:
+            return
+        for cell in self._root:
+            if cell.get("id") == "1":
+                cell.set("business_notes", json.dumps(notes))
                 return
 
     def edge(

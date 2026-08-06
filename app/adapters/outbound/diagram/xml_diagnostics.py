@@ -100,7 +100,12 @@ _PANEL_TITLE_BAND = 48.0
 _PANEL_BLOCK_GAP = 10.0
 _PANEL_BOTTOM_PAD = 14.0
 _PANEL_MIN_HEIGHT = 140.0
-_PANEL_MAX_HEIGHT = 520.0
+# Raised from 520 (was already tight for Logical's own pre-existing worst
+# case: 6 tech steps + 3 business bullets could already brush this ceiling)
+# to fit the richer, LLM-authored business_notes bullets on both Logical and
+# the new Network business section — see synthesize_ir_overview_body. Real
+# content must never be silently clipped by a box too short to show it.
+_PANEL_MAX_HEIGHT = 820.0
 _PANEL_MAX_STEPS = 8
 _PANEL_MAX_STEP_CHARS = 140
 
@@ -1252,7 +1257,9 @@ def _estimate_panel_content_height(value: str) -> float:
         lines = max(1, -(-len(text) // _PANEL_CHARS_PER_LINE))
         total += lines * _PANEL_LINE_HEIGHT + _PANEL_BLOCK_GAP
     max_h = _PANEL_MAX_HEIGHT + (gap_lines * _PANEL_LINE_HEIGHT if gap_lines else 0)
-    max_h = min(560.0, max_h)
+    # Absolute ceiling even with gap lines added — same +40 headroom over the
+    # baseline cap this always had (520/560 before the _PANEL_MAX_HEIGHT raise).
+    max_h = min(_PANEL_MAX_HEIGHT + 40.0, max_h)
     return max(_PANEL_MIN_HEIGHT, min(max_h, total))
 
 

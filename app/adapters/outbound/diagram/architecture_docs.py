@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import json
 import re
 import xml.etree.ElementTree as ET
 from xml.sax.saxutils import escape
@@ -1541,6 +1542,9 @@ def inject_shape_types_from_primary(page_xml: str, primary_xml: str) -> str:
     by_tier = _primary_entries_by_tier(entries)
     used: set[str] = set()
     changed = False
+    # Local import: view_fixers.py imports from this module, so a top-level
+    # import here would be circular.
+    from app.adapters.outbound.diagram.view_fixers import _is_actor_label
     for cell in root.iter("mxCell"):
         if cell.get("vertex") != "1" or cell.get("edge") == "1":
             continue
@@ -1558,6 +1562,17 @@ def inject_shape_types_from_primary(page_xml: str, primary_xml: str) -> str:
         if _is_inventory_noise_label(label, cid):
             continue
         existing = cell.get("shape_type") or ""
+        # A "Users"/external-actor leaf is not a cloud service — Network's own
+        # inventory has no real match for it, so the tier-based fallback below
+        # was grabbing whatever compute entry happened to be available (a live
+        # capture showed this land on Lambda). theme.py's actor_style() already
+        # gives every actor kind a complete, correct, hardcoded style with no
+        # MCP resolution needed at all — this function's whole job is filling
+        # in *missing* icons, so an actor (which never needs one) must never
+        # be a candidate for it, same as Logical already protects its own
+        # actor via assign_logical_shape_types running first.
+        if not existing and _is_actor_label(label):
+            continue
         matched = existing or _match_shape_type(label, entries)
         if not matched:
             matched = _match_shape_type_by_tier(label, by_tier, used) or ""
@@ -1842,6 +1857,36 @@ def _ir_story_steps(xml: str, *, max_steps: int | None = None) -> list[_StorySte
         text = f"{src} → {tgt} ({edge_label})." if edge_label else f"{src} connects to {tgt}."
         steps.append(_StoryStep(target_id=tgt_id, text=text))
     return steps
+
+
+def _read_business_notes(xml: str) -> list[str]:
+    """The LLM's own ``business_notes`` bullets, stamped by the compiler onto
+    the page root (id="1") as JSON — see ``CellWriter.set_business_notes``.
+
+    ``synthesize_ir_overview_body`` only ever receives already-compiled XML,
+    never the live IR object, so this is the only way the LLM's own wording
+    (definitions, "why it matters," per-request specifics) reaches the panel
+    instead of falling back to a generic heuristic guess at it. Returns ``[]``
+    on anything missing/malformed — every caller already has a fallback.
+    """
+    try:
+        parse_src = xml if ("<mxfile" in xml or "<mxGraphModel" in xml) else f"<root>{xml}</root>"
+        tree = ET.fromstring(parse_src)
+    except ET.ParseError:
+        return []
+    for cell in tree.iter("mxCell"):
+        if cell.get("id") == "1":
+            raw = cell.get("business_notes")
+            if not raw:
+                return []
+            try:
+                notes = json.loads(raw)
+            except (ValueError, TypeError):
+                return []
+            if not isinstance(notes, list):
+                return []
+            return [str(n).strip() for n in notes if str(n).strip()]
+    return []
 
 
 def _logical_business_steps(xml: str) -> list[str]:
@@ -2164,7 +2209,7 @@ def synthesize_ir_overview_body(xml: str, view_title: str, system_title: str = "
         )
 
     if title_key == "logical":
-        biz = _logical_business_steps(xml)
+        biz = _read_business_notes(xml) or _logical_business_steps(xml)
         if biz:
             parts.append(
                 "&lt;div data-section=&quot;biz-header&quot; style=&quot;font-size:13px;font-weight:bold;margin-top:6px;&quot;&gt;"
@@ -2199,6 +2244,18 @@ def synthesize_ir_overview_body(xml: str, view_title: str, system_title: str = "
                 "&lt;div data-section=&quot;tech&quot; style=&quot;font-size:15px;&quot;&gt;"
                 f"{i}. {_esc(step.text)}&lt;/div&gt;"
             )
+        if title_key == "network":
+            biz = _read_business_notes(xml)
+            if biz:
+                parts.append(
+                    "&lt;div data-section=&quot;biz-header&quot; style=&quot;font-size:13px;font-weight:bold;margin-top:6px;&quot;&gt;"
+                    "Business impact&lt;/div&gt;"
+                )
+                for text in biz:
+                    parts.append(
+                        "&lt;div data-section=&quot;biz&quot; style=&quot;font-size:14px;&quot;&gt;"
+                        f"&#8226; {_esc(text)}&lt;/div&gt;"
+                    )
 
     facts = _key_facts_line(xml, title_key)
     if facts:
