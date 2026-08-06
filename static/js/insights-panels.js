@@ -439,6 +439,7 @@ function toggleSuggestionsPanel() {
         if (body && !body.querySelector('.chat-suggestion-item')) {
             body.innerHTML = '<div class="suggestions-empty">Generate a diagram to see follow-up suggestions</div>';
         }
+        if (typeof switchInsightsTab === 'function') switchInsightsTab('suggestions');
         rerunSuggestionsCheck();
     } else {
         panel.classList.remove('active');
@@ -718,6 +719,7 @@ function toggleWellArchitectedPanel() {
         panel.classList.add('active');
         if (body) body.innerHTML = '<div class="waf-empty">Generate a diagram to see Well-Architected review</div>';
         if (badge) { badge.textContent = '--'; badge.className = 'waf-overall-badge'; }
+        if (typeof switchInsightsTab === 'function') switchInsightsTab('waf');
         rerunWafComplianceCheck();
     } else {
         panel.classList.remove('active');
@@ -928,6 +930,7 @@ function toggleCompliancePanel() {
     if (document.getElementById('compliance-toggle').checked) {
         panel.classList.add('active');
         if (body) body.innerHTML = '<div class="compliance-empty">Generate a diagram to see compliance assessment results</div>';
+        if (typeof switchInsightsTab === 'function') switchInsightsTab('waf');
         rerunWafComplianceCheck();
     } else {
         panel.classList.remove('active');
