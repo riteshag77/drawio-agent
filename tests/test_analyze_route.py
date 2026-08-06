@@ -69,6 +69,60 @@ class AnalyzeRouteTests(unittest.TestCase):
         self.assertEqual(body["status"], "success")
         self.assertIsNone(body["well_architected"])
         self.assertIsNone(body["compliance"])
+        self.assertIsNone(body["suggestions"])
+
+    def test_suggestions_off_by_default(self) -> None:
+        """suggestions defaults to False — a caller that doesn't ask for it
+        (e.g. the existing WAF/compliance-only re-check) must not pay for an
+        LLM call it never requested."""
+        client = self._client()
+        res = client.post("/analyze", json={
+            "xml": _LAMBDA_XML, "well_architected": False, "compliance": False,
+        })
+        self.assertEqual(res.status_code, 200)
+        self.assertIsNone(res.json()["suggestions"])
+
+    def test_suggestions_reruns_against_the_given_xml(self) -> None:
+        """Turning the Suggestions toggle on after a diagram already exists
+        should show results immediately — same reasoning as the
+        WAF/Compliance re-check, same route, just a different flag."""
+        from unittest.mock import patch
+
+        from app.domain.entities.xml_diagram import DiagramSuggestion
+
+        client = self._client()
+        fake = [DiagramSuggestion(text="Add a DLQ for the queue.", category="network")]
+        with patch(
+            "app.adapters.inbound.web.routes.generate_followup_suggestions_for_xml",
+            return_value=fake,
+        ) as mocked:
+            res = client.post("/analyze", json={
+                "xml": _LAMBDA_XML, "well_architected": False, "compliance": False,
+                "suggestions": True, "view": "network", "human_prompt": "checkout service",
+                "applied_suggestions": ["already applied this one"],
+            })
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertEqual(len(body["suggestions"]), 1)
+        self.assertEqual(body["suggestions"][0]["text"], "Add a DLQ for the queue.")
+        _, kwargs = mocked.call_args
+        self.assertEqual(kwargs["view"], "network")
+        self.assertEqual(kwargs["user_request"], "checkout service")
+        self.assertEqual(kwargs["applied_suggestions"], ["already applied this one"])
+
+    def test_suggestions_failure_is_a_500_not_a_silent_empty_list(self) -> None:
+        from unittest.mock import patch
+
+        client = self._client()
+        with patch(
+            "app.adapters.inbound.web.routes.generate_followup_suggestions_for_xml",
+            side_effect=RuntimeError("boom"),
+        ):
+            res = client.post("/analyze", json={
+                "xml": _LAMBDA_XML, "well_architected": False, "compliance": False,
+                "suggestions": True,
+            })
+        self.assertEqual(res.status_code, 500)
 
 
 if __name__ == "__main__":

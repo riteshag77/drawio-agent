@@ -24,7 +24,7 @@ from app.adapters.outbound.llm.concurrency import run_llm_sync
 from app.adapters.outbound.utils.documents import MAX_ATTACHMENT_BYTES, extract_document
 from app.adapters.outbound.utils.web import fetch_url_content
 from app.core.logging import StepLogger
-from app.core.services.agent import generate_mermaid_diagram
+from app.core.services.agent import generate_followup_suggestions_for_xml, generate_mermaid_diagram
 from app.core.services.intent import classify_intent
 from app.core.services.xml_pipeline import _summarize_llm_usage, run_xml_pipeline
 from app.adapters.outbound.llm import providers as providers_module
@@ -464,9 +464,9 @@ async def chat_diagram_stream(body: ChatRequest, request: Request):
 
 @router.post("/analyze")
 async def analyze_diagram(body: AnalyzeRequest, request: Request):
-    """Re-run Well-Architected/compliance against an existing diagram.
+    """Re-run Well-Architected/compliance/suggestions against an existing diagram.
 
-    Split out from ``/chat`` so turning the WAF/Compliance toggle on after a
+    Split out from ``/chat`` so turning any of these toggles on after a
     diagram already exists shows results immediately instead of only taking
     effect on the *next* chat turn.
     """
@@ -477,6 +477,7 @@ async def analyze_diagram(body: AnalyzeRequest, request: Request):
 
     waf_data = None
     compliance_data = None
+    suggestions_data = None
     try:
         if body.well_architected:
             waf_data = await asyncio.to_thread(assess_well_architected, xml, body.platform)
@@ -487,6 +488,16 @@ async def analyze_diagram(body: AnalyzeRequest, request: Request):
                 platform=body.platform,
                 frameworks=body.compliance_frameworks,
                 provider=body.provider,
+                logger=logger,
+            )
+        if body.suggestions:
+            suggestions_data = await asyncio.to_thread(
+                generate_followup_suggestions_for_xml,
+                xml,
+                view=body.view,
+                user_request=body.human_prompt,
+                provider=body.provider,
+                applied_suggestions=body.applied_suggestions,
                 logger=logger,
             )
     except Exception as exc:
@@ -500,6 +511,7 @@ async def analyze_diagram(body: AnalyzeRequest, request: Request):
         "status": "success",
         "well_architected": waf_data,
         "compliance": compliance_data,
+        "suggestions": suggestions_data,
         "logs": logger.to_list(),
     }
 

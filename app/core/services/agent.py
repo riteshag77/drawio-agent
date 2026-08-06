@@ -1073,6 +1073,39 @@ def _generate_followup_suggestions(
     return sugg
 
 
+def generate_followup_suggestions_for_xml(
+    xml: str,
+    *,
+    view: str = "network",
+    user_request: str = "",
+    provider: str = "claude",
+    applied_suggestions: list[str] | None = None,
+    logger: "StepLogger | None" = None,
+) -> list[DiagramSuggestion]:
+    """Public entry point for re-running suggestions against an
+    already-generated diagram — the ``/analyze`` route's suggestions
+    counterpart to ``assess_well_architected``/``assess_compliance``. Turning
+    the Suggestions toggle on after a diagram already exists should show
+    results immediately instead of only taking effect on the next chat turn,
+    same reasoning as the WAF/Compliance re-check.
+
+    Builds the inventory straight from raw XML (``_xml_labels_inventory`` —
+    the surgical-edit path's own approach, since there is no typed IR object
+    here either) and routes through the same hardened
+    ``_generate_followup_suggestions`` every other path already shares.
+    """
+    provider_key = normalize_provider_key(provider)
+    return _generate_followup_suggestions(
+        inventory=_xml_labels_inventory(xml),
+        view=view or "network",
+        user_request=user_request,
+        provider_key=provider_key,
+        llm=get_llm(),
+        logger=logger,
+        applied_suggestions=applied_suggestions,
+    )
+
+
 def generate_xml_diagram_from_ir(
     view: str,
     user_request: str,

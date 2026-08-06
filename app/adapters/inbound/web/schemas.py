@@ -132,6 +132,10 @@ class AnalyzeRequest(BaseModel):
     well_architected: bool = True
     compliance: bool = True
     compliance_frameworks: list[str] | None = None
+    suggestions: bool = False
+    view: str = "network"
+    human_prompt: str = Field(default="", max_length=4000)
+    applied_suggestions: list[str] = []
 
 
 class ParseUrlRequest(BaseModel):

@@ -329,6 +329,58 @@ function hideCostEstimate() {
 
 // ── Suggestions Panel ─────────────────────────────────────
 
+/** Same reasoning as rerunWafComplianceCheck() below — turning Suggestions on
+ * only takes effect on the *next* chat turn by default, which reads as
+ * "I turned this on and nothing happened" if a diagram already exists.
+ * Re-runs against the current diagram via POST /analyze and renders
+ * immediately, same as if this turn's response had included them. */
+async function rerunSuggestionsCheck() {
+    if (typeof currentXml !== 'string' || !currentXml.trim()) return;
+    if (!document.getElementById('suggestions-toggle')?.checked) return;
+
+    var providerSelect = document.getElementById('provider-select');
+    var provider = (providerSelect && typeof parseProviderSelectValue === 'function')
+        ? parseProviderSelectValue(providerSelect.value).provider
+        : undefined;
+    var views = typeof getSelectedDiagramViews === 'function' ? getSelectedDiagramViews() : [];
+    var lastUserMessage = '';
+    if (typeof chatMessages !== 'undefined') {
+        for (var i = chatMessages.length - 1; i >= 0; i--) {
+            if (chatMessages[i].role === 'user') { lastUserMessage = chatMessages[i].content || ''; break; }
+        }
+    }
+    var payload = {
+        xml: currentXml,
+        platform: (typeof selectedPlatform !== 'undefined' && selectedPlatform) || 'aws',
+        well_architected: false,
+        compliance: false,
+        suggestions: true,
+        view: views[0] || 'network',
+        human_prompt: lastUserMessage,
+        applied_suggestions: typeof getAppliedSuggestionsPayload === 'function' ? getAppliedSuggestionsPayload() : [],
+    };
+    if (provider) payload.provider = provider;
+
+    try {
+        var res = await fetch('/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        var data = await res.json();
+        if (!res.ok || data.status !== 'success') {
+            if (typeof showToast === 'function') {
+                showToast('Could not refresh suggestions: ' + (data.detail || 'server error'), 'warning');
+            }
+            return;
+        }
+        displaySuggestions(data.suggestions || []);
+    } catch (e) {
+        console.error('Suggestions re-check failed', e);
+        if (typeof showToast === 'function') showToast('Could not refresh suggestions — network error.', 'warning');
+    }
+}
+
 function toggleSuggestionsPanel() {
     var panel = document.getElementById('suggestions-panel');
     var body = document.getElementById('suggestions-panel-body');
@@ -339,6 +391,7 @@ function toggleSuggestionsPanel() {
         if (body && !body.querySelector('.chat-suggestion-item')) {
             body.innerHTML = '<div class="suggestions-empty">Generate a diagram to see follow-up suggestions</div>';
         }
+        rerunSuggestionsCheck();
     } else {
         panel.classList.remove('active');
         clearSuggestionsPanel({ keepPlaceholder: true });
