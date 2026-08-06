@@ -14,7 +14,7 @@ import xml.etree.ElementTree as ET
 
 from app.adapters.outbound.diagram import palette
 from app.adapters.outbound.diagram.compiler import compile_corridor_ir, theme
-from app.domain.ir import AnchoredCorridor, Corridor, Flow, Leaf, SecurityIR
+from app.domain.ir import AnchoredCorridor, Corridor, Flow, Leaf, LogicalIR, SecurityIR
 
 
 def _leaf(i: str, label: str, **kw) -> Leaf:
@@ -113,10 +113,15 @@ class MxCellStampingTests(unittest.TestCase):
         self.assertIsNone(other_edge.get("protection"), "none is the default; must not be stamped")
 
     def test_business_notes_default_empty_leaves_no_attribute(self) -> None:
-        """The default (unpopulated) case — Security's own prompt doesn't ask
-        for business_notes — must not leave a pointless empty attribute on
-        the page root."""
-        root = self._compile()
+        """The default (unpopulated) case for a view with nothing to derive
+        or fall back on — Logical's own business_notes list, when the LLM
+        left it empty — must not leave a pointless empty attribute on the
+        page root."""
+        ir = LogicalIR(
+            corridors=[Corridor(id="domain_core", label="Core", leaves=[_leaf("svc", "Service")])],
+        )
+        xml = compile_corridor_ir(ir, page_name="Logical")
+        root = ET.fromstring(xml)
         root_cell = next(c for c in root.iter("mxCell") if c.get("id") == "1")
         self.assertIsNone(root_cell.get("business_notes"))
 
@@ -126,17 +131,41 @@ class MxCellStampingTests(unittest.TestCase):
         only way the LLM's own business_notes wording reaches it."""
         import json
 
+        ir = LogicalIR(
+            corridors=[Corridor(id="domain_core", label="Core", leaves=[_leaf("svc", "Service")])],
+            business_notes=["Route 53 keeps DNS resolution available even if one region fails."],
+        )
+        xml = compile_corridor_ir(ir, page_name="Logical")
+        root = ET.fromstring(xml)
+        root_cell = next(c for c in root.iter("mxCell") if c.get("id") == "1")
+        stamped = json.loads(root_cell.get("business_notes"))
+        self.assertEqual(stamped, ["Route 53 keeps DNS resolution available even if one region fails."])
+
+    def test_security_overview_notes_built_from_named_fields_not_raw_business_notes(self) -> None:
+        """Security doesn't use its (inherited but unused-for-this-view)
+        business_notes list directly — the compiler builds labeled bullets
+        from the named overview fields instead (see corridor.py's
+        _overview_notes), so a raw business_notes value must be ignored, and
+        the zone list is always present since it's derived from real
+        corridors/anchored, not LLM-authored prose."""
+        import json
+
         ir = SecurityIR(
             corridors=[
                 Corridor(id="zone_public", label="Public", leaves=[_leaf("dns", "Route 53")]),
             ],
-            business_notes=["Route 53 keeps DNS resolution available even if one region fails."],
+            business_notes=["This must not appear — Security ignores raw business_notes."],
+            purpose="Shows the public-facing DNS boundary.",
+            data_classification="PII",
         )
         xml = compile_corridor_ir(ir, page_name="Security")
         root = ET.fromstring(xml)
         root_cell = next(c for c in root.iter("mxCell") if c.get("id") == "1")
         stamped = json.loads(root_cell.get("business_notes"))
-        self.assertEqual(stamped, ["Route 53 keeps DNS resolution available even if one region fails."])
+        self.assertNotIn("This must not appear — Security ignores raw business_notes.", stamped)
+        self.assertIn("Purpose: Shows the public-facing DNS boundary.", stamped)
+        self.assertIn("Data classification: PII", stamped)
+        self.assertIn("Security zones: Public", stamped)
 
 
 if __name__ == "__main__":

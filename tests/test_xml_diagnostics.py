@@ -714,22 +714,26 @@ class EstimatePanelContentHeightTests(unittest.TestCase):
         without_tail_h = _estimate_panel_content_height(without_tail)
         self.assertGreater(with_tail_h, without_tail_h)
 
-    def test_biz_section_capped_at_three_matching_trim(self) -> None:
+    def test_biz_section_capped_matching_trim(self) -> None:
+        """_PANEL_MAX_BIZ (10 — raised to fit Security's up to 9 named
+        overview fields, see compiler/corridor.py's _overview_notes) must
+        cap the height estimate the same way _trim_overview_panel_value caps
+        what actually survives, or the two silently diverge again."""
         value = _panel_value(
             '<div style="font-size:22px;font-weight:bold;">Title</div>',
-            *[f'<div data-section="biz" style="font-size:14px;">Bullet {i}</div>' for i in range(6)],
+            *[f'<div data-section="biz" style="font-size:14px;">Bullet {i}</div>' for i in range(15)],
         )
-        h_six = _estimate_panel_content_height(value)
-        value_three = _panel_value(
+        h_fifteen = _estimate_panel_content_height(value)
+        value_capped = _panel_value(
             '<div style="font-size:22px;font-weight:bold;">Title</div>',
-            *[f'<div data-section="biz" style="font-size:14px;">Bullet {i}</div>' for i in range(3)],
+            *[f'<div data-section="biz" style="font-size:14px;">Bullet {i}</div>' for i in range(10)],
         )
-        h_three = _estimate_panel_content_height(value_three)
-        # The 4th-6th bullets are dropped by _trim_overview_panel_value before
-        # this ever runs in production, so the estimate must not keep
-        # growing past 3 either — otherwise the box would be sized for text
+        h_capped = _estimate_panel_content_height(value_capped)
+        # Bullets past the cap are dropped by _trim_overview_panel_value
+        # before this ever runs in production, so the estimate must not keep
+        # growing past it either — otherwise the box would be sized for text
         # that was never actually kept.
-        self.assertEqual(h_six, h_three)
+        self.assertEqual(h_fifteen, h_capped)
 
     def test_wider_panel_needs_less_height_for_the_same_content(self) -> None:
         value = _panel_value(

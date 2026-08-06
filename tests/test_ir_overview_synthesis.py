@@ -12,9 +12,15 @@ from app.adapters.outbound.diagram.architecture_docs import (
     page_has_overview_panel,
     synthesize_ir_overview_body,
 )
-from app.adapters.outbound.diagram.compiler import compile_network_ir
-from app.domain.ir import Leaf, ExternalActor, Flow
+from app.adapters.outbound.diagram.compiler import compile_corridor_ir, compile_network_ir
+from app.domain.ir import Corridor, Leaf, ExternalActor, Flow
+from app.domain.ir.data_flow import DataFlowIR
 from app.domain.ir.network import NetworkIR, CloudBoundary, Region, Vpc, AvailabilityZone, Subnet
+from app.domain.ir.security import SecurityIR
+
+
+def _leaf(i: str, st: str, label: str) -> Leaf:
+    return Leaf(id=i, shape_type=st, label=label)
 
 
 def _realistic_network_ir() -> NetworkIR:
@@ -111,6 +117,83 @@ class SynthesizeIrOverviewBodyTests(unittest.TestCase):
         xml = compile_network_ir(_realistic_network_ir())
         body = synthesize_ir_overview_body(xml, "Network", "System")
         self.assertNotIn("Business impact", body)
+
+
+class SecurityDataFlowOverviewNotesTests(unittest.TestCase):
+    """Security/Data-flow don't author a flat business_notes list — the
+    compiler builds it from named, independently-optional fields (see
+    compiler/corridor.py's _overview_notes) so the panel always presents
+    them in the same fixed order/labels regardless of what order the model
+    filled them in."""
+
+    def _security_ir(self, **overrides) -> SecurityIR:
+        return SecurityIR(
+            corridors=[
+                Corridor(id="zone_public", label="Public", leaves=[_leaf("waf", "aws_waf", "WAF")]),
+                Corridor(id="zone_private", label="Private", leaves=[_leaf("app", "aws_ecs", "App")]),
+            ],
+            flows=[Flow(source="waf", target="app", label="TLS", protection="tls")],
+            **overrides,
+        )
+
+    def test_security_overview_renders_all_populated_named_fields(self) -> None:
+        ir = self._security_ir(
+            purpose="Shows the public-to-private trust boundary for the claims API.",
+            scope_included="IAM, network segmentation, WAF",
+            scope_excluded="Physical security controls not shown — see facilities documentation.",
+            threat_model_reference="STRIDE",
+            data_classification="PII, PCI",
+            compliance_frameworks="HIPAA, SOC2",
+            control_types="authN/authZ, encryption in transit",
+            key_assumptions="Assumes all internal traffic is mTLS-encrypted — not shown as separate edges.",
+        )
+        xml = compile_corridor_ir(ir, page_name="Security")
+        body = synthesize_ir_overview_body(xml, "Security", "Claims Platform")
+        self.assertIn("Security posture", body)
+        self.assertIn("Purpose: Shows the public-to-private trust boundary", body)
+        self.assertIn("Scope included: IAM, network segmentation, WAF", body)
+        self.assertIn("Scope excluded: Physical security controls not shown", body)
+        self.assertIn("Security zones: Public, Private", body)
+        self.assertIn("Threat model: STRIDE", body)
+        self.assertIn("Data classification: PII, PCI", body)
+        self.assertIn("Compliance frameworks: HIPAA, SOC2", body)
+        self.assertIn("Control types: authN/authZ", body)
+        self.assertIn("Key assumptions: Assumes all internal traffic is mTLS", body)
+
+    def test_security_zones_bullet_always_present_even_with_no_named_fields_filled(self) -> None:
+        """Zones are structural fact derived from real corridors/anchored,
+        not LLM-authored prose — must show regardless of whether the model
+        filled in any of the judgment-call fields."""
+        xml = compile_corridor_ir(self._security_ir(), page_name="Security")
+        body = synthesize_ir_overview_body(xml, "Security", "System")
+        self.assertIn("Security zones: Public, Private", body)
+
+    def test_security_skips_blank_fields_without_empty_bullets(self) -> None:
+        ir = self._security_ir(purpose="Shows the trust boundary.")
+        xml = compile_corridor_ir(ir, page_name="Security")
+        body = synthesize_ir_overview_body(xml, "Security", "System")
+        self.assertNotIn("Threat model:", body)
+        self.assertNotIn("Scope excluded:", body)
+
+    def test_data_flow_overview_renders_populated_named_fields(self) -> None:
+        ir = DataFlowIR(
+            corridors=[
+                Corridor(id="phase_ingest", label="Ingest", leaves=[_leaf("api", "aws_api_gateway", "API")]),
+                Corridor(id="phase_store", label="Store", leaves=[_leaf("db", "aws_rds", "DB")]),
+            ],
+            flows=[Flow(source="api", target="db", label="SQL")],
+            data_classification="PHI, Financial",
+            compliance_frameworks="NAIC, HIPAA",
+            trust_zones_referenced="public, internal, restricted",
+            key_assumptions="mTLS assumed between all internal services.",
+        )
+        xml = compile_corridor_ir(ir, page_name="Data flow")
+        body = synthesize_ir_overview_body(xml, "Data flow", "Claims Pipeline")
+        self.assertIn("Data governance", body)
+        self.assertIn("Data classification: PHI, Financial", body)
+        self.assertIn("Compliance frameworks: NAIC, HIPAA", body)
+        self.assertIn("Trust zones referenced: public, internal, restricted", body)
+        self.assertIn("Key assumptions: mTLS assumed between all internal services.", body)
 
 
 class EnsureIrOverviewPanelTests(unittest.TestCase):

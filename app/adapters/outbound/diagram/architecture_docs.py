@@ -1683,6 +1683,16 @@ _VIEW_FOOTER: dict[str, str] = {
     "data_flow": "Out of scope: network layout and security controls (other tabs).",
     "network": "Out of scope: business capabilities, trust controls, and data payloads (other tabs).",
 }
+#: Header for the LLM-authored bullet section (see _overview_notes in
+#: compiler/corridor.py, and synthesize_ir_overview_body below) — Logical
+#: renders under its own "Business journey" header unconditionally, these
+#: three are keyed here since not every view gets this section.
+_BIZ_SECTION_HEADER: dict[str, str] = {
+    "network": "Business impact",
+    "security": "Security posture",
+    "data flow": "Data governance",
+    "data_flow": "Data governance",
+}
 
 #: Cap on how many steps the numbered story (panel prose + canvas badges)
 #: ever carries — matches ``apply_step_markers``' own badge cap, so neither
@@ -2244,12 +2254,13 @@ def synthesize_ir_overview_body(xml: str, view_title: str, system_title: str = "
                 "&lt;div data-section=&quot;tech&quot; style=&quot;font-size:15px;&quot;&gt;"
                 f"{i}. {_esc(step.text)}&lt;/div&gt;"
             )
-        if title_key == "network":
+        header = _BIZ_SECTION_HEADER.get(title_key)
+        if header:
             biz = _read_business_notes(xml)
             if biz:
                 parts.append(
                     "&lt;div data-section=&quot;biz-header&quot; style=&quot;font-size:13px;font-weight:bold;margin-top:6px;&quot;&gt;"
-                    "Business impact&lt;/div&gt;"
+                    f"{_esc(header)}&lt;/div&gt;"
                 )
                 for text in biz:
                     parts.append(

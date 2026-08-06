@@ -57,6 +57,7 @@ class SecurityWarningsTests(unittest.TestCase):
                 Flow(source="app", target="workday"), Flow(source="app", target="gd", primary=False),
                 Flow(source="app", target="db"),
             ],
+            purpose="Shows the private app tier's trust boundary and SaaS egress.",
         )
         self.assertEqual(ir.semantic_warnings(), [])
 
@@ -88,6 +89,7 @@ class SecurityWarningsTests(unittest.TestCase):
                 Corridor(id="zone_private", label="Private", leaves=[_leaf("app", "App")]),
             ],
             flows=[Flow(source="waf", target="app", protection="tls")],
+            purpose="Shows the public ingress path into the private app tier.",
         )
         self.assertEqual(ir.semantic_warnings(), [])
 
@@ -123,6 +125,7 @@ class DataFlowWarningsTests(unittest.TestCase):
                 ]),
             ],
             flows=[Flow(source="kinesis", target="dlq", primary=False), Flow(source="kinesis", target="db")],
+            data_classification="Financial",
         )
         self.assertEqual(ir.semantic_warnings(), [])
 

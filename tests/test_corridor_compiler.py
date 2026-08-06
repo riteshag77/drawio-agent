@@ -395,6 +395,7 @@ class SemanticFieldsThroughFullPipelineTests(unittest.TestCase):
                 Flow(source="app", target="gd", label="Logs & Telemetry", primary=False),
                 Flow(source="rds", target="workday", classification="pci", protection="tls"),
             ],
+            purpose="Shows the public-to-restricted trust boundary and SaaS egress.",
         )
         self.assertEqual(ir.semantic_warnings(), [])  # secrets + detect + protected boundary all present
         xml = compile_corridor_ir(ir, page_name="Security")
@@ -431,6 +432,7 @@ class SemanticFieldsThroughFullPipelineTests(unittest.TestCase):
                 Flow(source="lambda1", target="db", classification="pii"),
                 Flow(source="db", target="archive", label="Automated Snapshots"),
             ],
+            data_classification="PII",
         )
         self.assertEqual(ir.semantic_warnings(), [])  # DLQ + archive both present
         xml = compile_corridor_ir(ir, page_name="Data flow")

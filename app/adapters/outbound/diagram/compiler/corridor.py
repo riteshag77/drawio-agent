@@ -98,6 +98,52 @@ def _cloud_boundary_label(leaves: list[Leaf]) -> tuple[str, str]:
     return labels[platform], platform
 
 
+def _security_zones_present(ir: CorridorIR) -> str:
+    """Deterministic, not LLM-authored — the zone/shelf ids actually present
+    in a Security IR are structural fact, not judgment. Reusing whatever
+    label the model already gave each corridor avoids asking it to describe,
+    in a second free-text field, the same thing it already named."""
+    labels = [c.label for c in ir.corridors] + [s.label for s in ir.anchored]
+    return ", ".join(labels)
+
+
+def _overview_notes(ir: CorridorIR) -> list[str]:
+    """The bullets ``CellWriter.set_business_notes`` stamps onto the
+    compiled page.
+
+    Logical's own ``business_notes`` is model-authored free text, used as
+    is. Security/Data-flow instead ask the model for named, independently-
+    optional fields (see ``config/xml_gen/ir/security.txt``/``data_flow.txt``)
+    — formatted into "Label: text" bullets here, in one fixed order, so the
+    panel always presents them the same way regardless of what order the
+    model filled them in, and a genuinely-empty field (e.g. no applicable
+    threat model) just produces no bullet instead of the model having to
+    write "N/A" itself.
+    """
+    if ir.view == "security":
+        fields = [
+            ("Purpose", getattr(ir, "purpose", "")),
+            ("Scope included", getattr(ir, "scope_included", "")),
+            ("Scope excluded", getattr(ir, "scope_excluded", "")),
+            ("Security zones", _security_zones_present(ir)),
+            ("Threat model", getattr(ir, "threat_model_reference", "")),
+            ("Data classification", getattr(ir, "data_classification", "")),
+            ("Compliance frameworks", getattr(ir, "compliance_frameworks", "")),
+            ("Control types", getattr(ir, "control_types", "")),
+            ("Key assumptions", getattr(ir, "key_assumptions", "")),
+        ]
+        return [f"{label}: {text}" for label, text in fields if text]
+    if ir.view == "data_flow":
+        fields = [
+            ("Data classification", getattr(ir, "data_classification", "")),
+            ("Compliance frameworks", getattr(ir, "compliance_frameworks", "")),
+            ("Trust zones referenced", getattr(ir, "trust_zones_referenced", "")),
+            ("Key assumptions", getattr(ir, "key_assumptions", "")),
+        ]
+        return [f"{label}: {text}" for label, text in fields if text]
+    return list(ir.business_notes)
+
+
 class _CorridorCompiler:
     def __init__(self, ir: CorridorIR, page_name: str) -> None:
         self.ir = ir
@@ -167,7 +213,7 @@ class _CorridorCompiler:
             flat_actors=flat,
         )
         emit_flows(self.w, self.ir.flows, routes=routes)
-        self.w.set_business_notes(self.ir.business_notes)
+        self.w.set_business_notes(_overview_notes(self.ir))
 
         legend_body = build_legend(self.ir)
         if legend_body is not None:

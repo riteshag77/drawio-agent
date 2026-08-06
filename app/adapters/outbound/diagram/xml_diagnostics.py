@@ -110,8 +110,12 @@ _PANEL_MAX_STEPS = 8
 _PANEL_MAX_STEP_CHARS = 140
 #: Shared by _trim_overview_panel_value (what actually survives trimming) and
 #: _estimate_panel_content_height (how tall the box gets sized) — one
-#: constant so the two can never silently drift apart.
-_PANEL_MAX_BIZ = 3
+#: constant so the two can never silently drift apart. Raised from 3: Logical/
+#: Network's own prompts still only ask for 2-3 narrative bullets each, but
+#: Security's overview has up to 9 named fields (Purpose, Scope, Security
+#: zones, Threat model, Data classification, Compliance frameworks, Control
+#: types, Key assumptions) — see compiler/corridor.py's _overview_notes.
+_PANEL_MAX_BIZ = 10
 
 _ACTOR_SHAPE_TYPES = {
     "aws_users", "aws_user", "users", "user", "aws_client", "client", "aws_mobile_client",

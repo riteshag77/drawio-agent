@@ -136,6 +136,28 @@ itself, not only on edges).
 charts (Logical's lens). Never invent brokers when SaaS+store are absent
 except the required companions above.
 
+## Overview panel metadata
+
+Once the diagram itself is fully decided, fill these fields for the
+overview panel — each is short (1 line, plain language), independently
+optional (leave genuinely blank rather than force content that doesn't
+apply), and rendered as its own labeled bullet:
+
+- **`data_classification`** — types of sensitive data actually flowing
+  through this pipeline (PII, PHI, PCI, Financial, Actuarial) — only what
+  this specific request implies, matching the `[PII]`/`[PCI]` tags you
+  already put on flows/stores above, not a generic "may contain" list.
+- **`compliance_frameworks`** — regulations this data journey is actually
+  subject to (NAIC, HIPAA, SOC2, GDPR, Solvency II) — only ones the request
+  implies.
+- **`trust_zones_referenced`** — network/trust tiers this data conceptually
+  passes through even though this view doesn't draw zone boxes itself
+  (public, DMZ, internal, restricted) — for a reader jumping here from
+  Security.
+- **`key_assumptions`** — anything assumed but not visually depicted (e.g.
+  "mTLS assumed between all internal services"). Leave blank if there's
+  nothing genuinely implicit to flag.
+
 ## Density
 
 8–12 when supported; 5–7 when thin — never invent brokers to pad except the

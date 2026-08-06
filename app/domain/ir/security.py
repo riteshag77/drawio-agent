@@ -26,6 +26,50 @@ class SecurityIR(CorridorIR):
     view: Literal["security"] = Field(
         default="security", description="Must be exactly the lowercase string 'security' — no other casing."
     )
+
+    # Overview-panel metadata, declared after the structural fields (and
+    # after business_notes) for the same "decide the diagram before
+    # summarizing it" reasoning as DiagramIR's own field-order docstring —
+    # all optional/empty by default since not every field applies to every
+    # request (e.g. threat_model_reference is often genuinely "N/A"). The
+    # compiler builds the rendered Security overview bullets FROM these named
+    # fields (see compiler/corridor.py) rather than the model authoring a
+    # flat business_notes list directly for this view, so the panel always
+    # presents them in the same fixed order/labels regardless of what order
+    # the model happened to fill them in.
+    purpose: str = Field(
+        default="", description="1-2 sentences: what security posture/controls this view represents and why it exists.",
+    )
+    scope_included: str = Field(
+        default="", description="Zones/systems/control domains actually shown (e.g. IAM, network security, encryption, WAF).",
+    )
+    scope_excluded: str = Field(
+        default="", description='Security domains deliberately left out (e.g. "Physical security controls not shown").',
+    )
+    threat_model_reference: str = Field(
+        default="", description='Framework this view aligns to if any (e.g. "STRIDE", "MITRE ATT&CK"), else "N/A".',
+    )
+    data_classification: str = Field(
+        default="", description="Sensitivity tiers of data the controls shown protect (PII, PHI, PCI, Financial, Actuarial).",
+    )
+    compliance_frameworks: str = Field(
+        default="", description="Applicable regulations driving these controls (NAIC, HIPAA, SOC2, GDPR, Solvency II).",
+    )
+    control_types: str = Field(
+        default="",
+        description=(
+            "Categories of controls shown (authN/authZ, encryption at rest/in transit, "
+            "network segmentation, logging/monitoring, key management)."
+        ),
+    )
+    key_assumptions: str = Field(
+        default="",
+        description=(
+            'Controls assumed but not visually depicted (e.g. "Assumes all internal traffic '
+            'is mTLS-encrypted — not shown as separate edges").'
+        ),
+    )
+
     @classmethod
     def sanitize_raw(cls, data: object) -> object:
         """Pre-parse relocate for LangChain json_mode paths that surface the
@@ -74,8 +118,23 @@ class SecurityIR(CorridorIR):
         """Promotes three "required companions" rules from
         ``config/xml_gen/ir/security.txt`` prose into code — see that file's
         "Required companions" section for the judgment calls these mirror.
+
+        Also nudges for the overview-panel fields: same lesson learned for
+        business_notes (see NetworkIR/LogicalIR) — an optional field with a
+        default is never in the schema's "required" set, so a live capture
+        confirmed the model can skip it entirely even when the prompt
+        describes it. Only checks ``purpose`` (the one field that should
+        always be fillable) rather than all nine — most of the others are
+        legitimately blank for a given request (e.g. no applicable threat
+        model), and the prompt already says so.
         """
         warnings: list[str] = []
+        if not self.purpose.strip() and len(self.leaf_ids()) >= 2:
+            warnings.append(
+                "purpose is empty — add 1-2 sentences on what security posture/controls this "
+                "view represents and why it exists (see the Overview panel metadata section of "
+                "your instructions)"
+            )
         private = self.corridor_by_id("zone_private")
         saas_shelf = next((s for s in self.anchored if s.id == _SHELF_ID), None)
         if private is not None and saas_shelf is not None:

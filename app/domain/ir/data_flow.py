@@ -41,6 +41,28 @@ class DataFlowIR(CorridorIR):
     )
     _infra_noise_denylist: ClassVar[frozenset[str]] = _INFRA_NOISE_DENYLIST
 
+    # Overview-panel metadata — same reasoning as SecurityIR's own block:
+    # declared after the structural fields, all optional, rendered by the
+    # compiler from these named fields in a fixed order (see
+    # compiler/corridor.py) rather than a flat LLM-authored list.
+    data_classification: str = Field(
+        default="", description="Types of sensitive data flowing through (PII, PHI, PCI, Financial, Actuarial).",
+    )
+    compliance_frameworks: str = Field(
+        default="", description="Applicable regulations (NAIC, HIPAA, SOC2, GDPR, Solvency II).",
+    )
+    trust_zones_referenced: str = Field(
+        default="",
+        description=(
+            "Network/trust tiers this data conceptually passes through even though Data-flow "
+            "doesn't draw zone boxes itself (public, DMZ, internal, restricted)."
+        ),
+    )
+    key_assumptions: str = Field(
+        default="",
+        description='Anything assumed but not visually depicted (e.g. "mTLS assumed between all internal services").',
+    )
+
     @classmethod
     def sanitize_raw(cls, data: object) -> object:
         """Pre-parse relocate — see ``SecurityIR.sanitize_raw``."""
@@ -91,8 +113,23 @@ class DataFlowIR(CorridorIR):
         """Promotes two "required companions" rules from
         ``config/xml_gen/ir/data_flow.txt`` prose into code — see that file's
         "Required companions" section for the judgment calls these mirror.
+
+        Also nudges for the overview-panel fields: same lesson learned for
+        business_notes (see NetworkIR/LogicalIR) — an optional field with a
+        default is never in the schema's "required" set, so a live capture
+        confirmed the model can skip it entirely even when the prompt
+        describes it. Checks data_classification/compliance_frameworks
+        together (the two most broadly-applicable fields) rather than all
+        four — trust_zones_referenced/key_assumptions are legitimately blank
+        more often, and the prompt already says so.
         """
         warnings: list[str] = []
+        if not self.data_classification.strip() and not self.compliance_frameworks.strip() and len(self.leaf_ids()) >= 2:
+            warnings.append(
+                "data_classification and compliance_frameworks are both empty — fill in "
+                "whichever genuinely apply to the data this pipeline handles (see the Overview "
+                "panel metadata section of your instructions)"
+            )
         ingest = self.corridor_by_id("phase_ingest")
         if ingest is not None and self.leaves_mention(
             ingest.leaves, "kafka", "kinesis", "stream", "event hub", "pub/sub",

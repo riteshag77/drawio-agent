@@ -122,6 +122,42 @@ crossing with `protection: none` is flagged for review.
 `zone_detect` is always a **main-row** corridor — never put it in `anchored`
 (only `zone_external_saas` may be anchored).
 
+## Overview panel metadata
+
+Once the diagram itself is fully decided, fill these fields for the
+overview panel — each is short (1 line, plain language), independently
+optional (leave genuinely blank rather than force content that doesn't
+apply), and rendered as its own labeled bullet, so no single field needs to
+cover everything:
+
+- **`purpose`** — 1-2 sentences: what security posture/controls this
+  specific view represents and why it exists. Not a restatement of the zone
+  list — the "so what" a risk owner reads first.
+- **`scope_included`** — the control domains actually shown (e.g. "IAM,
+  network segmentation, WAF, encryption at rest").
+- **`scope_excluded`** — security domains deliberately left out, so a
+  reader doesn't assume silence means absence (e.g. "Physical security
+  controls not shown — see facilities documentation").
+- **`threat_model_reference`** — a named framework this view aligns to if
+  one genuinely applies (e.g. "STRIDE", "MITRE ATT&CK"); leave blank if
+  none — never invent one to fill the field.
+- **`data_classification`** — sensitivity tiers of the data these controls
+  protect (PII, PHI, PCI, Financial, Actuarial) — only the ones this
+  specific request actually implies.
+- **`compliance_frameworks`** — regulations actually driving these controls
+  (NAIC, HIPAA, SOC2, GDPR, Solvency II) — only ones the request implies,
+  never a generic "may apply" list.
+- **`control_types`** — categories of controls actually depicted (authN/
+  authZ, encryption at rest/in transit, network segmentation, logging/
+  monitoring, key management) — describe what's drawn, don't pad the list.
+- **`key_assumptions`** — controls assumed but not visually depicted (e.g.
+  "Assumes all internal traffic is mTLS-encrypted — not shown as separate
+  edges"). Leave blank if there's nothing genuinely implicit to flag.
+
+(Which zones/shelves appear is already structural fact from `corridors`/
+`anchored` above — the compiler derives that bullet itself; no separate
+field for it.)
+
 **Forbidden:** Orders/Catalog/Checkout/UI soup, Kafka-as-hero, DB
 table/CRUD labels, full AZ/subnet wallpaper (that's Network's lens), SaaS
 leaves inside `zone_private`, partner leaves inside `zone_private` or
