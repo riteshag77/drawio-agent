@@ -748,6 +748,8 @@ function displayWellArchitected(wafData) {
     var status = wafData.overall_status || 'pass';
     badge.textContent = status.toUpperCase();
     badge.className = 'waf-overall-badge ' + status;
+    var summaryText = document.querySelector('.waf-summary-text');
+    if (summaryText) summaryText.textContent = wafData.summary || 'Assessed against Well-Architected pillars';
     body.innerHTML = '';
     var pillars = wafData.pillars || [];
     if (pillars.length === 0) {
@@ -810,14 +812,6 @@ function displayWellArchitected(wafData) {
     });
 
     registerInsightItems('waf', wafItems);
-
-    var summary = wafData.summary || '';
-    if (summary) {
-        var s = document.createElement('div');
-        s.style.cssText = 'margin-top:0.5rem;font-size:0.7rem;color:var(--text-muted);line-height:1.4';
-        s.textContent = summary;
-        body.appendChild(s);
-    }
     updateRightPanelVisibility();
 }
 
