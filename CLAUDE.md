@@ -60,7 +60,11 @@ app/
 - **IR + compiler** (default for **fresh** cloud; `DIAGRAM_IR_VIEWS` per view):
   LLM emits IR; `adapters/outbound/diagram/compiler/` renders XML (ELK for
   corridor views). Leaf size is always `geometry_spec.LEAF_W/H`. Failure fails
-  the request — no silent direct-XML fallback.
+  the request — no silent direct-XML fallback. `compiler/generic.py` (the
+  as-is image-replication path, a sibling schema — see below) is the sole
+  deliberate exception: it sizes/positions leaves from the LLM's `size_hint`/
+  `x`/`y` hints instead, since its purpose is source-image fidelity, not
+  cloud design-system consistency.
 - **Surgical edit** / **3D**: only remaining direct-XML paths (no `core.txt` /
   `views/` packs). Mermaid stays for `"simple"` intent.
 

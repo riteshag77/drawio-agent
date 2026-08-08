@@ -68,14 +68,39 @@ Never invent a colour that isn't visibly there, and never use `fill_color` to
 encode meaning (status, priority, category) that isn't itself a literal
 colour difference in the source image.
 
-## Layout hints (`row` / `col`)
+## Layout hints (`x` / `y`)
 
-Optional per-node integers describing coarse position, **not pixels**:
-`row` 0 is the topmost visual band in the image, increasing downward; `col` 0
-is leftmost, increasing rightward. Group visually-aligned nodes into the same
-row/col. Leave both blank on a node when you aren't confident about its
+Optional per-node floats in `[0.0, 1.0]` describing coarse position as a
+**fraction** of the source image's width/height — never pixels. `x=0.0` is
+the leftmost edge, `x=1.0` the rightmost; `y=0.0` the topmost edge, `y=1.0`
+the bottommost. Estimate roughly (e.g. a shape sitting a third of the way
+down and centered horizontally is `x=0.5, y=0.33`) — this is what lets the
+renderer reproduce the image's actual layout (wide top box, narrower boxes
+below, an off-grid side note, …) instead of flattening everything into a
+uniform grid. Leave both blank on a node when you aren't confident about its
 position — the renderer places unhinted nodes deterministically instead of
 guessing badly. Never fabricate precise coordinates.
+
+## Size hints (`size_hint`)
+
+Optional per-node judgement of size **relative to the other shapes in the
+image**: `"small"`, `"normal"` (default), or `"large"`. This is a comparison,
+not a measurement — set it only when a shape is visibly and clearly smaller
+or larger than its peers (e.g. a large "Start" banner above several smaller
+regular steps). Leave at `"normal"` when shapes are roughly the same size.
+
+## Icon hints (`icon_hint`)
+
+Optional short free-text description of a recognizable brand/product/cloud-
+service icon **actually drawn** on the shape — e.g. `"aws s3 bucket"`,
+`"kubernetes"`, `"docker whale"`, `"slack"`, `"postgresql elephant logo"`.
+Used to search an icon library for a matching stencil. Set it only when the
+image shows a real, identifiable icon or logo, not a generic box/label —
+never invent a brand or service that isn't visibly there. If no good match
+exists in the icon library, the shape keeps its plain `shape` styling, so
+omitting `icon_hint` and setting it to a description that finds nothing has
+the same visible result — when in doubt about whether an icon is truly
+recognizable, it's safe to include your best guess.
 
 ## Grouping
 
@@ -104,11 +129,11 @@ schema below.
   "title": "Expense Approval",
   "groups": [],
   "nodes": [
-    {"id": "start", "shape": "rounded_rectangle", "label": "Submit Expense", "row": 0, "col": 0, "fill_color": "#D1E7DD"},
-    {"id": "check", "shape": "diamond", "label": "Amount > $500?", "row": 1, "col": 0, "fill_color": "#FFF3CD"},
-    {"id": "manager", "shape": "rectangle", "label": "Manager Review", "row": 2, "col": 0},
-    {"id": "auto", "shape": "rectangle", "label": "Auto-Approved", "row": 2, "col": 1},
-    {"id": "end", "shape": "rounded_rectangle", "label": "Reimbursed", "row": 3, "col": 0, "fill_color": "#D1E7DD"}
+    {"id": "start", "shape": "rounded_rectangle", "label": "Submit Expense", "x": 0.2, "y": 0.05, "fill_color": "#D1E7DD"},
+    {"id": "check", "shape": "diamond", "label": "Amount > $500?", "x": 0.2, "y": 0.3, "fill_color": "#FFF3CD"},
+    {"id": "manager", "shape": "rectangle", "label": "Manager Review", "x": 0.2, "y": 0.6},
+    {"id": "auto", "shape": "rectangle", "label": "Auto-Approved", "x": 0.6, "y": 0.6},
+    {"id": "end", "shape": "rounded_rectangle", "label": "Reimbursed", "x": 0.2, "y": 0.9, "fill_color": "#D1E7DD"}
   ],
   "edges": [
     {"source": "start", "target": "check", "line_style": "orthogonal", "arrow": "forward"},
@@ -129,15 +154,33 @@ schema below.
     {"id": "platform_team", "label": "Platform Team", "boundary": "dashed"}
   ],
   "nodes": [
-    {"id": "cto", "shape": "rectangle", "label": "CTO", "row": 0, "col": 0},
-    {"id": "eng_lead", "shape": "rectangle", "label": "Eng Lead", "group": "platform_team", "row": 0, "col": 0},
-    {"id": "swe1", "shape": "rectangle", "label": "SWE", "group": "platform_team", "row": 1, "col": 0},
-    {"id": "swe2", "shape": "rectangle", "label": "SWE", "group": "platform_team", "row": 1, "col": 1}
+    {"id": "cto", "shape": "rectangle", "label": "CTO", "x": 0.5, "y": 0.05, "size_hint": "large"},
+    {"id": "eng_lead", "shape": "rectangle", "label": "Eng Lead", "group": "platform_team", "x": 0.5, "y": 0.1},
+    {"id": "swe1", "shape": "rectangle", "label": "SWE", "group": "platform_team", "x": 0.2, "y": 0.6},
+    {"id": "swe2", "shape": "rectangle", "label": "SWE", "group": "platform_team", "x": 0.8, "y": 0.6}
   ],
   "edges": [
     {"source": "cto", "target": "eng_lead", "line_style": "straight", "arrow": "none"},
     {"source": "eng_lead", "target": "swe1", "line_style": "straight", "arrow": "none"},
     {"source": "eng_lead", "target": "swe2", "line_style": "straight", "arrow": "none"}
+  ]
+}
+```
+
+### Example — sketch with recognizable icons
+
+```json
+{
+  "title": "Upload Flow",
+  "groups": [],
+  "nodes": [
+    {"id": "user", "shape": "actor", "label": "User", "x": 0.1, "y": 0.5},
+    {"id": "bucket", "shape": "rectangle", "label": "Uploads", "x": 0.5, "y": 0.5, "icon_hint": "aws s3 bucket"},
+    {"id": "notify", "shape": "rectangle", "label": "#uploads channel", "x": 0.9, "y": 0.5, "icon_hint": "slack"}
+  ],
+  "edges": [
+    {"source": "user", "target": "bucket", "label": "Upload", "line_style": "orthogonal", "arrow": "forward"},
+    {"source": "bucket", "target": "notify", "label": "Notify", "line_style": "orthogonal", "arrow": "forward"}
   ]
 }
 ```

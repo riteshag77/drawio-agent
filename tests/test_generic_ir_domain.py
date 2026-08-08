@@ -27,9 +27,39 @@ class GenericNodeValidationTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             GenericNode(id="0", shape="rectangle", label="A")
 
-    def test_negative_row_col_rejected(self) -> None:
+    def test_row_col_fields_no_longer_exist(self) -> None:
+        """Replaced by x/y — extra='forbid' must reject the old field names."""
         with self.assertRaises(ValidationError):
-            GenericNode(id="a", shape="rectangle", label="A", row=-1)
+            GenericNode(id="a", shape="rectangle", label="A", row=0, col=0)
+
+    def test_x_y_out_of_range_rejected(self) -> None:
+        for bad in (-0.1, 1.1):
+            with self.assertRaises(ValidationError, msg=bad):
+                GenericNode(id="a", shape="rectangle", label="A", x=bad)
+            with self.assertRaises(ValidationError, msg=bad):
+                GenericNode(id="a", shape="rectangle", label="A", y=bad)
+
+    def test_x_y_in_range_accepted(self) -> None:
+        node = GenericNode(id="a", shape="rectangle", label="A", x=0.0, y=1.0)
+        self.assertEqual(node.x, 0.0)
+        self.assertEqual(node.y, 1.0)
+
+    def test_x_y_default_to_none(self) -> None:
+        node = _node("a")
+        self.assertIsNone(node.x)
+        self.assertIsNone(node.y)
+
+    def test_size_hint_defaults_to_normal(self) -> None:
+        self.assertEqual(_node("a").size_hint, "normal")
+
+    def test_bad_size_hint_is_rejected(self) -> None:
+        with self.assertRaises(ValidationError):
+            GenericNode(id="a", shape="rectangle", label="A", size_hint="huge")
+
+    def test_icon_hint_accepts_free_text_and_defaults_to_none(self) -> None:
+        self.assertIsNone(_node("a").icon_hint)
+        node = GenericNode(id="a", shape="rectangle", label="A", icon_hint="aws s3 bucket")
+        self.assertEqual(node.icon_hint, "aws s3 bucket")
 
     def test_valid_hex_colors_are_accepted_and_normalized(self) -> None:
         node = GenericNode(id="a", shape="rectangle", label="A", fill_color="#3b82f6", stroke_color="#000000")

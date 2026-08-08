@@ -927,11 +927,16 @@ async def _run_generic_image_pipeline(
     custom_system_message: str,
     applied_suggestions: list[Any] | None,
     on_progress: ProgressCallback | None,
+    diagram_renderer: str | None = None,
 ) -> dict[str, Any]:
     """As-is image replication: generic IR + compiler, skipping every
     cloud-specific enrichment step (platform styling, overview panel, SaaS
-    shape stamping, MCP icon resolution, multi-view fan-out, cost/WAF/
-    compliance/ADR/RAID) — none of it applies to a non-cloud traced diagram.
+    shape stamping, multi-view fan-out, cost/WAF/compliance/ADR/RAID) — none
+    of it applies to a non-cloud traced diagram. The one cloud-path mechanism
+    reused here is icon resolution: a node with an explicit ``icon_hint``
+    gets a best-effort MCP ``search_shapes`` lookup, same merge-after-compile
+    convention the cloud path uses (see ``compiler/generic.py``'s module
+    docstring) — everything else about this diagram stays untouched.
     """
     page_name = "Diagram"
     await _emit(on_progress, "ir", "Reproducing uploaded diagram as-is…")
@@ -991,6 +996,30 @@ async def _run_generic_image_pipeline(
             level="warning", details={"issues": layout_issues},
         )
 
+    renderer_used = "local"
+    if is_xml_pipeline_mode(diagram_renderer):
+        shape_types = extract_shape_types(xml_output) or []
+        if shape_types:
+            await _emit(on_progress, "mcp", "Resolving icon styles…")
+            try:
+                # platform="any": icon_hint is freeform text describing a brand/
+                # cloud-service icon, not a closed AWS/GCP/Azure shape_type
+                # vocabulary — no vendor-library filtering should apply.
+                resolved = await resolve_shape_styles(shape_types, platform="any", logger=logger)
+            except Exception as exc:
+                resolved = {}
+                if logger:
+                    logger.log("mcp", f"Icon resolve skipped: {exc}", level="warning")
+            if resolved:
+                xml_output = apply_mcp_styles(xml_output, resolved)
+                renderer_used = "mcp"
+                if logger:
+                    logger.log(
+                        "mcp", f"Applied {len(resolved)} MCP icon style(s)", level="success",
+                        details={"resolved_count": len(resolved)},
+                    )
+                await _emit(on_progress, "mcp", f"Applied {len(resolved)} icon style(s)")
+
     xml_output, xml_ok, xml_failure = guarantee_loadable_xml(xml_output, page_name)
     if not xml_ok and logger:
         logger.log(
@@ -1011,7 +1040,7 @@ async def _run_generic_image_pipeline(
         xml=xml_output,
         assistant_message=diagram.assistant_message or "Reproduced the uploaded diagram as-is.",
         suggestions=[],
-        renderer_used="local",
+        renderer_used=renderer_used,
         generation_path="generic_ir",
         logger=logger,
     )
@@ -1084,6 +1113,7 @@ async def run_xml_pipeline(
             custom_system_message=custom_system_message,
             applied_suggestions=applied_suggestions,
             on_progress=on_progress,
+            diagram_renderer=diagram_renderer,
         )
     if has_image_attachment and not (current_xml or "").strip():
         await _emit(on_progress, "classify", "Identifying diagram type from image…")

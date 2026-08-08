@@ -23,9 +23,9 @@ class CompileGenericIrTests(unittest.TestCase):
         ir = GenericDiagramIR(
             title="Approval Flow",
             nodes=[
-                _node("start", "rounded_rectangle", row=0, col=0),
-                _node("check", "diamond", row=1, col=0),
-                _node("done", "rounded_rectangle", row=2, col=0),
+                _node("start", "rounded_rectangle", x=0.2, y=0.1),
+                _node("check", "diamond", x=0.2, y=0.5),
+                _node("done", "rounded_rectangle", x=0.2, y=0.9),
             ],
             edges=[
                 GenericEdge(source="start", target="check", label="next"),
@@ -69,22 +69,69 @@ class CompileGenericIrTests(unittest.TestCase):
             positions.add((geom.get("x"), geom.get("y")))
         self.assertEqual(len(positions), 6)
 
-    def test_hinted_rows_and_cols_are_respected(self) -> None:
+    def test_hinted_x_y_are_respected(self) -> None:
         ir = GenericDiagramIR(nodes=[
-            _node("a", row=0, col=0),
-            _node("b", row=0, col=1),
-            _node("c", row=1, col=0),
+            _node("a", x=0.1, y=0.1),
+            _node("b", x=0.9, y=0.1),
+            _node("c", x=0.1, y=0.9),
         ])
         root = ET.fromstring(compile_generic_ir(ir))
         geoms = {
             nid: next(c for c in root.iter("mxCell") if c.get("id") == nid).find("mxGeometry")
             for nid in ("a", "b", "c")
         }
-        # Same row -> same y; different col -> different x.
+        # Same y hint -> same y; different x hint -> different x.
         self.assertEqual(geoms["a"].get("y"), geoms["b"].get("y"))
         self.assertNotEqual(geoms["a"].get("x"), geoms["b"].get("x"))
-        # Different row -> different y.
+        # Different y hint -> different y.
         self.assertNotEqual(geoms["a"].get("y"), geoms["c"].get("y"))
+
+    def test_mixed_hinted_and_unhinted_nodes_do_not_collide(self) -> None:
+        ir = GenericDiagramIR(nodes=[
+            _node("a", x=0.5, y=0.5),
+            _node("b", x=0.5, y=0.5),  # same hint as "a" — must be nudged apart
+            _node("c"),  # no hint at all, alongside hinted siblings
+        ])
+        root = ET.fromstring(compile_generic_ir(ir))
+        boxes = []
+        for nid in ("a", "b", "c"):
+            geom = next(c for c in root.iter("mxCell") if c.get("id") == nid).find("mxGeometry")
+            boxes.append((
+                float(geom.get("x")), float(geom.get("y")),
+                float(geom.get("width")), float(geom.get("height")),
+            ))
+        for i in range(len(boxes)):
+            for j in range(i + 1, len(boxes)):
+                ax, ay, aw, ah = boxes[i]
+                bx, by, bw, bh = boxes[j]
+                overlap = ax < bx + bw and ax + aw > bx and ay < by + bh and ay + ah > by
+                self.assertFalse(overlap, f"boxes {i} and {j} overlap: {boxes[i]} vs {boxes[j]}")
+
+    def test_icon_hint_stamps_shape_type_attribute(self) -> None:
+        ir = GenericDiagramIR(nodes=[_node("a", icon_hint="aws s3 bucket")])
+        root = ET.fromstring(compile_generic_ir(ir))
+        cell = next(c for c in root.iter("mxCell") if c.get("id") == "a")
+        self.assertEqual(cell.get("shape_type"), "aws s3 bucket")
+
+    def test_no_icon_hint_omits_shape_type_attribute(self) -> None:
+        ir = GenericDiagramIR(nodes=[_node("a")])
+        root = ET.fromstring(compile_generic_ir(ir))
+        cell = next(c for c in root.iter("mxCell") if c.get("id") == "a")
+        self.assertIsNone(cell.get("shape_type"))
+
+    def test_size_hint_changes_emitted_dimensions(self) -> None:
+        ir = GenericDiagramIR(nodes=[
+            _node("small", size_hint="small", x=0.1, y=0.5),
+            _node("normal", size_hint="normal", x=0.5, y=0.5),
+            _node("large", size_hint="large", x=0.9, y=0.5),
+        ])
+        root = ET.fromstring(compile_generic_ir(ir))
+        widths = {}
+        for nid in ("small", "normal", "large"):
+            geom = next(c for c in root.iter("mxCell") if c.get("id") == nid).find("mxGeometry")
+            widths[nid] = float(geom.get("width"))
+        self.assertLess(widths["small"], widths["normal"])
+        self.assertLess(widths["normal"], widths["large"])
 
     def test_fill_color_is_used_verbatim_in_style(self) -> None:
         ir = GenericDiagramIR(nodes=[_node("a", fill_color="#3B82F6")])

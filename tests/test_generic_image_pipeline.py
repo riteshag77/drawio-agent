@@ -51,6 +51,17 @@ def _generic_diagram() -> XmlDiagram:
     )
 
 
+def _generic_diagram_with_icon() -> XmlDiagram:
+    ir = GenericDiagramIR(
+        title="Icon Flow",
+        nodes=[GenericNode(id="a", shape="rectangle", label="Bucket", icon_hint="aws s3 bucket")],
+    )
+    return XmlDiagram(
+        xml=compile_generic_ir(ir), assistant_message="Reproduced as-is.",
+        suggestions=[], step_markers=[], ir_title="Icon Flow",
+    )
+
+
 class AsIsShortCircuitTests(unittest.TestCase):
     def test_as_is_mode_bypasses_classification_and_cloud_paths(self) -> None:
         with patch.object(xml_pipeline, "generate_generic_diagram_from_ir", return_value=_generic_diagram()) as generic_gen, \
@@ -132,6 +143,48 @@ class AsIsShortCircuitTests(unittest.TestCase):
         generic_gen.assert_not_called()
         direct.assert_called_once()
         self.assertEqual(result["status"], "success")
+
+
+class AsIsIconResolutionTests(unittest.TestCase):
+    """A node's ``icon_hint`` reuses the cloud path's post-compile MCP
+    resolve+merge mechanism (see ``compiler/generic.py``'s module docstring),
+    gated by the renderer mode exactly like the cloud path's own MCP step."""
+
+    def test_icon_hint_resolved_via_mcp_when_renderer_not_local(self) -> None:
+        resolved_style = "shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.s3;"
+
+        async def _fake_resolve(shape_types, platform="aws", logger=None):
+            self.assertEqual(platform, "any")
+            return {st: resolved_style for st in shape_types}
+
+        with patch.object(xml_pipeline, "generate_generic_diagram_from_ir", return_value=_generic_diagram_with_icon()), \
+                patch.object(xml_pipeline, "resolve_shape_styles", side_effect=_fake_resolve) as resolve:
+            result = _run(attachment_documents=IMAGE_ATTACHMENT, image_mode="as_is", diagram_renderer="mcp")
+
+        resolve.assert_called_once()
+        self.assertEqual(result["renderer_used"], "mcp")
+        self.assertIn("resIcon=mxgraph.aws4.s3", result["xml"])
+        self.assertNotIn('shape_type="aws s3 bucket"', result["xml"])
+
+    def test_local_renderer_skips_icon_resolution(self) -> None:
+        with patch.object(xml_pipeline, "generate_generic_diagram_from_ir", return_value=_generic_diagram_with_icon()), \
+                patch.object(xml_pipeline, "resolve_shape_styles") as resolve:
+            result = _run(attachment_documents=IMAGE_ATTACHMENT, image_mode="as_is", diagram_renderer="local")
+
+        resolve.assert_not_called()
+        self.assertEqual(result["renderer_used"], "local")
+        self.assertIn('shape_type="aws s3 bucket"', result["xml"])
+
+    def test_mcp_failure_is_fail_open(self) -> None:
+        async def _boom(*args, **kwargs):
+            raise RuntimeError("mcp down")
+
+        with patch.object(xml_pipeline, "generate_generic_diagram_from_ir", return_value=_generic_diagram_with_icon()), \
+                patch.object(xml_pipeline, "resolve_shape_styles", side_effect=_boom):
+            result = _run(attachment_documents=IMAGE_ATTACHMENT, image_mode="as_is", diagram_renderer="mcp")
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["renderer_used"], "local")
 
 
 if __name__ == "__main__":

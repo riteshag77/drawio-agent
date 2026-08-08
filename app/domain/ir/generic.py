@@ -50,13 +50,39 @@ class GenericNode(Identified):
         default="",
         description="Optional GenericGroup.id this node belongs to; '' means ungrouped.",
     )
-    row: int | None = Field(
-        default=None, ge=0,
-        description="Coarse top-to-bottom reading-order hint (grid ordinal, not a pixel coordinate).",
+    x: float | None = Field(
+        default=None, ge=0.0, le=1.0,
+        description=(
+            "Coarse left-to-right position hint as a fraction of the source image's "
+            "width (0.0 = leftmost, 1.0 = rightmost) — not a pixel coordinate. Leave "
+            "blank when unsure rather than guessing."
+        ),
     )
-    col: int | None = Field(
-        default=None, ge=0,
-        description="Coarse left-to-right reading-order hint (grid ordinal, not a pixel coordinate).",
+    y: float | None = Field(
+        default=None, ge=0.0, le=1.0,
+        description=(
+            "Coarse top-to-bottom position hint as a fraction of the source image's "
+            "height (0.0 = topmost, 1.0 = bottommost) — not a pixel coordinate. Leave "
+            "blank when unsure rather than guessing."
+        ),
+    )
+    size_hint: Literal["small", "normal", "large"] = Field(
+        default="normal",
+        description=(
+            "The shape's size relative to the other shapes in the image — a "
+            "comparative judgement, not a measurement. 'normal' unless a shape is "
+            "visibly and clearly smaller or larger than its peers."
+        ),
+    )
+    icon_hint: str | None = Field(
+        default=None,
+        description=(
+            "A short free-text description of a recognizable brand/product/cloud-"
+            "service icon actually drawn on this shape (e.g. 'aws s3 bucket', "
+            "'kubernetes', 'slack'), used to search an icon library. Omit entirely "
+            "when the shape has no distinctive icon — never invent a brand that "
+            "isn't visibly there."
+        ),
     )
     fill_color: str | None = Field(
         default=None,

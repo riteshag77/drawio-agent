@@ -103,7 +103,7 @@ def _platform_from_shape_type(shape_type: str, fallback: str = "aws") -> str:
     if st.startswith("azure_"):
         return "azure"
     fb = (fallback or "aws").lower()
-    return fb if fb in ("aws", "gcp", "azure", "logical") else "aws"
+    return fb if fb in ("aws", "gcp", "azure", "logical", "any") else "aws"
 
 
 _LOGICAL_SHAPE_QUERIES: dict[str, str] = {

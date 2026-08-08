@@ -1,10 +1,19 @@
 """Compile a ``GenericDiagramIR`` into draw.io XML.
 
-No ELK, no MCP icon resolution, no cloud-platform styling, no multi-view
-fan-out — a generic (as-is) diagram is always a single page. The LLM's
-``row``/``col`` hints, when present, are trusted as coarse grid-cell
-ordinals (never pixels); when absent, nodes fall back to the same
-deterministic ``<=4``-per-row grid every other view uses.
+No ELK, no cloud-platform styling, no multi-view fan-out — a generic (as-is)
+diagram is always a single page. Icon resolution follows the same two-phase
+convention every other view uses (see ``compiler/emit.py``'s ``vertex``
+docstring): this module only stamps a transient ``shape_type`` attribute from
+``GenericNode.icon_hint`` plus a plain-shape placeholder style;
+``xml_pipeline._run_generic_image_pipeline`` resolves it via MCP afterwards
+and merges the result in, exactly like the cloud path.
+
+Leaf size and position deliberately deviate from every other view's fixed
+``geometry_spec.LEAF_W``×``LEAF_H`` grid — see ``_SIZE_SCALE``/
+``_place_nodes`` below. This view's entire purpose is matching a source
+image's relative sizing/position, not this app's cloud design-system
+consistency, so it is the one deliberate exception to "leaf size is always
+LEAF_W/H" (see CLAUDE.md).
 """
 
 from __future__ import annotations
@@ -20,6 +29,11 @@ _ORIGIN_Y = 40.0
 _BLOCK_GAP_X = 60.0
 _PITCH = geo.DATA_CANONICAL_PITCH
 
+#: Relative-only size buckets (vision LLMs are unreliable at absolute pixel
+#: measurement but reasonably good at "this is bigger/smaller than that"
+#: comparisons) — scaled evenly on both axes, no per-shape special-casing.
+_SIZE_SCALE: dict[str, float] = {"small": 0.72, "normal": 1.0, "large": 1.35}
+
 
 def compile_generic_ir(ir: GenericDiagramIR, *, page_name: str = "Diagram") -> str:
     """Render ``ir`` to a complete draw.io document.
@@ -33,42 +47,93 @@ def compile_generic_ir(ir: GenericDiagramIR, *, page_name: str = "Diagram") -> s
     return _GenericCompiler(ir, page_name).run()
 
 
+def _node_size(node: GenericNode) -> tuple[float, float]:
+    scale = _SIZE_SCALE.get(node.size_hint, 1.0)
+    return geo.LEAF_W * scale, geo.LEAF_H * scale
+
+
+def _overlaps(ax: float, ay: float, aw: float, ah: float, bx: float, by: float, bw: float, bh: float) -> bool:
+    return ax < bx + bw and ax + aw > bx and ay < by + bh and ay + ah > by
+
+
+def _resolve_collision(
+    px: float, py: float, w: float, h: float, placed: list[tuple[float, float, float, float]],
+) -> tuple[float, float]:
+    """Nudge ``(px, py)`` right until its box clears every already-placed box.
+
+    Same "push along one axis until clear" idea the ordinal row/col grid
+    already used (see the old ``_place`` occupied-cell loop this replaces),
+    adapted to continuous coordinates and variable per-node sizes.
+    """
+    moved = True
+    while moved:
+        moved = False
+        for ox, oy, ow, oh in placed:
+            if _overlaps(px, py, w, h, ox, oy, ow, oh):
+                px = ox + ow + geo.LEAF_MIN_GAP
+                moved = True
+    return px, py
+
+
+def _place_proportional(
+    nodes: list[GenericNode], sizes: dict[str, tuple[float, float]],
+) -> dict[str, tuple[float, float]]:
+    """Map ``x``/``y`` fractional hints onto a pixel canvas sized to roughly
+    the same density the deterministic grid fallback would use, so as-is
+    diagrams stay visually consistent with the rest of the app rather than
+    introducing a new scale. Nodes without a hint fall back to the same
+    ``<=4``-per-row grid position used when no node has any hint at all.
+    """
+    canvas_w, canvas_h, _cols, _rows = geo.grid_size(len(nodes), is_group=False)
+    canvas_w = max(canvas_w, geo.LEAF_W)
+    canvas_h = max(canvas_h, geo.LEAF_H)
+
+    placed: list[tuple[float, float, float, float]] = []
+    positions: dict[str, tuple[float, float]] = {}
+    fallback_index = 0
+    for node in nodes:
+        w, h = sizes[node.id]
+        if node.x is not None:
+            cx = node.x * canvas_w
+        else:
+            cx = (fallback_index % geo.LEAF_GRID_MAX_COLS) * _PITCH + geo.LEAF_W / 2.0
+        if node.y is not None:
+            cy = node.y * canvas_h
+        else:
+            cy = (fallback_index // geo.LEAF_GRID_MAX_COLS) * geo.ROW_PITCH_Y + geo.LEAF_H / 2.0
+        if node.x is None and node.y is None:
+            fallback_index += 1
+        px = max(0.0, cx - w / 2.0)
+        py = max(0.0, cy - h / 2.0)
+        px, py = _resolve_collision(px, py, w, h, placed)
+        placed.append((px, py, w, h))
+        positions[node.id] = (px, py)
+    return positions
+
+
+def _place_grid(nodes: list[GenericNode], sizes: dict[str, tuple[float, float]]) -> dict[str, tuple[float, float]]:
+    """Deterministic ``<=4``-per-row grid — unchanged from before ``x``/``y``
+    hints existed, used whenever no node in this group carries one."""
+    cols = min(geo.LEAF_GRID_MAX_COLS, len(nodes))
+    positions: dict[str, tuple[float, float]] = {}
+    for index, node in enumerate(nodes):
+        row, col = index // cols, index % cols
+        positions[node.id] = (col * _PITCH, row * geo.ROW_PITCH_Y)
+    return positions
+
+
 def _place_nodes(nodes: list[GenericNode]) -> tuple[dict[str, tuple[float, float]], float, float]:
     """Return ``{node_id: (x, y)}`` relative to a (0, 0) content origin, plus
-    the content box's ``(width, height)`` — mirrors ``geometry_spec.grid_size``'s
-    formula so container sizing stays consistent with every other view.
+    the content box's ``(width, height)``.
     """
     if not nodes:
         return {}, 0.0, 0.0
-    hinted = [n for n in nodes if n.row is not None or n.col is not None]
-    occupied: set[tuple[int, int]] = set()
-    cells: dict[str, tuple[int, int]] = {}
+    sizes = {n.id: _node_size(n) for n in nodes}
+    hinted = any(n.x is not None or n.y is not None for n in nodes)
+    positions = _place_proportional(nodes, sizes) if hinted else _place_grid(nodes, sizes)
 
-    def _place(row: int, col: int) -> tuple[int, int]:
-        while (row, col) in occupied:
-            col += 1
-        occupied.add((row, col))
-        return row, col
-
-    if hinted:
-        next_row = 0
-        for node in nodes:
-            row = node.row if node.row is not None else next_row
-            col = node.col if node.col is not None else 0
-            row, col = _place(row, col)
-            cells[node.id] = (row, col)
-            next_row = max(next_row, row + 1)
-    else:
-        cols = min(geo.LEAF_GRID_MAX_COLS, len(nodes))
-        for index, node in enumerate(nodes):
-            row, col = _place(index // cols, index % cols)
-            cells[node.id] = (row, col)
-
-    max_row = max(r for r, _c in cells.values())
-    max_col = max(c for _r, c in cells.values())
-    positions = {nid: (col * _PITCH, row * geo.ROW_PITCH_Y) for nid, (row, col) in cells.items()}
-    content_w = max_col * _PITCH + geo.LEAF_W
-    content_h = max_row * geo.ROW_PITCH_Y + geo.LEAF_H + geo.LABEL_BAND_H
+    content_w = max(positions[n.id][0] + sizes[n.id][0] for n in nodes)
+    content_h = max(positions[n.id][1] + sizes[n.id][1] for n in nodes) + geo.LABEL_BAND_H
     return positions, content_w, content_h
 
 
@@ -93,11 +158,13 @@ class _GenericCompiler:
             positions, content_w, content_h = _place_nodes(ungrouped)
             for node in ungrouped:
                 rel_x, rel_y = positions[node.id]
+                w, h = _node_size(node)
                 self.w.vertex(
                     id=node.id, label=node.label,
                     style=theme.node_style(node.shape, fill_color=node.fill_color, stroke_color=node.stroke_color),
                     x=cursor_x + rel_x, y=_ORIGIN_Y + rel_y,
-                    w=geo.LEAF_W, h=geo.LEAF_H, parent="1",
+                    w=w, h=h, parent="1",
+                    shape_type=node.icon_hint,
                 )
             cursor_x += content_w + _BLOCK_GAP_X
             max_bottom = max(max_bottom, _ORIGIN_Y + content_h)
@@ -113,11 +180,13 @@ class _GenericCompiler:
             )
             for node in nodes:
                 rel_x, rel_y = positions[node.id]
+                w, h = _node_size(node)
                 self.w.vertex(
                     id=node.id, label=node.label,
                     style=theme.node_style(node.shape, fill_color=node.fill_color, stroke_color=node.stroke_color),
                     x=geo.PAD + rel_x, y=geo.TITLE_PAD + rel_y,
-                    w=geo.LEAF_W, h=geo.LEAF_H, parent=group.id,
+                    w=w, h=h, parent=group.id,
+                    shape_type=node.icon_hint,
                 )
             cursor_x += box_w + _BLOCK_GAP_X
             max_bottom = max(max_bottom, _ORIGIN_Y + box_h)
