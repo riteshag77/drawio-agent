@@ -397,6 +397,31 @@ class ViewEnrichmentFixerTests(unittest.TestCase):
         self.assertNotIn("resIcon=mxgraph.aws4.lambda", cell.get("style") or "")
         self.assertIn("shape=mxgraph.aws4.user", cell.get("style") or "")
 
+    def test_inject_shape_types_never_touches_a_custom_role_actor_label(self) -> None:
+        """Same bug class as the "Users"/Lambda regression above, but with a
+        custom role label ("HR Managers") the old exact-whole-label
+        _is_actor_label() check didn't recognize — a live capture showed it
+        fall through to the tier fallback and get stamped aws_ec2/
+        aws_api_gateway. _is_actor_label now also matches on the label's last
+        word against a broader set of role nouns (manager, admin, rep, …)."""
+        from app.adapters.outbound.diagram.architecture_docs import inject_shape_types_from_primary
+
+        primary = _wrap(
+            '<mxCell id="ec2" value="Checkout Service" shape_type="aws_ec2" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        page = _wrap(
+            '<mxCell id="hr_mgrs" value="HR Managers" '
+            'style="shape=mxgraph.aws4.user;sketch=0;fillColor=#232F3E;" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>',
+            name="Security",
+        )
+        out = inject_shape_types_from_primary(page, primary)
+        cell = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "hr_mgrs")
+        self.assertIsNone(cell.get("shape_type"))
+        self.assertNotIn("aws_ec2", cell.get("style") or "")
+        self.assertIn("shape=mxgraph.aws4.user", cell.get("style") or "")
+
     def test_logical_assigns_mcp_shape_types(self) -> None:
         from app.adapters.outbound.diagram.architecture_docs import assign_logical_shape_types
 

@@ -295,15 +295,41 @@ def _is_identity_saas_label(label: str, shape_type: str = "") -> bool:
     ) and "store" not in low
 
 
+#: Human-role nouns an external-actor label commonly ends in — matched against
+#: the label's *last word* (see ``_is_actor_label``) so a custom role name
+#: like "HR Managers" or "Claims Adjusters" is recognized without needing its
+#: exact full label enumerated here. A live capture showed a leaf labeled
+#: "HR Managers" fall through the old exact-whole-label check (which only
+#: covered "user(s)"/"customer(s)"/"employee(s)"/"partner"/"persona"/"actor")
+#: to inject_shape_types_from_primary's tier-based fallback and get stamped
+#: with an unrelated Network inventory service icon (aws_ec2/aws_api_gateway)
+#: — the same class of bug this module already had one prior fix for
+#: (a "Lambda" mismatch), just against a different label.
+_ACTOR_NOUNS = {
+    "user", "users", "customer", "customers", "employee", "employees",
+    "persona", "actor", "partner", "partners",
+    "manager", "managers", "admin", "admins", "administrator", "administrators",
+    "staff", "rep", "reps", "representative", "representatives",
+    "agent", "agents", "operator", "operators", "member", "members",
+    "client", "clients", "visitor", "visitors", "guest", "guests",
+    "vendor", "vendors", "supplier", "suppliers", "broker", "brokers",
+    "reviewer", "reviewers", "approver", "approvers", "auditor", "auditors",
+    "adjuster", "adjusters", "specialist", "specialists", "analyst", "analysts",
+    "officer", "officers", "coordinator", "coordinators", "clerk", "clerks",
+    "assistant", "assistants", "technician", "technicians", "consultant",
+    "consultants", "worker", "workers",
+}
+
+
 def _is_actor_label(label: str, shape_type: str = "") -> bool:
     st = (shape_type or "").strip().lower()
     if st.startswith("logical_actor") or st in {"aws_users", "aws_client", "gcp_users"}:
         return True
     low = (label or "").lower().strip()
-    return low in {
-        "user", "users", "customer", "customers", "employee", "employees",
-        "persona", "actor", "end user", "end users", "partner",
-    } or low.startswith("persona")
+    if low.startswith("persona") or low in _ACTOR_NOUNS:
+        return True
+    words = low.split()
+    return bool(words) and words[-1] in _ACTOR_NOUNS
 
 
 def _tier_pair(src_label: str, tgt_label: str, src_st: str, tgt_st: str) -> str:
