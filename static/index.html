@@ -45,6 +45,13 @@
                             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
                         </svg>
                     </button>
+                    <button type="button" class="icon-btn sidebar-collapse-trigger" onclick="toggleSidebarCollapse()" title="Collapse sidebar" aria-label="Collapse sidebar">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="4" width="18" height="16" rx="2"/>
+                            <line x1="10" y1="4" x2="10" y2="20"/>
+                            <path d="M7 10l-1.5 2 1.5 2"/>
+                        </svg>
+                    </button>
                 </div>
             </div>
 
@@ -106,13 +113,36 @@
                                     <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
                                 </svg>
                             </button>
+                            <button type="button" class="composer-btn" onclick="promptImportUrl()" title="Import context from a URL (article/page)" aria-label="Import from URL">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                                </svg>
+                            </button>
                             <button type="button" id="btn-voice" class="composer-btn btn-voice" onclick="toggleVoiceInput()" title="Voice: Space or click to toggle (dictate or say a command; say “help”)" aria-label="Voice: press Space or click to toggle microphone">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                     <rect x="9" y="2" width="6" height="12" rx="3"/>
                                     <path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3"/>
                                 </svg>
                             </button>
-                            <select id="provider-select" aria-label="AI provider">
+                            <div class="provider-picker">
+                                <button type="button" id="provider-picker-btn" class="provider-picker-btn" onclick="toggleProviderPicker()" aria-haspopup="listbox" aria-expanded="false">
+                                    <span id="provider-picker-icon" class="provider-picker-icon"></span>
+                                    <span id="provider-picker-label" class="provider-picker-label">Gemini</span>
+                                    <svg class="provider-picker-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+                                </button>
+                                <div id="provider-picker-popover" class="provider-picker-popover" hidden>
+                                    <div class="provider-picker-search-row">
+                                        <svg class="provider-picker-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                                        <input type="text" id="provider-picker-search" class="provider-picker-search" placeholder="Search models…" oninput="filterProviderPicker()">
+                                        <button type="button" class="provider-picker-close" onclick="closeProviderPicker()" aria-label="Close">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                                        </button>
+                                    </div>
+                                    <div id="provider-picker-list" class="provider-picker-list" role="listbox"></div>
+                                </div>
+                            </div>
+                            <select id="provider-select" aria-label="AI provider" hidden>
                                 <option value="gemini" selected>Gemini</option>
                             </select>
                         </div>
@@ -162,7 +192,27 @@
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
+                        <div class="verbose-toggle-row">
+                            <div>
+                                <span>Visual validation (VLM)</span>
+                                <small>Screenshot the diagram and ask the AI to check for overlaps/routing/readability issues — costs one extra LLM call per generation</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle visual validation">
+                                <input type="checkbox" id="vlm-validation-toggle" onchange="savePromptSettings()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div id="validation-provider-row" class="settings-field-row" hidden>
+                            <label for="validation-provider-select">Validation provider</label>
+                            <select id="validation-provider-select" onchange="savePromptSettings()">
+                                <option value="auto">Same as chat</option>
+                                <option value="claude">Claude</option>
+                                <option value="gemini">Gemini</option>
+                                <option value="openai">GPT-4o</option>
+                            </select>
+                        </div>
                         <small class="settings-group-hint">Pipeline logs stay under the Diagram / logging settings — results appear in the Insights → Logs tab.</small>
+                        <button type="button" class="btn-soft" onclick="openHistoryDialog(); closeSettings();">View full diagram history</button>
                         </div>
                     </div>
 
@@ -321,6 +371,7 @@
                             <span class="drawer-group-chevron" aria-hidden="true"></span>
                         </button>
                         <div class="drawer-group-body" hidden>
+                        <input type="text" id="template-search" class="template-search" placeholder="Search templates…" oninput="onTemplateSearchInput()">
                         <div id="template-list" class="template-list"></div>
                         <button type="button" class="btn-soft" onclick="saveCurrentAsTemplate()">＋ Save current prompt</button>
                         </div>
@@ -333,22 +384,37 @@
                         </button>
                         <div class="drawer-group-body" hidden>
                         <small style="color:var(--text-muted)">Bring your own API key/endpoint — OpenAI/Anthropic/Google-compatible. Stored only in your browser; sent per-request, never saved on the server. A local endpoint (e.g. Ollama at http://localhost:11434/v1) works fine here.</small>
-                        <div id="custom-provider-list" class="template-list"></div>
-                        <div id="custom-provider-form" hidden>
-                            <label for="custom-provider-label">Display name</label>
-                            <input type="text" id="custom-provider-label" placeholder="e.g. My Ollama">
-                            <label for="custom-provider-client">Client</label>
-                            <select id="custom-provider-client">
-                                <option value="openai" selected>OpenAI-compatible</option>
-                                <option value="anthropic">Anthropic-compatible</option>
-                                <option value="google">Google (Gemini)-compatible</option>
-                            </select>
-                            <label for="custom-provider-api-key">API key</label>
-                            <input type="password" id="custom-provider-api-key" placeholder="sk-…" autocomplete="off">
-                            <label for="custom-provider-base-url">Base URL (optional)</label>
-                            <input type="text" id="custom-provider-base-url" placeholder="http://localhost:11434/v1">
-                            <label for="custom-provider-model">Model ID</label>
-                            <input type="text" id="custom-provider-model" placeholder="e.g. llama3.1">
+                        <div id="custom-provider-list" class="provider-card-list"></div>
+                        <div id="custom-provider-form" class="provider-form" hidden>
+                            <div class="provider-form-field">
+                                <label for="custom-provider-label">Display name</label>
+                                <input type="text" id="custom-provider-label" placeholder="e.g. My Ollama">
+                            </div>
+                            <div class="provider-form-field">
+                                <label for="custom-provider-client">Client</label>
+                                <select id="custom-provider-client">
+                                    <option value="openai" selected>OpenAI-compatible</option>
+                                    <option value="anthropic">Anthropic-compatible</option>
+                                    <option value="google">Google (Gemini)-compatible</option>
+                                </select>
+                            </div>
+                            <div class="provider-form-field">
+                                <label for="custom-provider-api-key">API key</label>
+                                <div class="provider-key-input-row">
+                                    <input type="password" id="custom-provider-api-key" placeholder="sk-…" autocomplete="off">
+                                    <button type="button" id="custom-provider-key-toggle" class="icon-btn provider-key-toggle" onclick="toggleCustomProviderKeyVisibility(this)" aria-pressed="false" title="Show/hide API key" aria-label="Show or hide API key">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="provider-form-field">
+                                <label for="custom-provider-base-url">Base URL (optional)</label>
+                                <input type="text" id="custom-provider-base-url" placeholder="http://localhost:11434/v1">
+                            </div>
+                            <div class="provider-form-field">
+                                <label for="custom-provider-model">Model ID</label>
+                                <input type="text" id="custom-provider-model" placeholder="e.g. llama3.1">
+                            </div>
                             <div class="composer-actions">
                                 <button type="button" class="btn-soft" onclick="addCustomProvider()">Save provider</button>
                                 <button type="button" class="btn-chat-clear" onclick="toggleCustomProviderForm(false)">Cancel</button>
@@ -471,6 +537,11 @@
 
         <!-- Right: full-height Draw.io editor -->
         <main class="diagram-panel">
+            <button type="button" class="sidebar-reopen-tab" onclick="toggleSidebarCollapse()" title="Show chat panel" aria-label="Show chat panel">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 6l6 6-6 6"/>
+                </svg>
+            </button>
             <div class="diagram-toolbar">
                 <div class="diagram-toolbar-leading">
                     <div class="title">Diagram Preview</div>
@@ -529,6 +600,11 @@
                 </div>
                 <iframe id="drawio-frame" title="Draw.io diagram editor"></iframe>
             </div>
+            <button type="button" id="log-panel-reopen-tab" class="log-panel-reopen-tab" onclick="setLogPanelOpen(true)" title="Show insights panel" aria-label="Show insights panel" hidden>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M15 6l-6 6 6 6"/>
+                </svg>
+            </button>
         </main>
 
         <!-- Right: insights (cost / WAF / compliance / logs) -->
@@ -638,26 +714,46 @@
 
     <div id="app-toast" class="app-toast" role="status" aria-live="assertive" hidden></div>
     <div class="copy-feedback" id="copy-toast">Copied to clipboard!</div>
-    <script src="/static/js/state.js?v=20260726b"></script>
+
+    <div id="history-backdrop" class="settings-backdrop" onclick="closeHistoryDialog()" hidden></div>
+    <div id="history-dialog" class="history-dialog" role="dialog" aria-label="Diagram history" aria-modal="true" hidden>
+        <div class="drawer-head">
+            <span class="drawer-title">Diagram history</span>
+            <button type="button" class="icon-btn" onclick="clearSessionHistory()" title="Clear this session's history" aria-label="Clear this session's history">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/>
+                </svg>
+            </button>
+            <button type="button" class="icon-btn" onclick="closeHistoryDialog()" title="Close" aria-label="Close history">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+        </div>
+        <div id="history-grid" class="history-grid"></div>
+    </div>
+    <script src="/static/js/state.js?v=20260808a"></script>
     <script src="/static/js/theme.js?v=20260724f"></script>
-    <script src="/static/js/resizer.js?v=20260724f"></script>
-    <script src="/static/js/settings.js?v=20260726b"></script>
-    <script src="/static/js/custom-providers.js?v=20260803a"></script>
-    <script src="/static/js/prompt-settings.js?v=20260805d"></script>
-    <script src="/static/js/diagram.js?v=20260726b"></script>
-    <script src="/static/js/voice-commands.js?v=20260805a"></script>
+    <script src="/static/js/resizer.js?v=20260808a"></script>
+    <script src="/static/js/settings.js?v=20260808a"></script>
+    <script src="/static/js/custom-providers.js?v=20260808a"></script>
+    <script src="/static/js/provider-picker.js?v=20260808b"></script>
+    <script src="/static/js/prompt-settings.js?v=20260808a"></script>
+    <script src="/static/js/diagram.js?v=20260808a"></script>
+    <script src="/static/js/voice-commands.js?v=20260808a"></script>
     <script src="/static/js/voice.js?v=20260726b"></script>
-    <script src="/static/js/chat.js?v=20260805b"></script>
-    <script src="/static/js/toast.js?v=20260724f"></script>
+    <script src="/static/js/chat.js?v=20260808a"></script>
+    <script src="/static/js/toast.js?v=20260808a"></script>
     <script src="/static/js/exports.js?v=20260724f"></script>
-    <script src="/static/js/attachments.js?v=20260726b"></script>
+    <script src="/static/js/attachments.js?v=20260808a"></script>
     <script src="/static/js/platform-ui.js?v=20260724f"></script>
     <script src="/static/js/run-controls.js?v=20260726b"></script>
-    <script src="/static/js/verbose-logs.js?v=20260805a"></script>
-    <script src="/static/js/insights-ui.js?v=20260805b"></script>
+    <script src="/static/js/verbose-logs.js?v=20260808a"></script>
+    <script src="/static/js/insights-ui.js?v=20260808a"></script>
     <script src="/static/js/insights-panels.js?v=20260805i"></script>
     <script src="/static/js/captures.js?v=20260726b"></script>
-    <script src="/static/js/app.js?v=20260805a"></script>
+    <script src="/static/js/templates.js?v=20260808a"></script>
+    <script src="/static/js/history.js?v=20260808a"></script>
+    <script src="/static/js/validation-card.js?v=20260808b"></script>
+    <script src="/static/js/app.js?v=20260808b"></script>
 </body>
 
 </html>

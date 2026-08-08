@@ -8,7 +8,16 @@ from typing import Any
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, RedirectResponse, Response, StreamingResponse
 
-from app.adapters.inbound.web.schemas import AnalyzeRequest, ChatRequest, CustomProviderConfig, ParseUrlRequest, PromptRequest
+from app.adapters.inbound.web.schemas import (
+    AnalyzeRequest,
+    ChatRequest,
+    CustomProviderConfig,
+    ParseUrlRequest,
+    PromptRequest,
+    TemplateCreate,
+    TemplateUpdate,
+    ValidateVisualRequest,
+)
 from app.adapters.outbound.capture_store import list_captures, load_capture, save_capture
 from app.adapters.outbound.compliance import assess_compliance
 from app.adapters.outbound.config.env_config import get_config
@@ -22,10 +31,18 @@ from app.adapters.outbound.history_store import (
     save_version,
 )
 from app.adapters.outbound.llm.concurrency import run_llm_sync
+from app.adapters.outbound.llm.providers import default_provider_key
+from app.adapters.outbound.template_store import (
+    bump_run_count,
+    create_template,
+    delete_template,
+    list_templates,
+    update_template,
+)
 from app.adapters.outbound.utils.documents import MAX_ATTACHMENT_BYTES, extract_document
 from app.adapters.outbound.utils.web import fetch_url_content
 from app.core.logging import StepLogger
-from app.core.services.agent import generate_followup_suggestions_for_xml, generate_mermaid_diagram
+from app.core.services.agent import generate_followup_suggestions_for_xml, generate_mermaid_diagram, run_visual_qa_llm
 from app.core.services.intent import classify_intent
 from app.core.services.xml_pipeline import _summarize_llm_usage, run_xml_pipeline
 from app.adapters.outbound.llm import providers as providers_module
@@ -344,13 +361,20 @@ async def _record_history(body: ChatRequest, response: dict[str, Any], prompt: s
 
     Best-effort by design — the store swallows its own errors and we ignore the
     result. A history write must never turn a delivered diagram into a failure.
+    Mermaid diagrams have no ``xml`` field (see ``_mermaid_response``) but still
+    get versioned — the ``xml`` column just holds mermaid text in that case,
+    tagged via ``meta.diagram_type`` so the client knows which loader to use.
     """
-    if not body.session_id or not response.get("xml") or response.get("status") != "success":
+    if not body.session_id or response.get("status") != "success":
+        return
+    is_mermaid = response.get("diagram_type") == "mermaid"
+    payload = response.get("mermaid") if is_mermaid else response.get("xml")
+    if not payload:
         return
     await asyncio.to_thread(
         save_version,
         session_id=body.session_id,
-        xml=response["xml"],
+        xml=payload,
         prompt=prompt,
         title=(response.get("assistant_message") or "")[:120],
         platform=(body.platform or "").lower(),
@@ -360,6 +384,7 @@ async def _record_history(body: ChatRequest, response: dict[str, Any], prompt: s
         meta={
             "diagram_views": body.diagram_views or [],
             "llm_usage": response.get("llm_usage"),
+            "diagram_type": "mermaid" if is_mermaid else "cloud",
         },
     )
 
@@ -564,6 +589,53 @@ async def history_delete_session(session_id: str):
     return {"session_id": session_id, "deleted": deleted}
 
 
+@router.get("/templates")
+async def templates_list(q: str = ""):
+    templates = await asyncio.to_thread(list_templates, q)
+    return {"templates": [t.to_dict() for t in templates]}
+
+
+@router.post("/templates")
+async def templates_create(body: TemplateCreate):
+    template = await asyncio.to_thread(
+        create_template, title=body.title, description=body.description, prompt=body.prompt
+    )
+    if template is None:
+        raise HTTPException(status_code=400, detail="Could not save template")
+    return template.to_dict()
+
+
+@router.patch("/templates/{template_id}")
+async def templates_update(template_id: str, body: TemplateUpdate):
+    template = await asyncio.to_thread(
+        update_template,
+        template_id,
+        title=body.title,
+        description=body.description,
+        prompt=body.prompt,
+        pinned=body.pinned,
+    )
+    if template is None:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return template.to_dict()
+
+
+@router.delete("/templates/{template_id}")
+async def templates_delete(template_id: str):
+    deleted = await asyncio.to_thread(delete_template, template_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return {"id": template_id, "deleted": True}
+
+
+@router.post("/templates/{template_id}/use")
+async def templates_use(template_id: str):
+    template = await asyncio.to_thread(bump_run_count, template_id)
+    if template is None:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return template.to_dict()
+
+
 @router.post("/download")
 async def download_diagram(body: PromptRequest, request: Request):
     logger = _logger_from_request(request)
@@ -654,3 +726,17 @@ async def parse_url(body: ParseUrlRequest, request: Request):
     except Exception as exc:
         logger.log("error", str(exc), level="error")
         return JSONResponse(status_code=400, content={"status": "error", "detail": str(exc), "logs": logger.to_list()})
+
+
+@router.post("/diagram/validate-visual")
+async def validate_visual(body: ValidateVisualRequest, request: Request):
+    """Real screenshot-based vision QA — opt-in, client-triggered after a diagram
+    loads. Distinct from the always-on ``DIAGRAM_VLM_QA`` geometry linter."""
+    logger = _logger_from_request(request)
+    provider = body.provider or default_provider_key()
+    try:
+        result = await asyncio.to_thread(run_visual_qa_llm, body.image_base64, body.xml, provider, logger)
+        return {"status": "success", **result.model_dump(), "logs": logger.to_list()}
+    except Exception as exc:
+        logger.log("error", str(exc), level="error")
+        return JSONResponse(status_code=500, content={"status": "error", "detail": str(exc), "logs": logger.to_list()})

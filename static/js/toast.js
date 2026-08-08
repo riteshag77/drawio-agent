@@ -17,6 +17,6 @@ function confirmAction(message) {
 }
 
 function hideValidationBanner() {
-    /* Visual validation removed — keep no-op for legacy callers */
     validationPanelActive = false;
+    window._activeValidationCardId = null;
 }

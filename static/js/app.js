@@ -154,15 +154,16 @@ async function sendMessage(options = {}) {
     const text = (options.skipInput ? options.message : input.value).trim();
     const { provider, model } = parseProviderSelectValue(document.getElementById('provider-select').value);
     const sendBtn = document.getElementById('send-btn');
-    const validationFeedback = options.validationFeedback || null;
 
     if (!text || isSending) {
-        if (!text && !validationFeedback) appendVerboseLog('run', 'Please enter a message.', 'warn');
+        if (!text) appendVerboseLog('run', 'Please enter a message.', 'warn');
         return;
     }
 
-    hideValidationBanner();
-    vlmAutoRetryCount = 0;
+    if (!options.isValidationRetry) {
+        hideValidationBanner();
+        vlmAutoRetryCount = 0;
+    }
     if (isListening) {
         voiceManuallyStopping = true;
         try { speechRecognition.stop(); } catch (_) {}
@@ -185,7 +186,7 @@ async function sendMessage(options = {}) {
         appendChatBubble('user', text);
         input.value = '';
         autoResizeChatInput();
-    } else if (options.platformConvert && text) {
+    } else if (text) {
         chatMessages.push({ role: 'user', content: text });
         if (options.showUserBubble !== false) {
             appendChatBubble('user', text);
@@ -232,7 +233,8 @@ async function sendMessage(options = {}) {
 
         let contextText = attachmentContext || '';
         const urlMatch = text.match(/https?:\/\/[^\s<>"']+/);
-        if (urlMatch && !contextText.includes(urlMatch[0])) {
+        const urlAlreadyImported = urlMatch && attachments.some((a) => a.kind === 'url' && a.url === urlMatch[0]);
+        if (urlMatch && !urlAlreadyImported && !contextText.includes(urlMatch[0])) {
             try {
                 const urlCtxPromise = parseUrlContext(urlMatch[0]);
                 const timed = await Promise.race([
@@ -252,12 +254,12 @@ async function sendMessage(options = {}) {
         });
         const chatBody = {
             messages: chatMessages,
+            session_id: ensureSessionId(),
             provider,
             model,
             custom_provider: (typeof getSelectedCustomProviderPayload === 'function')
                 ? getSelectedCustomProviderPayload()
                 : null,
-            validation_provider: promptSettings.validation_provider,
             platform: selectedPlatform,
             diagram_mode: options.platformConvert ? 'cloud' : getDiagramMode(),
             platform_convert: !!options.platformConvert,
@@ -272,7 +274,6 @@ async function sendMessage(options = {}) {
             well_architected: promptSettings.well_architected,
             compliance: promptSettings.compliance,
             compliance_frameworks: promptSettings.compliance_frameworks,
-            validation_feedback: validationFeedback,
             context_text: contextText || null,
             attachment_documents: attachmentDocuments.length ? attachmentDocuments : null,
             applied_suggestions: getAppliedSuggestionsPayload(),
@@ -411,6 +412,7 @@ async function sendMessage(options = {}) {
                 displayWellArchitected(data.well_architected);
                 updateRightPanelVisibility();
                 if (typeof requestDrawioFocusOnLoad === 'function') requestDrawioFocusOnLoad('Network', data.xml);
+                if (typeof focusMobileInsightsTab === 'function') focusMobileInsightsTab('waf');
             } else if (typeof toggleWellArchitectedPanel === 'function') {
                 toggleWellArchitectedPanel();
             }
@@ -448,6 +450,9 @@ async function sendMessage(options = {}) {
         setProgress(75);
         setDiagramStatus('Loading into Draw.io...');
         loadDiagramFromResponse(data);
+        if (promptSettings.vlm_validation && data.diagram_type !== 'mermaid' && data.xml) {
+            runVisualValidation(data.xml, !!options.isValidationRetry);
+        }
         setActionButtonsEnabled(true);
         setProgress(100);
         finishChatRun({
@@ -540,14 +545,88 @@ async function initProviderSelect() {
             }
             select.appendChild(group);
         }
+        if (defaultValue) {
+            const defaultOpt = select.querySelector(`option[value="${CSS.escape(defaultValue)}"]`);
+            if (defaultOpt) defaultOpt.setAttribute('data-default', '');
+        }
         if (hadRealOptions && previousValue && select.querySelector(`option[value="${CSS.escape(previousValue)}"]`)) {
             select.value = previousValue;
         } else if (defaultValue) {
             select.value = defaultValue;
         }
+        if (typeof renderProviderPickerButton === 'function') renderProviderPickerButton();
     } catch (err) {
         console.error('Failed to load providers', err);
     }
+}
+
+function buildFixPrompt(issues) {
+    return 'Fix these diagram issues found by visual QA:\n' + issues.map((it, i) => {
+        const hint = it.element_hint ? ` (${it.element_hint})` : '';
+        return `${i + 1}. [${it.category}] ${it.description}${hint}`;
+    }).join('\n');
+}
+
+async function runVisualValidation(xml, isRetry) {
+    if (isRetry) {
+        updateValidationCard('capturing');
+    } else {
+        appendValidationCard('capturing');
+    }
+    let png;
+    try {
+        png = await exportDiagramPng();
+    } catch (err) {
+        updateValidationCard('failed', { error: 'Could not capture the diagram: ' + err.message });
+        return;
+    }
+    updateValidationCard('validating');
+    const base64 = png.includes(',') ? png.split(',')[1] : png;
+    const providerSelect = document.getElementById('validation-provider-select');
+    const selected = providerSelect ? providerSelect.value : 'auto';
+    const provider = (selected && selected !== 'auto')
+        ? selected
+        : parseProviderSelectValue(document.getElementById('provider-select').value).provider;
+
+    let result;
+    try {
+        const res = await fetch('/diagram/validate-visual', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image_base64: base64, xml, provider }),
+        });
+        if (!res.ok) throw new Error('Validation request failed.');
+        result = await res.json();
+        if (result.status !== 'success') throw new Error(result.detail || 'Validation failed.');
+    } catch (err) {
+        updateValidationCard('failed', { error: err.message || 'Validation request failed.' });
+        return;
+    }
+
+    lastValidationFeedback = result;
+    const criticalIssues = (result.issues || []).filter((i) => i.severity === 'critical');
+    if (criticalIssues.length && vlmAutoRetryCount < MAX_VLM_AUTO_RETRIES) {
+        vlmAutoRetryCount += 1;
+        updateValidationCard('retrying', result);
+        await sendMessage({
+            skipInput: true,
+            message: buildFixPrompt(criticalIssues),
+            showUserBubble: false,
+            isValidationRetry: true,
+        });
+        return;
+    }
+
+    const finalState = criticalIssues.length ? 'failed' : ((result.issues || []).length ? 'warning' : 'success');
+    updateValidationCard(finalState, result);
+}
+
+async function retryValidationFix(cardId) {
+    if (cardId !== window._activeValidationCardId) return;
+    if (!lastValidationFeedback || !lastValidationFeedback.issues) return;
+    const criticalIssues = lastValidationFeedback.issues.filter((i) => i.severity === 'critical');
+    if (!criticalIssues.length) return;
+    await sendMessage({ skipInput: true, message: buildFixPrompt(criticalIssues), showUserBubble: false });
 }
 
 // ── Boot sequence ─────────────────────────────────────────
@@ -561,6 +640,8 @@ initProviderSelect();
 hideValidationBanner();
 updateSendStopButtons();
 loadTemplates();
+if (typeof ensureSessionId === 'function') ensureSessionId();
+if (typeof refreshVersionStrip === 'function') refreshVersionStrip();
 if (typeof loadCustomProviders === 'function') loadCustomProviders();
 if (typeof initVoiceCommands === 'function') initVoiceCommands();
 initVoiceInput();

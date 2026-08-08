@@ -251,9 +251,10 @@ function clearChat() {
     currentXml = '';
     previousXml = null;
     clearAttachments();
-    if (typeof diagramVersions !== 'undefined') {
-        diagramVersions = [];
-        activeDiagramVersion = -1;
+    if (typeof startNewSession === 'function') startNewSession();
+    if (typeof sessionVersions !== 'undefined') {
+        sessionVersions = [];
+        activeVersionId = null;
         if (typeof renderVersionStrip === 'function') renderVersionStrip();
     }
     if (typeof hideValidationBanner === 'function') hideValidationBanner();

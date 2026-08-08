@@ -20,7 +20,8 @@ function initDiagramMode() {
 }
 
 function updateValidationProviderVisibility() {
-    /* VLM validation UI removed */
+    const row = document.getElementById('validation-provider-row');
+    if (row) row.hidden = !document.getElementById('vlm-validation-toggle')?.checked;
 }
 
 function getSelectedDiagramViews() {
@@ -98,8 +99,12 @@ function getPromptSettings() {
     const networkOn = networkViewSelected();
     return {
         custom_system_message: document.getElementById('custom-system-message').value.slice(0, 5000),
-        vlm_validation: false,
-        validation_provider: 'auto',
+        vlm_validation: document.getElementById('vlm-validation-toggle')
+            ? document.getElementById('vlm-validation-toggle').checked
+            : false,
+        validation_provider: document.getElementById('validation-provider-select')
+            ? document.getElementById('validation-provider-select').value
+            : 'auto',
         cost_estimate: networkOn && document.getElementById('cost-estimate-toggle').checked,
         well_architected: networkOn && document.getElementById('well-architected-toggle').checked,
         compliance: networkOn && document.getElementById('compliance-toggle').checked,
@@ -165,8 +170,13 @@ function savePromptSettings() {
     if (raid) localStorage.setItem(RAID_REGISTER_STORAGE_KEY, raid.checked ? '1' : '0');
     const saveCap = document.getElementById('save-captures-toggle');
     if (saveCap) localStorage.setItem(SAVE_CAPTURES_STORAGE_KEY, saveCap.checked ? '1' : '0');
+    const vlm = document.getElementById('vlm-validation-toggle');
+    if (vlm) localStorage.setItem(VLM_VALIDATION_KEY, vlm.checked ? '1' : '0');
+    const valProvider = document.getElementById('validation-provider-select');
+    if (valProvider) localStorage.setItem(VALIDATION_PROVIDER_KEY, valProvider.value);
     localStorage.setItem(DIAGRAM_VIEWS_STORAGE_KEY, JSON.stringify(getSelectedDiagramViews()));
     updateComplianceFrameworksVisibility();
+    updateValidationProviderVisibility();
 }
 
 function getSelectedComplianceFrameworks() {
@@ -241,6 +251,10 @@ function initPromptSettings() {
     if (raidEl) raidEl.checked = localStorage.getItem(RAID_REGISTER_STORAGE_KEY) === '1';
     const saveCapEl = document.getElementById('save-captures-toggle');
     if (saveCapEl) saveCapEl.checked = localStorage.getItem(SAVE_CAPTURES_STORAGE_KEY) === '1';
+    const vlmEl = document.getElementById('vlm-validation-toggle');
+    if (vlmEl) vlmEl.checked = localStorage.getItem(VLM_VALIDATION_KEY) === '1';
+    const valProviderEl = document.getElementById('validation-provider-select');
+    if (valProviderEl) valProviderEl.value = localStorage.getItem(VALIDATION_PROVIDER_KEY) || 'auto';
     const viewsStored = localStorage.getItem(DIAGRAM_VIEWS_STORAGE_KEY);
     if (viewsStored) {
         try {

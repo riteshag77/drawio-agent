@@ -68,6 +68,8 @@ function updateRightPanelVisibility() {
     const compOn = document.getElementById('compliance-toggle')?.checked;
     const open = verboseLogging || costOn || suggOn || wafOn || compOn;
     document.getElementById('log-panel')?.classList.toggle('active', open);
+    const reopenTab = document.getElementById('log-panel-reopen-tab');
+    if (reopenTab) reopenTab.hidden = open;
 }
 
 function setLogPanelOpen(open) {

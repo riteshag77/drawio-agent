@@ -51,11 +51,7 @@ function voiceSetToggle(id, on) {
 }
 
 function voiceGetTemplates() {
-    try {
-        return JSON.parse(localStorage.getItem(TEMPLATES_STORAGE_KEY) || '[]');
-    } catch (_) {
-        return [];
-    }
+    return typeof templateCache !== 'undefined' ? templateCache : [];
 }
 
 function voiceFindTemplate(query) {
@@ -90,6 +86,7 @@ function voiceSelectProvider(name) {
     if (!match) return 'No provider matching “' + name + '”.';
     select.value = match.value;
     if (typeof updateContextChip === 'function') updateContextChip();
+    if (typeof renderProviderPickerButton === 'function') renderProviderPickerButton();
     return null;
 }
 
@@ -771,15 +768,15 @@ function initVoiceCommands() {
         id: 'restore-version',
         label: 'Restore version',
         pattern: /^restore version (\d+)$/,
-        when: () => (typeof diagramVersions !== 'undefined' && diagramVersions.length
+        when: () => (typeof sessionVersions !== 'undefined' && sessionVersions.length
             ? null
             : 'No diagram versions saved yet.'),
-        run: (m) => {
+        run: async (m) => {
             const idx = parseInt(m[1], 10) - 1;
-            if (idx < 0 || idx >= diagramVersions.length) {
+            if (idx < 0 || idx >= sessionVersions.length) {
                 return { error: 'Version ' + m[1] + ' not found.' };
             }
-            restoreDiagramVersion(idx);
+            await restoreDiagramVersion(sessionVersions[idx].id);
             return 'Restored version ' + m[1];
         },
     });
@@ -788,14 +785,13 @@ function initVoiceCommands() {
         id: 'previous-version',
         label: 'Previous version',
         phrases: ['previous version', 'restore previous version', 'undo version'],
-        when: () => (typeof diagramVersions !== 'undefined' && diagramVersions.length
+        when: () => (typeof sessionVersions !== 'undefined' && sessionVersions.length
             ? null
             : 'No diagram versions saved yet.'),
-        run: () => {
-            const target = (typeof activeDiagramVersion === 'number' && activeDiagramVersion > 0)
-                ? activeDiagramVersion - 1
-                : 0;
-            restoreDiagramVersion(target);
+        run: async () => {
+            const activeIdx = sessionVersions.findIndex((v) => v.id === activeVersionId);
+            const target = activeIdx > 0 ? activeIdx - 1 : 0;
+            await restoreDiagramVersion(sessionVersions[target].id);
             return 'Restored previous version';
         },
     });

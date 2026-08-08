@@ -6,6 +6,7 @@ function attachmentChipIcon(status) {
     if (status === 'loading') return '⏳';
     if (status === 'error') return '⚠️';
     if (status === 'diagram') return '🗂️';
+    if (status === 'url') return '🔗';
     return '📄';
 }
 
@@ -18,17 +19,18 @@ function renderAttachmentChips() {
         return;
     }
     preview.hidden = false;
-    attachments.forEach((att) => {
+    attachments.forEach((att, index) => {
         const chip = document.createElement('div');
-        const chipKind = att.status === 'ready' && att.kind === 'diagram' ? 'diagram' : att.status;
-        chip.className = `attachment-chip attachment-chip-${chipKind === 'diagram' ? 'ready' : att.status}`;
+        const chipKind = att.status === 'ready' && (att.kind === 'diagram' || att.kind === 'url') ? att.kind : att.status;
+        chip.className = `attachment-chip attachment-chip-${chipKind === 'diagram' || chipKind === 'url' ? 'ready' : att.status}`;
         if (att.status === 'error') chip.title = att.message;
         else if (att.kind === 'diagram') chip.title = 'Draw.io diagram — will be used as the base for generation/edits';
+        else if (att.kind === 'url') chip.title = att.url;
         else if (att.truncated) chip.title = 'Only the first part of this file was used (content truncated).';
 
         const icon = document.createElement('span');
         icon.className = 'attachment-chip-icon';
-        icon.textContent = attachmentChipIcon(att.kind === 'diagram' && att.status === 'ready' ? 'diagram' : att.status);
+        icon.textContent = attachmentChipIcon(att.status === 'ready' && (att.kind === 'diagram' || att.kind === 'url') ? att.kind : att.status);
         chip.appendChild(icon);
 
         const name = document.createElement('span');
@@ -46,14 +48,66 @@ function renderAttachmentChips() {
             note.className = 'attachment-chip-note';
             note.textContent = 'diagram';
             chip.appendChild(note);
+        } else if (att.kind === 'url' && att.status === 'ready') {
+            const note = document.createElement('span');
+            note.className = 'attachment-chip-note';
+            note.textContent = `${att.charCount} chars`;
+            chip.appendChild(note);
         } else if (att.truncated) {
             const note = document.createElement('span');
             note.className = 'attachment-chip-note';
             note.textContent = 'truncated';
             chip.appendChild(note);
         }
+
+        if (att.kind === 'url') {
+            const remove = document.createElement('button');
+            remove.type = 'button';
+            remove.className = 'attachment-chip-remove';
+            remove.setAttribute('aria-label', `Remove ${att.filename}`);
+            remove.textContent = '✕';
+            remove.onclick = () => removeUrlAttachment(index);
+            chip.appendChild(remove);
+        }
         preview.appendChild(chip);
     });
+}
+
+function removeUrlAttachment(index) {
+    const entry = attachments[index];
+    if (!entry || entry.kind !== 'url') return;
+    attachments.splice(index, 1);
+    attachmentContext = attachments
+        .filter((a) => a.status === 'ready' && (a.kind === 'text' || a.kind === 'url'))
+        .map((a) => a.contextChunk)
+        .join('\n');
+    renderAttachmentChips();
+}
+
+async function promptImportUrl() {
+    const url = window.prompt('Paste a URL to import as context for the diagram:');
+    if (!url) return;
+    if (attachments.some((a) => a.kind === 'url' && a.url === url)) {
+        showToast('That URL is already added.', 'info');
+        return;
+    }
+    const entry = { filename: url, status: 'loading', message: '', truncated: false, kind: 'url', url, charCount: 0, contextChunk: '' };
+    attachments.push(entry);
+    renderAttachmentChips();
+    try {
+        const chunk = await parseUrlContext(url);
+        entry.status = 'ready';
+        entry.contextChunk = chunk;
+        entry.charCount = chunk.length;
+        const titleMatch = chunk.match(/^--- URL: .*? \((.*)\) ---/);
+        if (titleMatch && titleMatch[1]) entry.filename = titleMatch[1];
+        attachmentContext = (attachmentContext ? attachmentContext + '\n' : '') + chunk;
+    } catch (err) {
+        entry.status = 'error';
+        entry.message = /pdf/i.test(err.message) ? 'PDF URLs are not supported for import — upload the PDF directly instead.' : (err.message || 'Could not fetch that URL.');
+        showToast(`Couldn't import URL: ${entry.message}`, 'error');
+    }
+    renderAttachmentChips();
 }
 
 function clearAttachments() {

@@ -263,6 +263,18 @@ class EnvConfigAdapter:
         return max(1, self.get_int("DIAGRAM_HISTORY_MAX_VERSIONS", 50))
 
     @property
+    def templates_db_path(self) -> str:
+        """SQLite path for saved prompt templates."""
+        return self.get("DIAGRAM_TEMPLATES_PATH", "data/templates.sqlite3")
+
+    @property
+    def admin_password(self) -> str | None:
+        """Gates the /admin panel. Unset (default) disables the panel entirely —
+        this is the one setting the panel itself can never override."""
+        pw = (self.get("ADMIN_PASSWORD") or "").strip()
+        return pw or None
+
+    @property
     def rate_limit_per_minute(self) -> int:
         """Max diagram-generation requests per client per minute. 0 disables."""
         return max(0, self.get_int("RATE_LIMIT_PER_MINUTE", 0))

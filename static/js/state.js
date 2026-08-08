@@ -8,8 +8,6 @@ const APP_THEME_TO_DRAWIO_THEME = {
     'daylight': 'kennedy',
     'aurora-contrast': 'dark',
 };
-const TEMPLATES_STORAGE_KEY = 'drawio-agent-templates';
-
 const VERBOSE_STORAGE_KEY = 'drawio-agent-verbose-logging';
 const CUSTOM_SYSTEM_MESSAGE_KEY = 'drawio-agent-custom-system-message';
 const VLM_VALIDATION_KEY = 'drawio-agent-vlm-validation';
@@ -30,7 +28,11 @@ const ADR_NOTES_STORAGE_KEY = 'drawio-agent-adr-notes';
 const RAID_REGISTER_STORAGE_KEY = 'drawio-agent-raid-register';
 const SAVE_CAPTURES_STORAGE_KEY = 'drawio-agent-save-captures';
 const CUSTOM_PROVIDERS_STORAGE_KEY = 'drawio-agent-custom-providers'; // [{id,label,client,api_key,base_url,model}] — browser-only, sent per-request
-const MAX_VLM_CLIENT_RETRIES = 0; // Show banner only — auto /chat regen feels like endless loading
+const MAX_VLM_AUTO_RETRIES = 3;
+const SIDEBAR_COLLAPSED_KEY = 'drawio-agent-sidebar-collapsed';
+const SIDEBAR_WIDTH_KEY = 'drawio-agent-sidebar-width';
+const MOBILE_PANE_KEY = 'drawio-agent-mobile-pane';
+const SESSION_ID_KEY = 'drawio-agent-session-id';
 
 /** Pending interview answers for the next generate (cleared after successful diagram). */
 let pendingInterviewAnswers = null;
@@ -63,6 +65,21 @@ let verboseLogging = false;
 let validationPanelActive = false;
 let logEntryCount = 0;
 let vlmAutoRetryCount = 0;
+let currentSessionId = null;
+
+function ensureSessionId() {
+    if (currentSessionId) return currentSessionId;
+    currentSessionId = sessionStorage.getItem(SESSION_ID_KEY)
+        || (crypto.randomUUID ? crypto.randomUUID() : 's_' + Date.now() + '_' + Math.random().toString(36).slice(2));
+    sessionStorage.setItem(SESSION_ID_KEY, currentSessionId);
+    return currentSessionId;
+}
+
+function startNewSession() {
+    currentSessionId = crypto.randomUUID ? crypto.randomUUID() : 's_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+    sessionStorage.setItem(SESSION_ID_KEY, currentSessionId);
+    return currentSessionId;
+}
 
 const EXAMPLE_PROMPTS = {
     aws: [

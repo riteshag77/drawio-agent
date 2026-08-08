@@ -79,6 +79,7 @@ class DiagramVersion:
             "generation_path": self.generation_path,
             "renderer_used": self.renderer_used,
             "xml_chars": len(self.xml),
+            "diagram_type": self.meta.get("diagram_type", "cloud"),
         }
 
     def full(self) -> dict[str, Any]:

@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin — Cloud Architect AI</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/styles.css?v=20260808a">
+    <link rel="stylesheet" href="/static/themes/midnight-slate.css?v=20260724f">
+    <link rel="stylesheet" href="/static/themes/daylight.css?v=20260724f">
+    <link rel="stylesheet" href="/static/themes/aurora-contrast.css?v=20260724f">
+    <script>
+        (function () {
+            var known = ['midnight-slate', 'daylight', 'aurora-contrast'];
+            var stored = localStorage.getItem('drawio-agent-app-theme');
+            document.documentElement.setAttribute('data-theme', known.indexOf(stored) !== -1 ? stored : 'midnight-slate');
+        })();
+    </script>
+    <style>
+        body { overflow-y: auto; background: var(--sidebar-bg); }
+        .admin-shell { max-width: 720px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+        .admin-header { display: flex; align-items: center; gap: 0.7rem; margin-bottom: 1.75rem; }
+        .admin-header h1 { font-size: 1.15rem; color: var(--text-primary); }
+        .admin-header a { font-size: 0.8rem; color: var(--text-muted); text-decoration: none; margin-left: auto; }
+        .admin-header a:hover { color: var(--text-primary); }
+        .admin-login-card {
+            max-width: 360px; margin: 4rem auto; padding: 1.5rem;
+            border: 1px solid var(--sidebar-border); border-radius: 12px;
+            background: var(--surface-well); display: flex; flex-direction: column; gap: 0.8rem;
+        }
+        .admin-login-card h2 { font-size: 1rem; color: var(--text-primary); }
+        .admin-login-card input {
+            width: 100%; padding: 0.6rem 0.75rem; font-size: 0.85rem; font-family: inherit;
+            color: var(--text-primary); background: var(--surface-raised);
+            border: 1px solid var(--sidebar-border); border-radius: 8px;
+        }
+        .admin-login-card input:focus { outline: none; border-color: var(--accent); }
+        .admin-login-error { font-size: 0.78rem; color: var(--error-soft); min-height: 1em; }
+        .admin-section { margin-bottom: 1.5rem; }
+        .admin-section-title { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 0.6rem; }
+        .admin-default-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.9rem 1rem; border: 1px solid var(--sidebar-border); border-radius: 10px; background: var(--surface-well); }
+        .admin-default-row select { flex: 1; }
+        .admin-provider-list { display: flex; flex-direction: column; gap: 0.7rem; }
+        .admin-provider-card { border: 1px solid var(--sidebar-border); border-radius: 10px; background: var(--surface-well); padding: 0.9rem 1rem; }
+        .admin-provider-head { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.6rem; }
+        .admin-provider-label { font-weight: 600; color: var(--text-primary); font-size: 0.9rem; }
+        .admin-provider-env { font-size: 0.68rem; color: var(--text-muted); font-family: monospace; }
+        .admin-source-badge { margin-left: auto; font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.15rem 0.45rem; border-radius: 999px; }
+        .admin-source-badge.admin { background: var(--accent-glow, var(--surface-hover)); color: var(--accent); }
+        .admin-source-badge.env { background: var(--surface-hover); color: var(--text-muted); }
+        .admin-source-badge.unset { background: var(--error-bg-soft); color: var(--error-soft); }
+        .admin-field-row { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; }
+        .admin-field-row input { flex: 1; padding: 0.5rem 0.7rem; font-size: 0.8rem; font-family: inherit; color: var(--text-primary); background: var(--surface-raised); border: 1px solid var(--sidebar-border); border-radius: 7px; }
+        .admin-field-row input:focus { outline: none; border-color: var(--accent); }
+        .admin-provider-actions { display: flex; gap: 0.5rem; align-items: center; }
+        .admin-test-result { font-size: 0.72rem; color: var(--text-muted); }
+        .admin-test-result.ok { color: var(--success); }
+        .admin-test-result.fail { color: var(--error-soft); }
+        [hidden] { display: none !important; }
+    </style>
+</head>
+
+<body>
+    <div class="admin-shell">
+        <div class="admin-header">
+            <h1>Admin Panel</h1>
+            <a href="/static/index.html">← Back to app</a>
+        </div>
+
+        <div id="admin-not-configured" class="admin-login-card" hidden>
+            <h2>Admin panel not configured</h2>
+            <p style="font-size:0.8rem;color:var(--text-muted)">Set <code>ADMIN_PASSWORD</code> in your <code>.env</code> file and restart the server to enable this panel.</p>
+        </div>
+
+        <div id="admin-login" class="admin-login-card" hidden>
+            <h2>Enter admin password</h2>
+            <input type="password" id="admin-password-input" placeholder="Password" autocomplete="current-password">
+            <button type="button" class="btn-soft" onclick="adminLogin()">Log in</button>
+            <div id="admin-login-error" class="admin-login-error"></div>
+        </div>
+
+        <div id="admin-main" hidden>
+            <div class="admin-section">
+                <div class="admin-section-title">Default Provider</div>
+                <div class="admin-default-row">
+                    <select id="admin-default-provider-select"></select>
+                    <button type="button" class="btn-soft" onclick="adminSaveDefaultProvider()">Save</button>
+                </div>
+            </div>
+
+            <div class="admin-section">
+                <div class="admin-section-title">Providers</div>
+                <div id="admin-provider-list" class="admin-provider-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="app-toast" class="app-toast" role="status" aria-live="assertive" hidden></div>
+    <script src="/static/js/toast.js?v=20260808a"></script>
+    <script src="/static/js/admin.js?v=20260808a"></script>
+</body>
+
+</html>

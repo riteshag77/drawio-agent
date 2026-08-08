@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from app.adapters.inbound.web.admin_routes import router as admin_router
 from app.adapters.inbound.web.rate_limit import RateLimitMiddleware
 from app.adapters.inbound.web.routes import router
 from app.adapters.outbound.config.env_config import get_config
@@ -112,6 +113,12 @@ def create_app() -> FastAPI:
         response.headers["X-Request-ID"] = request_id
         response.headers["X-Response-Time-Ms"] = str(duration_ms)
         path = request.url.path
+        if path in ("/", "/static/index.html"):
+            # index.html itself carries no cache-busting query string (unlike
+            # its ?v=-tagged <script>/<link> tags) — without this, a browser
+            # can keep serving a stale shell (missing new UI entirely) even
+            # after every asset it references has been updated server-side.
+            response.headers["Cache-Control"] = "no-cache"
         if not path.endswith((".css", ".js")):
             from app.core.logging import get_logger
             get_logger().info(
@@ -126,6 +133,7 @@ def create_app() -> FastAPI:
 
     application.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     application.include_router(router)
+    application.include_router(admin_router)
     return application
 
 

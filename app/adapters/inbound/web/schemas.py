@@ -141,3 +141,22 @@ class AnalyzeRequest(BaseModel):
 
 class ParseUrlRequest(BaseModel):
     url: str = Field(max_length=2048)
+
+
+class TemplateCreate(BaseModel):
+    title: str = Field(default="", max_length=120)
+    description: str = Field(default="", max_length=400)
+    prompt: str = Field(max_length=20_000)
+
+
+class TemplateUpdate(BaseModel):
+    title: str | None = Field(default=None, max_length=120)
+    description: str | None = Field(default=None, max_length=400)
+    prompt: str | None = Field(default=None, max_length=20_000)
+    pinned: bool | None = None
+
+
+class ValidateVisualRequest(BaseModel):
+    image_base64: str = Field(max_length=8_000_000)
+    xml: str = Field(max_length=1_500_000)
+    provider: str = Field(default_factory=_default_provider)

@@ -22,6 +22,9 @@ def init_config() -> None:
     if _config_initialized:
         return
     EnvConfigAdapter()
+    from app.adapters.outbound.admin_settings_store import apply_all_to_environ  # noqa: PLC0415
+
+    apply_all_to_environ()
     _config_initialized = True
 
 

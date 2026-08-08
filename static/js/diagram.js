@@ -233,15 +233,14 @@ function loadDiagramFromResponse(data) {
         loadMermaidIntoEditor(data.mermaid);
         document.getElementById('diagram-loading').classList.add('active');
         setDiagramStatus('Loading Mermaid into Draw.io…');
+        if (typeof refreshVersionStrip === 'function') refreshVersionStrip();
         return;
     }
     currentMermaid = '';
     if (data.xml) {
         document.getElementById('xml-output').textContent = data.xml;
         loadDiagramIntoEditor(data.xml);
-        if (typeof pushDiagramVersion === 'function') {
-            pushDiagramVersion(data.xml, `v${(diagramVersions?.length || 0) + 1}`);
-        }
+        if (typeof refreshVersionStrip === 'function') refreshVersionStrip();
     }
 }
 

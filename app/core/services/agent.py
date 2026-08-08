@@ -18,10 +18,11 @@ from app.adapters.outbound.llm.prompts.ir import (
 )
 from app.adapters.outbound.llm.prompts.simple import MERMAID_SYSTEM_PROMPT
 from app.adapters.outbound.llm.prompts.system import get_xml_gen_system_prompt_marked
+from app.adapters.outbound.llm.prompts.vlm_qa import VLM_QA_SYSTEM_PROMPT
 from app.adapters.outbound.llm.providers import get_provider, normalize_provider_key
 from app.adapters.outbound.llm.response_parse import extract_mermaid
 from app.core.ports.llm import LlmPort, get_llm
-from app.domain.entities import DiagramEditPlan, MermaidDiagram, XmlDiagram
+from app.domain.entities import DiagramEditPlan, MermaidDiagram, VisualQaResult, XmlDiagram
 from app.domain.entities.xml_diagram import DiagramSuggestion
 from app.domain.ir import IR_TYPES_BY_VIEW, GenericDiagramIR, NetworkIR
 from pydantic import BaseModel, Field
@@ -1209,3 +1210,33 @@ def generate_mermaid_diagram(
             details={"chars": len(parsed.mermaid), "lines": parsed.mermaid.count(chr(10)) + 1},
         )
     return parsed
+
+
+def run_visual_qa_llm(
+    image_b64: str,
+    xml: str,
+    provider: str,
+    logger: "StepLogger | None" = None,
+) -> VisualQaResult:
+    """Screenshot the rendered diagram, ask a vision-capable model to critique it.
+
+    Distinct from ``diagram_vlm_qa.py``'s pure-XML geometry linter — this makes
+    a real multimodal LLM call against the rendered PNG, reusing the same
+    image-attachment vision path (``_build_human_message``) that file-upload
+    vision already goes through, via the same fallback-wrapped ``get_llm()``
+    port every other generation call in this module uses.
+    """
+    provider_key = normalize_provider_key(provider)
+    human_content = f"Diagram XML (for reference only — inspect the image):\n{xml[:20000]}"
+    attachment = [{"filename": "diagram.png", "mime": "image/png", "data": image_b64}]
+    if logger:
+        logger.log("prompt", "Prepared visual QA request", details={"provider": provider_key})
+    result = get_llm()(VLM_QA_SYSTEM_PROMPT, human_content, provider_key, VisualQaResult, logger, attachment)
+    if logger:
+        logger.log(
+            "vlm_qa",
+            "Visual QA complete",
+            level="success" if result.passed else "warning",
+            details={"issues": len(result.issues), "passed": result.passed},
+        )
+    return result
