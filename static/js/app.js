@@ -538,10 +538,13 @@ async function initProviderSelect() {
             const group = document.createElement('optgroup');
             group.label = 'Custom';
             for (const p of customProviders) {
-                const opt = document.createElement('option');
-                opt.value = 'custom:' + p.id;
-                opt.textContent = p.label;
-                group.appendChild(opt);
+                const models = (p.models && p.models.length) ? p.models : [''];
+                for (const modelId of models) {
+                    const opt = document.createElement('option');
+                    opt.value = 'custom:' + p.id + '::' + modelId;
+                    opt.textContent = models.length > 1 ? `${p.label} — ${modelId}` : p.label;
+                    group.appendChild(opt);
+                }
             }
             select.appendChild(group);
         }

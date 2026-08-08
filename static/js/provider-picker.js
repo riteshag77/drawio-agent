@@ -6,10 +6,18 @@
  * call site that reads/writes its .value or listens for its 'change' event
  * keeps working unmodified. */
 
+/** Custom option values are `custom:<providerId>::<modelId>` — one row per
+ * model, matching how multi-model server providers already work. */
+function _parseCustomOptionValue(value) {
+    const rest = value.slice('custom:'.length);
+    const sep = rest.indexOf('::');
+    return sep === -1 ? { id: rest, model: '' } : { id: rest.slice(0, sep), model: rest.slice(sep + 2) };
+}
+
 function providerPickerBadgeHtml(optionEl) {
     const value = optionEl.value;
     if (value.startsWith('custom:')) {
-        const id = value.slice('custom:'.length);
+        const { id } = _parseCustomOptionValue(value);
         const p = (typeof getCustomProviderById === 'function') ? getCustomProviderById(id) : null;
         const client = p ? p.client : 'openai';
         const icon = (typeof CUSTOM_PROVIDER_ICONS !== 'undefined' && CUSTOM_PROVIDER_ICONS[client]) || '';
@@ -62,42 +70,36 @@ function renderProviderPickerList(filterText) {
         items.forEach((opt) => {
             const selected = opt.value === select.value;
             const isDefaultOpt = opt.hasAttribute('data-default');
+            let untested = false;
+            if (opt.value.startsWith('custom:') && typeof getCustomProviderById === 'function') {
+                const p = getCustomProviderById(_parseCustomOptionValue(opt.value).id);
+                untested = !p || p.lastTestStatus !== 'pass';
+            }
             html += `<button type="button" class="provider-picker-item${selected ? ' selected' : ''}" role="option" aria-selected="${selected}" onclick="selectProviderPickerOption('${opt.value.replace(/'/g, "\\'")}')">
                 <span class="provider-picker-item-check">${selected ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>' : ''}</span>
                 ${providerPickerBadgeHtml(opt)}
                 <span class="provider-picker-item-label">${opt.textContent}</span>
                 ${isDefaultOpt ? '<span class="provider-picker-item-default">Default</span>' : ''}
+                ${untested ? '<span class="provider-picker-item-untested" title="Not tested yet — open Settings → Custom providers to test">untested</span>' : ''}
             </button>`;
         });
     });
     list.innerHTML = html || '<div class="provider-picker-empty">No providers match.</div>';
 }
 
-/** .sidebar clips overflow, so the popover can't be positioned relative to
- * its trigger via CSS (position:absolute would be clipped away) — it's
- * `position:fixed` in CSS and placed here from the button's live viewport
- * position instead, opening upward since the trigger sits near the bottom
- * of the sidebar. */
-function _positionProviderPopover() {
-    const popover = document.getElementById('provider-picker-popover');
-    const btn = document.getElementById('provider-picker-btn');
-    if (!popover || !btn) return;
-    const rect = btn.getBoundingClientRect();
-    const width = 320;
-    popover.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)) + 'px';
-    popover.style.bottom = (window.innerHeight - rect.top + 6) + 'px';
-    popover.style.top = 'auto';
-}
-
+/** Centered command-palette modal (next-ai-draw-io's "Search models…"
+ * dialog) — not anchored to the trigger button, so no positioning-from-
+ * button-rect logic is needed; CSS centers it directly. */
 function toggleProviderPicker() {
     const popover = document.getElementById('provider-picker-popover');
+    const backdrop = document.getElementById('provider-picker-backdrop');
     const btn = document.getElementById('provider-picker-btn');
     if (!popover || !btn) return;
     const open = popover.hidden;
     popover.hidden = !open;
+    if (backdrop) backdrop.hidden = !open;
     btn.setAttribute('aria-expanded', open ? 'true' : 'false');
     if (open) {
-        _positionProviderPopover();
         renderProviderPickerList('');
         const search = document.getElementById('provider-picker-search');
         if (search) { search.value = ''; search.focus(); }
@@ -106,8 +108,10 @@ function toggleProviderPicker() {
 
 function closeProviderPicker() {
     const popover = document.getElementById('provider-picker-popover');
+    const backdrop = document.getElementById('provider-picker-backdrop');
     const btn = document.getElementById('provider-picker-btn');
     if (popover) popover.hidden = true;
+    if (backdrop) backdrop.hidden = true;
     if (btn) btn.setAttribute('aria-expanded', 'false');
 }
 
@@ -125,10 +129,6 @@ function selectProviderPickerOption(value) {
     closeProviderPicker();
 }
 
-document.addEventListener('click', (e) => {
-    const picker = document.querySelector('.provider-picker');
-    if (picker && !picker.contains(e.target)) closeProviderPicker();
-});
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeProviderPicker();
 });

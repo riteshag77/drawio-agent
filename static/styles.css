@@ -53,55 +53,104 @@
             display: none;
         }
 
-        .sidebar-reopen-tab {
+        /* Collapsed-panel rail — full-height strip with an icon + rotated text
+           label, matching next-ai-draw-io's collapsed-chat-panel treatment
+           (a thin labeled rail) rather than a small floating chevron button.
+           Lives inside .diagram-panel, which is always light regardless of
+           app theme (--panel-bg) — so it uses the canvas-area tokens, not
+           the sidebar's dark-surface tokens (--surface-raised is a ~3%
+           white tint meant to sit on a dark background and is invisible here). */
+        .collapsed-rail {
             display: none;
             position: absolute;
-            top: 14px;
+            top: 0;
+            bottom: 0;
+            width: 44px;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.6rem;
+            padding: 12px 0 16px;
+            background: var(--canvas-toolbar-meta-bg, #fafbfc);
+            color: var(--canvas-text-muted, #71717a);
+            cursor: pointer;
+            z-index: 5;
+        }
+        .collapsed-rail:hover {
+            background: var(--canvas-surface, #fff);
+        }
+        .collapsed-rail:hover .collapsed-rail-label {
+            color: var(--accent);
+        }
+        .collapsed-rail-left {
             left: 0;
-            width: 26px;
-            height: 44px;
-            border: 1px solid var(--sidebar-border);
-            border-left: none;
-            border-radius: 0 10px 10px 0;
-            background: var(--accent);
-            color: var(--btn-primary-text, #fff);
-            cursor: pointer;
-            align-items: center;
-            justify-content: center;
-            z-index: 5;
-            box-shadow: 2px 2px 10px rgba(0,0,0,0.18);
+            border-right: 1px solid var(--canvas-border, #e5e7eb);
         }
-        .sidebar-reopen-tab:hover {
-            background: var(--accent-hover, var(--accent));
-        }
-        body.sidebar-collapsed .sidebar-reopen-tab {
-            display: flex;
-        }
-
-        .log-panel-reopen-tab {
-            position: fixed;
-            top: 50%;
+        .collapsed-rail-right {
             right: 0;
-            transform: translateY(-50%);
-            width: 26px;
-            height: 44px;
-            border: 1px solid var(--sidebar-border);
-            border-right: none;
-            border-radius: 10px 0 0 10px;
-            background: var(--accent);
-            color: var(--btn-primary-text, #fff);
-            cursor: pointer;
+            border-left: 1px solid var(--canvas-border, #e5e7eb);
+        }
+        body.sidebar-collapsed .collapsed-rail-left {
+            display: flex;
+        }
+        .collapsed-rail-right:not([hidden]) {
+            display: flex;
+        }
+        .collapsed-rail-icon {
+            flex-shrink: 0;
+            width: 30px;
+            height: 30px;
             display: flex;
             align-items: center;
             justify-content: center;
-            z-index: 5;
-            box-shadow: -2px 2px 10px rgba(0,0,0,0.18);
+            border: none;
+            background: transparent;
+            color: inherit;
+            border-radius: 7px;
+            cursor: pointer;
         }
-        .log-panel-reopen-tab:hover {
-            background: var(--accent-hover, var(--accent));
+        .collapsed-rail-icon svg {
+            width: 15px;
+            height: 15px;
         }
-        .log-panel-reopen-tab[hidden] {
-            display: none;
+        .collapsed-rail-icon:hover {
+            background: var(--canvas-border, #e5e7eb);
+            color: var(--canvas-text, #18181b);
+        }
+        .collapsed-rail-tabs {
+            display: flex;
+            flex-direction: column;
+            gap: 0.3rem;
+        }
+        .collapsed-rail-tab-btn {
+            width: 30px;
+            height: 30px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: none;
+            background: transparent;
+            color: var(--canvas-text-muted, #71717a);
+            border-radius: 7px;
+            cursor: pointer;
+        }
+        .collapsed-rail-tab-btn svg {
+            width: 14px;
+            height: 14px;
+        }
+        .collapsed-rail-tab-btn:hover {
+            background: var(--canvas-border, #e5e7eb);
+            color: var(--accent);
+        }
+        .collapsed-rail-label {
+            writing-mode: vertical-rl;
+            transform: rotate(180deg);
+            font-size: 0.72rem;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            color: var(--canvas-text-muted, #71717a);
+            margin-top: auto;
+            padding-bottom: 4px;
         }
 
         .sidebar-resizer {
@@ -1126,39 +1175,54 @@
             height: 10px;
             opacity: 0.7;
         }
+        /* Centered command-palette modal (next-ai-draw-io's "Search models…"
+           dialog) — not an anchored corner popover. Backdrop dims/blurs the
+           whole app; the panel itself floats independently of the trigger
+           button, matching a Cmd+K-style picker rather than a dropdown. */
+        .provider-picker-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.45);
+            backdrop-filter: blur(2px);
+            z-index: 90;
+        }
+        .provider-picker-backdrop[hidden] { display: none; }
         .provider-picker-popover {
             position: fixed;
-            width: 320px;
-            max-height: 380px;
+            top: 14%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: min(520px, 92vw);
+            max-height: 70vh;
             display: flex;
             flex-direction: column;
             background: var(--surface-well);
             border: 1px solid var(--sidebar-border);
-            border-radius: 12px;
-            box-shadow: 0 16px 40px rgba(0,0,0,0.4);
-            z-index: 30;
+            border-radius: 14px;
+            box-shadow: 0 24px 60px rgba(0,0,0,0.45);
+            z-index: 91;
             overflow: hidden;
         }
         .provider-picker-popover[hidden] { display: none; }
         .provider-picker-search-row {
             display: flex;
             align-items: center;
-            gap: 0.5rem;
-            padding: 0.6rem 0.6rem;
+            gap: 0.6rem;
+            padding: 0.9rem 1rem;
             border-bottom: 1px solid var(--sidebar-border);
             flex-shrink: 0;
         }
         .provider-picker-search-icon {
             flex-shrink: 0;
-            width: 15px;
-            height: 15px;
+            width: 17px;
+            height: 17px;
             color: var(--text-muted);
         }
         .provider-picker-search {
             flex: 1;
             min-width: 0;
             padding: 0.2rem 0;
-            font-size: 0.82rem;
+            font-size: 0.92rem;
             font-family: inherit;
             color: var(--text-primary);
             background: transparent;
@@ -1183,11 +1247,11 @@
         .provider-picker-list {
             flex: 1;
             overflow-y: auto;
-            padding: 0 0.4rem 0.5rem;
+            padding: 0.4rem 0.6rem 0.7rem;
         }
         .provider-picker-group-label {
-            padding: 0.4rem 0.4rem 0.2rem;
-            font-size: 0.62rem;
+            padding: 0.6rem 0.5rem 0.3rem;
+            font-size: 0.68rem;
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.06em;
@@ -1197,13 +1261,13 @@
             width: 100%;
             display: flex;
             align-items: center;
-            gap: 0.5rem;
-            padding: 0.4rem 0.5rem;
+            gap: 0.6rem;
+            padding: 0.55rem 0.6rem;
             border: none;
-            border-radius: 7px;
+            border-radius: 8px;
             background: transparent;
             color: var(--text-primary);
-            font-size: 0.8rem;
+            font-size: 0.86rem;
             font-family: inherit;
             text-align: left;
             cursor: pointer;
@@ -1233,11 +1297,53 @@
             font-weight: 600;
             color: var(--text-muted);
         }
+        .provider-picker-item-untested {
+            flex-shrink: 0;
+            font-size: 0.6rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            padding: 0.1rem 0.35rem;
+            border-radius: 999px;
+            background: var(--surface-hover);
+            color: var(--text-muted);
+        }
         .provider-picker-empty {
             padding: 0.6rem;
             font-size: 0.78rem;
             color: var(--text-muted);
             text-align: center;
+        }
+        .provider-picker-footer {
+            flex-shrink: 0;
+            padding: 0.6rem 1rem;
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            border-top: 1px solid var(--sidebar-border);
+        }
+        .provider-picker-footer-link {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            background: transparent;
+            border: none;
+            border-top: 1px solid var(--sidebar-border);
+            cursor: pointer;
+            font-family: inherit;
+            text-align: left;
+        }
+        .provider-picker-footer-link svg {
+            flex-shrink: 0;
+            width: 14px;
+            height: 14px;
+        }
+        .provider-picker-footer-link:hover { color: var(--accent); }
+        .provider-picker-footer-hint {
+            margin-left: auto;
+            flex-shrink: 0;
+            font-size: 0.66rem;
+            opacity: 0.75;
         }
         .provider-picker-badge {
             flex-shrink: 0;
@@ -1653,7 +1759,9 @@
         textarea, select,
         .drawer-group-body input[type="text"],
         .drawer-group-body input[type="password"],
-        .drawer-group-body input[type="url"] {
+        .drawer-group-body input[type="url"],
+        .provider-config-detail input[type="text"],
+        .provider-config-detail input[type="password"] {
             width: 100%;
             background: var(--surface-raised);
             border: 1px solid var(--sidebar-border);
@@ -1665,7 +1773,9 @@
         textarea, select { font-size: 0.9rem; padding: 0.85rem; }
         .drawer-group-body input[type="text"],
         .drawer-group-body input[type="password"],
-        .drawer-group-body input[type="url"] {
+        .drawer-group-body input[type="url"],
+        .provider-config-detail input[type="text"],
+        .provider-config-detail input[type="password"] {
             font-size: 0.85rem;
             padding: 0.6rem 0.75rem;
         }
@@ -1683,7 +1793,9 @@
         textarea:focus, select:focus,
         .drawer-group-body input[type="text"]:focus,
         .drawer-group-body input[type="password"]:focus,
-        .drawer-group-body input[type="url"]:focus {
+        .drawer-group-body input[type="url"]:focus,
+        .provider-config-detail input[type="text"]:focus,
+        .provider-config-detail input[type="password"]:focus {
             outline: none;
             border-color: var(--accent);
             box-shadow: 0 0 0 3px var(--accent-glow);
@@ -2534,6 +2646,7 @@
         .diagram-panel {
             flex: 1;
             min-width: 0;
+            position: relative;
             display: flex;
             flex-direction: column;
             background: var(--panel-bg);
@@ -3146,7 +3259,7 @@
                 overflow: visible;
             }
             .sidebar-resizer { display: none; }
-            .sidebar-collapse-trigger, .sidebar-reopen-tab, .log-panel-reopen-tab { display: none !important; }
+            .sidebar-collapse-trigger, .collapsed-rail { display: none !important; }
             .settings-drawer, .settings-backdrop { position: fixed; }
             .diagram-panel { min-height: 50vh; }
             .log-panel.active {
@@ -3298,6 +3411,233 @@
     gap: 0.4rem;
     margin-top: 0.2rem;
 }
+
+/* ── Provider config dialog (BYOK — next-ai "AI Model Configuration") ──── */
+.provider-config-dialog {
+    position: fixed;
+    top: 8%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(760px, 94vw);
+    max-height: 82vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface-well);
+    border: 1px solid var(--sidebar-border);
+    border-radius: 14px;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.45);
+    z-index: 92;
+    overflow: hidden;
+}
+.provider-config-dialog[hidden] { display: none; }
+.provider-config-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+}
+.provider-config-sidebar {
+    width: 220px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--sidebar-border);
+    padding: 0.9rem;
+    gap: 0.6rem;
+    overflow-y: auto;
+}
+.provider-config-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    flex: 1;
+}
+.provider-config-list-empty {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    text-align: center;
+    padding: 1.5rem 0.5rem;
+}
+.provider-config-list-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.5rem 0.6rem;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 0.82rem;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.provider-config-list-item:hover { background: var(--surface-hover); }
+.provider-config-list-item.active {
+    background: var(--accent-glow, var(--surface-hover));
+    color: var(--accent);
+    font-weight: 600;
+}
+.provider-config-list-item-label {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.provider-config-list-item-chevron {
+    flex-shrink: 0;
+    width: 12px;
+    height: 12px;
+    opacity: 0.6;
+}
+.provider-config-detail {
+    flex: 1;
+    min-width: 0;
+    padding: 1.1rem 1.3rem;
+    overflow-y: auto;
+}
+.provider-config-detail-empty {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    color: var(--text-muted);
+    text-align: center;
+    padding: 2rem;
+}
+.provider-config-detail-empty svg {
+    width: 40px;
+    height: 40px;
+    opacity: 0.5;
+}
+.provider-config-detail-empty h3 {
+    font-size: 0.95rem;
+    color: var(--text-primary);
+}
+.provider-config-detail-empty p {
+    font-size: 0.8rem;
+    max-width: 320px;
+}
+.provider-config-detail-head {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 1.1rem;
+}
+.provider-config-detail-title {
+    flex: 1;
+    min-width: 0;
+}
+.provider-config-detail-title h3 {
+    font-size: 1rem;
+    color: var(--text-primary);
+}
+.provider-config-detail-title small {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+.provider-config-delete-btn {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.35rem 0.6rem;
+    border: 1px solid var(--error-bg-soft);
+    background: transparent;
+    color: var(--error-soft);
+    border-radius: 7px;
+    font-size: 0.76rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+}
+.provider-config-delete-btn:hover { background: var(--error-bg-soft); }
+.provider-config-delete-btn svg { width: 13px; height: 13px; }
+.provider-config-section-label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    margin: 1rem 0 0.5rem;
+}
+.provider-config-section-label:first-of-type { margin-top: 0; }
+.provider-config-section-label svg { width: 13px; height: 13px; }
+.provider-config-field-label {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 0.3rem;
+}
+.provider-config-field-label svg { width: 13px; height: 13px; opacity: 0.7; }
+.provider-config-key-row, .provider-config-model-row {
+    display: flex;
+    gap: 0.4rem;
+    margin-bottom: 0.7rem;
+}
+.provider-config-key-row input, .provider-config-model-row input,
+.provider-config-detail input[type="text"], .provider-config-detail select {
+    flex: 1;
+}
+.provider-config-model-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+.provider-config-model-chip {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.45rem 0.6rem;
+    border: 1px solid var(--sidebar-border);
+    border-radius: 8px;
+    background: var(--surface-raised);
+    font-size: 0.8rem;
+}
+.provider-config-model-chip-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.provider-config-model-chip-remove {
+    flex-shrink: 0;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0;
+    font-size: 0.85rem;
+}
+.provider-config-model-chip-remove:hover { color: var(--error-soft); }
+.provider-config-models-empty {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    padding: 0.4rem 0;
+}
+.provider-config-test-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-top: 0.9rem;
+}
+.provider-config-footer {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.7rem 1.3rem;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    border-top: 1px solid var(--sidebar-border);
+}
+.provider-config-footer svg { flex-shrink: 0; width: 14px; height: 14px; }
+.admin-test-result { font-size: 0.72rem; color: var(--text-muted); }
+.admin-test-result.ok { color: var(--success); }
+.admin-test-result.fail { color: var(--error-soft); }
 
 /* ── Insights tabs ─────────────────────────────────────── */
 .insights-tabs {

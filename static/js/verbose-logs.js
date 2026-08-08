@@ -70,6 +70,22 @@ function updateRightPanelVisibility() {
     document.getElementById('log-panel')?.classList.toggle('active', open);
     const reopenTab = document.getElementById('log-panel-reopen-tab');
     if (reopenTab) reopenTab.hidden = open;
+    if (!open && typeof renderCollapsedRailTabs === 'function') renderCollapsedRailTabs();
+}
+
+/** Mirrors the currently-visible .insights-tab buttons as icon-only buttons
+ * on the collapsed right rail, so a click both reopens the panel and jumps
+ * straight to that tab — one tap instead of two. */
+function renderCollapsedRailTabs() {
+    const container = document.getElementById('collapsed-rail-tabs');
+    if (!container) return;
+    const tabs = Array.from(document.querySelectorAll('.insights-tab')).filter((btn) => !btn.hidden);
+    container.innerHTML = tabs.map((btn) => {
+        const tab = btn.dataset.tab;
+        const icon = btn.querySelector('.insights-tab-icon');
+        const label = btn.getAttribute('aria-label') || (icon ? icon.nextSibling?.textContent?.trim() : '') || tab;
+        return `<button type="button" class="collapsed-rail-tab-btn" onclick="setLogPanelOpen(true); switchInsightsTab('${tab}')" title="${btn.textContent.trim()}" aria-label="${label}">${icon ? icon.outerHTML : ''}</button>`;
+    }).join('');
 }
 
 function setLogPanelOpen(open) {
