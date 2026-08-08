@@ -156,7 +156,7 @@ class _CorridorCompiler:
         ``repair_xml`` still runs structural + edge-port polish only.
 
         Logical is an exception: ranks stay in JSON, but emission is a compact
-        flat storyboard (next-ai look) so sibling icon pitch stays clean.
+        flat storyboard so sibling icon pitch stays clean.
         """
         geos, routes = layout_corridor_ir(self.ir)
         self._actor_geos = geos

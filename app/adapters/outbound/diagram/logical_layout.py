@@ -32,7 +32,7 @@ CONTAINER_LABEL_HEIGHT = 30.0
 #: is NOT what actually drives icon-to-icon pitch below — see _ICON_PITCH_X.
 ICON_SPACING = 40.0
 INTER_CONTAINER_GAP = 110.0
-#: Wider L→R gutter for sparse Logical (next-ai-style process storyboards).
+#: Wider L→R gutter for sparse Logical (process storyboards).
 LOGICAL_INTER_CONTAINER_GAP = 140.0
 #: Floor so a container never shrinks below room for its own title band —
 #: mirrors xml_tools._FIT_MIN_W/_FIT_MIN_H's role for the general-container

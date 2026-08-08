@@ -84,6 +84,22 @@ function removeUrlAttachment(index) {
     renderAttachmentChips();
 }
 
+/** Kicks off generation the moment an attachment/URL finishes successfully —
+ * uploading content is itself the user's intent, they shouldn't also have to
+ * type "generate" and hit send. Uses whatever's already in the composer if
+ * they typed something first; otherwise sends a generic instruction so the
+ * request still carries the extracted context_text/attachment_documents. */
+function _autoGenerateFromAttachment() {
+    if (typeof sendMessage !== 'function' || typeof isSending === 'undefined' || isSending) return;
+    const input = document.getElementById('chat-input');
+    const typed = input ? input.value.trim() : '';
+    if (typed) {
+        sendMessage();
+    } else {
+        sendMessage({ skipInput: true, message: 'Generate a diagram from the attached content.' });
+    }
+}
+
 async function promptImportUrl() {
     const url = window.prompt('Paste a URL to import as context for the diagram:');
     if (!url) return;
@@ -95,13 +111,29 @@ async function promptImportUrl() {
     attachments.push(entry);
     renderAttachmentChips();
     try {
-        const chunk = await parseUrlContext(url);
-        entry.status = 'ready';
-        entry.contextChunk = chunk;
-        entry.charCount = chunk.length;
-        const titleMatch = chunk.match(/^--- URL: .*? \((.*)\) ---/);
-        if (titleMatch && titleMatch[1]) entry.filename = titleMatch[1];
-        attachmentContext = (attachmentContext ? attachmentContext + '\n' : '') + chunk;
+        const data = await fetchUrlData(url);
+        if (data.kind === 'image') {
+            // A URL that resolves to an actual image is routed through the
+            // same vision-attachment pipeline as a direct file upload (so it
+            // respects image_mode/image_replicate), instead of always doing
+            // article-text extraction the LLM has nothing visual to work from.
+            const wasReset = typeof resetChatForNewImage === 'function' && resetChatForNewImage();
+            if (wasReset) attachments.push(entry);
+            entry.status = 'ready';
+            entry.kind = 'vision';
+            entry.filename = data.filename;
+            attachmentDocuments.push({ filename: data.filename, mime: data.mime, data: data.data });
+        } else {
+            entry.status = 'ready';
+            const chunk = `--- URL: ${url} (${data.title}) ---\n${data.content}`;
+            entry.contextChunk = chunk;
+            entry.charCount = chunk.length;
+            if (data.title) entry.filename = data.title;
+            attachmentContext = (attachmentContext ? attachmentContext + '\n' : '') + chunk;
+        }
+        renderAttachmentChips();
+        _autoGenerateFromAttachment();
+        return;
     } catch (err) {
         entry.status = 'error';
         entry.message = /pdf/i.test(err.message) ? 'PDF URLs are not supported for import — upload the PDF directly instead.' : (err.message || 'Could not fetch that URL.');
@@ -122,6 +154,8 @@ async function handleFileSelect(event) {
     const files = Array.from(event.target.files || []).slice(0, 3);
     event.target.value = '';
     if (!files.length) return;
+
+    let readyForGeneration = false;
 
     for (const file of files) {
         const entry = { filename: file.name, status: 'loading', message: '', truncated: false, kind: null };
@@ -150,6 +184,7 @@ async function handleFileSelect(event) {
                 entry.kind = 'text';
                 entry.truncated = !!data.truncated;
                 attachmentContext += `\n--- File: ${data.filename} ---\n${data.content}\n`;
+                readyForGeneration = true;
             } else if (data.kind === 'diagram') {
                 entry.status = 'ready';
                 entry.kind = 'diagram';
@@ -167,9 +202,14 @@ async function handleFileSelect(event) {
                 if (typeof setActionButtonsEnabled === 'function') setActionButtonsEnabled(true);
                 showToast(`Diagram ready: ${data.filename}`, 'success');
             } else {
+                if (data.mime && data.mime.startsWith('image/')) {
+                    const wasReset = typeof resetChatForNewImage === 'function' && resetChatForNewImage();
+                    if (wasReset) attachments.push(entry);
+                }
                 entry.status = 'ready';
                 entry.kind = 'vision';
                 attachmentDocuments.push({ filename: data.filename, mime: data.mime, data: data.data });
+                readyForGeneration = true;
             }
         } catch (err) {
             entry.status = 'error';
@@ -178,9 +218,11 @@ async function handleFileSelect(event) {
         }
         renderAttachmentChips();
     }
+
+    if (readyForGeneration) _autoGenerateFromAttachment();
 }
 
-async function parseUrlContext(url) {
+async function fetchUrlData(url) {
     const res = await fetch('/parse-url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -188,5 +230,5 @@ async function parseUrlContext(url) {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'URL parse failed');
-    return `--- URL: ${url} (${data.title}) ---\n${data.content}`;
+    return data;
 }

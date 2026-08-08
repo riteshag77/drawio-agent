@@ -238,11 +238,7 @@ async function implementSuggestions(suggestions, suggWrap) {
     }
 }
 
-function clearChat() {
-    if (isSending) return;
-    if (typeof confirmAction === 'function' && !confirmAction('Clear chat and discard the current diagram session?')) {
-        return;
-    }
+function _resetChatState() {
     chatMessages = [];
     appliedSuggestionTexts = [];
     if (typeof clearSuggestionsPanel === 'function') clearSuggestionsPanel({ keepPlaceholder: true });
@@ -281,5 +277,30 @@ function clearChat() {
         </div>`;
     renderExampleChips();
     renderPatternGallery();
+}
+
+function clearChat() {
+    if (isSending) return;
+    if (typeof confirmAction === 'function' && !confirmAction('Clear chat and discard the current diagram session?')) {
+        return;
+    }
+    _resetChatState();
     appendVerboseLog('ui', 'Chat cleared', 'info');
+}
+
+/** Silent equivalent of clearChat() for a new image attachment (direct upload
+ * or a URL that resolves to an image) — a fresh image is a new diagram
+ * intent, not a continuation, so the prior chat/diagram would otherwise
+ * linger alongside content unrelated to it. No confirmation prompt: this is
+ * a direct consequence of the upload action the user just took, not a
+ * separate destructive command. Returns whether a reset actually happened
+ * (skipped when the session is already empty), since callers that already
+ * pushed an attachment placeholder need to re-add it after clearAttachments()
+ * wipes the array. */
+function resetChatForNewImage() {
+    if (isSending) return false;
+    if (!chatMessages.length && !currentXml && !previousXml) return false;
+    _resetChatState();
+    appendVerboseLog('ui', 'Chat cleared for new image', 'info');
+    return true;
 }

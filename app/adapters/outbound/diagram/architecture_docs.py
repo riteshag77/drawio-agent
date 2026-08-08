@@ -109,7 +109,7 @@ def build_views_prompt_block(views: list[str], *, adr_notes: bool = False, raid_
             "hierarchy with connectivity hubs at Cloud level."
         ),
         "logical": (
-            "Focus this page on the Logical view: sparse next-ai-style process "
+            "Focus this page on the Logical view: sparse process "
             "storyboard (icons + labeled edges; domain_* ids are JSON ranks only) "
             "— no VPC/subnet topology on this page."
         ),
@@ -1315,8 +1315,8 @@ def assign_logical_shape_types(page_xml: str) -> str:
     """Tag generic Logical leaves with logical_* shape_type + builtin stencil.
 
     Leaves that already have ``aws_*`` / ``gcp_*`` / ``azure_*`` / ``saas_*``
-    keep those keys so MCP can resolve official icons (next-ai-style serverless
-    Logical). Network / Security / Data flow are unchanged.
+    keep those keys so MCP can resolve official icons for serverless
+    Logical. Network / Security / Data flow are unchanged.
     """
     from app.adapters.outbound.diagram.drawio_mcp_client import _LOGICAL_BUILTIN_STYLES
 

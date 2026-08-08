@@ -721,7 +721,10 @@ async def parse_url(body: ParseUrlRequest, request: Request):
     logger = _logger_from_request(request)
     try:
         data = await fetch_url_content(body.url)
-        logger.log("parse-url", f"Extracted {data['char_count']} chars", level="success")
+        if data.get("kind") == "image":
+            logger.log("parse-url", f"Fetched image: {data['filename']}", level="success")
+        else:
+            logger.log("parse-url", f"Extracted {data['char_count']} chars", level="success")
         return {"status": "success", **data, "logs": logger.to_list()}
     except Exception as exc:
         logger.log("error", str(exc), level="error")

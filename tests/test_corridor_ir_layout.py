@@ -311,7 +311,7 @@ class LogicalLayoutTests(unittest.TestCase):
             )
 
     def test_flat_storyboard_no_domain_boxes(self) -> None:
-        """Logical compiles next-ai-style: no domain_* boxes; cloud aws_* under
+        """Logical compiles as a flat storyboard: no domain_* boxes; cloud aws_* under
         cloud_boundary; SaaS shelf leaves stay outside."""
         ir = realistic_logical_ir()
         new_geo, _routes = layout_corridor_ir(ir)

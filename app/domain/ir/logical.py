@@ -7,7 +7,7 @@ peer column, and external actors (Persona, IdP) never end up nested inside a
 domain because they have their own list.
 
 **Compile note:** ``domain_*`` ids are JSON ranks for L→R order only. The
-corridor compiler emits a flat next-ai-style storyboard (no Experience/Core/
+corridor compiler emits a flat process storyboard (no Experience/Core/
 Data boxes; optional one ``cloud_boundary``). Judgment calls — which capability
 goes in which domain, the cache-aside companion pattern — stay in
 ``config/xml_gen/ir/logical.txt`` and are not re-litigated here.

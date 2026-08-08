@@ -1,7 +1,7 @@
 /** Custom BYOK-aware provider/model picker — a popover replacing the plain
  * <select> visually, grouped into "Server Models" (built-in providers, incl.
- * multi-model optgroups) and "Your Providers" (custom/BYOK), matching
- * next-ai-draw-io's model-selector pattern. The underlying #provider-select
+ * multi-model optgroups) and "Your Providers" (custom/BYOK). The underlying
+ * #provider-select
  * stays the real data source (kept in the DOM, hidden) so every existing
  * call site that reads/writes its .value or listens for its 'change' event
  * keeps working unmodified. */
@@ -87,8 +87,8 @@ function renderProviderPickerList(filterText) {
     list.innerHTML = html || '<div class="provider-picker-empty">No providers match.</div>';
 }
 
-/** Centered command-palette modal (next-ai-draw-io's "Search models…"
- * dialog) — not anchored to the trigger button, so no positioning-from-
+/** Centered command-palette modal ("Search models…" dialog) — not anchored
+ * to the trigger button, so no positioning-from-
  * button-rect logic is needed; CSS centers it directly. */
 function toggleProviderPicker() {
     const popover = document.getElementById('provider-picker-popover');

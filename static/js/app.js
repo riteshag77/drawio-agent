@@ -232,16 +232,24 @@ async function sendMessage(options = {}) {
         previousXml = currentXml || null;
 
         let contextText = attachmentContext || '';
+        let extraDocuments = [];
         const urlMatch = text.match(/https?:\/\/[^\s<>"']+/);
         const urlAlreadyImported = urlMatch && attachments.some((a) => a.kind === 'url' && a.url === urlMatch[0]);
         if (urlMatch && !urlAlreadyImported && !contextText.includes(urlMatch[0])) {
             try {
-                const urlCtxPromise = parseUrlContext(urlMatch[0]);
-                const timed = await Promise.race([
-                    urlCtxPromise,
+                const urlDataPromise = fetchUrlData(urlMatch[0]);
+                const data = await Promise.race([
+                    urlDataPromise,
                     new Promise((_, reject) => setTimeout(() => reject(new Error('URL parse timeout')), 2500)),
                 ]);
-                contextText = (contextText ? contextText + '\n' : '') + timed;
+                if (data.kind === 'image') {
+                    // Image URL typed inline in the message — route through vision,
+                    // not text context (decoding image bytes as UTF-8 would garble them).
+                    extraDocuments.push({ filename: data.filename, mime: data.mime, data: data.data });
+                } else {
+                    const chunk = `--- URL: ${urlMatch[0]} (${data.title}) ---\n${data.content}`;
+                    contextText = (contextText ? contextText + '\n' : '') + chunk;
+                }
             } catch (urlErr) {
                 appendVerboseLog('client', `URL parse skipped: ${urlErr.message}`, 'warn');
             }
@@ -275,7 +283,9 @@ async function sendMessage(options = {}) {
             compliance: promptSettings.compliance,
             compliance_frameworks: promptSettings.compliance_frameworks,
             context_text: contextText || null,
-            attachment_documents: attachmentDocuments.length ? attachmentDocuments : null,
+            attachment_documents: (attachmentDocuments.length || extraDocuments.length)
+                ? [...attachmentDocuments, ...extraDocuments]
+                : null,
             applied_suggestions: getAppliedSuggestionsPayload(),
             libavoid: promptSettings.libavoid,
             image_replicate: promptSettings.image_replicate,
@@ -515,7 +525,7 @@ async function initProviderSelect() {
         for (const p of (data.providers || [])) {
             if (p.models && p.models.length > 1) {
                 // Multi-model provider (e.g. NVIDIA NIM) — one grouped option per
-                // model, matching next-ai-draw-io's "provider header + model list".
+                // model, "provider header + model list" style.
                 const group = document.createElement('optgroup');
                 group.label = p.label;
                 for (const modelId of p.models) {

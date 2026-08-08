@@ -1,7 +1,7 @@
 /** Bring-your-own-key custom LLM providers — stored only in the browser
  * (localStorage), sent per-request as `custom_provider` when selected. Never
- * persisted server-side. A provider can hold multiple candidate models (like
- * next-ai-draw-io's "AI Model Configuration" dialog) — each becomes its own
+ * persisted server-side. A provider can hold multiple candidate models
+ * ("AI Model Configuration" dialog) — each becomes its own
  * selectable row in the provider picker, value-encoded as
  * `custom:<providerId>::<modelId>`, mirroring how server multi-model
  * providers (e.g. NVIDIA NIM) already work in initProviderSelect(). Each

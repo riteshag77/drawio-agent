@@ -3,7 +3,7 @@
 Compares:
   1) historical capture XML (pre-/mid-fix)
   2) freshly generated XML (current code + LLM)
-  3) next-ai-draw-io polish conventions (icons, anchors, leaf size, band align)
+  3) reference polish conventions (icons, anchors, leaf size, band align)
 
 Usage:
   python tools/e2e_capture_compare.py
@@ -76,7 +76,7 @@ def _is_leaf(cell: ET.Element) -> bool:
 
 
 def score_page(name: str, xml: str) -> dict:
-    """Polish score aligned with next-ai-draw-io / AWS-skill conventions."""
+    """Polish score aligned with AWS-skill conventions."""
     root = ET.fromstring(xml)
     cells = [c for c in root.iter("mxCell") if c.get("id")]
     by_id = {c.get("id"): c for c in cells}
@@ -160,7 +160,7 @@ def score_page(name: str, xml: str) -> dict:
     band_ok = 1.0 if row_y_range is None else (1.0 if row_y_range <= 2.0 else max(0.0, 1.0 - row_y_range / 200.0))
     gap_ok = 1.0 if min_gap is None else (1.0 if min_gap >= INTER_CONTAINER_GAP - 20 else max(0.0, min_gap / INTER_CONTAINER_GAP))
 
-    # Weighted polish score ~ next-ai conventions (icons + geometry + edges)
+    # Weighted polish score (icons + geometry + edges)
     polish = round(100 * (
         0.30 * icon_rate
         + 0.20 * size_ok
@@ -215,7 +215,7 @@ def load_capture(capture_id: str | None) -> tuple[Path, dict]:
         if not path.exists():
             path = cap_dir / capture_id
     else:
-        # Prefer latest IR capture with the next-ai example prompt, else newest
+        # Prefer latest IR capture with the reference example prompt, else newest
         candidates = sorted(cap_dir.glob("*.json"), key=lambda p: p.name, reverse=True)
         path = candidates[0]
         for c in candidates:
@@ -269,12 +269,12 @@ async def run_live(prompt: str, provider: str, views: list[str], platform: str) 
 
 def print_report(old: dict, new: dict | None, prompt: str, capture_path: Path) -> None:
     print("=" * 72)
-    print("E2E CAPTURE COMPARE vs next-ai-draw-io polish conventions")
+    print("E2E CAPTURE COMPARE vs reference polish conventions")
     print("=" * 72)
     print(f"Prompt: {prompt}")
     print(f"Capture: {capture_path.name}")
     print()
-    print("next-ai-draw-io conventions scored:")
+    print("Reference conventions scored:")
     print("  - official mxgraph icons (not grey placeholders)")
     print("  - fixed 78x78 leaves + bottom labels")
     print("  - no leaf overflow of parents")
@@ -302,11 +302,10 @@ def print_report(old: dict, new: dict | None, prompt: str, capture_path: Path) -
         delta = new["mean_polish"] - old["mean_polish"]
         print(f"Delta mean polish: {delta:+.1f}")
         print()
-        print("Verdict vs next-ai-draw-io:")
+        print("Verdict:")
         if new["mean_polish"] >= 80:
-            print("  Strong — deterministic IR layout + MCP icons match their polish bar")
-            print("    on geometry/icons/anchors. They still win on freeform creative")
-            print("    diagrams; we win on multi-view architecture consistency.")
+            print("  Strong — deterministic IR layout + MCP icons clear the polish bar")
+            print("    on geometry/icons/anchors, with multi-view architecture consistency.")
         elif new["mean_polish"] >= 65:
             print("  Competitive — most conventions met; residual icon misses or density.")
         else:

@@ -88,7 +88,7 @@ def main() -> int:
     new = score_mxfile(xml2, "recompiled+mcp")
     (OUT_DIR / "recompiled_mcp_score.json").write_text(json.dumps(new, indent=2), encoding="utf-8")
 
-    print("\n=== GEOMETRY (next-ai layout conventions) ===")
+    print("\n=== GEOMETRY (layout conventions) ===")
     print("capture :", geometry_scores(old))
     print("current :", geometry_scores(new))
     print("\n=== FULL POLISH (icons + geometry + anchors) ===")
@@ -104,9 +104,8 @@ def main() -> int:
             f"  {n:12} polish={ps['polish_score']:3} icons={ps['mxgraph_icons']}/{ps['leaves']} "
             f"bad_size={ps['wrong_leaf_size']} overflow={ps['leaf_overflow']} band_dY={ps['row_y_range']}"
         )
-    print("\nvs next-ai-draw-io:")
-    print("  Same prompt as their README example (React auth / serverless).")
-    print("  They: single freeform page, LLM mxCells, optional VLM, chat refine.")
+    print("\nCapture vs current pipeline:")
+    print("  Same prompt as the reference README example (React auth / serverless).")
     print("  Us: 4 IR views, deterministic geometry, MCP icons, overview/legend.")
     geo_old = geometry_scores(old)
     geo_new = geometry_scores(new)

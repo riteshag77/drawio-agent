@@ -1,4 +1,4 @@
-"""Sparse next-ai-style Logical (serverless auth) — Network/Security/Data untouched."""
+"""Sparse process-storyboard Logical (serverless auth) — Network/Security/Data untouched."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from app.domain.ir import Corridor, ExternalActor, Flow, Leaf, LogicalIR
 
 
 def serverless_auth_logical_ir() -> LogicalIR:
-    """Mirrors next-ai-draw-io auth.svg story at IR level (sparse process path)."""
+    """Mirrors a sparse serverless-auth storyboard at IR level (sparse process path)."""
     return LogicalIR(
         corridors=[
             Corridor(

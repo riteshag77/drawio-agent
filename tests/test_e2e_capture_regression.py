@@ -15,7 +15,7 @@ stale after a surgical edit, suggestions failing with zero visible signal)
 before any of them had a test — this suite is the automated replacement for
 that manual discovery process. See tools/e2e_capture_compare.py for the
 adjacent manual/CLI variant of the same idea (score a capture's polish
-against next-ai-draw-io conventions) — this module instead asserts hard
+against layout/icon-fidelity conventions) — this module instead asserts hard
 pass/fail invariants suitable for a gate, not a score.
 
 The single test below drives the full lifecycle a real user exercises:

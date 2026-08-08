@@ -1,9 +1,21 @@
-"""URL content extraction for diagram context — SSRF-safe fetch + HTML text."""
+"""URL content extraction for diagram context — SSRF-safe fetch + HTML text.
+
+A URL can resolve to either an article page (extracted as text, feeding
+``context_text``) or an image (returned as base64, feeding
+``attachment_documents`` exactly like a direct file upload) — see
+``fetch_url_content``'s content-type branch. This makes "paste a link to a
+diagram" behave the same as "upload that diagram", including respecting
+whatever image-handling mode (as-is replication vs. cloud reinterpretation)
+the user already has set, instead of silently downgrading to text-only
+context that the LLM then has nothing visual to replicate from.
+"""
 
 from __future__ import annotations
 
+import base64
 import ipaddress
 import socket
+from pathlib import PurePosixPath
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -14,6 +26,8 @@ MAX_RESPONSE_BYTES = 2_000_000
 USER_AGENT = "drawio-agent/1.0 (+https://github.com/drawio-agent)"
 ALLOWED_PORTS = {80, 443}
 _FETCH_TIMEOUT = httpx.Timeout(20.0)
+_ALLOWED_IMAGE_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+_EXT_FOR_MIME = {"image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp"}
 
 
 def extract_text_from_html(html_content: str) -> tuple[str, str]:
@@ -136,8 +150,19 @@ async def _http_get_pinned(
             return response.status_code, headers_out, body
 
 
+def _filename_from_url(url: str, mime: str) -> str:
+    name = PurePosixPath(urlparse(url).path).name
+    if not name or "." not in name:
+        name = f"image{_EXT_FOR_MIME.get(mime, '.png')}"
+    return name
+
+
 async def fetch_url_content(url: str) -> dict:
-    """Fetch URL and return title, content, char_count. Blocks SSRF / DNS rebinding."""
+    """Fetch URL and classify it: an image content-type returns base64 image
+    data (``kind="image"``) so callers can route it through the same vision
+    pipeline as a direct upload; anything else returns extracted text
+    (``kind="text"``). Blocks SSRF / DNS rebinding.
+    """
     current = url
     response_url = url
     status = 0
@@ -168,11 +193,23 @@ async def fetch_url_content(url: str) -> dict:
     else:
         raise ValueError("Too many redirects")
 
-    content_type = headers.get("content-type", "")
+    content_type = headers.get("content-type", "").split(";")[0].strip().lower()
+
+    if content_type in _ALLOWED_IMAGE_TYPES:
+        filename = _filename_from_url(response_url, content_type)
+        return {
+            "kind": "image",
+            "title": filename,
+            "filename": filename,
+            "mime": content_type,
+            "data": base64.b64encode(body).decode("ascii"),
+            "char_count": 0,
+        }
+
     text_body = body.decode("utf-8", errors="replace")
-    if "html" not in content_type.lower():
+    if "html" not in content_type:
         text = text_body[:MAX_EXTRACTED_CHARS]
-        return {"title": response_url, "content": text, "char_count": len(text)}
+        return {"kind": "text", "title": response_url, "content": text, "char_count": len(text)}
 
     title, text = extract_text_from_html(text_body)
-    return {"title": title, "content": text, "char_count": len(text)}
+    return {"kind": "text", "title": title, "content": text, "char_count": len(text)}

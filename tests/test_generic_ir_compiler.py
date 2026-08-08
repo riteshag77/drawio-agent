@@ -69,6 +69,44 @@ class CompileGenericIrTests(unittest.TestCase):
             positions.add((geom.get("x"), geom.get("y")))
         self.assertEqual(len(positions), 6)
 
+    def test_unhinted_nodes_follow_edge_order_not_list_order(self) -> None:
+        """Regression test: a linear chain with two branch points (the
+        classic "lamp doesn't work" flowchart) previously landed the first
+        four nodes on one row regardless of which pointed to which, because
+        the no-x/y fallback packed nodes in raw list order into a fixed
+        <=4-per-row grid. It must now read the edges instead, since vision
+        models leave x/y null far more often than not."""
+        ir = GenericDiagramIR(
+            nodes=[
+                _node("start", "rounded_rectangle"),
+                _node("plugged_in", "diamond"),
+                _node("plug_in", "rounded_rectangle"),
+                _node("bulb_burned", "diamond"),
+                _node("replace_bulb", "rounded_rectangle"),
+                _node("repair_lamp", "rounded_rectangle"),
+            ],
+            edges=[
+                GenericEdge(source="start", target="plugged_in"),
+                GenericEdge(source="plugged_in", target="plug_in", label="No"),
+                GenericEdge(source="plugged_in", target="bulb_burned", label="Yes"),
+                GenericEdge(source="bulb_burned", target="replace_bulb", label="Yes"),
+                GenericEdge(source="bulb_burned", target="repair_lamp", label="No"),
+            ],
+        )
+        root = ET.fromstring(compile_generic_ir(ir))
+
+        def y_of(node_id: str) -> str:
+            cell = next(c for c in root.iter("mxCell") if c.get("id") == node_id)
+            return cell.find("mxGeometry").get("y")
+
+        # Each hop down the chain must land on a strictly later row — the
+        # regression put start/plugged_in/plug_in/bulb_burned all on row 0.
+        rows = [y_of("start"), y_of("plugged_in"), y_of("plug_in"), y_of("replace_bulb")]
+        self.assertEqual(len(set(rows)), 4, f"expected 4 distinct rows, got {rows}")
+        # Sibling branches (children of the same diamond) share their row.
+        self.assertEqual(y_of("plug_in"), y_of("bulb_burned"))
+        self.assertEqual(y_of("replace_bulb"), y_of("repair_lamp"))
+
     def test_hinted_x_y_are_respected(self) -> None:
         ir = GenericDiagramIR(nodes=[
             _node("a", x=0.1, y=0.1),

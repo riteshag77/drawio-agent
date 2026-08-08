@@ -143,7 +143,7 @@ def shelf_style(corridor_id: str = "") -> str:
 
 
 def cloud_boundary_style(platform: str = "aws") -> str:
-    """Single dashed cloud group for flat Logical (next-ai auth.svg look).
+    """Single dashed cloud group for flat Logical (sparse process-storyboard look).
 
     Not a domain column — one optional boundary around cloud-shaped leaves.
     """
