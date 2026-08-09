@@ -89,25 +89,43 @@ function renderCollapsedRailTabs() {
         const tab = btn.dataset.tab;
         const icon = btn.querySelector('.insights-tab-icon');
         const label = btn.getAttribute('aria-label') || (icon ? icon.nextSibling?.textContent?.trim() : '') || tab;
-        return `<button type="button" class="collapsed-rail-tab-btn" onclick="setLogPanelOpen(true); switchInsightsTab('${tab}')" title="${btn.textContent.trim()}" aria-label="${label}">${icon ? icon.outerHTML : ''}</button>`;
+        return `<button type="button" class="collapsed-rail-tab-btn" onclick="setLogPanelOpen(); switchInsightsTab('${tab}')" title="${btn.textContent.trim()}" aria-label="${label}">${icon ? icon.outerHTML : ''}</button>`;
     }).join('');
 }
 
-function setLogPanelOpen(open) {
-    verboseLogging = open;
-    document.getElementById('verbose-toggle').checked = open;
-    localStorage.setItem(VERBOSE_STORAGE_KEY, open ? '1' : '0');
+/** Re-syncs whether the right panel (and collapsed rail) is shown, purely
+ * from whichever Settings toggles are already on — never itself flips
+ * Pipeline logs (or any other toggle) on. The panel's open/closed state and
+ * the Logs toggle used to be the same thing; now that Cost/WAF/Governance/
+ * Suggestions/Logs are independent tabs, "reopen the panel" must not carry
+ * the old side effect of silently re-enabling Logs. Only
+ * toggleVerbosePanel() (the Logs toggle's own onchange) and
+ * initVerboseLogging() (restoring a saved Logs preference) are allowed to
+ * change verboseLogging itself. */
+function setLogPanelOpen() {
     updateRightPanelVisibility();
     if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
 }
 
 function toggleVerbosePanel() {
     const open = document.getElementById('verbose-toggle').checked;
-    setLogPanelOpen(open);
+    verboseLogging = open;
+    localStorage.setItem(VERBOSE_STORAGE_KEY, open ? '1' : '0');
+    updateRightPanelVisibility();
+    if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
     if (open) {
         appendVerboseLog('ui', 'Pipeline log panel opened', 'info');
         if (typeof switchInsightsTab === 'function') switchInsightsTab('logs');
     }
+}
+
+function hideVerboseLogsPanel() {
+    verboseLogging = false;
+    const toggle = document.getElementById('verbose-toggle');
+    if (toggle) toggle.checked = false;
+    localStorage.setItem(VERBOSE_STORAGE_KEY, '0');
+    updateRightPanelVisibility();
+    if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
 }
 
 function closeLogPanel() {
@@ -117,7 +135,7 @@ function closeLogPanel() {
     hideWellArchitectedPanel();
     hideCompliancePanel();
     if (typeof hideGovernancePanel === 'function') hideGovernancePanel();
-    setLogPanelOpen(false);
+    hideVerboseLogsPanel();
 }
 
 function mergeServerLogs(logs) {
@@ -134,6 +152,10 @@ function mergeServerLogs(logs) {
 
 function initVerboseLogging() {
     const open = localStorage.getItem(VERBOSE_STORAGE_KEY) === '1';
-    setLogPanelOpen(open);
+    verboseLogging = open;
+    const toggle = document.getElementById('verbose-toggle');
+    if (toggle) toggle.checked = open;
+    updateRightPanelVisibility();
+    if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
     updateLogCount();
 }
