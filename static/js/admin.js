@@ -4,8 +4,23 @@
 
 const ADMIN_TOKEN_KEY = 'drawio-agent-admin-token';
 
+const EYE_OPEN_SVG = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
+const EYE_OFF_SVG = '<path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a21.4 21.4 0 0 1 5.06-6.06M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a21.4 21.4 0 0 1-2.94 4.06"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>';
+
 function adminToken() {
     return localStorage.getItem(ADMIN_TOKEN_KEY) || '';
+}
+
+/** Toggles a password-type input to text and swaps the eye icon — shared by
+ * the login field and every provider API-key field. */
+function adminTogglePasswordVisibility(inputId, btnEl) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    const showing = input.type === 'text';
+    input.type = showing ? 'password' : 'text';
+    btnEl.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${showing ? EYE_OPEN_SVG : EYE_OFF_SVG}</svg>`;
+    btnEl.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+    btnEl.title = showing ? 'Show password' : 'Hide password';
 }
 
 async function adminFetch(path, options) {
@@ -25,10 +40,39 @@ function showAdminLogin() {
     document.getElementById('admin-main').hidden = true;
 }
 
+/** Providers and Governance are mutually-exclusive sections, not one long
+ * scroll — switching shows exactly one section's data at a time so a long
+ * governance rule list never bleeds into view under Providers (or vice
+ * versa). */
+function adminSwitchSection(section) {
+    ['providers', 'governance'].forEach((s) => {
+        const panel = document.getElementById(`admin-section-${s}`);
+        const btn = document.getElementById(`admin-subnav-${s}`);
+        if (panel) panel.hidden = s !== section;
+        if (btn) btn.classList.toggle('active', s === section);
+    });
+}
+
+function adminLogout() {
+    localStorage.removeItem(ADMIN_TOKEN_KEY);
+    showAdminLogin();
+    const input = document.getElementById('admin-password-input');
+    if (input) { input.value = ''; input.focus(); }
+}
+
 async function adminLogin() {
-    const password = document.getElementById('admin-password-input').value;
+    const input = document.getElementById('admin-password-input');
+    const password = input.value;
     const errEl = document.getElementById('admin-login-error');
-    errEl.textContent = '';
+    const btn = document.getElementById('admin-login-btn');
+    const btnLabel = document.getElementById('admin-login-btn-label');
+    errEl.innerHTML = '';
+    if (!password) {
+        input.classList.remove('shake'); void input.offsetWidth; input.classList.add('shake');
+        return;
+    }
+    btn.disabled = true;
+    btnLabel.innerHTML = '<span class="admin-spinner"></span>';
     try {
         const res = await fetch('/admin/login', {
             method: 'POST',
@@ -37,14 +81,18 @@ async function adminLogin() {
         });
         if (!res.ok) {
             const data = await res.json().catch(() => ({}));
-            errEl.textContent = data.detail || 'Login failed.';
+            errEl.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><span>${_escHtml(data.detail || 'Login failed.')}</span>`;
+            input.classList.remove('shake'); void input.offsetWidth; input.classList.add('shake');
             return;
         }
         const data = await res.json();
         localStorage.setItem(ADMIN_TOKEN_KEY, data.token);
         await adminLoadMain();
     } catch (err) {
-        errEl.textContent = 'Network error.';
+        errEl.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><span>Network error.</span>`;
+    } finally {
+        btn.disabled = false;
+        btnLabel.textContent = 'Log in';
     }
 }
 
@@ -54,28 +102,48 @@ function adminSourceBadge(source) {
 }
 
 function adminProviderCardHtml(p) {
+    const avatarLetter = (p.label || p.key || '?').trim().charAt(0).toUpperCase();
+    const keyInputId = `admin-key-${p.key}`;
     const keyRow = `
         <div class="admin-field-row">
-            <input type="password" id="admin-key-${p.key}" placeholder="${p.api_key_set ? p.api_key_hint : 'sk-…'}">
-            <button type="button" class="btn-chat-clear" onclick="adminSaveProvider('${p.key}')">Save</button>
-            ${p.api_key_source === 'admin' ? `<button type="button" class="btn-chat-clear" onclick="adminClearProviderKey('${p.key}')">Revert</button>` : ''}
+            <div class="admin-password-field">
+                <input type="password" id="${keyInputId}" placeholder="${p.api_key_set ? p.api_key_hint : 'sk-…'}">
+                <button type="button" class="admin-password-toggle" onclick="adminTogglePasswordVisibility('${keyInputId}', this)" aria-label="Show key" title="Show key">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${EYE_OPEN_SVG}</svg>
+                </button>
+            </div>
+            <button type="button" class="admin-icon-btn" onclick="adminSaveProvider('${p.key}')" title="Save key" aria-label="Save key">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            </button>
+            ${p.api_key_source === 'admin' ? `
+            <button type="button" class="admin-icon-btn danger" onclick="adminClearProviderKey('${p.key}')" title="Revert to .env" aria-label="Revert to .env">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+            </button>` : ''}
         </div>`;
     const baseUrlRow = p.base_url_env ? `
         <div class="admin-field-row">
             <input type="text" id="admin-baseurl-${p.key}" placeholder="${p.base_url_value || 'Base URL (optional)'}">
-            <button type="button" class="btn-chat-clear" onclick="adminSaveProviderBaseUrl('${p.key}')">Save</button>
+            <button type="button" class="admin-icon-btn" onclick="adminSaveProviderBaseUrl('${p.key}')" title="Save base URL" aria-label="Save base URL">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            </button>
         </div>` : '';
     return `
-        <div class="admin-provider-card" data-provider-key="${p.key}">
+        <div class="admin-card admin-provider-card" data-provider-key="${p.key}">
             <div class="admin-provider-head">
-                <span class="admin-provider-label">${p.label}${p.is_default ? ' (default)' : ''}</span>
-                <span class="admin-provider-env">${p.api_key_env}</span>
+                <span class="admin-provider-avatar">${_escHtml(avatarLetter)}</span>
+                <div class="admin-provider-name-col">
+                    <span class="admin-provider-label">${_escHtml(p.label)}${p.is_default ? ' <span class="admin-default-badge">Default</span>' : ''}</span>
+                    <span class="admin-provider-env">${_escHtml(p.api_key_env)}</span>
+                </div>
                 ${adminSourceBadge(p.api_key_source)}
             </div>
             ${keyRow}
             ${baseUrlRow}
             <div class="admin-provider-actions">
-                <button type="button" class="btn-chat-clear" onclick="adminTestProvider('${p.key}')">Test connection</button>
+                <button type="button" class="admin-test-btn" onclick="adminTestProvider('${p.key}')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                    Test connection
+                </button>
                 <span id="admin-test-result-${p.key}" class="admin-test-result"></span>
             </div>
         </div>`;
@@ -142,7 +210,7 @@ async function adminClearProviderKey(key) {
 
 async function adminTestProvider(key) {
     const resultEl = document.getElementById(`admin-test-result-${key}`);
-    resultEl.textContent = 'Testing…';
+    resultEl.innerHTML = '<span class="admin-spinner dark"></span>';
     resultEl.className = 'admin-test-result';
     const res = await adminFetch(`/admin/providers/${key}/test`, { method: 'POST' });
     const data = await res.json();
@@ -227,16 +295,22 @@ function adminGovernanceRuleDetail(r) {
 function adminGovernanceCardHtml(r) {
     const scope = `${r.view === 'any' ? 'Any view' : r.view} · ${r.platform === 'any' ? 'any platform' : r.platform.toUpperCase()}`;
     return `
-        <div class="admin-governance-card${r.enabled ? '' : ' disabled'}">
+        <div class="admin-card admin-governance-card${r.enabled ? '' : ' disabled'}">
             <div class="admin-governance-card-head">
                 <span class="admin-governance-kind-badge">${GOV_KIND_LABELS[r.kind] || r.kind}</span>
-                <span class="admin-governance-scope">${scope}</span>
+                <span class="admin-governance-scope">${_escHtml(scope)}</span>
             </div>
             <div class="admin-governance-message">${_escHtml(r.message)}</div>
             <div class="admin-help-text">${_escHtml(adminGovernanceRuleDetail(r))}</div>
             <div class="admin-governance-actions">
-                <label class="admin-checkbox-label"><input type="checkbox" ${r.enabled ? 'checked' : ''} onchange="adminToggleGovernanceRule('${r.id}', this.checked)"> Enabled</label>
-                <button type="button" class="btn-chat-clear" onclick="adminDeleteGovernanceRule('${r.id}')">Delete</button>
+                <label class="toggle-switch" title="Enable/disable this rule">
+                    <input type="checkbox" ${r.enabled ? 'checked' : ''} onchange="adminToggleGovernanceRule('${r.id}', this.checked)">
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="admin-help-text">${r.enabled ? 'Enabled' : 'Disabled'}</span>
+                <button type="button" class="admin-icon-btn danger" onclick="adminDeleteGovernanceRule('${r.id}')" title="Delete rule" aria-label="Delete rule" style="margin-left:auto">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                </button>
             </div>
         </div>`;
 }
