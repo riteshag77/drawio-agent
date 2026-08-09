@@ -1,78 +1,76 @@
-/* Aurora Contrast — refined "Deep Indigo" direction: a single cohesive
-   indigo-violet accent hue used consistently everywhere (brand, buttons,
-   info), on a cool near-black base, with status colors deliberately muted/
-   desaturated rather than neon so they read as calm signals instead of
-   competing for attention. The earlier version stacked violet + neon-lime +
-   amber + rose + blue + cyan simultaneously — six saturated hues fighting
-   each other read as "loud"/clashing rather than premium. A cohesive dark
-   theme uses one dominant accent family and lets everything else stay quiet
-   by comparison (this is how Linear/Vercel/Raycast-style dark UIs read as
-   "expensive" rather than "neon sign"). Kept a subtle glow (toned down from
-   the previous version) and the glassmorphic surfaces, since those effects
-   themselves were fine — it was the color count that was the problem, not
-   the technique. All values contrast-checked with the dataviz skill's
-   contrast() helper against this theme's actual base surface. */
+/* Aurora Contrast — "Photon Sphere" direction, v2: colors pixel-sampled
+   directly from the reference black-hole visualization (not guessed from a
+   text description). The source page is almost entirely neutral — pure
+   black canvas (#000), a cool dark slate-navy instrument panel (#1B1D29),
+   antique-cream text/values (#FCF5E3-ish) — with warm gold reserved for a
+   single hero visual (the photon ring, sampled #FFD79E hot / #987147 outer).
+   v1 of this theme spread that gold as a glow/blur across every card and
+   button, which read as muddy and soft rather than sharp. v2 corrects that:
+   accent is desaturated and used sparingly, surfaces are flat (no
+   backdrop-filter blur, no box-shadow bloom), and borders are thin, neutral
+   hairlines — matching the source's "scientific instrument panel" precision
+   instead of a neon-glow aesthetic.
+   All values contrast-checked with the dataviz skill's contrast() helper
+   against this theme's actual base surface. */
 :root[data-theme="aurora-contrast"] {
-    --text-primary: #f2f1f8;
-    --text-secondary: #a8a4c4;
-    --text-muted: #7a76a0;
+    --text-primary: #F2ECDD;
+    --text-secondary: #A79E8C;
+    --text-muted: #867C6C;
 
-    --sidebar-bg: #0a0a14;
-    --sidebar-border: rgba(160, 150, 220, 0.14);
-    --surface-well: #050508;
-    --surface-raised: rgba(124, 92, 246, 0.06);
-    --surface-hover: rgba(124, 92, 246, 0.11);
-    --surface-active: rgba(124, 92, 246, 0.16);
-    --border-subtle: rgba(160, 150, 220, 0.08);
-    --border-strong: rgba(160, 150, 220, 0.24);
-    --surface-panel-right: #0c0c18;
+    --sidebar-bg: #030303;
+    --sidebar-border: rgba(255, 255, 255, 0.07);
+    --surface-well: #000000;
+    --surface-raised: rgba(255, 255, 255, 0.035);
+    --surface-hover: rgba(255, 255, 255, 0.06);
+    --surface-active: rgba(255, 255, 255, 0.09);
+    --border-subtle: rgba(255, 255, 255, 0.06);
+    --border-strong: rgba(255, 255, 255, 0.16);
+    --surface-panel-right: #0c0c0f;
 
-    /* Single indigo-violet hue, lighter tint for the second gradient stop —
-       not a hue jump to a different color family. Glow alpha toned down from
-       the previous 0.38 for a subtler bloom. */
-    --accent: #7C5CF6;
-    --accent-hover: #9B82F9;
-    --accent-glow: rgba(124, 92, 246, 0.30);
+    /* Desaturated antique gold — sampled between the photon ring's outer
+       amber and its Doppler-hot core, kept muted so it reads as one quiet
+       accent rather than a neon highlight. */
+    --accent: #CBA062;
+    --accent-hover: #E4BE82;
+    --accent-glow: rgba(203, 160, 98, 0.18);
 
-    /* Status colors deliberately desaturated/muted — clearly distinct
-       semantically, but none compete with the accent for visual weight.
-       Success is a cool teal-green (near the accent's cool side of the
-       wheel) rather than the previous neon lime, which sat almost opposite
-       violet and clashed. Info reuses the accent-hover tint — same family. */
-    --success: #34D399;
-    --success-soft: #6EE7B7;
-    --success-bg-soft: rgba(52, 211, 153, 0.14);
-    --warning: #F5A623;
-    --warning-soft: #FBC873;
-    --warning-bg-soft: rgba(245, 166, 35, 0.14);
-    --error: #F0576C;
-    --error-soft: #F79CAA;
-    --error-bg-soft: rgba(240, 87, 108, 0.14);
-    --info: #9B82F9;
-    --info-soft: #C7B8FC;
-    --info-bg-soft: rgba(155, 130, 249, 0.14);
+    /* Status colors kept in the same desaturated/antique family as the rest
+       of the palette so nothing outshouts the accent; each still clears
+       AA contrast against the near-black surface. */
+    --success: #4E9E82;
+    --success-soft: #8BC4AE;
+    --success-bg-soft: rgba(78, 158, 130, 0.14);
+    --warning: #E0A83D;
+    --warning-soft: #F0C877;
+    --warning-bg-soft: rgba(224, 168, 61, 0.14);
+    --error: #C75450;
+    --error-soft: #E08D8A;
+    --error-bg-soft: rgba(199, 84, 80, 0.14);
+    --info: #6E92B8;
+    --info-soft: #A6C0DA;
+    --info-bg-soft: rgba(110, 146, 184, 0.14);
 
-    --cost-accent: #22D3EE;
-    --cost-accent-dim: rgba(34, 211, 238, 0.10);
-    --cost-bar-bg: rgba(124, 92, 246, 0.10);
+    --cost-accent: #7FB3DD;
+    --cost-accent-dim: rgba(127, 179, 221, 0.10);
+    --cost-bar-bg: rgba(203, 160, 98, 0.10);
 
-    --panel-bg: #0e0e1a;
-    --canvas-surface: #0e0e1a;
-    --canvas-overlay: rgba(14, 14, 26, 0.85);
-    --canvas-toolbar-bg: linear-gradient(to bottom, #121224, #0a0a14);
-    --canvas-toolbar-meta-bg: #0a0a14;
-    --canvas-border: rgba(160, 150, 220, 0.14);
-    --canvas-text: #f2f1f8;
-    --canvas-text-muted: #8783a8;
+    --panel-bg: #0a0a0d;
+    --canvas-surface: #0a0a0d;
+    --canvas-overlay: rgba(0, 0, 0, 0.85);
+    --canvas-toolbar-bg: linear-gradient(to bottom, #14151c, #050505);
+    --canvas-toolbar-meta-bg: #050505;
+    --canvas-border: rgba(255, 255, 255, 0.10);
+    --canvas-text: #F2ECDD;
+    --canvas-text-muted: #8f8776;
 
-    --btn-bg: rgba(124, 92, 246, 0.06);
-    --btn-border: rgba(160, 150, 220, 0.16);
-    --btn-text: #dcd9f0;
-    --btn-hover-bg: rgba(124, 92, 246, 0.12);
-    --btn-hover-border: rgba(160, 150, 220, 0.28);
-    --btn-primary-bg: #7C5CF6;
-    --btn-primary-text: #ffffff;
-    --btn-primary-hover-bg: #9B82F9;
+    --btn-bg: rgba(255, 255, 255, 0.04);
+    --btn-border: rgba(255, 255, 255, 0.12);
+    --btn-text: #D8CFBC;
+    --btn-hover-bg: rgba(255, 255, 255, 0.08);
+    --btn-hover-border: rgba(255, 255, 255, 0.20);
+    --btn-primary-bg: #CBA062;
+    --btn-primary-text: #1a1409;
+    --btn-primary-hover-bg: #E4BE82;
 
     /* Cost donut categorical palette — dataviz-skill validated 8-hue set, dark column.
        Kept identical across every theme: data-identity colors stay fixed regardless
@@ -88,43 +86,121 @@
 }
 
 :root[data-theme="aurora-contrast"] select {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23a8a4c4' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23A79E8C' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
 }
 
 :root[data-theme="aurora-contrast"] .composer-tools select {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='%23a8a4c4' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='%23A79E8C' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
 }
 
-/* Neon bloom — box-shadow glow on the highest-impact accent-colored elements. */
-:root[data-theme="aurora-contrast"] .brand-mark {
-    box-shadow: 0 0 20px var(--accent-glow), 0 6px 16px var(--accent-glow);
+/* Brand wordmark: serif display face + a touch of tracking, echoing the
+   source page's editorial "Photon sphere" headline instead of the app's
+   default system sans — the single biggest typographic cue that read as
+   "generic dashboard" rather than "instrument panel." System/web-safe serif
+   stack only, no font download. */
+:root[data-theme="aurora-contrast"] .brand-text h1 {
+    font-family: Georgia, 'Iowan Old Style', 'Palatino Linotype', ui-serif, serif;
+    letter-spacing: 0.01em;
+}
+
+/* The gallery subtitle gets the reference's italic-serif secondary-line
+   treatment (its "light that orbits" under the headline). */
+:root[data-theme="aurora-contrast"] .gallery-header p {
+    font-style: italic;
+    font-family: Georgia, 'Iowan Old Style', 'Palatino Linotype', ui-serif, serif;
+}
+
+/* Eyebrow/label rhythm: the source's tracked uppercase labels ("LAB · 01",
+   "MASS") are light-weight and wide-set, not bold. The app's default 700
+   weight on these reads heavier/blunter than the reference; lighten and
+   open them up without touching layout. */
+:root[data-theme="aurora-contrast"] .gallery-header h3,
+:root[data-theme="aurora-contrast"] .chat-toolbar span,
+:root[data-theme="aurora-contrast"] .chat-suggestions-title,
+:root[data-theme="aurora-contrast"] .suggestions-group-header,
+:root[data-theme="aurora-contrast"] .drawer-group-title,
+:root[data-theme="aurora-contrast"] .cost-category-name,
+:root[data-theme="aurora-contrast"] .compliance-scope-title,
+:root[data-theme="aurora-contrast"] .cost-donut-center-label,
+:root[data-theme="aurora-contrast"] .token-meter-label,
+:root[data-theme="aurora-contrast"] .governance-item-scope,
+:root[data-theme="aurora-contrast"] .gallery-badge,
+:root[data-theme="aurora-contrast"] .log-step {
+    font-weight: 500;
+    letter-spacing: 0.09em;
 }
 
 :root[data-theme="aurora-contrast"] .btn-action.primary,
 :root[data-theme="aurora-contrast"] .suggestion-btn-primary,
 :root[data-theme="aurora-contrast"] .segmented .platform-card.active {
-    box-shadow: 0 0 18px var(--accent-glow);
+    font-weight: 600;
 }
 
-/* Glassmorphism — translucent, blurred elevated surfaces on the most
-   visually prominent cards, echoing the reference sites' glass-panel look. */
+/* Pattern-card icons default to neutral ink, not accent gold — the source
+   confines color to its one hero visual, everywhere else stays monochrome.
+   The gold only appears as interactive feedback on hover. */
+:root[data-theme="aurora-contrast"] .gallery-card-icon {
+    color: var(--text-secondary);
+    transition: color 0.15s;
+}
+
+:root[data-theme="aurora-contrast"] .gallery-card:hover .gallery-card-icon {
+    color: var(--accent);
+}
+
+/* Flat instrument-panel surfaces — no blur, no glow. The reference page's
+   control panel is a solid dark slate card with a 1px neutral hairline, not
+   a translucent blurred sheet, so elevated surfaces here match that: solid
+   fills and crisp borders instead of glassmorphism. Corners are squared off
+   (4-6px, down from the app's default 10-14px) for the same "precision
+   instrument" read, and the most-seen surfaces get extra breathing room to
+   match the reference's generous whitespace. */
 :root[data-theme="aurora-contrast"] .settings-drawer {
-    background: rgba(12, 12, 24, 0.72);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border-left: 1px solid rgba(160, 150, 220, 0.20);
+    background: #0f0f13;
+    border-left: 1px solid var(--border-strong);
 }
 
 :root[data-theme="aurora-contrast"] .gallery-card,
 :root[data-theme="aurora-contrast"] .example-chip {
-    background: rgba(124, 92, 246, 0.05);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    border-color: rgba(160, 150, 220, 0.14);
+    background: #0f0f13;
+    border-color: var(--border-subtle);
 }
 
 :root[data-theme="aurora-contrast"] .chat-message.assistant .chat-bubble {
-    background: rgba(124, 92, 246, 0.09);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    background: #14151c;
+}
+
+:root[data-theme="aurora-contrast"] .gallery-card,
+:root[data-theme="aurora-contrast"] .example-chip,
+:root[data-theme="aurora-contrast"] .platform-card,
+:root[data-theme="aurora-contrast"] .segmented .platform-card,
+:root[data-theme="aurora-contrast"] .chat-suggestions,
+:root[data-theme="aurora-contrast"] .provider-card,
+:root[data-theme="aurora-contrast"] .chat-bubble {
+    border-radius: 4px;
+}
+
+:root[data-theme="aurora-contrast"] .composer {
+    border-radius: 6px;
+}
+
+:root[data-theme="aurora-contrast"] .segmented {
+    border-radius: 5px;
+}
+
+:root[data-theme="aurora-contrast"] .sidebar-header {
+    padding: 1.1rem 1.3rem;
+}
+
+:root[data-theme="aurora-contrast"] .gallery-grid {
+    gap: 0.65rem;
+}
+
+:root[data-theme="aurora-contrast"] .gallery-card {
+    padding: 0.9rem 1rem;
+    gap: 0.45rem;
+}
+
+:root[data-theme="aurora-contrast"] .chat-toolbar {
+    padding: 0.8rem 1.5rem;
 }
