@@ -3923,6 +3923,7 @@
 }
 .insights-tab {
     flex: 1;
+    min-width: 0;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -3936,6 +3937,9 @@
     cursor: pointer;
     border-bottom: 2px solid transparent;
     font-family: inherit;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
 }
 .insights-tab.active {
     color: var(--text-primary);
