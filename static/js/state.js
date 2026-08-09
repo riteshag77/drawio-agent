@@ -15,6 +15,7 @@ const VALIDATION_PROVIDER_KEY = 'drawio-agent-validation-provider';
 const COST_ESTIMATE_STORAGE_KEY = 'drawio-agent-cost-estimate';
 const WELL_ARCHITECTED_KEY = 'drawio-agent-well-architected';
 const COMPLIANCE_KEY = 'drawio-agent-compliance';
+const GOVERNANCE_TOGGLE_KEY = 'drawio-agent-governance-tab';
 const COMPLIANCE_FRAMEWORKS_KEY = 'drawio-agent-compliance-frameworks';
 const DIAGRAM_MODE_STORAGE_KEY = 'drawio-agent-diagram-mode';
 const LIBAVOID_STORAGE_KEY = 'drawio-agent-libavoid';

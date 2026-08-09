@@ -265,6 +265,16 @@
                         </div>
                         <div class="verbose-toggle-row">
                             <div>
+                                <span>Governance findings</span>
+                                <small>Org house-style rules checked against the diagram — rules themselves are managed by an admin</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle governance findings">
+                                <input type="checkbox" id="governance-toggle" onchange="savePromptSettings(); toggleGovernancePanel()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="verbose-toggle-row">
+                            <div>
                                 <span>Visual validation (VLM)</span>
                                 <small>Screenshot the diagram and ask the AI to check for overlaps/routing/readability issues — costs one extra LLM call per generation</small>
                             </div>
@@ -634,8 +644,9 @@
             </div>
             <div id="governance-panel" class="insights-panel" data-panel="governance" hidden>
                 <p class="governance-panel-intro">
-                    Your org's house-style rules, checked against this diagram. Managed by an admin in the
-                    <strong>Admin panel</strong> — not a setting you toggle here.
+                    Your org's house-style rules, checked against this diagram. The rules themselves are
+                    managed by an admin in the <strong>Admin panel</strong> — this tab's visibility is
+                    controlled by the "Governance findings" toggle in Settings → Quality &amp; review.
                 </p>
                 <div id="governance-summary" class="governance-summary"></div>
                 <div id="governance-list" class="governance-list"></div>
@@ -743,13 +754,13 @@
         </div>
         <div id="sessions-grid" class="history-grid"></div>
     </div>
-    <script src="/static/js/state.js?v=20260808c"></script>
+    <script src="/static/js/state.js?v=20260809a"></script>
     <script src="/static/js/theme.js?v=20260724f"></script>
     <script src="/static/js/resizer.js?v=20260808a"></script>
     <script src="/static/js/settings.js?v=20260808a"></script>
     <script src="/static/js/custom-providers.js?v=20260808c"></script>
     <script src="/static/js/provider-picker.js?v=20260808f"></script>
-    <script src="/static/js/prompt-settings.js?v=20260808b"></script>
+    <script src="/static/js/prompt-settings.js?v=20260809a"></script>
     <script src="/static/js/diagram.js?v=20260808b"></script>
     <script src="/static/js/voice-commands.js?v=20260808a"></script>
     <script src="/static/js/voice.js?v=20260726b"></script>
@@ -759,9 +770,9 @@
     <script src="/static/js/attachments.js?v=20260808b"></script>
     <script src="/static/js/platform-ui.js?v=20260724f"></script>
     <script src="/static/js/run-controls.js?v=20260726b"></script>
-    <script src="/static/js/verbose-logs.js?v=20260809a"></script>
-    <script src="/static/js/insights-ui.js?v=20260808b"></script>
-    <script src="/static/js/insights-panels.js?v=20260809b"></script>
+    <script src="/static/js/verbose-logs.js?v=20260809b"></script>
+    <script src="/static/js/insights-ui.js?v=20260809a"></script>
+    <script src="/static/js/insights-panels.js?v=20260809c"></script>
     <script src="/static/js/captures.js?v=20260809a"></script>
     <script src="/static/js/templates.js?v=20260808a"></script>
     <script src="/static/js/history.js?v=20260808b"></script>

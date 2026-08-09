@@ -66,11 +66,11 @@ function updateRightPanelVisibility() {
     const suggOn = document.getElementById('suggestions-toggle')?.checked;
     const wafOn = document.getElementById('well-architected-toggle')?.checked;
     const compOn = document.getElementById('compliance-toggle')?.checked;
-    // Governance has no user-facing toggle (it's admin-controlled house
-    // style, always on when rules exist) — a passing report stays quiet,
-    // but a failure surfaces the panel the same way a WAF/Compliance issue
-    // already does, since that's the one state a user actually needs to see.
-    const govFailing = typeof lastGovernanceFailedCount !== 'undefined' && lastGovernanceFailedCount > 0;
+    // Only auto-open for a governance failure if the user has actually
+    // turned the Governance findings toggle on — same opt-in rule as every
+    // other insight here.
+    const govOn = document.getElementById('governance-toggle')?.checked;
+    const govFailing = govOn && typeof lastGovernanceFailedCount !== 'undefined' && lastGovernanceFailedCount > 0;
     const open = verboseLogging || costOn || suggOn || wafOn || compOn || govFailing;
     document.getElementById('log-panel')?.classList.toggle('active', open);
     const reopenTab = document.getElementById('log-panel-reopen-tab');
@@ -116,6 +116,7 @@ function closeLogPanel() {
     if (typeof hideSuggestionsPanel === 'function') hideSuggestionsPanel();
     hideWellArchitectedPanel();
     hideCompliancePanel();
+    if (typeof hideGovernancePanel === 'function') hideGovernancePanel();
     setLogPanelOpen(false);
 }
 

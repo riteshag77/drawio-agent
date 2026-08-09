@@ -35,26 +35,30 @@ function setTabLoading(tab, isLoading) {
     if (btn) btn.classList.toggle('loading', !!isLoading);
 }
 
-/** Suggestions / Logs tab buttons only make sense when their own toggle is
- * on — Cost and WAF/Compliance stay always-visible (they're gated by the
- * Network-view checkbox already, via updateNetworkInsightsVisibility). If
- * the currently active tab is one that just got hidden, fall back to Cost
- * (always visible) instead of leaving an invisible tab selected. */
+/** Every tab button only makes sense when its own Settings toggle is on —
+ * WAF/Compliance shares one tab for two toggles (well-architected-toggle,
+ * compliance-toggle), shown if either is on. If the currently active tab
+ * just got hidden, fall back to the first tab that's still visible instead
+ * of leaving an invisible tab selected (or nothing selected at all, if none
+ * are on). */
 function updateInsightsTabVisibility() {
-    var suggTab = document.querySelector('.insights-tab[data-tab="suggestions"]');
-    var logsTab = document.querySelector('.insights-tab[data-tab="logs"]');
-    var suggOn = !!document.getElementById('suggestions-toggle')?.checked;
-    var logsOn = !!document.getElementById('verbose-toggle')?.checked;
-    if (suggTab) suggTab.hidden = !suggOn;
-    if (logsTab) logsTab.hidden = !logsOn;
+    var tabToggles = {
+        cost: () => !!document.getElementById('cost-estimate-toggle')?.checked,
+        waf: () => !!document.getElementById('well-architected-toggle')?.checked
+            || !!document.getElementById('compliance-toggle')?.checked,
+        governance: () => !!document.getElementById('governance-toggle')?.checked,
+        suggestions: () => !!document.getElementById('suggestions-toggle')?.checked,
+        logs: () => !!document.getElementById('verbose-toggle')?.checked,
+    };
+    Object.keys(tabToggles).forEach(function (tab) {
+        var btn = document.querySelector('.insights-tab[data-tab="' + tab + '"]');
+        if (btn) btn.hidden = !tabToggles[tab]();
+    });
 
     var activeTab = document.querySelector('.insights-tab.active');
-    var activeHidden = activeTab && (
-        (activeTab.dataset.tab === 'suggestions' && !suggOn)
-        || (activeTab.dataset.tab === 'logs' && !logsOn)
-    );
-    if (activeHidden && typeof switchInsightsTab === 'function') {
-        switchInsightsTab('cost');
+    if (activeTab && activeTab.hidden && typeof switchInsightsTab === 'function') {
+        var firstVisible = Array.from(document.querySelectorAll('.insights-tab')).find((btn) => !btn.hidden);
+        if (firstVisible) switchInsightsTab(firstVisible.dataset.tab);
     }
 }
 

@@ -167,6 +167,8 @@ function savePromptSettings() {
     if (reason) localStorage.setItem(SHOW_REASONING_STORAGE_KEY, reason.checked ? '1' : '0');
     const sugg = document.getElementById('suggestions-toggle');
     if (sugg) localStorage.setItem(SUGGESTIONS_STORAGE_KEY, sugg.checked ? '1' : '0');
+    const gov = document.getElementById('governance-toggle');
+    if (gov) localStorage.setItem(GOVERNANCE_TOGGLE_KEY, gov.checked ? '1' : '0');
     const interview = document.getElementById('architecture-interview-toggle');
     if (interview) localStorage.setItem(ARCH_INTERVIEW_STORAGE_KEY, interview.checked ? '1' : '0');
     const adr = document.getElementById('adr-notes-toggle');
@@ -223,6 +225,7 @@ function toggleCostPanelPreview() {
         body.innerHTML = '';
         if (total) total.textContent = 'A$0';
     }
+    if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
     updateRightPanelVisibility();
 }
 
@@ -250,6 +253,8 @@ function initPromptSettings() {
     if (reasonEl) reasonEl.checked = localStorage.getItem(SHOW_REASONING_STORAGE_KEY) === '1';
     const suggEl = document.getElementById('suggestions-toggle');
     if (suggEl) suggEl.checked = localStorage.getItem(SUGGESTIONS_STORAGE_KEY) === '1';
+    const govEl = document.getElementById('governance-toggle');
+    if (govEl) govEl.checked = localStorage.getItem(GOVERNANCE_TOGGLE_KEY) === '1';
     const interviewEl = document.getElementById('architecture-interview-toggle');
     if (interviewEl) interviewEl.checked = localStorage.getItem(ARCH_INTERVIEW_STORAGE_KEY) === '1';
     const adrEl = document.getElementById('adr-notes-toggle');
@@ -296,6 +301,7 @@ function initPromptSettings() {
     toggleCostPanelPreview();
     toggleWellArchitectedPanel();
     toggleCompliancePanel();
+    toggleGovernancePanel();
     toggleSuggestionsPanel();
     if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
 }

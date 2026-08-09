@@ -368,6 +368,7 @@ function hideCostEstimate() {
         var toggle = document.getElementById('cost-estimate-toggle');
         if (toggle) toggle.checked = false;
         localStorage.setItem(COST_ESTIMATE_STORAGE_KEY, '0');
+        if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
         updateRightPanelVisibility();
     }
 }
@@ -726,6 +727,7 @@ function toggleWellArchitectedPanel() {
         if (body) body.innerHTML = '';
         if (badge) { badge.textContent = '--'; badge.className = 'waf-overall-badge'; }
     }
+    if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
     updateRightPanelVisibility();
 }
 
@@ -735,6 +737,7 @@ function hideWellArchitectedPanel() {
         panel.classList.remove('active');
         document.getElementById('well-architected-toggle').checked = false;
         localStorage.setItem(WELL_ARCHITECTED_KEY, '0');
+        if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
         updateRightPanelVisibility();
     }
 }
@@ -938,6 +941,7 @@ function toggleCompliancePanel() {
         panel.classList.remove('active');
         if (body) body.innerHTML = '';
     }
+    if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
     updateRightPanelVisibility();
 }
 
@@ -947,6 +951,7 @@ function hideCompliancePanel() {
         panel.classList.remove('active');
         document.getElementById('compliance-toggle').checked = false;
         localStorage.setItem(COMPLIANCE_KEY, '0');
+        if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
         updateRightPanelVisibility();
     }
 }
@@ -1084,10 +1089,34 @@ function switchComplianceTab(fwId) {
 }
 
 //: Highest number of governance failures the last displayGovernance() call
-//: found — the only thing (besides the always-visible tab itself) that
-//: decides whether the right panel auto-opens for governance, since there's
-//: no user-facing "enable governance" toggle to check like the other tabs.
+//: found — read by updateRightPanelVisibility() (alongside the
+//: governance-toggle checkbox) to decide whether the right panel auto-opens.
 let lastGovernanceFailedCount = 0;
+
+function toggleGovernancePanel() {
+    var panel = document.getElementById('governance-panel');
+    if (!panel) return;
+    if (document.getElementById('governance-toggle').checked) {
+        panel.classList.add('active');
+        if (typeof switchInsightsTab === 'function') switchInsightsTab('governance');
+    } else {
+        panel.classList.remove('active');
+    }
+    if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
+    updateRightPanelVisibility();
+}
+
+function hideGovernancePanel() {
+    var panel = document.getElementById('governance-panel');
+    if (panel) {
+        panel.classList.remove('active');
+        var toggle = document.getElementById('governance-toggle');
+        if (toggle) toggle.checked = false;
+        localStorage.setItem(GOVERNANCE_TOGGLE_KEY, '0');
+        if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
+        updateRightPanelVisibility();
+    }
+}
 
 /** Renders the org house-style conformance report — every rule checked
  * against this diagram, pass and fail both shown (not just failures), so
