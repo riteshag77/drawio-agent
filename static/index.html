@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/styles.css?v=20260808g">
+    <link rel="stylesheet" href="/static/styles.css?v=20260808j">
     <link rel="stylesheet" href="/static/themes/midnight-slate.css?v=20260724f">
     <link rel="stylesheet" href="/static/themes/daylight.css?v=20260724f">
     <link rel="stylesheet" href="/static/themes/aurora-contrast.css?v=20260724f">
@@ -77,12 +77,11 @@
                     <div class="chat-toolbar">
                         <span>Conversation</span>
                         <div class="chat-toolbar-actions">
-                            <button type="button" class="btn-soft" onclick="openSessionsDialog()" title="Browse past sessions">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
-                                Sessions
+                            <button type="button" class="btn-icon-ghost" onclick="openSessionsDialog()" title="Browse past sessions" aria-label="Browse past sessions">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
                             </button>
-                            <button type="button" class="btn-chat-clear" onclick="clearChat()" title="Start a new chat">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                            <button type="button" class="btn-new-chat" onclick="clearChat()" title="Start a new chat">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                                 New chat
                             </button>
                         </div>
@@ -175,9 +174,82 @@
                     </button>
                 </div>
                 <div class="drawer-body">
-                    <div class="drawer-group is-open" data-group="insights">
+                    <div class="drawer-group is-open" data-group="generation">
                         <button type="button" class="drawer-group-toggle" aria-expanded="true" onclick="toggleDrawerGroup(this)">
-                            <span class="drawer-group-title">Session insights</span>
+                            <span class="drawer-group-title">Generation</span>
+                            <span class="drawer-group-chevron" aria-hidden="true"></span>
+                        </button>
+                        <div class="drawer-group-body">
+                        <label for="diagram-mode-select">Diagram type</label>
+                        <select id="diagram-mode-select" aria-label="Diagram type" onchange="saveDiagramMode()">
+                            <option value="auto">Auto</option>
+                            <option value="cloud">Cloud architecture</option>
+                            <option value="simple">Simple (Mermaid)</option>
+                        </select>
+
+                        <label for="diagram-renderer-select">Render</label>
+                        <select id="diagram-renderer-select" aria-label="Diagram renderer" title="Local layout vs Draw.io MCP icon enrichment">
+                            <option value="auto">Auto (MCP)</option>
+                            <option value="mcp">MCP</option>
+                            <option value="local">Local</option>
+                        </select>
+
+                        <div class="verbose-toggle-row">
+                            <div>
+                                <span>Uploaded image handling</span>
+                                <small>How an attached screenshot/PDF becomes a diagram</small>
+                            </div>
+                            <select id="image-mode-select" title="Uploaded image handling" onchange="savePromptSettings()">
+                                <option value="as_is" selected>As-is</option>
+                                <option value="cloud">Cloud interpretation</option>
+                            </select>
+                        </div>
+                        <div class="verbose-toggle-row">
+                            <div>
+                                <span>3D isometric (AWS only)</span>
+                                <small>Legacy aws3d icon set, staircase layout — also triggers automatically if your prompt says "3D" or "isometric"</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle 3D isometric rendering">
+                                <input type="checkbox" id="three-d-toggle" onchange="savePromptSettings()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="verbose-toggle-row">
+                            <div>
+                                <span>Animated connectors</span>
+                                <small>flowAnimation on primary edges (explainability)</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle animated connectors">
+                                <input type="checkbox" id="animated-connectors-toggle" onchange="savePromptSettings()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="verbose-toggle-row">
+                            <div>
+                                <span>Libavoid edge routing</span>
+                                <small>Obstacle-avoiding connectors via MCP (mcp/auto only)</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle libavoid routing">
+                                <input type="checkbox" id="libavoid-toggle" checked onchange="savePromptSettings()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="verbose-toggle-row">
+                            <div>
+                                <span>Architecture interview</span>
+                                <small>Ask clarifying questions before generating when on</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle architecture interview">
+                                <input type="checkbox" id="architecture-interview-toggle" onchange="savePromptSettings()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        </div>
+                    </div>
+
+                    <div class="drawer-group is-open" data-group="quality">
+                        <button type="button" class="drawer-group-toggle" aria-expanded="true" onclick="toggleDrawerGroup(this)">
+                            <span class="drawer-group-title">Quality &amp; review</span>
                             <span class="drawer-group-chevron" aria-hidden="true"></span>
                         </button>
                         <div class="drawer-group-body">
@@ -210,27 +282,17 @@
                                 <option value="openai">GPT-4o</option>
                             </select>
                         </div>
-                        <small class="settings-group-hint">Pipeline logs stay under the Diagram / logging settings — results appear in the Insights → Logs tab.</small>
+                        <small class="settings-group-hint">Pipeline logs stay under App &amp; diagnostics — results appear in the Insights → Logs tab.</small>
                         <button type="button" class="btn-soft" onclick="openHistoryDialog(); closeSettings();">View full diagram history</button>
                         </div>
                     </div>
 
-                    <div class="drawer-group is-open" data-group="architecture-docs">
-                        <button type="button" class="drawer-group-toggle" aria-expanded="true" onclick="toggleDrawerGroup(this)">
+                    <div class="drawer-group" data-group="architecture-docs">
+                        <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
                             <span class="drawer-group-title">Architecture docs</span>
                             <span class="drawer-group-chevron" aria-hidden="true"></span>
                         </button>
-                        <div class="drawer-group-body">
-                        <div class="verbose-toggle-row">
-                            <div>
-                                <span>Architecture interview</span>
-                                <small>Ask clarifying questions before generating when on</small>
-                            </div>
-                            <label class="toggle-switch" title="Toggle architecture interview">
-                                <input type="checkbox" id="architecture-interview-toggle" onchange="savePromptSettings()">
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
+                        <div class="drawer-group-body" hidden>
                         <div class="settings-field-row">
                             <label>Diagram views</label>
                             <small style="display:block;margin-bottom:6px;opacity:0.75">Multi-select — each becomes a separate draw.io page</small>
@@ -314,57 +376,9 @@
                         </div>
                     </div>
 
-                    <div class="drawer-group" data-group="diagram">
+                    <div class="drawer-group" data-group="prompts-templates">
                         <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
-                            <span class="drawer-group-title">Diagram</span>
-                            <span class="drawer-group-chevron" aria-hidden="true"></span>
-                        </button>
-                        <div class="drawer-group-body" hidden>
-                        <label for="diagram-mode-select">Diagram type</label>
-                        <select id="diagram-mode-select" aria-label="Diagram type" onchange="saveDiagramMode()">
-                            <option value="auto">Auto</option>
-                            <option value="cloud">Cloud architecture</option>
-                            <option value="simple">Simple (Mermaid)</option>
-                        </select>
-
-                        <label for="diagram-renderer-select">Render</label>
-                        <select id="diagram-renderer-select" aria-label="Diagram renderer" title="Local layout vs Draw.io MCP icon enrichment">
-                            <option value="auto">Auto (MCP)</option>
-                            <option value="mcp">MCP</option>
-                            <option value="local">Local</option>
-                        </select>
-
-                        <div class="verbose-toggle-row">
-                            <div>
-                                <span>3D isometric (AWS only)</span>
-                                <small>Legacy aws3d icon set, staircase layout — also triggers automatically if your prompt says "3D" or "isometric"</small>
-                            </div>
-                            <label class="toggle-switch" title="Toggle 3D isometric rendering">
-                                <input type="checkbox" id="three-d-toggle" onchange="savePromptSettings()">
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-                        </div>
-                    </div>
-
-                    <div class="drawer-group" data-group="appearance">
-                        <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
-                            <span class="drawer-group-title">Appearance</span>
-                            <span class="drawer-group-chevron" aria-hidden="true"></span>
-                        </button>
-                        <div class="drawer-group-body" hidden>
-                        <label for="app-theme-select">App theme</label>
-                        <select id="app-theme-select" aria-label="Application theme" onchange="changeAppTheme()">
-                            <option value="midnight-slate">Midnight Slate (default)</option>
-                            <option value="daylight">Daylight</option>
-                            <option value="aurora-contrast">Aurora Contrast</option>
-                        </select>
-                        </div>
-                    </div>
-
-                    <div class="drawer-group" data-group="ai-customization">
-                        <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
-                            <span class="drawer-group-title">AI customization</span>
+                            <span class="drawer-group-title">Prompts &amp; templates</span>
                             <span class="drawer-group-chevron" aria-hidden="true"></span>
                         </button>
                         <div class="drawer-group-body" hidden>
@@ -372,15 +386,7 @@
                         <textarea id="custom-system-message"
                             placeholder="Optional: e.g. Always use multi-AZ, prefer serverless, keep labels in Spanish…"
                             oninput="savePromptSettings()"></textarea>
-                        </div>
-                    </div>
-
-                    <div class="drawer-group" data-group="templates">
-                        <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
-                            <span class="drawer-group-title">Saved templates</span>
-                            <span class="drawer-group-chevron" aria-hidden="true"></span>
-                        </button>
-                        <div class="drawer-group-body" hidden>
+                        <label for="template-search" style="margin-top:14px">Saved templates</label>
                         <input type="text" id="template-search" class="template-search" placeholder="Search templates…" oninput="onTemplateSearchInput()">
                         <div id="template-list" class="template-list"></div>
                         <button type="button" class="btn-soft" onclick="saveCurrentAsTemplate()">＋ Save current prompt</button>
@@ -399,42 +405,18 @@
                         </div>
                     </div>
 
-                    <div class="drawer-group" data-group="advanced">
+                    <div class="drawer-group" data-group="app-diagnostics">
                         <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
-                            <span class="drawer-group-title">Advanced</span>
+                            <span class="drawer-group-title">App &amp; diagnostics</span>
                             <span class="drawer-group-chevron" aria-hidden="true"></span>
                         </button>
                         <div class="drawer-group-body" hidden>
-                        <div class="verbose-toggle-row">
-                            <div>
-                                <span>Libavoid edge routing</span>
-                                <small>Obstacle-avoiding connectors via MCP (mcp/auto only)</small>
-                            </div>
-                            <label class="toggle-switch" title="Toggle libavoid routing">
-                                <input type="checkbox" id="libavoid-toggle" checked onchange="savePromptSettings()">
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-                        <div class="verbose-toggle-row">
-                            <div>
-                                <span>Uploaded image handling</span>
-                                <small>How an attached screenshot/PDF becomes a diagram</small>
-                            </div>
-                            <select id="image-mode-select" title="Uploaded image handling" onchange="savePromptSettings()">
-                                <option value="as_is" selected>As-is (reproduce faithfully)</option>
-                                <option value="cloud">Interpret as cloud architecture</option>
-                            </select>
-                        </div>
-                        <div class="verbose-toggle-row">
-                            <div>
-                                <span>Animated connectors</span>
-                                <small>flowAnimation on primary edges (explainability)</small>
-                            </div>
-                            <label class="toggle-switch" title="Toggle animated connectors">
-                                <input type="checkbox" id="animated-connectors-toggle" onchange="savePromptSettings()">
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
+                        <label for="app-theme-select">App theme</label>
+                        <select id="app-theme-select" aria-label="Application theme" onchange="changeAppTheme()">
+                            <option value="midnight-slate">Midnight Slate (default)</option>
+                            <option value="daylight">Daylight</option>
+                            <option value="aurora-contrast">Aurora Contrast</option>
+                        </select>
                         <div class="verbose-toggle-row">
                             <div>
                                 <span>Show AI reasoning</span>
@@ -455,15 +437,6 @@
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
-                        </div>
-                    </div>
-
-                    <div class="drawer-group" data-group="captures">
-                        <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
-                            <span class="drawer-group-title">Captured runs</span>
-                            <span class="drawer-group-chevron" aria-hidden="true"></span>
-                        </button>
-                        <div class="drawer-group-body" hidden>
                         <div class="verbose-toggle-row">
                             <div>
                                 <span>Save new runs</span>
@@ -781,8 +754,8 @@
     <script src="/static/js/insights-panels.js?v=20260805i"></script>
     <script src="/static/js/captures.js?v=20260726b"></script>
     <script src="/static/js/templates.js?v=20260808a"></script>
-    <script src="/static/js/history.js?v=20260808a"></script>
-    <script src="/static/js/sessions.js?v=20260808a"></script>
+    <script src="/static/js/history.js?v=20260808b"></script>
+    <script src="/static/js/sessions.js?v=20260808b"></script>
     <script src="/static/js/validation-card.js?v=20260808c"></script>
     <script src="/static/js/app.js?v=20260808f"></script>
 </body>

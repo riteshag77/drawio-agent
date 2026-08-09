@@ -43,8 +43,10 @@ function sessionCardHtml(s) {
             <div class="history-card-actions">
                 ${isCurrent
                     ? '<span class="history-card-current-label">Current</span>'
-                    : `<button type="button" class="btn-chat-clear" onclick="openSession('${s.session_id}')">Open</button>`}
-                <button type="button" class="btn-chat-clear" onclick="deleteSessionFromPicker('${s.session_id}')">Delete</button>
+                    : `<button type="button" class="history-card-open" onclick="openSession('${s.session_id}')">Open</button>`}
+                <button type="button" class="history-card-delete" onclick="deleteSessionFromPicker('${s.session_id}')" title="Delete session" aria-label="Delete session">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg>
+                </button>
             </div>
         </div>`;
 }

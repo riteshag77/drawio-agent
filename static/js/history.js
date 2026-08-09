@@ -50,7 +50,7 @@ function historyCardHtml(v) {
             <span class="history-card-title" title="${title}">${title}</span>
             <span class="history-card-time">${historyRelativeTime(v.created_at)}</span>
             <div class="history-card-actions">
-                <button type="button" class="btn-chat-clear" onclick="restoreFromHistoryDialog('${v.id}')">Restore</button>
+                <button type="button" class="history-card-open" onclick="restoreFromHistoryDialog('${v.id}')">Restore</button>
             </div>
         </div>`;
 }
