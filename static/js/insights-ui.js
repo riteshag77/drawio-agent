@@ -122,6 +122,9 @@ async function restoreDiagramVersion(versionId) {
         document.getElementById('xml-output').textContent = v.xml;
         if (typeof loadDiagramIntoEditor === 'function') loadDiagramIntoEditor(v.xml);
     }
+    if (Array.isArray(v.messages) && v.messages.length && typeof _restoreChatTranscript === 'function') {
+        _restoreChatTranscript(v.messages);
+    }
     renderVersionStrip();
     showToast(`Restored v${v.version}`, 'success');
     if (!isMermaid) reanalyzeRestoredVersion(v.xml);

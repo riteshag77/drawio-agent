@@ -104,6 +104,26 @@ class VersioningTests(unittest.TestCase):
             self.assertNotIn("xml", summary)
             self.assertEqual(summary["xml_chars"], len(_XML))
 
+    def test_round_trips_message_transcript(self) -> None:
+        """Each version snapshots the full running chat transcript (not just
+        the diagram XML) so a session can later be reopened with its
+        conversation intact — see routes.py's _record_history."""
+        transcript = [
+            {"role": "user", "content": "build me a vpc"},
+            {"role": "assistant", "content": "Here's your VPC diagram."},
+        ]
+        with _TempHistory():
+            saved = _save("s", messages=transcript)
+            loaded = history_store.get_version(saved.id)
+            self.assertEqual(loaded.messages, transcript)
+            self.assertEqual(loaded.full()["messages"], transcript)
+
+    def test_missing_messages_default_to_empty_list_in_full(self) -> None:
+        with _TempHistory():
+            saved = _save("s")
+            self.assertIsNone(saved.messages)
+            self.assertEqual(history_store.get_version(saved.id).full()["messages"], [])
+
 
 class RetentionTests(unittest.TestCase):
     def test_oldest_versions_pruned_beyond_cap(self) -> None:
@@ -170,6 +190,33 @@ class ResilienceTests(unittest.TestCase):
     def test_unknown_version_id_returns_none(self) -> None:
         with _TempHistory():
             self.assertIsNone(history_store.get_version("does-not-exist"))
+
+    def test_migrates_db_created_before_messages_json_existed(self) -> None:
+        """DBs from before the messages_json column was added must not break —
+        _ensure_db's ALTER TABLE fallback should backfill it transparently."""
+        import sqlite3
+
+        with _TempHistory():
+            path = history_store._db_path()
+            conn = sqlite3.connect(path)
+            conn.execute(
+                """
+                CREATE TABLE diagram_versions (
+                    id TEXT PRIMARY KEY, session_id TEXT NOT NULL, version INTEGER NOT NULL,
+                    created_at TEXT NOT NULL, title TEXT NOT NULL DEFAULT '', prompt TEXT NOT NULL DEFAULT '',
+                    platform TEXT NOT NULL DEFAULT '', provider TEXT NOT NULL DEFAULT '',
+                    generation_path TEXT NOT NULL DEFAULT '', renderer_used TEXT NOT NULL DEFAULT '',
+                    xml TEXT NOT NULL, ir_json TEXT, meta_json TEXT
+                )
+                """
+            )
+            conn.commit()
+            conn.close()
+
+            saved = _save("s", messages=[{"role": "user", "content": "hi"}])
+            self.assertIsNotNone(saved)
+            loaded = history_store.get_version(saved.id)
+            self.assertEqual(loaded.messages, [{"role": "user", "content": "hi"}])
 
     def test_concurrent_writes_do_not_lose_or_duplicate_versions(self) -> None:
         """Version numbering must stay consistent under parallel requests."""

@@ -1147,7 +1147,7 @@
             display: flex;
             align-items: center;
             gap: 0.3rem;
-            max-width: 130px;
+            max-width: 160px;
             font-size: 0.72rem;
             font-weight: 600;
             font-family: inherit;
@@ -1174,8 +1174,8 @@
             height: 10px;
             opacity: 0.7;
         }
-        /* Centered command-palette modal ("Search models…" dialog) — not an
-           anchored corner popover. Backdrop dims/blurs the
+        /* Centered command-palette modal (next-ai-draw-io's "Search models…"
+           dialog) — not an anchored corner popover. Backdrop dims/blurs the
            whole app; the panel itself floats independently of the trigger
            button, matching a Cmd+K-style picker rather than a dropdown. */
         .provider-picker-backdrop {
@@ -3411,7 +3411,7 @@
     margin-top: 0.2rem;
 }
 
-/* ── Provider config dialog (BYOK — "AI Model Configuration") ──── */
+/* ── Provider config dialog (BYOK — next-ai "AI Model Configuration") ──── */
 .provider-config-dialog {
     position: fixed;
     top: 8%;

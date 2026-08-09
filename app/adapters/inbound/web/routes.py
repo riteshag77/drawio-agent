@@ -371,6 +371,12 @@ async def _record_history(body: ChatRequest, response: dict[str, Any], prompt: s
     payload = response.get("mermaid") if is_mermaid else response.get("xml")
     if not payload:
         return
+    # Snapshot the full transcript as of this turn (the request already carries
+    # every prior message; the reply itself only exists in `response`) so a
+    # session can later be reopened with its conversation intact, not just its
+    # diagram — restoring a version today only restores the XML.
+    transcript = [m.model_dump() for m in body.messages]
+    transcript.append({"role": "assistant", "content": response.get("assistant_message") or ""})
     await asyncio.to_thread(
         save_version,
         session_id=body.session_id,
@@ -386,6 +392,7 @@ async def _record_history(body: ChatRequest, response: dict[str, Any], prompt: s
             "llm_usage": response.get("llm_usage"),
             "diagram_type": "mermaid" if is_mermaid else "cloud",
         },
+        messages=transcript,
     )
 
 

@@ -654,7 +654,12 @@ hideValidationBanner();
 updateSendStopButtons();
 loadTemplates();
 if (typeof ensureSessionId === 'function') ensureSessionId();
-if (typeof refreshVersionStrip === 'function') refreshVersionStrip();
+const _urlSessionId = new URLSearchParams(window.location.search).get('session');
+if (_urlSessionId && typeof openSession === 'function') {
+    openSession(_urlSessionId);
+} else if (typeof refreshVersionStrip === 'function') {
+    refreshVersionStrip();
+}
 if (typeof loadCustomProviders === 'function') loadCustomProviders();
 if (typeof initVoiceCommands === 'function') initVoiceCommands();
 initVoiceInput();

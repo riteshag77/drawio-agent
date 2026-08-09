@@ -31,6 +31,7 @@ function appendValidationCard(state) {
     msg.id = 'validation-card-' + Date.now();
     msg.innerHTML = validationCardHtml(state, null, false);
     container.appendChild(msg);
+    if (typeof _moveTypingIndicatorToEnd === 'function') _moveTypingIndicatorToEnd();
     container.scrollTop = container.scrollHeight;
     window._activeValidationCardId = msg.id;
     validationPanelActive = true;

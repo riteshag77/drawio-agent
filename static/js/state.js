@@ -81,6 +81,24 @@ function startNewSession() {
     return currentSessionId;
 }
 
+/** Points the active session at an existing id (opening a past session from
+ * the Sessions picker) rather than minting a new one. */
+function setActiveSessionId(sessionId) {
+    currentSessionId = sessionId;
+    sessionStorage.setItem(SESSION_ID_KEY, sessionId);
+    return currentSessionId;
+}
+
+/** Keeps the URL's ?session= param in sync with the active session, so a
+ * past session opened via the Sessions picker can be bookmarked/shared and
+ * reloaded straight back into it — pass null to clear it (New chat). */
+function updateSessionUrlParam(sessionId) {
+    const url = new URL(window.location.href);
+    if (sessionId) url.searchParams.set('session', sessionId);
+    else url.searchParams.delete('session');
+    window.history.replaceState({}, '', url);
+}
+
 const EXAMPLE_PROMPTS = {
     aws: [
         'Highly available web app with API Gateway, Fargate in public/private subnets, Aurora, ElastiCache, CloudFront, Route 53, WAF, and CloudWatch with Overview panel',

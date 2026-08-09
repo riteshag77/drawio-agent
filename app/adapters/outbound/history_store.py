@@ -40,7 +40,8 @@ CREATE TABLE IF NOT EXISTS diagram_versions (
     renderer_used   TEXT NOT NULL DEFAULT '',
     xml             TEXT NOT NULL,
     ir_json         TEXT,
-    meta_json       TEXT
+    meta_json       TEXT,
+    messages_json   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_history_session
     ON diagram_versions (session_id, version DESC);
@@ -64,6 +65,7 @@ class DiagramVersion:
     xml: str
     ir: dict[str, Any] | None = None
     meta: dict[str, Any] = field(default_factory=dict)
+    messages: list[dict[str, Any]] | None = None
 
     def summary(self) -> dict[str, Any]:
         """Metadata only — the XML payload is often large, so listings omit it."""
@@ -83,7 +85,13 @@ class DiagramVersion:
         }
 
     def full(self) -> dict[str, Any]:
-        return {**self.summary(), "xml": self.xml, "ir": self.ir, "meta": self.meta}
+        return {
+            **self.summary(),
+            "xml": self.xml,
+            "ir": self.ir,
+            "meta": self.meta,
+            "messages": self.messages or [],
+        }
 
 
 def _db_path() -> Path | None:
@@ -111,6 +119,12 @@ def _ensure_db() -> Path | None:
         conn = sqlite3.connect(path)
         try:
             conn.executescript(_SCHEMA)
+            # Best-effort migration for DBs created before messages_json existed —
+            # CREATE TABLE IF NOT EXISTS above is a no-op against an existing file.
+            try:
+                conn.execute("ALTER TABLE diagram_versions ADD COLUMN messages_json TEXT")
+            except sqlite3.OperationalError:
+                pass  # column already exists
             conn.commit()
         finally:
             conn.close()
@@ -141,6 +155,7 @@ def save_version(
     renderer_used: str = "",
     ir: dict[str, Any] | None = None,
     meta: dict[str, Any] | None = None,
+    messages: list[dict[str, Any]] | None = None,
 ) -> DiagramVersion | None:
     """Append a new version for ``session_id``. Returns None when disabled/unavailable."""
     if not session_id or not xml:
@@ -160,6 +175,7 @@ def save_version(
         xml=xml,
         ir=ir,
         meta=meta or {},
+        messages=messages,
     )
 
     with _db_lock:
@@ -177,8 +193,9 @@ def save_version(
                     """
                     INSERT INTO diagram_versions (
                         id, session_id, version, created_at, title, prompt, platform,
-                        provider, generation_path, renderer_used, xml, ir_json, meta_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        provider, generation_path, renderer_used, xml, ir_json, meta_json,
+                        messages_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         record.id, session_id, next_version, record.created_at, record.title,
@@ -186,6 +203,7 @@ def save_version(
                         record.renderer_used, record.xml,
                         json.dumps(record.ir) if record.ir is not None else None,
                         json.dumps(record.meta),
+                        json.dumps(record.messages) if record.messages is not None else None,
                     ),
                 )
                 _prune_locked(conn, session_id)
@@ -230,6 +248,7 @@ def _row_to_version(row: sqlite3.Row) -> DiagramVersion:
         xml=row["xml"],
         ir=json.loads(row["ir_json"]) if row["ir_json"] else None,
         meta=json.loads(row["meta_json"]) if row["meta_json"] else {},
+        messages=json.loads(row["messages_json"]) if row["messages_json"] else None,
     )
 
 

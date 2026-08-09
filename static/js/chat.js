@@ -62,6 +62,33 @@ function hideWelcome() {
     if (welcome) welcome.remove();
 }
 
+/** #chat-typing is a static element positioned right after #chat-welcome in
+ * the markup — once the welcome block is removed (hideWelcome) it becomes
+ * the *first* child, so every bubble appended after it piles up below it,
+ * leaving the spinner stuck at the top instead of trailing the newest
+ * message. Every append site must re-park it as the last child so it always
+ * reads as "something is happening at the bottom", not a fixed header. */
+function _moveTypingIndicatorToEnd() {
+    const container = document.getElementById('chat-messages');
+    const typing = document.getElementById('chat-typing');
+    if (container && typing) container.appendChild(typing);
+}
+
+/** Replaces the visible chat feed with a stored transcript — used when
+ * restoring a version (rewinds the conversation to match that point) or
+ * opening a different past session (loads its whole conversation). Each
+ * version snapshots the full running transcript as of that turn (see
+ * routes.py's _record_history), so this is a straight replay, not a merge. */
+function _restoreChatTranscript(messages) {
+    const container = document.getElementById('chat-messages');
+    if (!container) return;
+    Array.from(container.children).forEach((el) => {
+        if (el.id !== 'chat-typing') el.remove();
+    });
+    chatMessages = messages.map((m) => ({ role: m.role, content: m.content }));
+    chatMessages.forEach((m) => appendChatBubble(m.role, m.content));
+}
+
 function setTyping(active) {
     document.getElementById('chat-typing').classList.toggle('active', active);
     if (active) {
@@ -194,6 +221,7 @@ function appendChatBubble(role, content) {
     msg.appendChild(meta);
 
     container.appendChild(msg);
+    _moveTypingIndicatorToEnd();
     container.scrollTop = container.scrollHeight;
 }
 
@@ -248,6 +276,7 @@ function _resetChatState() {
     previousXml = null;
     clearAttachments();
     if (typeof startNewSession === 'function') startNewSession();
+    if (typeof updateSessionUrlParam === 'function') updateSessionUrlParam(null);
     if (typeof sessionVersions !== 'undefined') {
         sessionVersions = [];
         activeVersionId = null;
@@ -279,13 +308,14 @@ function _resetChatState() {
     renderPatternGallery();
 }
 
+/** Starts a fresh session — no confirmation dialog. Every turn is already
+ * durably saved server-side as it happens (see routes.py's _record_history),
+ * so nothing is actually lost by clearing; the old confirm prompt was pure
+ * friction. The previous session stays reachable via the Sessions picker. */
 function clearChat() {
     if (isSending) return;
-    if (typeof confirmAction === 'function' && !confirmAction('Clear chat and discard the current diagram session?')) {
-        return;
-    }
     _resetChatState();
-    appendVerboseLog('ui', 'Chat cleared', 'info');
+    appendVerboseLog('ui', 'Started new chat', 'info');
 }
 
 /** Silent equivalent of clearChat() for a new image attachment (direct upload
