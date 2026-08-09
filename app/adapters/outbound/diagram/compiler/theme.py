@@ -207,17 +207,23 @@ def actor_style(kind: str = "users") -> str:
     )
 
 
-def flow_style(*, primary: bool, labelled: bool, classification: str = "none") -> str:
+def flow_style(*, primary: bool, labelled: bool, classification: str = "none", animated: bool = False) -> str:
     """Two independent channels, not one overloaded one: ``primary`` controls
     weight/dash (main path vs secondary/async); ``classification`` controls
     colour (what the flow carries). A flow can be both non-primary and carry
-    PII, so neither channel may collapse into the other."""
+    PII, so neither channel may collapse into the other. ``animated`` mirrors
+    the direct-XML prompt's own instruction ("For edges that represent
+    primary request/data flows, append flowAnimation=1") for the IR +
+    compiler path, which owns edge styling deterministically and never sees
+    that prompt — only ``primary`` edges animate, matching that convention."""
     style = "edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;jettySize=auto;orthogonalLoop=1;"
     color = palette.CLASSIFICATION_COLORS.get(classification, palette.CLASSIFICATION_COLORS["none"])
     if primary:
         style += f"strokeWidth=2;strokeColor={color};"
     else:
         style += f"dashed=1;strokeWidth=1;strokeColor={color};"
+    if animated and primary:
+        style += "flowAnimation=1;"
     if labelled:
         style += "labelBackgroundColor=#F5F5F5;fontSize=11;fontColor=#333333;"
     return style

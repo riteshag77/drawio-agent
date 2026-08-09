@@ -121,6 +121,9 @@ function getPromptSettings() {
         animated_connectors: document.getElementById('animated-connectors-toggle')
             ? document.getElementById('animated-connectors-toggle').checked
             : false,
+        three_d: document.getElementById('three-d-toggle')
+            ? document.getElementById('three-d-toggle').checked
+            : false,
         show_reasoning: document.getElementById('show-reasoning-toggle')
             ? document.getElementById('show-reasoning-toggle').checked
             : false,
@@ -158,6 +161,8 @@ function savePromptSettings() {
     if (imgMode) localStorage.setItem(IMAGE_MODE_STORAGE_KEY, imgMode.value);
     const anim = document.getElementById('animated-connectors-toggle');
     if (anim) localStorage.setItem(ANIMATED_CONNECTORS_STORAGE_KEY, anim.checked ? '1' : '0');
+    const threeD = document.getElementById('three-d-toggle');
+    if (threeD) localStorage.setItem(THREE_D_STORAGE_KEY, threeD.checked ? '1' : '0');
     const reason = document.getElementById('show-reasoning-toggle');
     if (reason) localStorage.setItem(SHOW_REASONING_STORAGE_KEY, reason.checked ? '1' : '0');
     const sugg = document.getElementById('suggestions-toggle');
@@ -239,6 +244,8 @@ function initPromptSettings() {
     if (imgModeEl) imgModeEl.value = localStorage.getItem(IMAGE_MODE_STORAGE_KEY) || 'as_is';
     const animEl = document.getElementById('animated-connectors-toggle');
     if (animEl) animEl.checked = localStorage.getItem(ANIMATED_CONNECTORS_STORAGE_KEY) === '1';
+    const threeDEl = document.getElementById('three-d-toggle');
+    if (threeDEl) threeDEl.checked = localStorage.getItem(THREE_D_STORAGE_KEY) === '1';
     const reasonEl = document.getElementById('show-reasoning-toggle');
     if (reasonEl) reasonEl.checked = localStorage.getItem(SHOW_REASONING_STORAGE_KEY) === '1';
     const suggEl = document.getElementById('suggestions-toggle');

@@ -76,6 +76,8 @@ _SIMPLE_TERMS: tuple[tuple[str, int], ...] = (
 
 _CLOUD_PLATFORMS = frozenset({"aws", "gcp", "azure", "multi"})
 
+_THREE_D_PATTERN = re.compile(r"(?<![a-z0-9])(3d|three-dimensional|isometric)(?![a-z0-9])", re.IGNORECASE)
+
 
 def _score_terms(text: str, terms: tuple[tuple[str, int], ...]) -> int:
     score = 0
@@ -116,3 +118,10 @@ def classify_intent(prompt: str, *, diagram_mode: str = "auto", platform: str = 
         return "cloud"
     # Tie (including 0-0): default to cloud, this product's primary path.
     return "cloud"
+
+
+def wants_three_d(prompt: str) -> bool:
+    """Whether the prompt text itself asks for an isometric/3D diagram — lets
+    "draw this in 3D" work without the explicit three_d request flag, the
+    same way cloud vocabulary alone routes a prompt to the cloud pipeline."""
+    return bool(_THREE_D_PATTERN.search(prompt or ""))

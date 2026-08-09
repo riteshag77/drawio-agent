@@ -223,6 +223,18 @@ function loadMermaidIntoEditor(mermaid) {
         mermaid_chars: mermaid.length
     });
     iframe.contentWindow.postMessage(JSON.stringify(payload), DRAWIO_ORIGIN);
+
+    // Unlike loadDiagramIntoEditor's XML 'load' action, a Mermaid import that
+    // the embed silently ignores or fails to parse never emits a 'load' or
+    // 'error' postMessage back — the loading spinner would otherwise spin
+    // forever with zero feedback, indistinguishable from "nothing happened".
+    clearDrawioLoadTimer();
+    drawioLoadTimer = setTimeout(() => {
+        drawioLoadTimer = null;
+        appendVerboseLog('drawio', 'Mermaid import timed out — the diagram may have invalid syntax', 'error', { mermaid_chars: mermaid.length });
+        setComposerRunStatus('Mermaid import timed out — try rephrasing the request', 'error');
+        document.getElementById('diagram-loading').classList.remove('active');
+    }, 15000);
 }
 
 function loadDiagramFromResponse(data) {

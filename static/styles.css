@@ -525,6 +525,22 @@
             letter-spacing: 0.08em;
         }
 
+        .chat-toolbar-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .chat-toolbar-actions button {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+
+        .chat-toolbar-actions button svg {
+            flex-shrink: 0;
+        }
+
         .btn-chat-clear {
             border: none;
             background: transparent;
@@ -1174,8 +1190,8 @@
             height: 10px;
             opacity: 0.7;
         }
-        /* Centered command-palette modal (next-ai-draw-io's "Search models…"
-           dialog) — not an anchored corner popover. Backdrop dims/blurs the
+        /* Centered command-palette modal ("Search models…" dialog) — not an
+           anchored corner popover. Backdrop dims/blurs the
            whole app; the panel itself floats independently of the trigger
            button, matching a Cmd+K-style picker rather than a dropdown. */
         .provider-picker-backdrop {
@@ -3410,8 +3426,17 @@
     gap: 0.4rem;
     margin-top: 0.2rem;
 }
+.history-card-current {
+    border-color: var(--accent);
+}
+.history-card-current-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--accent);
+    padding: 0.3rem 0;
+}
 
-/* ── Provider config dialog (BYOK — next-ai "AI Model Configuration") ──── */
+/* ── Provider config dialog (BYOK — "AI Model Configuration") ──── */
 .provider-config-dialog {
     position: fixed;
     top: 8%;

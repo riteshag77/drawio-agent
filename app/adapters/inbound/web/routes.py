@@ -43,7 +43,7 @@ from app.adapters.outbound.utils.documents import MAX_ATTACHMENT_BYTES, extract_
 from app.adapters.outbound.utils.web import fetch_url_content
 from app.core.logging import StepLogger
 from app.core.services.agent import generate_followup_suggestions_for_xml, generate_mermaid_diagram, run_visual_qa_llm
-from app.core.services.intent import classify_intent
+from app.core.services.intent import classify_intent, wants_three_d
 from app.core.services.xml_pipeline import _summarize_llm_usage, run_xml_pipeline
 from app.adapters.outbound.llm import providers as providers_module
 
@@ -196,7 +196,7 @@ async def generate_diagram(body: PromptRequest, request: Request):
             logger=logger,
             custom_system_message=_sanitize_custom_msg(body.custom_system_message),
             diagram_renderer=body.diagram_renderer,
-            three_d=body.three_d,
+            three_d=body.three_d or wants_three_d(body.user_prompt),
             cost_estimate=body.cost_estimate,
             well_architected=body.well_architected,
             compliance=body.compliance,
@@ -246,10 +246,15 @@ async def _run_chat(body: ChatRequest, logger: StepLogger, *, on_progress=None) 
         applied_suggestions = body.applied_suggestions or []
 
         intent = classify_intent(last_user, diagram_mode=body.diagram_mode, platform=platform)
+        three_d = body.three_d or wants_three_d(last_user)
         has_attachments = bool(body.attachment_documents) or bool(body.context_text)
         if intent == "simple" and has_attachments:
             # The mermaid/"simple" path never forwards attachments to the LLM — only
             # run_xml_pipeline does, so an attached file must not be routed away from it.
+            intent = "cloud"
+        if intent == "simple" and three_d:
+            # 3D/isometric rendering only exists on the cloud/XML pipeline
+            # (prompt_3d.txt) — the Mermaid path has no concept of it.
             intent = "cloud"
         if intent == "simple" and (body.cost_estimate or body.well_architected or body.compliance):
             # Cost/Well-Architected/Compliance are cloud-only insights — _mermaid_response
@@ -312,7 +317,7 @@ async def _run_chat(body: ChatRequest, logger: StepLogger, *, on_progress=None) 
                 custom_system_message=_sanitize_custom_msg(body.custom_system_message),
                 diagram_renderer=body.diagram_renderer,
                 applied_suggestions=applied_suggestions,
-                three_d=body.three_d,
+                three_d=three_d,
                 cost_estimate=body.cost_estimate,
                 well_architected=body.well_architected,
                 compliance=body.compliance,
@@ -653,7 +658,7 @@ async def download_diagram(body: PromptRequest, request: Request):
             logger=logger,
             custom_system_message=_sanitize_custom_msg(body.custom_system_message),
             diagram_renderer=body.diagram_renderer,
-            three_d=body.three_d,
+            three_d=body.three_d or wants_three_d(body.user_prompt),
             cost_estimate=body.cost_estimate,
             well_architected=body.well_architected,
             compliance=body.compliance,

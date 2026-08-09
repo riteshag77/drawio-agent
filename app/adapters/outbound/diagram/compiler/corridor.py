@@ -63,7 +63,7 @@ _CLOUD_PAD_Y = 36.0  # room for title band
 _CLOUD_PAD_BOTTOM = 24.0
 
 
-def compile_corridor_ir(ir: CorridorIR, *, page_name: str) -> str:
+def compile_corridor_ir(ir: CorridorIR, *, page_name: str, animated_connectors: bool = False) -> str:
     """Render ``ir`` to a complete draw.io document.
 
     The IR is expected to have passed ``semantic_errors()`` already; this
@@ -72,7 +72,7 @@ def compile_corridor_ir(ir: CorridorIR, *, page_name: str) -> str:
     errors = ir.semantic_errors()
     if errors:
         raise CompilerError(f"cannot compile an invalid IR: {'; '.join(errors[:3])}")
-    return _CorridorCompiler(ir, page_name).run_layered()
+    return _CorridorCompiler(ir, page_name, animated_connectors).run_layered()
 
 
 def _is_cloud_shape(shape_type: str) -> bool:
@@ -145,9 +145,10 @@ def _overview_notes(ir: CorridorIR) -> list[str]:
 
 
 class _CorridorCompiler:
-    def __init__(self, ir: CorridorIR, page_name: str) -> None:
+    def __init__(self, ir: CorridorIR, page_name: str, animated_connectors: bool = False) -> None:
         self.ir = ir
         self.w = CellWriter(page_name)
+        self.animated_connectors = animated_connectors
 
     def run_layered(self) -> str:
         """Geometrically-authoritative path — every coordinate comes from
@@ -212,7 +213,7 @@ class _CorridorCompiler:
             top_y=row_top,
             flat_actors=flat,
         )
-        emit_flows(self.w, self.ir.flows, routes=routes)
+        emit_flows(self.w, self.ir.flows, routes=routes, animated_connectors=self.animated_connectors)
         self.w.set_business_notes(_overview_notes(self.ir))
 
         legend_body = build_legend(self.ir)

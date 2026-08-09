@@ -1120,6 +1120,7 @@ def generate_xml_diagram_from_ir(
     attachment_documents: list[dict] | None = None,
     image_replicate: bool = False,
     include_suggestions: bool = False,
+    animated_connectors: bool = False,
     *,
     llm: LlmPort | None = None,
 ) -> XmlDiagram:
@@ -1128,7 +1129,10 @@ def generate_xml_diagram_from_ir(
     Returns the same ``XmlDiagram`` the direct-XML path returns, so everything
     downstream in the pipeline (validation, MCP icon resolution, cost/WAF/
     compliance enrichment) is completely unaffected by which path — or which
-    view — produced it.
+    view — produced it. ``animated_connectors`` only reaches the compiler
+    here — the IR-generation LLM call never sees it, since this path's
+    styling is entirely compiler-owned (see ``theme.flow_style``), unlike the
+    direct-XML path where it's a prompt instruction.
     """
     view_key = (view or "network").strip().lower()
     kwargs = dict(
@@ -1139,10 +1143,10 @@ def generate_xml_diagram_from_ir(
     )
     if view_key == "network":
         ir = generate_network_ir(user_request, **kwargs)
-        xml = compile_network_ir(ir)
+        xml = compile_network_ir(ir, animated_connectors=animated_connectors)
     else:
         ir = generate_corridor_ir(view_key, user_request, **kwargs)
-        xml = compile_corridor_ir(ir, page_name=_IR_PAGE_NAMES[view_key])
+        xml = compile_corridor_ir(ir, page_name=_IR_PAGE_NAMES[view_key], animated_connectors=animated_connectors)
 
     sugg: list[DiagramSuggestion] = []
     if include_suggestions:

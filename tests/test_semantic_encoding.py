@@ -67,6 +67,21 @@ class DistinctStyleTests(unittest.TestCase):
         self.assertIn(palette.CLASSIFICATION_COLORS["pii"], primary_pii)
         self.assertIn(palette.CLASSIFICATION_COLORS["pii"], secondary_pii)
 
+    def test_flow_style_animated_only_applies_to_primary(self) -> None:
+        """Regression test: the "Animated connectors" setting never reached
+        the IR + compiler path (only the direct-XML LLM prompt referenced
+        flowAnimation), so it silently did nothing for fresh cloud diagrams —
+        the default, most common generation path. animated=True must now
+        stamp flowAnimation=1 on primary edges, and never on secondary ones
+        (mirrors the direct-XML prompt's own "primary request/data flows"
+        instruction)."""
+        primary_animated = theme.flow_style(primary=True, labelled=False, animated=True)
+        secondary_animated = theme.flow_style(primary=False, labelled=False, animated=True)
+        primary_still = theme.flow_style(primary=True, labelled=False, animated=False)
+        self.assertIn("flowAnimation=1", primary_animated)
+        self.assertNotIn("flowAnimation=1", secondary_animated)
+        self.assertNotIn("flowAnimation=1", primary_still)
+
     def test_actor_style_distinct_per_kind(self) -> None:
         styles = {kind: theme.actor_style(kind) for kind in ("users", "saas_ingress", "saas_egress", "on_prem")}
         self.assertEqual(len(set(styles.values())), len(styles), "every actor kind must render distinctly")
@@ -111,6 +126,29 @@ class MxCellStampingTests(unittest.TestCase):
         self.assertEqual(pii_edge.get("protection"), "tls")
         other_edge = next(e for e in edges if e.get("classification") is None)
         self.assertIsNone(other_edge.get("protection"), "none is the default; must not be stamped")
+
+    def test_animated_connectors_reaches_compiled_xml(self) -> None:
+        """End-to-end: compile_corridor_ir's animated_connectors kwarg must
+        actually stamp flowAnimation=1 on the primary flow's edge — proving
+        the setting is wired all the way from the pipeline entry point
+        through to compiled output, not just the theme.flow_style unit."""
+        root = self._compile_animated()
+        edges = {c.get("id"): c for c in root.iter("mxCell") if c.get("edge") == "1"}
+        primary_edge = next(c for c in edges.values() if c.get("classification") == "pii")
+        self.assertIn("flowAnimation=1", primary_edge.get("style") or "")
+
+    def _compile_animated(self) -> ET.Element:
+        ir = SecurityIR(
+            corridors=[
+                Corridor(id="zone_public", label="Public", leaves=[_leaf("dns", "Route 53")]),
+                Corridor(id="zone_restricted", label="Restricted", leaves=[
+                    _leaf("db", "Primary DB", criticality="critical"),
+                ]),
+            ],
+            flows=[Flow(source="dns", target="db", label="Query", classification="pii")],
+        )
+        xml = compile_corridor_ir(ir, page_name="Security", animated_connectors=True)
+        return ET.fromstring(xml)
 
     def test_business_notes_default_empty_leaves_no_attribute(self) -> None:
         """The default (unpopulated) case for a view with nothing to derive

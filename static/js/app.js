@@ -291,6 +291,7 @@ async function sendMessage(options = {}) {
             image_replicate: promptSettings.image_replicate,
             image_mode: promptSettings.image_mode,
             animated_connectors: promptSettings.animated_connectors,
+            three_d: !!promptSettings.three_d,
             suggestions: !!promptSettings.suggestions,
             architecture_interview: !!promptSettings.architecture_interview,
             diagram_views: promptSettings.diagram_views || ['logical'],

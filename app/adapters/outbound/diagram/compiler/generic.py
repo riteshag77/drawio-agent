@@ -75,6 +75,15 @@ def _resolve_collision(
     return px, py
 
 
+def _min_positive_gap(values: list[float]) -> float | None:
+    """Smallest gap between two *distinct* values, or ``None`` if fewer than
+    two distinct values are present (no gap to protect)."""
+    uniq = sorted(set(round(v, 4) for v in values))
+    if len(uniq) < 2:
+        return None
+    return min(b - a for a, b in zip(uniq, uniq[1:]))
+
+
 def _place_proportional(
     nodes: list[GenericNode], sizes: dict[str, tuple[float, float]],
 ) -> dict[str, tuple[float, float]]:
@@ -87,10 +96,33 @@ def _place_proportional(
     deliberately does not invoke the full topological layout ``_place_nodes``
     uses when *no* node in the set has any hint at all (see
     ``_place_topological``).
+
+    The base canvas from ``grid_size`` assumes a dense ``<=4``-column packing,
+    which is far too small for a tall/narrow layout (e.g. a 6-node flowchart
+    spread across 4 distinct y-levels) — two genuinely different y hints can
+    then map to pixel positions closer than one leaf height apart, which
+    ``_resolve_collision`` "fixes" by shoving nodes sideways since it only
+    ever pushes along x. That cascades into a diagonal, scattered layout that
+    no longer resembles the model's intended grid — confirmed by comparing a
+    real capture pair on the same source image where the model that *did*
+    give hints (thus taking this path) rendered worse than the one that
+    abstained entirely (thus using ``_place_topological`` instead). Widening
+    the canvas so the smallest real gap between distinct hints clears one
+    leaf-plus-gap keeps distinct rows/columns distinct without needing any
+    collision push for legitimately different positions.
     """
     canvas_w, canvas_h, _cols, _rows = geo.grid_size(len(nodes), is_group=False)
     canvas_w = max(canvas_w, geo.LEAF_W)
     canvas_h = max(canvas_h, geo.LEAF_H)
+
+    xs = [n.x for n in nodes if n.x is not None]
+    ys = [n.y for n in nodes if n.y is not None]
+    gap_x = _min_positive_gap(xs)
+    gap_y = _min_positive_gap(ys)
+    if gap_x:
+        canvas_w = max(canvas_w, (geo.LEAF_W + geo.LEAF_MIN_GAP) / gap_x)
+    if gap_y:
+        canvas_h = max(canvas_h, (geo.LEAF_H + geo.LEAF_MIN_GAP) / gap_y)
 
     placed: list[tuple[float, float, float, float]] = []
     positions: dict[str, tuple[float, float]] = {}

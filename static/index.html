@@ -77,8 +77,14 @@
                     <div class="chat-toolbar">
                         <span>Conversation</span>
                         <div class="chat-toolbar-actions">
-                            <button type="button" class="btn-soft" onclick="openSessionsDialog()">Sessions</button>
-                            <button type="button" class="btn-chat-clear" onclick="clearChat()">New chat</button>
+                            <button type="button" class="btn-soft" onclick="openSessionsDialog()" title="Browse past sessions">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
+                                Sessions
+                            </button>
+                            <button type="button" class="btn-chat-clear" onclick="clearChat()" title="Start a new chat">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                                New chat
+                            </button>
                         </div>
                     </div>
 
@@ -327,6 +333,17 @@
                             <option value="mcp">MCP</option>
                             <option value="local">Local</option>
                         </select>
+
+                        <div class="verbose-toggle-row">
+                            <div>
+                                <span>3D isometric (AWS only)</span>
+                                <small>Legacy aws3d icon set, staircase layout — also triggers automatically if your prompt says "3D" or "isometric"</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle 3D isometric rendering">
+                                <input type="checkbox" id="three-d-toggle" onchange="savePromptSettings()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
                         </div>
                     </div>
 
@@ -743,14 +760,14 @@
         </div>
         <div id="sessions-grid" class="history-grid"></div>
     </div>
-    <script src="/static/js/state.js?v=20260808b"></script>
+    <script src="/static/js/state.js?v=20260808c"></script>
     <script src="/static/js/theme.js?v=20260724f"></script>
     <script src="/static/js/resizer.js?v=20260808a"></script>
     <script src="/static/js/settings.js?v=20260808a"></script>
     <script src="/static/js/custom-providers.js?v=20260808c"></script>
     <script src="/static/js/provider-picker.js?v=20260808f"></script>
-    <script src="/static/js/prompt-settings.js?v=20260808a"></script>
-    <script src="/static/js/diagram.js?v=20260808a"></script>
+    <script src="/static/js/prompt-settings.js?v=20260808b"></script>
+    <script src="/static/js/diagram.js?v=20260808b"></script>
     <script src="/static/js/voice-commands.js?v=20260808a"></script>
     <script src="/static/js/voice.js?v=20260726b"></script>
     <script src="/static/js/chat.js?v=20260808c"></script>
@@ -767,7 +784,7 @@
     <script src="/static/js/history.js?v=20260808a"></script>
     <script src="/static/js/sessions.js?v=20260808a"></script>
     <script src="/static/js/validation-card.js?v=20260808c"></script>
-    <script src="/static/js/app.js?v=20260808e"></script>
+    <script src="/static/js/app.js?v=20260808f"></script>
 </body>
 
 </html>

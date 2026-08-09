@@ -124,6 +124,43 @@ class CompileGenericIrTests(unittest.TestCase):
         # Different y hint -> different y.
         self.assertNotEqual(geoms["a"].get("y"), geoms["c"].get("y"))
 
+    def test_hinted_nodes_sharing_an_axis_value_stay_aligned(self) -> None:
+        """Regression test: a real capture pair on the same source image
+        showed a model that committed to x/y hints (a 6-node lamp-troubleshooting
+        flowchart, hints spanning y=0.05..0.9) rendering *worse* than one that
+        abstained entirely — grid_size's dense <=4-column canvas assumption
+        packed the hints so tightly that _resolve_collision's x-only push
+        scattered nodes that shared the same x hint onto different columns.
+        Two nodes on the same intended column/row must stay aligned."""
+        ir = GenericDiagramIR(
+            nodes=[
+                _node("start", "rounded_rectangle", x=0.35, y=0.05),
+                _node("check_plugged", "diamond", x=0.35, y=0.3),
+                _node("plug_in", "rounded_rectangle", x=0.75, y=0.3),
+                _node("check_bulb", "diamond", x=0.35, y=0.6),
+                _node("replace_bulb", "rounded_rectangle", x=0.75, y=0.6),
+                _node("repair_lamp", "rounded_rectangle", x=0.35, y=0.9),
+            ],
+            edges=[
+                GenericEdge(source="start", target="check_plugged"),
+                GenericEdge(source="check_plugged", target="plug_in", label="No"),
+                GenericEdge(source="check_plugged", target="check_bulb", label="Yes"),
+                GenericEdge(source="check_bulb", target="replace_bulb", label="Yes"),
+                GenericEdge(source="check_bulb", target="repair_lamp", label="No"),
+            ],
+        )
+        root = ET.fromstring(compile_generic_ir(ir))
+
+        def x_of(node_id: str) -> str:
+            cell = next(c for c in root.iter("mxCell") if c.get("id") == node_id)
+            return cell.find("mxGeometry").get("x")
+
+        left_column = {x_of("start"), x_of("check_plugged"), x_of("check_bulb"), x_of("repair_lamp")}
+        right_column = {x_of("plug_in"), x_of("replace_bulb")}
+        self.assertEqual(len(left_column), 1, f"left column (x=0.35) scattered: {left_column}")
+        self.assertEqual(len(right_column), 1, f"right column (x=0.75) scattered: {right_column}")
+        self.assertNotEqual(left_column, right_column)
+
     def test_mixed_hinted_and_unhinted_nodes_do_not_collide(self) -> None:
         ir = GenericDiagramIR(nodes=[
             _node("a", x=0.5, y=0.5),

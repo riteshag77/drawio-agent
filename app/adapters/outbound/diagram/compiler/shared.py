@@ -177,6 +177,7 @@ def emit_flows(
     flows: list[Flow],
     *,
     routes: dict[str, list[tuple[float, float]]] | None = None,
+    animated_connectors: bool = False,
 ) -> None:
     """Emit every flow as a root-layer edge. Identical for every view.
 
@@ -194,6 +195,7 @@ def emit_flows(
             label=flow.label,
             style=theme.flow_style(
                 primary=flow.primary, labelled=bool(flow.label), classification=flow.classification,
+                animated=animated_connectors,
             ),
             points=(routes or {}).get(fid),
             classification=flow.classification,

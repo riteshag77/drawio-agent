@@ -510,6 +510,7 @@ def _generate_ir_view_page(
     context_text: str | None = None,
     attachment_documents: list[dict[str, Any]] | None = None,
     image_replicate: bool = False,
+    animated_connectors: bool = False,
 ) -> str | None:
     """IR path for a secondary (extra) view — same generator as primary.
 
@@ -534,6 +535,7 @@ def _generate_ir_view_page(
         context_text=seeded or None,
         attachment_documents=attachment_documents,
         image_replicate=image_replicate,
+        animated_connectors=animated_connectors,
     )
     title = VIEW_PAGE_NAMES.get(view, view)
     return _finalize_view_page_xml(
@@ -808,6 +810,7 @@ async def _generate_primary_page(
             attachment_documents,
             image_replicate=image_replicate,
             include_suggestions=include_suggestions,
+            animated_connectors=animated_connectors,
         )
         await _emit(on_progress, "ir", "Architecture model compiled")
         if 'vertex="1"' not in (diagram.xml or ""):
@@ -1342,6 +1345,7 @@ async def run_xml_pipeline(
                 context_text=context,
                 attachment_documents=attachment_documents,
                 image_replicate=image_replicate,
+                animated_connectors=animated_connectors,
             )
             if not xml:
                 raise ValueError(f"{title} IR view returned empty XML")

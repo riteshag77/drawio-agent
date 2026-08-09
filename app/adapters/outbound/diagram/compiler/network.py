@@ -48,7 +48,7 @@ from app.adapters.outbound.diagram.logical_layout import (
 from app.domain.ir.network import AvailabilityZone, CrossCuttingGroup, NetworkIR, Subnet, Vpc
 
 
-def compile_network_ir(ir: NetworkIR, *, page_name: str = "Network") -> str:
+def compile_network_ir(ir: NetworkIR, *, page_name: str = "Network", animated_connectors: bool = False) -> str:
     """Render ``ir`` to a complete draw.io document.
 
     The IR is expected to have passed ``semantic_errors()`` already; this raises
@@ -57,15 +57,16 @@ def compile_network_ir(ir: NetworkIR, *, page_name: str = "Network") -> str:
     errors = ir.semantic_errors()
     if errors:
         raise CompilerError(f"cannot compile an invalid IR: {'; '.join(errors[:3])}")
-    return _NetworkCompiler(ir, page_name).run()
+    return _NetworkCompiler(ir, page_name, animated_connectors).run()
 
 
 class _NetworkCompiler:
-    def __init__(self, ir: NetworkIR, page_name: str) -> None:
+    def __init__(self, ir: NetworkIR, page_name: str, animated_connectors: bool = False) -> None:
         self.ir = ir
         self.platform = ir.platform
         self.w = CellWriter(page_name)
         self._leaf_abs_cy: dict[str, float] = {}
+        self.animated_connectors = animated_connectors
 
     def _ordered(self, leaves: list) -> list:
         """Flow-aware order so tier-to-tier arrows stay column-aligned."""
@@ -98,7 +99,7 @@ class _NetworkCompiler:
             endpoint_cy=self._leaf_abs_cy,
             band_hi=g.y + g.h,
         )
-        emit_flows(self.w, self.ir.flows)
+        emit_flows(self.w, self.ir.flows, animated_connectors=self.animated_connectors)
         self.w.set_business_notes(self.ir.business_notes)
         # This page's container geometry is compiler-final — mark layout="ir"
         # so fit_containers_to_children does not reflow it (same as corridor).

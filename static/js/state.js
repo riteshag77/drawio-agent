@@ -20,6 +20,7 @@ const DIAGRAM_MODE_STORAGE_KEY = 'drawio-agent-diagram-mode';
 const LIBAVOID_STORAGE_KEY = 'drawio-agent-libavoid';
 const IMAGE_MODE_STORAGE_KEY = 'drawio-agent-image-mode';
 const ANIMATED_CONNECTORS_STORAGE_KEY = 'drawio-agent-animated-connectors';
+const THREE_D_STORAGE_KEY = 'drawio-agent-three-d';
 const SHOW_REASONING_STORAGE_KEY = 'drawio-agent-show-reasoning';
 const SUGGESTIONS_STORAGE_KEY = 'drawio-agent-suggestions';
 const ARCH_INTERVIEW_STORAGE_KEY = 'drawio-agent-architecture-interview';
