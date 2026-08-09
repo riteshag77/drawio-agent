@@ -93,6 +93,38 @@ class IrPathTests(unittest.TestCase):
         self.assertIn("vpc", cells)
         self.assertIn("rds1", cells)
 
+    def test_design_tradeoffs_flow_from_ir_to_response(self) -> None:
+        """The IR's own design_tradeoffs bullets must reach the top-level API
+        response — not just get compiled into XML nobody reads back out —
+        since the frontend's "Why this design" card reads response.design_tradeoffs
+        directly, never the XML. Exercises the real agent.generate_xml_diagram_from_ir
+        (only the LLM call inside it is mocked), so this proves the full chain:
+        IR -> XmlDiagram.design_tradeoffs -> _build_response."""
+        ir = realistic_ir()
+        ir.design_tradeoffs = [
+            "NAT Gateway over NAT instances: managed, no patching burden.",
+        ]
+        with _IrEnabled(), \
+                patch("app.core.services.agent.generate_network_ir", return_value=ir), \
+                patch.object(xml_pipeline, "resolve_shape_styles", side_effect=_no_styles):
+            result = _run()
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(
+            result["design_tradeoffs"],
+            ["NAT Gateway over NAT instances: managed, no patching burden."],
+        )
+
+    def test_missing_design_tradeoffs_returns_empty_list_not_none(self) -> None:
+        ir = realistic_ir()
+        self.assertEqual(ir.design_tradeoffs, [])
+        with _IrEnabled(), \
+                patch("app.core.services.agent.generate_network_ir", return_value=ir), \
+                patch.object(xml_pipeline, "resolve_shape_styles", side_effect=_no_styles):
+            result = _run()
+
+        self.assertEqual(result["design_tradeoffs"], [])
+
     def test_ir_output_survives_the_pipeline_without_repairs(self) -> None:
         """The repair stage should find no *geometry* issue to fix in compiler
         output. Edge-routing warnings (box/parallel overlap) are excluded —

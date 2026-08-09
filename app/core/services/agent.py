@@ -1171,6 +1171,7 @@ def generate_xml_diagram_from_ir(
         suggestions=sugg,
         step_markers=[],
         ir_title=ir.title or "",
+        design_tradeoffs=list(ir.design_tradeoffs),
     )
 
 

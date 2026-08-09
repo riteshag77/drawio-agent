@@ -113,6 +113,22 @@ class CorridorIR(DiagramIR):
             "it's used. Leave empty if this view's own instructions don't ask for it."
         ),
     )
+    # Declared last, after business_notes: a distinct narrative ask (why a
+    # choice was made, not what it does). Most relevant on Security/Data-flow
+    # (control and handling choices genuinely have alternatives); Logical's
+    # sparse storyboard rarely does — leave empty there rather than pad.
+    design_tradeoffs: list[str] = Field(
+        default_factory=list,
+        description=(
+            "2-4 short bullets (1 sentence each), each naming ONE genuine design "
+            "choice in this view and the specific alternative it beat — e.g. "
+            "'mTLS over one-way TLS: partner service must also authenticate.' "
+            "Only include choices with a real, nameable alternative a competent "
+            "architect would have actually considered. Leave empty rather than "
+            "invent a tradeoff that wasn't a genuine judgment call, or if this "
+            "view's own instructions don't ask for it."
+        ),
+    )
 
     # ── id collection ──────────────────────────────────────────────────
 

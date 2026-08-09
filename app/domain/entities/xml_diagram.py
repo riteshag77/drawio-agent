@@ -105,6 +105,13 @@ class XmlDiagram(BaseModel):
         default="",
         description="Internal use only — always leave empty. Populated by the IR compiler path in Python, never by you.",
     )
+    design_tradeoffs: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Internal use only — always leave empty. Populated from the IR's own "
+            "design_tradeoffs field by Python on the IR compiler path, never by you."
+        ),
+    )
 
     @field_validator("suggestions", mode="before")
     @classmethod

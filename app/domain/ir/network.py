@@ -160,6 +160,21 @@ class NetworkIR(DiagramIR):
             "define any technical term inline the first time it's used."
         ),
     )
+    # Declared last, after business_notes: a distinct narrative ask (why a
+    # choice was made, not what it does) — only worth naming once the design
+    # itself is finished, same reasoning as business_notes above.
+    design_tradeoffs: list[str] = Field(
+        default_factory=list,
+        description=(
+            "2-4 short bullets (1 sentence each), each naming ONE genuine "
+            "architectural choice in this design and the specific alternative "
+            "it beat — e.g. 'NAT Gateway over NAT instances: managed, no "
+            "patching burden.' Only include choices with a real, nameable "
+            "alternative a competent architect would have actually considered. "
+            "Leave empty rather than invent a tradeoff that wasn't a genuine "
+            "judgment call."
+        ),
+    )
 
     # ── id collection ──────────────────────────────────────────────────
 
@@ -378,5 +393,10 @@ class NetworkIR(DiagramIR):
                 "business_notes is empty — add 1-3 short bullets translating this network's "
                 "infrastructure into business-outcome terms (see the Business narrative "
                 "section of your instructions)"
+            )
+        if leaf_n >= 4 and not self.design_tradeoffs:
+            warnings.append(
+                "design_tradeoffs is empty — name 2-4 genuine architectural choices in this "
+                "design and the specific alternative each one beat"
             )
         return warnings

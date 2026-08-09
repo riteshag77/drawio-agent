@@ -457,6 +457,7 @@ async function sendMessage(options = {}) {
 
         setTyping(false);
         appendChatBubble('assistant', summarizeAssistantMessage(assistantText));
+        if (typeof appendDesignRationaleCard === 'function') appendDesignRationaleCard(data.design_tradeoffs);
 
         setProgress(75);
         setDiagramStatus('Loading into Draw.io...');

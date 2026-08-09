@@ -23,6 +23,7 @@ cloud                        AWS Cloud / Azure / Google Cloud
 external_actors[]            users | saas_ingress | saas_egress | on_prem
 flows[]                      source -> target request path
 business_notes[]             1-3 short bullets, decided last (see below)
+design_tradeoffs[]           2-4 short bullets, decided last (see below)
 ```
 
 ## How to answer short user prompts
@@ -175,6 +176,10 @@ stopping at the gateway or CDN is incomplete.
 "business_notes": [
   "The load balancer (ALB) spreads incoming orders across multiple app servers, so a big sale doesn't take checkout down for everyone at once.",
   "Orders DB sits in a private data subnet with no direct path from the internet — customer order data can only be reached through the application itself, never by someone probing the network directly."
+],
+"design_tradeoffs": [
+  "ALB over a plain load balancer: needed content-based routing for /checkout vs /catalog, not just L4 forwarding.",
+  "RDS Multi-AZ over single-instance: checkout must survive an AZ outage without manual failover; accepted for the extra cost."
 ]
 ```
 
@@ -207,6 +212,33 @@ application itself, never by someone probing the network directly."
 
 Leave `business_notes` empty only if the request is too abstract/generic to
 say anything specific (rare).
+
+## Design tradeoffs (`design_tradeoffs`)
+
+Once the topology is fully decided, add 2-4 short bullets (1 sentence each)
+to `design_tradeoffs` — each names ONE choice you actually made in this
+diagram and the specific alternative it beat. This is different from
+`business_notes`: that explains what a part protects; this explains **why
+you picked it over the obvious other option**.
+
+- One choice per bullet, one sentence: `"<what you chose> over <the
+  alternative>: <the reason>."`
+- Only include a choice if a competent architect would genuinely have
+  considered the alternative for this request — not "used a VPC because
+  networking needs a VPC" (there's no real alternative there).
+- Tie it to a real element already in this diagram — never invent a
+  component just to have a tradeoff to describe.
+
+Bad (no real alternative, padding): "Chose AWS because it's a reliable
+cloud provider."
+Good: "NAT Gateway over NAT instances: managed and no patching burden, worth
+the extra ~$32/mo for this workload." / "SQS over direct service-to-service
+calls between order intake and fulfillment: decouples the two so a slow
+fulfillment service can't back up order intake."
+
+Leave `design_tradeoffs` empty rather than invent a tradeoff that wasn't a
+genuine judgment call — an empty list is correct for a simple, single-option
+design.
 
 ## leaves
 

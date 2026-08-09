@@ -172,6 +172,44 @@ class SemanticRuleTests(unittest.TestCase):
         # Missing public/edge/gateway is a warning (corrective pass), not a hard error.
         self.assertTrue(any("ingress" in w for w in ir.semantic_warnings()))
 
+    def _ir_with_four_leaves_two_tiers(self, **overrides) -> NetworkIR:
+        leaves = [_leaf(f"svc{i}") for i in range(3)]
+        zone = AvailabilityZone(
+            id="az1", label="AZ",
+            subnets=[
+                Subnet(id="pub", tier="public", leaves=[_leaf("alb", "aws_alb", "ALB")]),
+                Subnet(id="app1", tier="app", leaves=leaves),
+            ],
+        )
+        return NetworkIR(
+            cloud=CloudBoundary(
+                id="cloud", label="AWS",
+                regions=[Region(id="r", label="us-east-1", vpcs=[Vpc(id="vpc", zones=[zone])])],
+            ),
+            platform="aws",
+            **overrides,
+        )
+
+    def test_empty_design_tradeoffs_warns_on_a_real_sized_network(self) -> None:
+        """design_tradeoffs is optional (has a default) so it's never in the
+        schema's required set — same lesson already learned for business_notes:
+        a nudge via the one-shot corrective pass is the only way to actually
+        get it filled in on non-trivial diagrams."""
+        ir = self._ir_with_four_leaves_two_tiers()
+        self.assertTrue(any("design_tradeoffs" in w for w in ir.semantic_warnings()))
+
+    def test_populated_design_tradeoffs_does_not_warn(self) -> None:
+        ir = self._ir_with_four_leaves_two_tiers(
+            design_tradeoffs=["ALB over a plain load balancer: needed content-based routing."],
+        )
+        self.assertFalse(any("design_tradeoffs" in w for w in ir.semantic_warnings()))
+
+    def test_tiny_network_does_not_warn_about_empty_design_tradeoffs(self) -> None:
+        """Below the leaf_n>=4 thoroughness threshold — a 1-service fixture
+        genuinely may not have a real tradeoff to name."""
+        ir = minimal_ir()
+        self.assertFalse(any("design_tradeoffs" in w for w in ir.semantic_warnings()))
+
     def test_partial_orphan_actor_is_an_error(self) -> None:
         ir = self._ir_with_security_group()
         ir.external_actors = [
