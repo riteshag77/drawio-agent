@@ -295,16 +295,23 @@ def _is_identity_saas_label(label: str, shape_type: str = "") -> bool:
     ) and "store" not in low
 
 
-#: Human-role nouns an external-actor label commonly ends in — matched against
-#: the label's *last word* (see ``_is_actor_label``) so a custom role name
-#: like "HR Managers" or "Claims Adjusters" is recognized without needing its
-#: exact full label enumerated here. A live capture showed a leaf labeled
-#: "HR Managers" fall through the old exact-whole-label check (which only
-#: covered "user(s)"/"customer(s)"/"employee(s)"/"partner"/"persona"/"actor")
-#: to inject_shape_types_from_primary's tier-based fallback and get stamped
-#: with an unrelated Network inventory service icon (aws_ec2/aws_api_gateway)
-#: — the same class of bug this module already had one prior fix for
-#: (a "Lambda" mismatch), just against a different label.
+#: Role nouns an external-actor label commonly ends in — human roles (Logical/
+#: Security personas) and Data-flow's own non-human source/sink vocabulary
+#: alike — matched against the label's *last word* (see ``_is_actor_label``)
+#: so a custom role name like "HR Managers" or "Claims Adjusters" is
+#: recognized without needing its exact full label enumerated here. A live
+#: capture showed a leaf labeled "HR Managers" fall through the old exact-
+#: whole-label check (which only covered "user(s)"/"customer(s)"/
+#: "employee(s)"/"partner"/"persona"/"actor") to
+#: inject_shape_types_from_primary's tier-based fallback and get stamped with
+#: an unrelated Network inventory service icon (aws_ec2/aws_api_gateway) —
+#: the same class of bug this module already had one prior fix for (a
+#: "Lambda" mismatch), just against a different label. A second live capture
+#: showed the same failure mode for "Data Producers" (Data-flow's own
+#: external-actor vocabulary — see config/xml_gen/ir/data_flow.txt's
+#: phase_saas_producer/phase_saas_consumer section) landing on an unrelated
+#: aws_step_functions icon, so the source/sink terms from that pack are
+#: included here too.
 _ACTOR_NOUNS = {
     "user", "users", "customer", "customers", "employee", "employees",
     "persona", "actor", "partner", "partners",
@@ -318,6 +325,9 @@ _ACTOR_NOUNS = {
     "officer", "officers", "coordinator", "coordinators", "clerk", "clerks",
     "assistant", "assistants", "technician", "technicians", "consultant",
     "consultants", "worker", "workers",
+    "producer", "producers", "consumer", "consumers", "source", "sources",
+    "sink", "sinks", "publisher", "publishers", "subscriber", "subscribers",
+    "provider", "providers",
 }
 
 

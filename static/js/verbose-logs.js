@@ -66,7 +66,12 @@ function updateRightPanelVisibility() {
     const suggOn = document.getElementById('suggestions-toggle')?.checked;
     const wafOn = document.getElementById('well-architected-toggle')?.checked;
     const compOn = document.getElementById('compliance-toggle')?.checked;
-    const open = verboseLogging || costOn || suggOn || wafOn || compOn;
+    // Governance has no user-facing toggle (it's admin-controlled house
+    // style, always on when rules exist) — a passing report stays quiet,
+    // but a failure surfaces the panel the same way a WAF/Compliance issue
+    // already does, since that's the one state a user actually needs to see.
+    const govFailing = typeof lastGovernanceFailedCount !== 'undefined' && lastGovernanceFailedCount > 0;
+    const open = verboseLogging || costOn || suggOn || wafOn || compOn || govFailing;
     document.getElementById('log-panel')?.classList.toggle('active', open);
     const reopenTab = document.getElementById('log-panel-reopen-tab');
     if (reopenTab) reopenTab.hidden = open;

@@ -19,9 +19,10 @@ from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
-from app.adapters.outbound import admin_settings_store
+from app.adapters.outbound import admin_settings_store, governance_store
 from app.adapters.outbound.config.env_config import get_config
 from app.adapters.outbound.llm import providers as providers_module
+from app.domain.entities.governance import GovernanceRule
 
 router = APIRouter(prefix="/admin")
 
@@ -161,3 +162,64 @@ async def admin_set_default_provider(body: DefaultProviderUpdate, x_admin_token:
         raise HTTPException(status_code=400, detail="Unknown provider")
     admin_settings_store.set_setting("PROVIDER_DEFAULT", key)
     return {"status": "ok", "default_provider": key}
+
+
+# ── Governance / house-style rules ───────────────────────────────────────
+# Soft-enforcement only (see app/core/services/governance.py's module
+# docstring) — every rule created here feeds the existing semantic-warnings
+# corrective pass and the conformance report shown in the Governance
+# insights tab. Nothing here can block a generation from completing.
+
+
+class GovernanceRuleUpdate(BaseModel):
+    """Partial update — every field optional, only what's provided changes."""
+
+    kind: str | None = None
+    view: str | None = None
+    platform: str | None = None
+    enabled: bool | None = None
+    message: str | None = Field(default=None, max_length=300)
+    corridor_id: str | None = Field(default=None, max_length=80)
+    shape_type: str | None = Field(default=None, max_length=120)
+    overview_field: str | None = None
+    min_count: int | None = Field(default=None, ge=1, le=20)
+    min_protection: str | None = None
+    boundary_only: bool | None = None
+    label_pattern: str | None = Field(default=None, max_length=200)
+
+
+@router.get("/governance-rules")
+async def admin_list_governance_rules(x_admin_token: str | None = Header(default=None)) -> dict:
+    _require_admin(x_admin_token)
+    rules = await asyncio.to_thread(governance_store.list_rules)
+    return {"rules": [r.model_dump() for r in rules]}
+
+
+@router.post("/governance-rules")
+async def admin_create_governance_rule(
+    body: GovernanceRule, x_admin_token: str | None = Header(default=None)
+) -> dict:
+    _require_admin(x_admin_token)
+    created = await asyncio.to_thread(governance_store.create_rule, body)
+    if created is None:
+        raise HTTPException(status_code=400, detail="Could not create rule — message is required")
+    return created.model_dump()
+
+
+@router.patch("/governance-rules/{rule_id}")
+async def admin_update_governance_rule(
+    rule_id: str, body: GovernanceRuleUpdate, x_admin_token: str | None = Header(default=None)
+) -> dict:
+    _require_admin(x_admin_token)
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    updated = await asyncio.to_thread(governance_store.update_rule, rule_id, **updates)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    return updated.model_dump()
+
+
+@router.delete("/governance-rules/{rule_id}")
+async def admin_delete_governance_rule(rule_id: str, x_admin_token: str | None = Header(default=None)) -> dict:
+    _require_admin(x_admin_token)
+    deleted = await asyncio.to_thread(governance_store.delete_rule, rule_id)
+    return {"id": rule_id, "deleted": deleted}

@@ -455,9 +455,22 @@ async function sendMessage(options = {}) {
             }
         } catch (e) { appendVerboseLog('client', 'Suggestions panel error', 'error', { error: String(e) }); }
 
+        try {
+            if (typeof displayGovernance === 'function') {
+                displayGovernance(data.governance_findings || []);
+                if (typeof updateRightPanelVisibility === 'function') updateRightPanelVisibility();
+            }
+        } catch (e) { appendVerboseLog('client', 'Governance panel error', 'error', { error: String(e) }); }
+
         setTyping(false);
         appendChatBubble('assistant', summarizeAssistantMessage(assistantText));
-        if (typeof appendDesignRationaleCard === 'function') appendDesignRationaleCard(data.design_tradeoffs);
+        // Only the IR path ever populates design_tradeoffs (surgical edits/3D
+        // use the direct-XML path, which has no IR to pull it from) — showing
+        // this section there would always read empty, which is confusing
+        // noise, not clarity, so it's scoped to where the feature actually runs.
+        if (data.generation_path === 'ir' && typeof appendDesignRationaleCard === 'function') {
+            appendDesignRationaleCard(data.design_tradeoffs);
+        }
 
         setProgress(75);
         setDiagramStatus('Loading into Draw.io...');

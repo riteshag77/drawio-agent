@@ -268,6 +268,11 @@ class EnvConfigAdapter:
         return self.get("DIAGRAM_TEMPLATES_PATH", "data/templates.sqlite3")
 
     @property
+    def governance_rules_db_path(self) -> str:
+        """SQLite path for org governance/house-style rules."""
+        return self.get("DIAGRAM_GOVERNANCE_PATH", "data/governance_rules.sqlite3")
+
+    @property
     def admin_password(self) -> str | None:
         """Gates the /admin panel. Unset (default) disables the panel entirely —
         this is the one setting the panel itself can never override."""

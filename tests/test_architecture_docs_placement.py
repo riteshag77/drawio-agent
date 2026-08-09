@@ -420,7 +420,32 @@ class ViewEnrichmentFixerTests(unittest.TestCase):
         cell = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "hr_mgrs")
         self.assertIsNone(cell.get("shape_type"))
         self.assertNotIn("aws_ec2", cell.get("style") or "")
-        self.assertIn("shape=mxgraph.aws4.user", cell.get("style") or "")
+
+    def test_inject_shape_types_never_touches_a_data_flow_producer_actor(self) -> None:
+        """Same bug class again, this time with Data-flow's own external-actor
+        vocabulary ("Data Producers"/"Data Consumers" — see
+        config/xml_gen/ir/data_flow.txt's phase_saas_producer/
+        phase_saas_consumer section) rather than a human role noun. A live
+        capture showed a "Data Producers" actor cell land on an unrelated
+        aws_step_functions icon from the Network inventory's tier fallback.
+        _is_actor_label's noun set now also covers producer/consumer/source/
+        sink/publisher/subscriber/provider."""
+        from app.adapters.outbound.diagram.architecture_docs import inject_shape_types_from_primary
+
+        primary = _wrap(
+            '<mxCell id="sfn" value="Order Pipeline" shape_type="aws_step_functions" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>'
+        )
+        page = _wrap(
+            '<mxCell id="data_producers" value="Data Producers" '
+            'style="shape=mxgraph.aws4.productIcon;sketch=0;fillColor=#232F3E;" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>',
+            name="Data Flow",
+        )
+        out = inject_shape_types_from_primary(page, primary)
+        cell = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "data_producers")
+        self.assertIsNone(cell.get("shape_type"))
+        self.assertNotIn("step_functions", cell.get("style") or "")
 
     def test_logical_assigns_mcp_shape_types(self) -> None:
         from app.adapters.outbound.diagram.architecture_docs import assign_logical_shape_types

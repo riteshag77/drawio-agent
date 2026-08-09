@@ -19,9 +19,11 @@ from app.adapters.outbound.llm.prompts.ir import (
 from app.adapters.outbound.llm.prompts.simple import MERMAID_SYSTEM_PROMPT
 from app.adapters.outbound.llm.prompts.system import get_xml_gen_system_prompt_marked
 from app.adapters.outbound.llm.prompts.vlm_qa import VLM_QA_SYSTEM_PROMPT
+from app.adapters.outbound.governance_store import list_rules as list_governance_rules
 from app.adapters.outbound.llm.providers import get_provider, normalize_provider_key
 from app.adapters.outbound.llm.response_parse import extract_mermaid
 from app.core.ports.llm import LlmPort, get_llm
+from app.core.services.governance import evaluate_governance_rules, findings_to_warnings
 from app.domain.entities import DiagramEditPlan, MermaidDiagram, VisualQaResult, XmlDiagram
 from app.domain.entities.xml_diagram import DiagramSuggestion
 from app.domain.ir import IR_TYPES_BY_VIEW, GenericDiagramIR, NetworkIR
@@ -474,6 +476,7 @@ def _generate_ir_with_corrections(
     attachment_documents: list[dict] | None,
     llm: LlmPort,
     view_label: str,
+    view_key: str = "",
 ):
     """Ask the LLM for an IR and correct it until it satisfies its own rules.
 
@@ -540,10 +543,18 @@ def _generate_ir_with_corrections(
                 )
 
     if not residual:
+        governance_warnings: list[str] = []
+        if view_key:
+            try:
+                rules = list_governance_rules(view_key, enabled_only=True)
+                if rules:
+                    governance_warnings = findings_to_warnings(evaluate_governance_rules(ir, rules))
+            except Exception:
+                pass  # governance is best-effort — never a reason a diagram fails to generate
         ir = _apply_semantic_warning_pass(
             ir, ir_type=ir_type, system_prompt=system_prompt, human_content=human_content,
             provider_key=provider_key, logger=logger, attachment_documents=attachment_documents,
-            llm=llm, view_label=view_label,
+            llm=llm, view_label=view_label, extra_warnings=governance_warnings,
         )
 
     if logger:
@@ -582,17 +593,21 @@ def _apply_semantic_warning_pass(
     attachment_documents: list[dict] | None,
     llm: LlmPort,
     view_label: str,
+    extra_warnings: list[str] | None = None,
 ):
-    """One best-effort, non-blocking correction for ``ir.semantic_warnings()``.
+    """One best-effort, non-blocking correction for ``ir.semantic_warnings()``
+    plus any org-governance findings the caller already evaluated
+    (``extra_warnings`` — see ``_generate_ir_with_corrections``).
 
     Unlike the ``semantic_errors()`` loop above, this never gates anything: a
     warning is a judgment call (a required-companion service that's probably
-    missing, a boundary flow with no stated protection), not a structural
-    defect, so there is no retry loop and no rejection — one corrective ask,
-    and whatever comes back is used only if it still passes ``semantic_errors()``.
-    A missing DLQ must never be the reason a view falls back to direct XML.
+    missing, a boundary flow with no stated protection, an org house-style
+    rule), not a structural defect, so there is no retry loop and no
+    rejection — one corrective ask, and whatever comes back is used only if
+    it still passes ``semantic_errors()``. A missing DLQ (or a house-style
+    rule) must never be the reason a view falls back to direct XML.
     """
-    warnings = ir.semantic_warnings()
+    warnings = list(ir.semantic_warnings()) + list(extra_warnings or [])
     if not warnings:
         return ir
     if logger:
@@ -841,7 +856,7 @@ def generate_network_ir(
     return _generate_ir_with_corrections(
         ir_type=NetworkIR, system_prompt=system_prompt, human_content=human_content,
         provider_key=provider_key, logger=logger, attachment_documents=attachment_documents,
-        llm=_llm, view_label="Network",
+        llm=_llm, view_label="Network", view_key="network",
     )
 
 
@@ -895,7 +910,7 @@ def generate_corridor_ir(
     return _generate_ir_with_corrections(
         ir_type=ir_type, system_prompt=system_prompt, human_content=human_content,
         provider_key=provider_key, logger=logger, attachment_documents=attachment_documents,
-        llm=_llm, view_label=_IR_PAGE_NAMES[view_key],
+        llm=_llm, view_label=_IR_PAGE_NAMES[view_key], view_key=view_key,
     )
 
 
@@ -1165,6 +1180,28 @@ def generate_xml_diagram_from_ir(
         logger.log("ir_compile", f"Compiled {_IR_PAGE_NAMES[view_key]} IR to draw.io XML", level="success", details={
             "xml_chars": len(xml), "xml": xml,
         })
+
+    # Final conformance report — evaluated fresh against the finished IR
+    # (after any semantic-warning corrective pass), not reused from the
+    # pre-correction check that fed the corrective prompt, so the report the
+    # user sees always reflects what actually got compiled.
+    governance_findings = []
+    try:
+        rules = list_governance_rules(view_key, enabled_only=True)
+        if rules:
+            governance_findings = evaluate_governance_rules(ir, rules)
+    except Exception:
+        governance_findings = []  # governance is best-effort — never a reason a diagram fails
+    if logger and governance_findings:
+        failed = [f for f in governance_findings if not f.passed]
+        logger.log(
+            "governance",
+            f"{len(governance_findings)} house-style rule(s) checked, {len(failed)} failed"
+            if failed else f"{len(governance_findings)} house-style rule(s) checked, all passed",
+            level="warning" if failed else "success",
+            details={"failed": [f.model_dump() for f in failed]},
+        )
+
     return XmlDiagram(
         xml=xml,
         assistant_message=f"Generated {ir.title or _IR_PAGE_NAMES[view_key]} diagram.",
@@ -1172,6 +1209,7 @@ def generate_xml_diagram_from_ir(
         step_markers=[],
         ir_title=ir.title or "",
         design_tradeoffs=list(ir.design_tradeoffs),
+        governance_findings=governance_findings,
     )
 
 

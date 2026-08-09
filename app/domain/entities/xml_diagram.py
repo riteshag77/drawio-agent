@@ -6,6 +6,8 @@ from typing import Any, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.domain.entities.governance import GovernanceFinding
+
 SuggestionCategory = Literal["network", "logical", "security", "data_flow", "general"]
 _SUGGESTION_CATEGORIES = frozenset(
     {"network", "logical", "security", "data_flow", "general"}
@@ -110,6 +112,13 @@ class XmlDiagram(BaseModel):
         description=(
             "Internal use only — always leave empty. Populated from the IR's own "
             "design_tradeoffs field by Python on the IR compiler path, never by you."
+        ),
+    )
+    governance_findings: List[GovernanceFinding] = Field(
+        default_factory=list,
+        description=(
+            "Internal use only — always leave empty. Populated by Python evaluating "
+            "org governance rules against the compiled IR, never by you."
         ),
     )
 

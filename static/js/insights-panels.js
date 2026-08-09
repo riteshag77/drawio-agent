@@ -1083,6 +1083,54 @@ function switchComplianceTab(fwId) {
     registerInsightItems('compliance', complianceItems);
 }
 
+//: Highest number of governance failures the last displayGovernance() call
+//: found — the only thing (besides the always-visible tab itself) that
+//: decides whether the right panel auto-opens for governance, since there's
+//: no user-facing "enable governance" toggle to check like the other tabs.
+let lastGovernanceFailedCount = 0;
+
+/** Renders the org house-style conformance report — every rule checked
+ * against this diagram, pass and fail both shown (not just failures), so
+ * "no rules configured yet" and "every rule passed" read differently instead
+ * of both looking like an empty panel. See app/domain/entities/governance.py
+ * for why every finding here is a deterministic structural fact, never an
+ * LLM judgment call — the report means the same thing every time you see it. */
+function displayGovernance(findings) {
+    var summary = document.getElementById('governance-summary');
+    var list = document.getElementById('governance-list');
+    if (!summary || !list) return;
+
+    var items = Array.isArray(findings) ? findings : [];
+    lastGovernanceFailedCount = items.filter(function (f) { return !f.passed; }).length;
+
+    if (items.length === 0) {
+        summary.innerHTML = '';
+        list.innerHTML = '<div class="governance-empty">No house-style rule results for this diagram — either none are configured yet for this view, or this generation (e.g. a quick edit) doesn\'t run them. An admin can add rules in the Admin panel\'s "Governance / house-style rules" section.</div>';
+        return;
+    }
+
+    var failed = lastGovernanceFailedCount;
+    var badgeClass = failed ? 'fail' : 'pass';
+    var badgeText = failed ? (failed + ' of ' + items.length + ' FAILED') : ('ALL ' + items.length + ' PASSED');
+    summary.innerHTML = '<span class="governance-summary-badge ' + badgeClass + '">' + badgeText + '</span>'
+        + '<span class="governance-summary-text">Org house-style rules checked against this diagram</span>';
+
+    list.innerHTML = items.map(function (f) {
+        var statusClass = f.passed ? 'pass' : 'fail';
+        var icon = f.passed
+            ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>'
+            : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>';
+        var detail = f.passed ? '' : '<div class="governance-item-detail">' + escapeHtml(f.detail || '') + '</div>';
+        return '<div class="governance-item ' + statusClass + '">'
+            + '<span class="governance-item-icon">' + icon + '</span>'
+            + '<div class="governance-item-body">'
+            + '<div class="governance-item-message">' + escapeHtml(f.message || '') + '</div>'
+            + detail
+            + '<div class="governance-item-scope">' + escapeHtml(f.view || '') + '</div>'
+            + '</div></div>';
+    }).join('');
+}
+
 function escapeHtml(str) {
     if (!str) return '';
     var div = document.createElement('div');

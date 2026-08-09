@@ -730,6 +730,7 @@ def _build_response(
     assistant_message: str = "",
     suggestions: list[Any] | None = None,
     design_tradeoffs: list[str] | None = None,
+    governance_findings: list[Any] | None = None,
     renderer_used: str | None = None,
     mcp_preview_url: str | None = None,
     logger: Any = None,
@@ -745,6 +746,9 @@ def _build_response(
         "mermaid": None,
         "suggestions": suggestions or [],
         "design_tradeoffs": design_tradeoffs or [],
+        "governance_findings": [
+            f.model_dump() if hasattr(f, "model_dump") else f for f in (governance_findings or [])
+        ],
         "assistant_message": assistant_message,
         "renderer_used": renderer_used,
         # "ir" when the diagram was compiled from a validated NetworkIR, else
@@ -1971,6 +1975,7 @@ async def run_xml_pipeline(
             assistant_message=xml_diagram.assistant_message,
             suggestions=filter_applied_suggestions(xml_diagram.suggestions, applied_suggestions),
             design_tradeoffs=xml_diagram.design_tradeoffs,
+            governance_findings=xml_diagram.governance_findings,
             renderer_used="local",
             logger=logger,
             cost_estimate=cost_data,
@@ -1991,6 +1996,7 @@ async def run_xml_pipeline(
         assistant_message=xml_diagram.assistant_message,
         suggestions=filter_applied_suggestions(xml_diagram.suggestions, applied_suggestions),
         design_tradeoffs=xml_diagram.design_tradeoffs,
+        governance_findings=xml_diagram.governance_findings,
         renderer_used=renderer_used,
         mcp_preview_url=preview_url,
         logger=logger,

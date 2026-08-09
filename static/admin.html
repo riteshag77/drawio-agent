@@ -60,6 +60,35 @@
         .admin-test-result.ok { color: var(--success); }
         .admin-test-result.fail { color: var(--error-soft); }
         [hidden] { display: none !important; }
+
+        .admin-governance-intro { font-size: 0.8rem; color: var(--text-muted); line-height: 1.5; margin: 0 0 1rem; }
+        .admin-governance-form {
+            display: flex; flex-direction: column; gap: 0.7rem;
+            border: 1px solid var(--sidebar-border); border-radius: 10px;
+            background: var(--surface-well); padding: 1rem; margin-bottom: 1rem;
+        }
+        .admin-field-group { display: flex; flex-direction: column; gap: 0.3rem; }
+        .admin-field-group label { font-size: 0.76rem; font-weight: 600; color: var(--text-secondary); }
+        .admin-field-group select, .admin-field-group input[type="text"], .admin-field-group input[type="number"], .admin-field-group textarea {
+            padding: 0.5rem 0.7rem; font-size: 0.8rem; font-family: inherit; color: var(--text-primary);
+            background: var(--surface-raised); border: 1px solid var(--sidebar-border); border-radius: 7px;
+        }
+        .admin-field-group textarea { resize: vertical; min-height: 2.4rem; }
+        .admin-field-group select:focus, .admin-field-group input:focus, .admin-field-group textarea:focus { outline: none; border-color: var(--accent); }
+        .admin-help-text { font-size: 0.71rem; color: var(--text-muted); line-height: 1.4; }
+        .admin-field-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; }
+        .admin-checkbox-label { display: flex; align-items: flex-start; gap: 0.4rem; font-size: 0.74rem; font-weight: 400; color: var(--text-muted); margin-top: 0.3rem; }
+        .gov-param[hidden] { display: none; }
+
+        .admin-governance-list { display: flex; flex-direction: column; gap: 0.6rem; }
+        .admin-governance-card { border: 1px solid var(--sidebar-border); border-radius: 10px; background: var(--surface-well); padding: 0.8rem 0.9rem; }
+        .admin-governance-card.disabled { opacity: 0.55; }
+        .admin-governance-card-head { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.3rem; }
+        .admin-governance-kind-badge { font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 0.15rem 0.45rem; border-radius: 999px; background: var(--accent-glow, var(--surface-hover)); color: var(--accent); }
+        .admin-governance-scope { font-size: 0.68rem; color: var(--text-muted); }
+        .admin-governance-message { font-size: 0.82rem; color: var(--text-primary); margin: 0.3rem 0; line-height: 1.4; }
+        .admin-governance-actions { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.4rem; }
+        .admin-governance-empty { font-size: 0.8rem; color: var(--text-muted); padding: 1rem 0; text-align: center; }
     </style>
 </head>
 
@@ -95,12 +124,117 @@
                 <div class="admin-section-title">Providers</div>
                 <div id="admin-provider-list" class="admin-provider-list"></div>
             </div>
+
+            <div class="admin-section">
+                <div class="admin-section-title">Governance / house-style rules</div>
+                <p class="admin-governance-intro">
+                    Rules checked automatically against every generated diagram. Soft enforcement only —
+                    a failed rule nudges the AI to fix it on the spot and shows up in the diagram's
+                    <strong>Governance</strong> tab; it never blocks a diagram from being produced.
+                </p>
+
+                <div class="admin-governance-form">
+                    <div class="admin-field-group">
+                        <label for="gov-kind">What to check</label>
+                        <select id="gov-kind" onchange="adminGovernanceKindChanged()">
+                            <option value="required_corridor">Diagram must include a specific zone</option>
+                            <option value="forbidden_corridor">Diagram must NOT include a specific zone</option>
+                            <option value="required_leaf_shape">Diagram must include a specific service</option>
+                            <option value="forbidden_shape_type">Diagram must NOT include a specific service</option>
+                            <option value="required_overview_field">A summary field must be filled in</option>
+                            <option value="min_narrative_bullets">A narrative field needs a minimum number of points</option>
+                            <option value="required_flow_protection">Sensitive connections must be encrypted</option>
+                            <option value="forbidden_label_pattern">No name may match a forbidden pattern</option>
+                        </select>
+                        <small id="gov-kind-help" class="admin-help-text"></small>
+                    </div>
+
+                    <div class="admin-field-row-2">
+                        <div class="admin-field-group">
+                            <label for="gov-view">Applies to view</label>
+                            <select id="gov-view">
+                                <option value="any">Any view</option>
+                                <option value="network">Network</option>
+                                <option value="logical">Logical</option>
+                                <option value="security">Security</option>
+                                <option value="data_flow">Data flow</option>
+                            </select>
+                        </div>
+                        <div class="admin-field-group">
+                            <label for="gov-platform">Applies to platform</label>
+                            <select id="gov-platform">
+                                <option value="any">Any platform</option>
+                                <option value="aws">AWS</option>
+                                <option value="gcp">GCP</option>
+                                <option value="azure">Azure</option>
+                                <option value="multi">Multi-cloud</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="gov-param-corridor" class="admin-field-group gov-param">
+                        <label for="gov-corridor-id">Zone / corridor id</label>
+                        <input type="text" id="gov-corridor-id" placeholder="e.g. zone_detect, phase_ingest, domain_data">
+                        <small class="admin-help-text">Fixed ids only — see each view's own corridor vocabulary (e.g. Security uses zone_public/zone_dmz/zone_identity/zone_partner/zone_private/zone_restricted/zone_detect).</small>
+                    </div>
+
+                    <div id="gov-param-shape" class="admin-field-group gov-param">
+                        <label for="gov-shape-type">Service name (matched as substring, e.g. "waf" or "aws_waf")</label>
+                        <input type="text" id="gov-shape-type" placeholder="e.g. waf, aws_route53, gcp_cloud_armor">
+                    </div>
+
+                    <div id="gov-param-overview" class="admin-field-group gov-param">
+                        <label for="gov-overview-field">Field</label>
+                        <select id="gov-overview-field">
+                            <option value="business_notes">Business notes</option>
+                            <option value="design_tradeoffs">Design tradeoffs</option>
+                            <option value="purpose">Purpose (Security)</option>
+                            <option value="scope_included">Scope included (Security)</option>
+                            <option value="scope_excluded">Scope excluded (Security)</option>
+                            <option value="threat_model_reference">Threat model reference (Security)</option>
+                            <option value="data_classification">Data classification (Security/Data flow)</option>
+                            <option value="compliance_frameworks">Compliance frameworks (Security/Data flow)</option>
+                            <option value="control_types">Control types (Security)</option>
+                            <option value="key_assumptions">Key assumptions (Security/Data flow)</option>
+                            <option value="trust_zones_referenced">Trust zones referenced (Data flow)</option>
+                        </select>
+                    </div>
+
+                    <div id="gov-param-mincount" class="admin-field-group gov-param">
+                        <label for="gov-min-count">Minimum bullet count</label>
+                        <input type="number" id="gov-min-count" value="2" min="1" max="20">
+                    </div>
+
+                    <div id="gov-param-protection" class="admin-field-group gov-param">
+                        <label for="gov-min-protection">Minimum protection level</label>
+                        <select id="gov-min-protection">
+                            <option value="tls">TLS (one-way)</option>
+                            <option value="mtls">mTLS (mutual)</option>
+                        </select>
+                        <label class="admin-checkbox-label"><input type="checkbox" id="gov-boundary-only" checked> Only check flows crossing a public/partner boundary (in addition to any PII/PCI-classified flow, always checked)</label>
+                    </div>
+
+                    <div id="gov-param-pattern" class="admin-field-group gov-param">
+                        <label for="gov-label-pattern">Forbidden pattern (regex, case-insensitive)</label>
+                        <input type="text" id="gov-label-pattern" placeholder="e.g. \\b(table|crud)\\b">
+                    </div>
+
+                    <div class="admin-field-group">
+                        <label for="gov-message">Message shown to the user when this rule fails</label>
+                        <textarea id="gov-message" rows="2" placeholder="Be specific — e.g. &quot;Every Security diagram must include a detection/monitoring zone (zone_detect) per our SOC2 control mapping.&quot;"></textarea>
+                    </div>
+
+                    <button type="button" class="btn-soft" onclick="adminCreateGovernanceRule()">＋ Add rule</button>
+                </div>
+
+                <div id="admin-governance-list" class="admin-governance-list"></div>
+            </div>
         </div>
     </div>
 
     <div id="app-toast" class="app-toast" role="status" aria-live="assertive" hidden></div>
     <script src="/static/js/toast.js?v=20260808a"></script>
-    <script src="/static/js/admin.js?v=20260808a"></script>
+    <script src="/static/js/admin.js?v=20260809a"></script>
 </body>
 
 </html>
