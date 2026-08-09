@@ -388,7 +388,7 @@ async function sendMessage(options = {}) {
                 showToast(msg, 'warning', 6500);
                 appendVerboseLog('degraded', msg, 'warn', data.degraded_features);
             }
-        } catch (e) { console.error('Degraded-features banner error', e); }
+        } catch (e) { appendVerboseLog('client', 'Degraded-features banner error', 'error', { error: String(e) }); }
 
         currentXml = data.xml || '';
         previousXml = xmlForRequest;
@@ -416,7 +416,7 @@ async function sendMessage(options = {}) {
             } else if (typeof toggleCostPanelPreview === 'function') {
                 toggleCostPanelPreview();
             }
-        } catch (e) { console.error('Cost panel error', e); }
+        } catch (e) { appendVerboseLog('client', 'Cost panel error', 'error', { error: String(e) }); }
 
         try {
             if (data.well_architected) {
@@ -427,7 +427,7 @@ async function sendMessage(options = {}) {
             } else if (typeof toggleWellArchitectedPanel === 'function') {
                 toggleWellArchitectedPanel();
             }
-        } catch (e) { console.error('WAF panel error', e); }
+        } catch (e) { appendVerboseLog('client', 'WAF panel error', 'error', { error: String(e) }); }
 
         try {
             if (data.compliance) {
@@ -439,7 +439,7 @@ async function sendMessage(options = {}) {
                 window._lastComplianceData = null;
                 if (typeof toggleCompliancePanel === 'function') toggleCompliancePanel();
             }
-        } catch (e) { console.error('Compliance panel error', e); }
+        } catch (e) { appendVerboseLog('client', 'Compliance panel error', 'error', { error: String(e) }); }
 
         try {
             if (data.llm_usage) {
@@ -447,13 +447,13 @@ async function sendMessage(options = {}) {
             } else {
                 hideTokenUsage();
             }
-        } catch (e) { console.error('Token usage badge error', e); }
+        } catch (e) { appendVerboseLog('client', 'Token usage badge error', 'error', { error: String(e) }); }
 
         try {
             if (promptSettings.suggestions) {
                 displaySuggestions(data.suggestions || []);
             }
-        } catch (e) { console.error('Suggestions panel error', e); }
+        } catch (e) { appendVerboseLog('client', 'Suggestions panel error', 'error', { error: String(e) }); }
 
         setTyping(false);
         appendChatBubble('assistant', summarizeAssistantMessage(assistantText));
@@ -474,7 +474,6 @@ async function sendMessage(options = {}) {
         appendVerboseLog('client', 'Chat turn complete', 'success');
         return { outcome: 'success' };
     } catch (err) {
-        console.error(err);
         if (options.platformConvert && options.previousPlatform) {
             applyPlatformUi(options.previousPlatform);
         }
@@ -590,7 +589,7 @@ async function initProviderSelect() {
         populateProviderOptions(select, data);
         if (typeof renderProviderPickerButton === 'function') renderProviderPickerButton();
     } catch (err) {
-        console.error('Failed to load providers', err);
+        appendVerboseLog('client', 'Failed to load providers', 'error', { error: String(err) });
     }
 }
 
@@ -613,7 +612,7 @@ async function initValidationProviderSelect() {
             select.value = saved;
         }
     } catch (err) {
-        console.error('Failed to load validation providers', err);
+        appendVerboseLog('client', 'Failed to load validation providers', 'error', { error: String(err) });
     }
 }
 

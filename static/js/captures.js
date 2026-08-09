@@ -61,18 +61,18 @@ function renderCapturedResponse(data) {
         } else {
             hideCostEstimate();
         }
-    } catch (e) { console.error('Playback: cost panel error', e); }
+    } catch (e) { appendVerboseLog('client', 'Playback: cost panel error', 'error', { error: String(e) }); }
 
     try {
         if (data.well_architected) displayWellArchitected(data.well_architected);
-    } catch (e) { console.error('Playback: WAF panel error', e); }
+    } catch (e) { appendVerboseLog('client', 'Playback: WAF panel error', 'error', { error: String(e) }); }
 
     try {
         if (data.compliance) {
             window._lastComplianceData = data.compliance;
             displayCompliance(data.compliance);
         }
-    } catch (e) { console.error('Playback: compliance panel error', e); }
+    } catch (e) { appendVerboseLog('client', 'Playback: compliance panel error', 'error', { error: String(e) }); }
 
     try {
         // Same placeholder as live chat (`#suggestions-panel-body` via displaySuggestions).
@@ -85,7 +85,7 @@ function renderCapturedResponse(data) {
         } else if (typeof displaySuggestions === 'function') {
             displaySuggestions([]);
         }
-    } catch (e) { console.error('Playback: suggestions panel error', e); }
+    } catch (e) { appendVerboseLog('client', 'Playback: suggestions panel error', 'error', { error: String(e) }); }
 
     try {
         if (data.llm_usage) {
@@ -93,7 +93,7 @@ function renderCapturedResponse(data) {
         } else {
             hideTokenUsage();
         }
-    } catch (e) { console.error('Playback: token usage badge error', e); }
+    } catch (e) { appendVerboseLog('client', 'Playback: token usage badge error', 'error', { error: String(e) }); }
 
     if (typeof updateRightPanelVisibility === 'function') updateRightPanelVisibility();
 

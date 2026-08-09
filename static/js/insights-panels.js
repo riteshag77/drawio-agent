@@ -174,7 +174,7 @@ async function rerunCostEstimateCheck() {
         }
         displayCostEstimate(data.cost_estimate);
     } catch (e) {
-        console.error('Cost estimate re-check failed', e);
+        if (typeof appendVerboseLog === 'function') appendVerboseLog('client', 'Cost estimate re-check failed', 'error', { error: String(e) });
         if (typeof showToast === 'function') showToast('Could not refresh cost estimate — network error.', 'warning');
     } finally {
         if (typeof setTabLoading === 'function') setTabLoading('cost', false);
@@ -422,7 +422,7 @@ async function rerunSuggestionsCheck() {
         }
         displaySuggestions(data.suggestions || []);
     } catch (e) {
-        console.error('Suggestions re-check failed', e);
+        if (typeof appendVerboseLog === 'function') appendVerboseLog('client', 'Suggestions re-check failed', 'error', { error: String(e) });
         if (typeof showToast === 'function') showToast('Could not refresh suggestions — network error.', 'warning');
     } finally {
         if (typeof setTabLoading === 'function') setTabLoading('suggestions', false);
@@ -703,7 +703,7 @@ async function rerunWafComplianceCheck() {
             displayCompliance(data.compliance);
         }
     } catch (e) {
-        console.error('WAF/compliance re-check failed', e);
+        if (typeof appendVerboseLog === 'function') appendVerboseLog('client', 'WAF/compliance re-check failed', 'error', { error: String(e) });
         if (typeof showToast === 'function') showToast('Could not refresh the check — network error.', 'warning');
     } finally {
         if (typeof setTabLoading === 'function') setTabLoading('waf', false);
@@ -842,11 +842,13 @@ async function applyInsightFixes(items) {
 
 function displayWellArchitected(wafData) {
     if (!wafData) return;
-    console.log('WAF data received', wafData.overall_status, wafData.pillars?.length, 'pillars');
     var panel = document.getElementById('well-architected-panel');
     var body = document.getElementById('waf-panel-body');
     var badge = document.getElementById('waf-overall-badge');
-    if (!panel || !body || !badge) { console.warn('WAF panel elements missing'); return; }
+    if (!panel || !body || !badge) {
+        if (typeof appendVerboseLog === 'function') appendVerboseLog('client', 'WAF panel elements missing', 'error');
+        return;
+    }
     panel.classList.add('active');
     var toggle = document.getElementById('well-architected-toggle');
     if (toggle) toggle.checked = true;
