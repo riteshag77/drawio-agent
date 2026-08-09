@@ -6,3 +6,4 @@ data/
 *.pyo
 .venv/
 .idea/
+.superpowers/
