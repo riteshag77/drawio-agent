@@ -1,11 +1,35 @@
         /* Layout-only tokens shared by every theme. Color/surface tokens are
            defined per-theme in /static/themes/*.css under :root[data-theme="..."]. */
         :root {
-            --radius: 12px;
             --sidebar-width: 440px;
             --sidebar-min-width: 320px;
             --sidebar-max-width: 800px;
             --log-panel-width: 420px;
+
+            /* spacing (4px base grid) */
+            --space-1: 0.25rem;
+            --space-2: 0.5rem;
+            --space-3: 0.75rem;
+            --space-4: 1rem;
+            --space-5: 1.25rem;
+            --space-6: 1.5rem;
+            --space-8: 2rem;
+
+            /* radius */
+            --radius-sm: 6px;
+            --radius-md: 8px;
+            --radius-lg: 12px;
+            --radius-pill: 999px;
+
+            /* type */
+            --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-mono: ui-monospace, 'SFMono-Regular', 'JetBrains Mono', Menlo, monospace;
+
+            /* elevation */
+            --shadow-focus: 0 0 0 3px var(--accent-glow);
+            --shadow-panel: 0 24px 60px rgba(0,0,0,0.45);
+            --transition-fast: 120ms ease;
+            --transition-panel: 180ms ease;
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -1210,7 +1234,7 @@
 
         .composer:focus-within {
             border-color: var(--accent);
-            box-shadow: 0 0 0 3px var(--accent-glow);
+            box-shadow: var(--shadow-focus);
         }
 
         .composer-actions {
@@ -1334,8 +1358,8 @@
             flex-direction: column;
             background: var(--surface-well);
             border: 1px solid var(--sidebar-border);
-            border-radius: 14px;
-            box-shadow: 0 24px 60px rgba(0,0,0,0.45);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-panel);
             z-index: 91;
             overflow: hidden;
         }
@@ -1934,7 +1958,7 @@
         .provider-config-detail input[type="password"]:focus {
             outline: none;
             border-color: var(--accent);
-            box-shadow: 0 0 0 3px var(--accent-glow);
+            box-shadow: var(--shadow-focus);
         }
 
         textarea::placeholder { color: var(--text-muted); }
@@ -3558,8 +3582,8 @@
     flex-direction: column;
     background: var(--surface-well);
     border: 1px solid var(--sidebar-border);
-    border-radius: var(--radius);
-    box-shadow: 0 24px 60px rgba(0,0,0,0.45);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-panel);
     z-index: 60;
     overflow: hidden;
 }
@@ -3698,8 +3722,8 @@
     flex-direction: column;
     background: var(--surface-well);
     border: 1px solid var(--sidebar-border);
-    border-radius: 14px;
-    box-shadow: 0 24px 60px rgba(0,0,0,0.45);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-panel);
     z-index: 92;
     overflow: hidden;
 }
