@@ -21,6 +21,90 @@ _ROW_IDS = frozenset({
 })
 _SHELF_ID = "zone_external_saas"
 
+#: First-party perimeter/edge services the model sometimes misfiles into
+#: external_actors — a live capture showed Route 53 emitted as
+#: {"kind": "saas_ingress", "label": "Route 53"} even though security.txt's
+#: prompt explicitly forbids "putting any leaf in external_actors that is not
+#: actually outside the trust boundary". Prompt wording alone isn't reliable
+#: (the same request, resent, sometimes gets this right and sometimes
+#: doesn't — Network/Data-flow's IR for the identical service was correct in
+#: every one of those same captures), so this is a deterministic code-level
+#: backstop rather than another sentence added to the prompt. zone_public is
+#: the one unambiguous destination: security.txt already documents "WAF/API
+#: GW/public ALB/Shield" as zone_public's contents, and _ROW_ORDER sorts
+#: corridors by fixed id regardless of list position, so it's safe to always
+#: create/append here without worrying about render order.
+#: Keys are exact (lowercased, stripped) actor labels — deliberately not a
+#: substring match, so a customer's own generically-named "Load Balancer"
+#: actor is never silently relabeled.
+_PERIMETER_SERVICE_SHAPE_TYPES: dict[str, str] = {
+    # AWS
+    "route 53": "aws_route53", "route53": "aws_route53", "amazon route 53": "aws_route53",
+    "cloudfront": "aws_cloudfront", "amazon cloudfront": "aws_cloudfront",
+    "application load balancer": "aws_application_load_balancer", "alb": "aws_application_load_balancer",
+    "network load balancer": "aws_network_load_balancer", "nlb": "aws_network_load_balancer",
+    "waf": "aws_waf", "aws waf": "aws_waf",
+    "shield": "aws_shield", "aws shield": "aws_shield",
+    "api gateway": "aws_api_gateway",
+    "global accelerator": "aws_global_accelerator",
+    # GCP
+    "cloud dns": "gcp_cloud_dns",
+    "cloud cdn": "gcp_cloud_cdn",
+    "cloud armor": "gcp_cloud_armor",
+    "cloud load balancing": "gcp_cloud_load_balancing",
+    # Azure
+    "azure dns": "azure_dns", "dns zone": "azure_dns",
+    "front door": "azure_front_door", "azure front door": "azure_front_door",
+    "azure firewall": "azure_firewall",
+    "application gateway": "azure_application_gateway",
+    "azure load balancer": "azure_load_balancer",
+}
+
+
+def _relocate_perimeter_services_from_actors(data: object) -> object:
+    """Move any external_actors entry matching ``_PERIMETER_SERVICE_SHAPE_TYPES``
+    into a Leaf under zone_public, creating that corridor if it doesn't exist
+    yet. Runs on the raw dict, same stage as ``_relocate_vocabulary``, so a
+    live capture with this mistake compiles correctly on the first pass
+    instead of needing (and hoping for) a corrective LLM round-trip.
+    """
+    if not isinstance(data, dict):
+        return data
+    actors = data.get("external_actors")
+    if not isinstance(actors, list) or not actors:
+        return data
+
+    kept: list[object] = []
+    relocated: list[dict[str, str]] = []
+    for actor in actors:
+        label = actor.get("label") if isinstance(actor, dict) else None
+        shape_type = _PERIMETER_SERVICE_SHAPE_TYPES.get((label or "").strip().lower())
+        if isinstance(actor, dict) and shape_type:
+            relocated.append({
+                "id": actor.get("id") or label or "perimeter_service",
+                "shape_type": shape_type,
+                "label": label,
+                "annotation": "",
+                "criticality": "standard",
+            })
+        else:
+            kept.append(actor)
+    if not relocated:
+        return data
+
+    data = dict(data)
+    data["external_actors"] = kept
+    # Shallow-copy each corridor dict so mutating zone_public's leaves below
+    # never reaches back into the caller's original nested structure.
+    corridors = [dict(c) if isinstance(c, dict) else c for c in (data.get("corridors") or [])]
+    zone_public = next((c for c in corridors if isinstance(c, dict) and c.get("id") == "zone_public"), None)
+    if zone_public is None:
+        zone_public = {"id": "zone_public", "label": "Public", "leaves": []}
+        corridors.append(zone_public)
+    zone_public["leaves"] = list(zone_public.get("leaves") or []) + relocated
+    data["corridors"] = corridors
+    return data
+
 
 class SecurityIR(CorridorIR):
     view: Literal["security"] = Field(
@@ -77,9 +161,10 @@ class SecurityIR(CorridorIR):
         Live captures put ``zone_detect`` in ``anchored`` and failed parse even
         though ``model_validate`` with the before-validator relocates it.
         """
-        return cls._relocate_vocabulary(
+        data = cls._relocate_vocabulary(
             data, row_ids=_ROW_IDS, shelf_anchors={_SHELF_ID: "zone_restricted"},
         )
+        return _relocate_perimeter_services_from_actors(data)
 
     @model_validator(mode="before")
     @classmethod

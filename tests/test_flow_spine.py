@@ -182,6 +182,75 @@ class SanitizeRawTests(unittest.TestCase):
         ir = SecurityIR.model_validate(sanitized)
         self.assertIn("zone_detect", {c.id for c in ir.corridors})
 
+    def test_perimeter_service_relocated_from_external_actors(self) -> None:
+        """Regression test for a live capture: the model emitted Route 53 as
+        {"kind": "saas_ingress", "label": "Route 53"} in external_actors — it
+        rendered with a generic person/user icon (external actors always get
+        a plain actor shape, never an MCP-resolved service icon) instead of
+        its real AWS icon. The identical service was correctly placed as a
+        zone_public leaf in other captures of the same prompt, proving this
+        was non-deterministic model behavior the prompt's own "never put a
+        leaf in external_actors that isn't actually outside the trust
+        boundary" rule didn't reliably prevent — hence the code-level fix."""
+        raw = {
+            "view": "security",
+            "platform": "aws",
+            "title": "t",
+            "corridors": [
+                {"id": "zone_private", "label": "Private", "leaves": [{"id": "app", "shape_type": "aws_ecs", "label": "App"}]},
+            ],
+            "anchored": [],
+            "external_actors": [
+                {"id": "users", "kind": "users", "label": "Users"},
+                {"id": "route53", "kind": "saas_ingress", "label": "Route 53"},
+            ],
+            "flows": [
+                {"source": "users", "target": "route53", "label": "DNS Lookup", "primary": True},
+                {"source": "route53", "target": "app", "label": "HTTPS", "primary": True},
+            ],
+        }
+        sanitized = SecurityIR.sanitize_raw(raw)
+        actor_ids = [a.get("id") for a in sanitized.get("external_actors") or []]
+        self.assertNotIn("route53", actor_ids)
+        self.assertIn("users", actor_ids)  # a genuine actor must be left untouched
+
+        ir = SecurityIR.model_validate(sanitized)
+        self.assertEqual(ir.semantic_errors(), [])  # flows still resolve after relocation
+        zone_public = ir.corridor_by_id("zone_public")
+        self.assertIsNotNone(zone_public)
+        route53_leaf = next(l for l in zone_public.leaves if l.id == "route53")
+        self.assertEqual(route53_leaf.shape_type, "aws_route53")
+
+    def test_perimeter_service_relocation_preserves_existing_zone_public_leaves(self) -> None:
+        raw = {
+            "view": "security", "platform": "aws", "title": "t",
+            "corridors": [
+                {"id": "zone_public", "label": "Public", "leaves": [{"id": "waf", "shape_type": "aws_waf", "label": "WAF"}]},
+            ],
+            "anchored": [],
+            "external_actors": [{"id": "route53", "kind": "saas_ingress", "label": "Route 53"}],
+            "flows": [{"source": "route53", "target": "waf", "label": "HTTPS", "primary": True}],
+        }
+        ir = SecurityIR.model_validate(SecurityIR.sanitize_raw(raw))
+        zone_public = ir.corridor_by_id("zone_public")
+        leaf_ids = {l.id for l in zone_public.leaves}
+        self.assertEqual(leaf_ids, {"waf", "route53"})
+
+    def test_actor_with_unrelated_label_is_not_touched(self) -> None:
+        """A genuine external actor must never be relocated just because
+        _relocate_perimeter_services_from_actors ran — only exact matches
+        against the known perimeter-service label table qualify."""
+        raw = {
+            "view": "security", "platform": "aws", "title": "t",
+            "corridors": [{"id": "zone_private", "label": "Private", "leaves": [{"id": "app", "shape_type": "aws_ecs", "label": "App"}]}],
+            "anchored": [],
+            "external_actors": [{"id": "partner", "kind": "saas_ingress", "label": "Acme Load Balancer Corp"}],
+            "flows": [{"source": "partner", "target": "app"}],
+        }
+        sanitized = SecurityIR.sanitize_raw(raw)
+        actor_ids = [a.get("id") for a in sanitized.get("external_actors") or []]
+        self.assertIn("partner", actor_ids)
+
 
 class FlowLabelLimitTests(unittest.TestCase):
     def test_six_word_labels_kept(self) -> None:
