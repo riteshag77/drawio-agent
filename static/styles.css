@@ -4020,6 +4020,7 @@
     flex-direction: column;
 }
 .insights-panel[hidden] { display: none !important; }
+.insights-tab[hidden] { display: none !important; }
 #verbose-log-body.insights-panel.active { display: block; }
 #waf-compliance-panel.active {
     display: flex;
