@@ -61,21 +61,30 @@ function clearVerboseLogs() {
     updateLogCount();
 }
 
+/** Reflects rightPanelOpen onto the DOM — the panel's own expand/collapse
+ * state, independent of which tabs are toggled on. Call openRightPanel() /
+ * closeRightPanel() to actually change it; this function only re-renders. */
 function updateRightPanelVisibility() {
-    const costOn = document.getElementById('cost-estimate-toggle')?.checked;
-    const suggOn = document.getElementById('suggestions-toggle')?.checked;
-    const wafOn = document.getElementById('well-architected-toggle')?.checked;
-    const compOn = document.getElementById('compliance-toggle')?.checked;
-    // Only auto-open for a governance failure if the user has actually
-    // turned the Governance findings toggle on — same opt-in rule as every
-    // other insight here.
-    const govOn = document.getElementById('governance-toggle')?.checked;
-    const govFailing = govOn && typeof lastGovernanceFailedCount !== 'undefined' && lastGovernanceFailedCount > 0;
-    const open = verboseLogging || costOn || suggOn || wafOn || compOn || govFailing;
-    document.getElementById('log-panel')?.classList.toggle('active', open);
+    document.getElementById('log-panel')?.classList.toggle('active', rightPanelOpen);
     const reopenTab = document.getElementById('log-panel-reopen-tab');
-    if (reopenTab) reopenTab.hidden = open;
-    if (!open && typeof renderCollapsedRailTabs === 'function') renderCollapsedRailTabs();
+    if (reopenTab) reopenTab.hidden = rightPanelOpen;
+    if (!rightPanelOpen && typeof renderCollapsedRailTabs === 'function') renderCollapsedRailTabs();
+}
+
+/** Expands the panel — called when a toggle is switched on (auto-open
+ * convenience) or a reopen affordance is clicked. Never called just because
+ * a toggle turns off; turning a tab off only hides that tab (see
+ * updateInsightsTabVisibility), it must never collapse the whole panel. */
+function openRightPanel() {
+    rightPanelOpen = true;
+    localStorage.setItem(RIGHT_PANEL_OPEN_KEY, '1');
+    updateRightPanelVisibility();
+}
+
+function closeRightPanel() {
+    rightPanelOpen = false;
+    localStorage.setItem(RIGHT_PANEL_OPEN_KEY, '0');
+    updateRightPanelVisibility();
 }
 
 /** Mirrors the currently-visible .insights-tab buttons as icon-only buttons
@@ -93,17 +102,10 @@ function renderCollapsedRailTabs() {
     }).join('');
 }
 
-/** Re-syncs whether the right panel (and collapsed rail) is shown, purely
- * from whichever Settings toggles are already on — never itself flips
- * Pipeline logs (or any other toggle) on. The panel's open/closed state and
- * the Logs toggle used to be the same thing; now that Cost/WAF/Governance/
- * Suggestions/Logs are independent tabs, "reopen the panel" must not carry
- * the old side effect of silently re-enabling Logs. Only
- * toggleVerbosePanel() (the Logs toggle's own onchange) and
- * initVerboseLogging() (restoring a saved Logs preference) are allowed to
- * change verboseLogging itself. */
+/** Explicit "reopen" affordance (the collapsed-rail arrow and its per-tab
+ * icons) — expands the panel without touching any individual toggle. */
 function setLogPanelOpen() {
-    updateRightPanelVisibility();
+    openRightPanel();
     if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
 }
 
@@ -111,31 +113,23 @@ function toggleVerbosePanel() {
     const open = document.getElementById('verbose-toggle').checked;
     verboseLogging = open;
     localStorage.setItem(VERBOSE_STORAGE_KEY, open ? '1' : '0');
-    updateRightPanelVisibility();
     if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
     if (open) {
+        openRightPanel();
         appendVerboseLog('ui', 'Pipeline log panel opened', 'info');
         if (typeof switchInsightsTab === 'function') switchInsightsTab('logs');
+    } else {
+        updateRightPanelVisibility();
     }
 }
 
-function hideVerboseLogsPanel() {
-    verboseLogging = false;
-    const toggle = document.getElementById('verbose-toggle');
-    if (toggle) toggle.checked = false;
-    localStorage.setItem(VERBOSE_STORAGE_KEY, '0');
-    updateRightPanelVisibility();
-    if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
-}
-
+/** X button — collapses the panel only. Deliberately does NOT touch any
+ * individual toggle (Cost/WAF/Compliance/Governance/Suggestions/Logs) —
+ * panel open/closed is independent of tab content, so reopening (via the
+ * collapsed rail) shows exactly the same tabs as before closing. */
 function closeLogPanel() {
     hideValidationBanner();
-    hideCostEstimate();
-    if (typeof hideSuggestionsPanel === 'function') hideSuggestionsPanel();
-    hideWellArchitectedPanel();
-    hideCompliancePanel();
-    if (typeof hideGovernancePanel === 'function') hideGovernancePanel();
-    hideVerboseLogsPanel();
+    closeRightPanel();
 }
 
 function mergeServerLogs(logs) {
@@ -150,12 +144,15 @@ function mergeServerLogs(logs) {
     });
 }
 
+/** Restores the saved Logs preference into the checkbox/variable only —
+ * does NOT touch panel open/closed state. initPromptSettings() does the
+ * authoritative rightPanelOpen restore once, after every toggle (including
+ * this one) has been synced, so a reload never silently reopens the panel
+ * just because a toggle happens to still be checked from a prior session. */
 function initVerboseLogging() {
     const open = localStorage.getItem(VERBOSE_STORAGE_KEY) === '1';
     verboseLogging = open;
     const toggle = document.getElementById('verbose-toggle');
     if (toggle) toggle.checked = open;
-    updateRightPanelVisibility();
-    if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
     updateLogCount();
 }

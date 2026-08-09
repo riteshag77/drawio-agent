@@ -458,7 +458,16 @@ async function sendMessage(options = {}) {
         try {
             if (typeof displayGovernance === 'function') {
                 displayGovernance(data.governance_findings || []);
-                if (typeof updateRightPanelVisibility === 'function') updateRightPanelVisibility();
+                // A failure is worth surfacing even if the panel is currently
+                // closed — same "auto-open for something you need to see"
+                // rule as turning a toggle on, just triggered by new results
+                // instead of a click. A passing report stays quiet.
+                var govOn = document.getElementById('governance-toggle')?.checked;
+                if (govOn && typeof lastGovernanceFailedCount !== 'undefined' && lastGovernanceFailedCount > 0
+                        && typeof openRightPanel === 'function') {
+                    openRightPanel();
+                }
+                if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
             }
         } catch (e) { appendVerboseLog('client', 'Governance panel error', 'error', { error: String(e) }); }
 

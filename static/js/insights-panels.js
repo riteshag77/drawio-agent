@@ -369,7 +369,6 @@ function hideCostEstimate() {
         if (toggle) toggle.checked = false;
         localStorage.setItem(COST_ESTIMATE_STORAGE_KEY, '0');
         if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
-        updateRightPanelVisibility();
     }
 }
 
@@ -440,13 +439,13 @@ function toggleSuggestionsPanel() {
         if (body && !body.querySelector('.chat-suggestion-item')) {
             body.innerHTML = '<div class="suggestions-empty">Generate a diagram to see follow-up suggestions</div>';
         }
+        if (typeof openRightPanel === 'function') openRightPanel();
         if (typeof switchInsightsTab === 'function') switchInsightsTab('suggestions');
         rerunSuggestionsCheck();
     } else {
         panel.classList.remove('active');
         clearSuggestionsPanel({ keepPlaceholder: true });
     }
-    updateRightPanelVisibility();
 }
 
 function hideSuggestionsPanel() {
@@ -457,7 +456,7 @@ function hideSuggestionsPanel() {
         if (toggle) toggle.checked = false;
         localStorage.setItem(SUGGESTIONS_STORAGE_KEY, '0');
         clearSuggestionsPanel({ keepPlaceholder: true });
-        updateRightPanelVisibility();
+        if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
     }
 }
 
@@ -720,15 +719,16 @@ function toggleWellArchitectedPanel() {
         panel.classList.add('active');
         if (body) body.innerHTML = '<div class="waf-empty">Generate a diagram to see Well-Architected review</div>';
         if (badge) { badge.textContent = '--'; badge.className = 'waf-overall-badge'; }
+        if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
+        if (typeof openRightPanel === 'function') openRightPanel();
         if (typeof switchInsightsTab === 'function') switchInsightsTab('waf');
         rerunWafComplianceCheck();
     } else {
         panel.classList.remove('active');
         if (body) body.innerHTML = '';
         if (badge) { badge.textContent = '--'; badge.className = 'waf-overall-badge'; }
+        if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
     }
-    if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
-    updateRightPanelVisibility();
 }
 
 function hideWellArchitectedPanel() {
@@ -738,7 +738,6 @@ function hideWellArchitectedPanel() {
         document.getElementById('well-architected-toggle').checked = false;
         localStorage.setItem(WELL_ARCHITECTED_KEY, '0');
         if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
-        updateRightPanelVisibility();
     }
 }
 
@@ -935,14 +934,15 @@ function toggleCompliancePanel() {
     if (document.getElementById('compliance-toggle').checked) {
         panel.classList.add('active');
         if (body) body.innerHTML = '<div class="compliance-empty">Generate a diagram to see compliance assessment results</div>';
+        if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
+        if (typeof openRightPanel === 'function') openRightPanel();
         if (typeof switchInsightsTab === 'function') switchInsightsTab('waf');
         rerunWafComplianceCheck();
     } else {
         panel.classList.remove('active');
         if (body) body.innerHTML = '';
+        if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
     }
-    if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
-    updateRightPanelVisibility();
 }
 
 function hideCompliancePanel() {
@@ -952,7 +952,6 @@ function hideCompliancePanel() {
         document.getElementById('compliance-toggle').checked = false;
         localStorage.setItem(COMPLIANCE_KEY, '0');
         if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
-        updateRightPanelVisibility();
     }
 }
 
@@ -1098,12 +1097,13 @@ function toggleGovernancePanel() {
     if (!panel) return;
     if (document.getElementById('governance-toggle').checked) {
         panel.classList.add('active');
+        if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
+        if (typeof openRightPanel === 'function') openRightPanel();
         if (typeof switchInsightsTab === 'function') switchInsightsTab('governance');
     } else {
         panel.classList.remove('active');
+        if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
     }
-    if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
-    updateRightPanelVisibility();
 }
 
 function hideGovernancePanel() {
@@ -1114,7 +1114,6 @@ function hideGovernancePanel() {
         if (toggle) toggle.checked = false;
         localStorage.setItem(GOVERNANCE_TOGGLE_KEY, '0');
         if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
-        updateRightPanelVisibility();
     }
 }
 

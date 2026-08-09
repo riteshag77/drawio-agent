@@ -218,15 +218,16 @@ function toggleCostPanelPreview() {
         panel.classList.add('active');
         body.innerHTML = '<div class="cost-empty">Generate a diagram to see cost estimates</div>';
         if (total) total.textContent = 'A$--';
+        if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
+        if (typeof openRightPanel === 'function') openRightPanel();
         if (typeof switchInsightsTab === 'function') switchInsightsTab('cost');
         if (typeof rerunCostEstimateCheck === 'function') rerunCostEstimateCheck();
     } else {
         panel.classList.remove('active');
         body.innerHTML = '';
         if (total) total.textContent = 'A$0';
+        if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
     }
-    if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
-    updateRightPanelVisibility();
 }
 
 function initPromptSettings() {
@@ -298,10 +299,20 @@ function initPromptSettings() {
     updateNetworkInsightsVisibility();
     updateValidationProviderVisibility();
     updateComplianceFrameworksVisibility();
+    // The panel's own open/closed state is saved separately from any single
+    // toggle (see state.js's rightPanelOpen) — capture it now, before the
+    // toggleXPanel() calls below run, since each one auto-opens the panel
+    // when its toggle happens to be checked. Restoring this value afterward
+    // is what stops a reload from silently reopening the panel just because
+    // a toggle is still on from a prior session.
+    const savedPanelOpen = localStorage.getItem(RIGHT_PANEL_OPEN_KEY) === '1';
     toggleCostPanelPreview();
     toggleWellArchitectedPanel();
     toggleCompliancePanel();
     toggleGovernancePanel();
     toggleSuggestionsPanel();
+    rightPanelOpen = savedPanelOpen;
+    localStorage.setItem(RIGHT_PANEL_OPEN_KEY, savedPanelOpen ? '1' : '0');
+    if (typeof updateRightPanelVisibility === 'function') updateRightPanelVisibility();
     if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
 }

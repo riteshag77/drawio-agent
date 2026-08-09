@@ -64,6 +64,13 @@ let messageHandler = null;
 let currentDrawioPageIndex = 0; // reset to 0 on every full 'load' — draw.io always opens page 1
 let pendingFocusPageIndex = null; // set before a load whose response should land on a specific tab (e.g. Network for WAF/compliance)
 let verboseLogging = false;
+//: Whether the right-hand insights panel itself is expanded — independent of
+//: which individual tabs (Cost/WAF/Governance/Suggestions/Logs) are toggled
+//: on. Turning a toggle on auto-opens the panel as a convenience; turning
+//: one off only hides that tab, it never auto-collapses the panel. Only the
+//: X button / collapsed-rail reopen affordances change this directly.
+let rightPanelOpen = false;
+const RIGHT_PANEL_OPEN_KEY = 'drawio-agent-right-panel-open';
 let validationPanelActive = false;
 let logEntryCount = 0;
 let vlmAutoRetryCount = 0;
