@@ -511,67 +511,109 @@ async function sendMessage(options = {}) {
 
 // ── Provider select ───────────────────────────────────────
 
-async function initProviderSelect() {
-    const select = document.getElementById('provider-select');
-    if (!select) return;
+/** Populates any <select> with the exact same provider/model catalog the
+ * main chat composer offers (server providers incl. multi-model optgroups,
+ * plus custom BYOK providers) — shared by initProviderSelect() and
+ * initValidationProviderSelect() so "pick a model to validate with" is never
+ * a second, narrower list than "pick a model to chat with". `includeAuto`
+ * prepends an "auto" option (e.g. "Same as chat") for selects where that's
+ * a meaningful default. */
+function populateProviderOptions(select, data, { includeAuto = false, autoLabel = 'Auto' } = {}) {
     // The static HTML placeholder is a single hardcoded <option> — only treat
     // the current value as a real prior selection worth preserving once the
     // select has actually been populated from /providers at least once.
     const hadRealOptions = select.options.length > 1;
     const previousValue = select.value;
+    select.innerHTML = '';
+    if (includeAuto) {
+        const autoOpt = document.createElement('option');
+        autoOpt.value = 'auto';
+        autoOpt.textContent = autoLabel;
+        select.appendChild(autoOpt);
+    }
+    let defaultValue = data.default || '';
+    for (const p of (data.providers || [])) {
+        if (p.models && p.models.length > 1) {
+            // Multi-model provider (e.g. NVIDIA NIM) — one grouped option per
+            // model, "provider header + model list" style.
+            const group = document.createElement('optgroup');
+            group.label = p.label;
+            for (const modelId of p.models) {
+                const opt = document.createElement('option');
+                opt.value = p.key + '::' + modelId;
+                opt.textContent = modelId;
+                group.appendChild(opt);
+            }
+            select.appendChild(group);
+            if (p.key === data.default) defaultValue = p.key + '::' + p.models[0];
+        } else {
+            const opt = document.createElement('option');
+            opt.value = p.key;
+            opt.textContent = p.label;
+            select.appendChild(opt);
+        }
+    }
+    const customProviders = (typeof getCustomProviders === 'function') ? getCustomProviders() : [];
+    if (customProviders.length) {
+        const group = document.createElement('optgroup');
+        group.label = 'Custom';
+        for (const p of customProviders) {
+            const models = (p.models && p.models.length) ? p.models : [''];
+            for (const modelId of models) {
+                const opt = document.createElement('option');
+                opt.value = 'custom:' + p.id + '::' + modelId;
+                opt.textContent = models.length > 1 ? `${p.label} — ${modelId}` : p.label;
+                group.appendChild(opt);
+            }
+        }
+        select.appendChild(group);
+    }
+    if (defaultValue) {
+        const defaultOpt = select.querySelector(`option[value="${CSS.escape(defaultValue)}"]`);
+        if (defaultOpt) defaultOpt.setAttribute('data-default', '');
+    }
+    if (hadRealOptions && previousValue && select.querySelector(`option[value="${CSS.escape(previousValue)}"]`)) {
+        select.value = previousValue;
+    } else if (includeAuto) {
+        select.value = 'auto';
+    } else if (defaultValue) {
+        select.value = defaultValue;
+    }
+}
+
+async function initProviderSelect() {
+    const select = document.getElementById('provider-select');
+    if (!select) return;
     try {
         const res = await fetch('/providers');
         const data = await res.json();
-        select.innerHTML = '';
-        let defaultValue = data.default || '';
-        for (const p of (data.providers || [])) {
-            if (p.models && p.models.length > 1) {
-                // Multi-model provider (e.g. NVIDIA NIM) — one grouped option per
-                // model, "provider header + model list" style.
-                const group = document.createElement('optgroup');
-                group.label = p.label;
-                for (const modelId of p.models) {
-                    const opt = document.createElement('option');
-                    opt.value = p.key + '::' + modelId;
-                    opt.textContent = modelId;
-                    group.appendChild(opt);
-                }
-                select.appendChild(group);
-                if (p.key === data.default) defaultValue = p.key + '::' + p.models[0];
-            } else {
-                const opt = document.createElement('option');
-                opt.value = p.key;
-                opt.textContent = p.label;
-                select.appendChild(opt);
-            }
-        }
-        const customProviders = (typeof getCustomProviders === 'function') ? getCustomProviders() : [];
-        if (customProviders.length) {
-            const group = document.createElement('optgroup');
-            group.label = 'Custom';
-            for (const p of customProviders) {
-                const models = (p.models && p.models.length) ? p.models : [''];
-                for (const modelId of models) {
-                    const opt = document.createElement('option');
-                    opt.value = 'custom:' + p.id + '::' + modelId;
-                    opt.textContent = models.length > 1 ? `${p.label} — ${modelId}` : p.label;
-                    group.appendChild(opt);
-                }
-            }
-            select.appendChild(group);
-        }
-        if (defaultValue) {
-            const defaultOpt = select.querySelector(`option[value="${CSS.escape(defaultValue)}"]`);
-            if (defaultOpt) defaultOpt.setAttribute('data-default', '');
-        }
-        if (hadRealOptions && previousValue && select.querySelector(`option[value="${CSS.escape(previousValue)}"]`)) {
-            select.value = previousValue;
-        } else if (defaultValue) {
-            select.value = defaultValue;
-        }
+        populateProviderOptions(select, data);
         if (typeof renderProviderPickerButton === 'function') renderProviderPickerButton();
     } catch (err) {
         console.error('Failed to load providers', err);
+    }
+}
+
+/** Same catalog as initProviderSelect(), plus a leading "Same as chat" auto
+ * option — so Visual QA's provider picker is never limited to a hardcoded
+ * 3-provider list while the composer's picker sees every registered/BYOK
+ * provider and model. */
+async function initValidationProviderSelect() {
+    const select = document.getElementById('validation-provider-select');
+    if (!select) return;
+    try {
+        const res = await fetch('/providers');
+        const data = await res.json();
+        populateProviderOptions(select, data, { includeAuto: true, autoLabel: 'Same as chat' });
+        // initPromptSettings() already ran and tried to restore the saved
+        // choice before this select had real options (silent no-op against
+        // just the placeholder) — reapply it now that the option exists.
+        const saved = localStorage.getItem(VALIDATION_PROVIDER_KEY);
+        if (saved && select.querySelector(`option[value="${CSS.escape(saved)}"]`)) {
+            select.value = saved;
+        }
+    } catch (err) {
+        console.error('Failed to load validation providers', err);
     }
 }
 
@@ -598,17 +640,23 @@ async function runVisualValidation(xml, isRetry) {
     updateValidationCard('validating');
     const base64 = png.includes(',') ? png.split(',')[1] : png;
     const providerSelect = document.getElementById('validation-provider-select');
-    const selected = providerSelect ? providerSelect.value : 'auto';
-    const provider = (selected && selected !== 'auto')
-        ? selected
-        : parseProviderSelectValue(document.getElementById('provider-select').value).provider;
+    const useOwnChoice = providerSelect && providerSelect.value && providerSelect.value !== 'auto';
+    // "Same as chat" (the default) reads the composer's own picker, value
+    // format and all — the validation picker offers the exact same catalog
+    // (server providers, multi-model optgroups, custom BYOK), so both paths
+    // decode through the same parseProviderSelectValue()/custom-payload logic.
+    const rawValue = useOwnChoice ? providerSelect.value : document.getElementById('provider-select').value;
+    const { provider, model } = parseProviderSelectValue(rawValue);
+    const customProvider = (typeof getSelectedCustomProviderPayload === 'function')
+        ? getSelectedCustomProviderPayload(useOwnChoice ? 'validation-provider-select' : 'provider-select')
+        : null;
 
     let result;
     try {
         const res = await fetch('/diagram/validate-visual', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ image_base64: base64, xml, provider }),
+            body: JSON.stringify({ image_base64: base64, xml, provider, model, custom_provider: customProvider }),
         });
         if (!res.ok) throw new Error('Validation request failed.');
         result = await res.json();
@@ -652,6 +700,7 @@ initVerboseLogging();
 initPromptSettings();
 initDiagramMode();
 initProviderSelect();
+initValidationProviderSelect();
 hideValidationBanner();
 updateSendStopButtons();
 loadTemplates();

@@ -746,11 +746,23 @@ async def parse_url(body: ParseUrlRequest, request: Request):
 @router.post("/diagram/validate-visual")
 async def validate_visual(body: ValidateVisualRequest, request: Request):
     """Real screenshot-based vision QA — opt-in, client-triggered after a diagram
-    loads. Distinct from the always-on ``DIAGRAM_VLM_QA`` geometry linter."""
+    loads. Distinct from the always-on ``DIAGRAM_VLM_QA`` geometry linter.
+
+    Same provider/model/BYOK resolution as ``_run_chat`` — the Validation
+    Provider picker offers the exact same catalog as the chat composer's, so
+    it must be able to route to any of those choices, not just a plain
+    server-provider key.
+    """
     logger = _logger_from_request(request)
-    provider = body.provider or default_provider_key()
+    provider = (
+        providers_module.CUSTOM_PROVIDER_KEY if body.custom_provider
+        else (body.provider or default_provider_key()).strip().lower()
+    )
+    custom_payload = body.custom_provider.model_dump() if body.custom_provider else None
     try:
-        result = await asyncio.to_thread(run_visual_qa_llm, body.image_base64, body.xml, provider, logger)
+        with providers_module.using_custom_provider(custom_payload), \
+                providers_module.using_model_override(body.model):
+            result = await asyncio.to_thread(run_visual_qa_llm, body.image_base64, body.xml, provider, logger)
         return {"status": "success", **result.model_dump(), "logs": logger.to_list()}
     except Exception as exc:
         logger.log("error", str(exc), level="error")

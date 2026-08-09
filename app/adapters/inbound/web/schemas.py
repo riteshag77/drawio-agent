@@ -160,3 +160,12 @@ class ValidateVisualRequest(BaseModel):
     image_base64: str = Field(max_length=8_000_000)
     xml: str = Field(max_length=1_500_000)
     provider: str = Field(default_factory=_default_provider)
+    model: str | None = Field(
+        default=None,
+        max_length=200,
+        description="Selects one of `provider`'s registered `models`, same as ChatRequest.model.",
+    )
+    custom_provider: CustomProviderConfig | None = Field(
+        default=None,
+        description="Same BYOK override as ChatRequest.custom_provider — overrides `provider` for this request only.",
+    )

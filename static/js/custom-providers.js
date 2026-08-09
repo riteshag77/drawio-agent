@@ -66,6 +66,7 @@ function loadCustomProviders() {
             : '<small style="color:var(--text-muted)">No custom providers yet.</small>';
     }
     if (typeof initProviderSelect === 'function') initProviderSelect();
+    if (typeof initValidationProviderSelect === 'function') initValidationProviderSelect();
     return providers;
 }
 
@@ -346,8 +347,8 @@ async function testProviderConfigConnection(id) {
 /** Returns the CustomProviderConfig payload for the current provider-select
  * value, or null when a regular (server-registered) provider is selected.
  * Value format is `custom:<providerId>::<modelId>`. */
-function getSelectedCustomProviderPayload() {
-    const select = document.getElementById('provider-select');
+function getSelectedCustomProviderPayload(selectId) {
+    const select = document.getElementById(selectId || 'provider-select');
     if (!select || !select.value || !select.value.startsWith('custom:')) return null;
     const rest = select.value.slice('custom:'.length);
     const sep = rest.indexOf('::');
