@@ -276,7 +276,7 @@
             padding: 4px;
             background: var(--surface-well);
             border: 1px solid var(--sidebar-border);
-            border-radius: 11px;
+            border-radius: var(--radius-md);
         }
 
         .segmented .platform-card {
@@ -287,7 +287,7 @@
             padding: 0.45rem 0.25rem;
             background: transparent;
             border: none;
-            border-radius: 8px;
+            border-radius: var(--radius-sm);
             cursor: pointer;
             user-select: none;
             transition: background 0.15s, color 0.15s, box-shadow 0.15s;
@@ -305,7 +305,6 @@
 
         .segmented .platform-card.active {
             background: linear-gradient(135deg, var(--accent), var(--accent-hover));
-            box-shadow: 0 2px 8px var(--accent-glow);
         }
         .segmented .platform-card.active .platform-name { color: #fff; }
 
@@ -676,16 +675,16 @@
         .gallery-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 0.5rem;
+            gap: var(--space-3);
         }
 
         .gallery-card {
             display: flex;
             flex-direction: column;
             align-items: flex-start;
-            gap: 0.35rem;
-            padding: 0.7rem 0.75rem;
-            border-radius: 10px;
+            gap: var(--space-2);
+            padding: var(--space-4);
+            border-radius: var(--radius-md);
             border: 1px solid var(--sidebar-border);
             background: var(--surface-raised);
             cursor: pointer;
@@ -707,8 +706,13 @@
             width: 28px;
             height: 28px;
             flex-shrink: 0;
-            color: var(--accent);
+            color: var(--text-secondary);
             opacity: 0.85;
+            transition: color var(--transition-fast);
+        }
+
+        .gallery-card:hover .gallery-card-icon {
+            color: var(--accent);
         }
 
         .gallery-card-icon svg {
@@ -760,7 +764,7 @@
         .example-chip {
             text-align: left;
             padding: 0.65rem 0.85rem;
-            border-radius: 10px;
+            border-radius: var(--radius-md);
             border: 1px solid var(--sidebar-border);
             background: var(--surface-raised);
             color: var(--text-secondary);
@@ -1027,7 +1031,7 @@
         .chat-suggestions {
             margin-top: 0.5rem;
             padding: 0.65rem 0.75rem;
-            border-radius: 10px;
+            border-radius: var(--radius-md);
             background: var(--surface-raised);
             border: 1px solid var(--border-subtle);
         }
