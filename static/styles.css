@@ -2189,6 +2189,7 @@
             color: var(--text-primary);
             letter-spacing: -0.04em;
             line-height: 1.1;
+            font-family: var(--font-mono);
         }
 
         .cost-total-period {
@@ -2238,6 +2239,7 @@
             color: var(--text-primary);
             letter-spacing: -0.03em;
             line-height: 1.1;
+            font-family: var(--font-mono);
         }
 
         .cost-donut-center-label {
@@ -3015,6 +3017,7 @@
             color: var(--canvas-text, var(--text-primary, #0f172a));
             white-space: nowrap;
             font-variant-numeric: tabular-nums;
+            font-family: var(--font-mono);
         }
 
         .token-meter-track {
