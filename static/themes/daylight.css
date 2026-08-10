@@ -18,9 +18,9 @@
     --border-strong: rgba(15, 23, 42, 0.18);
     --surface-panel-right: #f8fafc;
 
-    --accent: #C45A00;
-    --accent-hover: #A84B00;
-    --accent-glow: rgba(196, 90, 0, 0.16);
+    --accent: #3D4FC7;
+    --accent-hover: #2E3EA8;
+    --accent-glow: rgba(61, 79, 199, 0.14);
 
     --success: #16a34a;
     --success-soft: #15803d;
@@ -31,9 +31,9 @@
     --error: #dc2626;
     --error-soft: #b91c1c;
     --error-bg-soft: rgba(220, 38, 38, 0.10);
-    --info: #4f46e5;
-    --info-soft: #4338ca;
-    --info-bg-soft: rgba(79, 70, 229, 0.10);
+    --info: #0369A1;
+    --info-soft: #075985;
+    --info-bg-soft: rgba(3, 105, 161, 0.10);
 
     --cost-accent: #0d9488;
     --cost-accent-dim: rgba(13, 148, 136, 0.08);

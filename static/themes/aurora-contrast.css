@@ -1,21 +1,28 @@
-/* Aurora Contrast — "Photon Sphere" direction, v2: colors pixel-sampled
+/* Aurora Contrast — "Photon Sphere" direction, v3: colors pixel-sampled
    directly from the reference black-hole visualization (not guessed from a
-   text description). The source page is almost entirely neutral — pure
-   black canvas (#000), a cool dark slate-navy instrument panel (#1B1D29),
-   antique-cream text/values (#FCF5E3-ish) — with warm gold reserved for a
-   single hero visual (the photon ring, sampled #FFD79E hot / #987147 outer).
-   v1 of this theme spread that gold as a glow/blur across every card and
-   button, which read as muddy and soft rather than sharp. v2 corrects that:
-   accent is desaturated and used sparingly, surfaces are flat (no
-   backdrop-filter blur, no box-shadow bloom), and borders are thin, neutral
-   hairlines — matching the source's "scientific instrument panel" precision
-   instead of a neon-glow aesthetic.
+   text description). v1 spread the photon ring's warm outer-amber sample as
+   a glow/blur across every card and button, which read as muddy and soft
+   rather than sharp; v2 kept that same warm sample but desaturated and
+   restrained it. v3 re-keys the sampled region entirely: instead of the
+   ring's warm outer amber, the accent and neutral ramp are now sampled from
+   its cool blue-white Doppler-boosted side — same source image, same "flat
+   instrument panel, no glow" precision, different sampled region.
+   The source page is almost entirely neutral — pure black canvas (#000), a
+   cool dark slate-navy instrument panel (#1B1D29) — with the Doppler-boosted
+   side of the photon ring supplying the accent. The ring's boosted side
+   spans blue through violet; this theme is keyed to the violet end
+   specifically (not the same blue-indigo as Midnight Slate's accent) so the
+   two dark themes stay visually distinct at a glance, not just two neutral
+   ramps wearing the same accent. Kept desaturated so it reads as one quiet
+   accent rather than a neon highlight, and the base surface stays truer
+   black than Midnight Slate's graphite for the same reason — "Contrast"
+   should mean starker, not just re-hued.
    All values contrast-checked with the dataviz skill's contrast() helper
    against this theme's actual base surface. */
 :root[data-theme="aurora-contrast"] {
-    --text-primary: #F2ECDD;
-    --text-secondary: #A79E8C;
-    --text-muted: #867C6C;
+    --text-primary: #EDEFF5;
+    --text-secondary: #9CA3B8;
+    --text-muted: #6E7486;
 
     --sidebar-bg: #030303;
     --sidebar-border: rgba(255, 255, 255, 0.07);
@@ -25,16 +32,17 @@
     --surface-active: rgba(255, 255, 255, 0.09);
     --border-subtle: rgba(255, 255, 255, 0.06);
     --border-strong: rgba(255, 255, 255, 0.16);
-    --surface-panel-right: #0c0c0f;
+    --surface-panel-right: #0B0C10;
 
-    /* Desaturated antique gold — sampled between the photon ring's outer
-       amber and its Doppler-hot core, kept muted so it reads as one quiet
-       accent rather than a neon highlight. */
-    --accent: #CBA062;
-    --accent-hover: #E4BE82;
-    --accent-glow: rgba(203, 160, 98, 0.18);
+    /* Desaturated violet — the far (more violet) end of the photon ring's
+       cool Doppler-boosted side, kept muted so it reads as one quiet accent
+       rather than a neon highlight, and deliberately more violet than
+       Midnight Slate's blue-indigo so the two dark themes stay distinct. */
+    --accent: #8A6FDB;
+    --accent-hover: #A489E8;
+    --accent-glow: rgba(138, 111, 219, 0.18);
 
-    /* Status colors kept in the same desaturated/antique family as the rest
+    /* Status colors kept in the same desaturated/cool family as the rest
        of the palette so nothing outshouts the accent; each still clears
        AA contrast against the near-black surface. */
     --success: #4E9E82;
@@ -46,13 +54,13 @@
     --error: #C75450;
     --error-soft: #E08D8A;
     --error-bg-soft: rgba(199, 84, 80, 0.14);
-    --info: #6E92B8;
-    --info-soft: #A6C0DA;
-    --info-bg-soft: rgba(110, 146, 184, 0.14);
+    --info: #5B9AAE;
+    --info-soft: #8FC0D0;
+    --info-bg-soft: rgba(91, 154, 174, 0.14);
 
     --cost-accent: #7FB3DD;
     --cost-accent-dim: rgba(127, 179, 221, 0.10);
-    --cost-bar-bg: rgba(203, 160, 98, 0.10);
+    --cost-bar-bg: rgba(108, 116, 214, 0.10);
 
     --panel-bg: #0a0a0d;
     --canvas-surface: #0a0a0d;
@@ -60,17 +68,17 @@
     --canvas-toolbar-bg: linear-gradient(to bottom, #14151c, #050505);
     --canvas-toolbar-meta-bg: #050505;
     --canvas-border: rgba(255, 255, 255, 0.10);
-    --canvas-text: #F2ECDD;
-    --canvas-text-muted: #8f8776;
+    --canvas-text: #EDEFF5;
+    --canvas-text-muted: #868DA0;
 
     --btn-bg: rgba(255, 255, 255, 0.04);
     --btn-border: rgba(255, 255, 255, 0.12);
-    --btn-text: #D8CFBC;
+    --btn-text: #C7CCDB;
     --btn-hover-bg: rgba(255, 255, 255, 0.08);
     --btn-hover-border: rgba(255, 255, 255, 0.20);
-    --btn-primary-bg: #CBA062;
-    --btn-primary-text: #1a1409;
-    --btn-primary-hover-bg: #E4BE82;
+    --btn-primary-bg: #7860D0;
+    --btn-primary-text: #F3F4FA;
+    --btn-primary-hover-bg: #9580E0;
 
     /* Cost donut categorical palette — dataviz-skill validated 8-hue set, dark column.
        Kept identical across every theme: data-identity colors stay fixed regardless
@@ -86,11 +94,11 @@
 }
 
 :root[data-theme="aurora-contrast"] select {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23A79E8C' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%239CA3B8' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
 }
 
 :root[data-theme="aurora-contrast"] .composer-tools select {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='%23A79E8C' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='%239CA3B8' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
 }
 
 :root[data-theme="aurora-contrast"] .btn-action.primary,
@@ -99,9 +107,9 @@
     font-weight: 600;
 }
 
-/* Pattern-card icons default to neutral ink, not accent gold — the source
+/* Pattern-card icons default to neutral ink, not the accent hue — the source
    confines color to its one hero visual, everywhere else stays monochrome.
-   The gold only appears as interactive feedback on hover. */
+   The accent only appears as interactive feedback on hover. */
 :root[data-theme="aurora-contrast"] .gallery-card-icon {
     color: var(--text-secondary);
     transition: color 0.15s;
@@ -124,6 +132,18 @@
 :root[data-theme="aurora-contrast"] .example-chip {
     background: #0f0f13;
     border-color: var(--border-subtle);
+    box-shadow: none;
+}
+
+:root[data-theme="aurora-contrast"] .btn-new-chat,
+:root[data-theme="aurora-contrast"] .btn-new-chat:hover,
+:root[data-theme="aurora-contrast"] .btn-send,
+:root[data-theme="aurora-contrast"] .btn-send:hover:not(:disabled) {
+    box-shadow: none;
+}
+
+:root[data-theme="aurora-contrast"] .gallery-card:hover {
+    box-shadow: none;
 }
 
 :root[data-theme="aurora-contrast"] .chat-message.assistant .chat-bubble {

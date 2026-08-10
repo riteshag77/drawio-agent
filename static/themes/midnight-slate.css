@@ -1,25 +1,28 @@
 /* Midnight Slate — default theme.
-   Refined dark control room for long working sessions. Canvas chrome (diagram
-   toolbar/viewport/action buttons/mobile nav) stays light-neutral to match
-   draw.io's own default white canvas with no visual seam. */
+   Graphite control room for long working sessions: a cool, desaturated
+   blue-grey neutral ramp (not true black) with a precise indigo accent —
+   deliberately picked over the near-black+single-neon-accent template look.
+   Canvas chrome (diagram toolbar/viewport/action buttons/mobile nav) stays
+   light-neutral to match draw.io's own default white canvas with no visual
+   seam. */
 :root[data-theme="midnight-slate"] {
-    --text-primary: #f1f5f9;
-    --text-secondary: #94a3b8;
-    --text-muted: #64748b;
+    --text-primary: #EEF0F5;
+    --text-secondary: #9AA1B4;
+    --text-muted: #6B7180;
 
-    --sidebar-bg: #0f1419;
+    --sidebar-bg: #14161D;
     --sidebar-border: rgba(255, 255, 255, 0.08);
-    --surface-well: #0b0e13;
+    --surface-well: #0F1015;
     --surface-raised: rgba(255, 255, 255, 0.03);
     --surface-hover: rgba(255, 255, 255, 0.06);
-    --surface-active: rgba(255, 255, 255, 0.08);
+    --surface-active: rgba(255, 255, 255, 0.09);
     --border-subtle: rgba(255, 255, 255, 0.05);
     --border-strong: rgba(255, 255, 255, 0.16);
-    --surface-panel-right: #0c1017;
+    --surface-panel-right: #12131A;
 
-    --accent: #ED7100;
-    --accent-hover: #ff8c2a;
-    --accent-glow: rgba(237, 113, 0, 0.2);
+    --accent: #5468F0;
+    --accent-hover: #7086FF;
+    --accent-glow: rgba(84, 104, 240, 0.22);
 
     --success: #22c55e;
     --success-soft: #86efac;
@@ -30,9 +33,9 @@
     --error: #ef4444;
     --error-soft: #fca5a5;
     --error-bg-soft: rgba(239, 68, 68, 0.15);
-    --info: #818cf8;
-    --info-soft: #a5b4fc;
-    --info-bg-soft: rgba(99, 102, 241, 0.12);
+    --info: #38BDF8;
+    --info-soft: #7DD3FC;
+    --info-bg-soft: rgba(56, 189, 248, 0.14);
 
     --cost-accent: #14b8a6;
     --cost-accent-dim: rgba(20, 184, 166, 0.1);
@@ -68,9 +71,9 @@
 }
 
 :root[data-theme="midnight-slate"] select {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2394a3b8' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%239aa1b4' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
 }
 
 :root[data-theme="midnight-slate"] .composer-tools select {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='%2394a3b8' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='%239aa1b4' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
 }

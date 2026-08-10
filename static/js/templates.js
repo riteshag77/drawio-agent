@@ -38,7 +38,9 @@ function renderTemplateList() {
         pinBtn.type = 'button';
         pinBtn.className = 'btn-chat-clear template-pin-btn';
         pinBtn.title = t.pinned ? 'Unpin' : 'Pin';
-        pinBtn.textContent = t.pinned ? '★' : '☆';
+        pinBtn.innerHTML = t.pinned
+            ? '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>'
+            : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>';
         pinBtn.onclick = () => togglePinTemplate(t.id, !t.pinned);
         row.appendChild(pinBtn);
 
@@ -56,8 +58,9 @@ function renderTemplateList() {
 
         const delBtn = document.createElement('button');
         delBtn.type = 'button';
-        delBtn.className = 'btn-chat-clear';
-        delBtn.textContent = '×';
+        delBtn.className = 'btn-chat-clear template-delete-btn';
+        delBtn.title = 'Delete';
+        delBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>';
         delBtn.onclick = () => deleteTemplate(t.id);
         row.appendChild(delBtn);
 
