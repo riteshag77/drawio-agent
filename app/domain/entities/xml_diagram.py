@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.domain.entities.governance import GovernanceFinding
 
-SuggestionCategory = Literal["network", "logical", "security", "data_flow", "general"]
+SuggestionCategory = Literal["network", "logical", "security", "data_flow", "archimate", "general"]
 _SUGGESTION_CATEGORIES = frozenset(
     {"network", "logical", "security", "data_flow", "general"}
 )

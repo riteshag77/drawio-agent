@@ -122,6 +122,40 @@ _CORRIDOR_VIEW_CONFIG: dict[str, dict[str, bool]] = {
 }
 
 
+def get_archimate_ir_system_prompt(
+    model_id: str | None = None,
+    *,
+    provider: str | None = None,
+    platform: str = "aws",
+    custom_system_message: str = "",
+    user_hint: str = "",
+) -> str:
+    """Assemble the ArchimateIR system prompt.
+
+    Deliberately not routed through ``_CORRIDOR_VIEW_CONFIG``: ArchiMate is not
+    a corridor view (no row/shelf vocabulary, no ``corridor_core.txt``), so it
+    gets its own single-pack entry point the way Network does.
+
+    No cloud classify pack, no cloud icon catalog, no SaaS icons — none of them
+    applies. ArchiMate's element vocabulary is a *closed notation*, and its
+    "icons" are notation glyphs the compiler resolves from
+    ``ARCHIMATE_ELEMENT_TABLE``, so a cloud-service catalog would only invite
+    the model to reach for keys that have no meaning on this view.
+
+    The pack is loaded only when ArchiMate is among the requested views —
+    that falls out of the existing per-view assembly, since this function is
+    only called from ``agent.generate_archimate_ir``.
+    """
+    return _assemble_ir_prompt(
+        view_prompt_files=["ir/archimate.txt"],
+        include_cloud_classify=False,
+        include_cloud_icon_catalog=False,
+        include_saas_icons=False,
+        model_id=model_id, provider=provider, platform=platform,
+        custom_system_message=custom_system_message, user_hint=user_hint,
+    )
+
+
 def get_generic_ir_system_prompt(
     model_id: str | None = None,
     *,

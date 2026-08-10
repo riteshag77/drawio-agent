@@ -15,16 +15,22 @@ from app.adapters.outbound.diagram import palette
 from app.adapters.outbound.diagram.xml_tools import ensure_diagram_document, wrap_with_mxfile
 from app.domain.entities.xml_diagram import StepMarker
 
-_VIEW_ORDER = ("logical", "network", "data_flow", "security")
+_VIEW_ORDER = ("logical", "network", "data_flow", "security", "archimate")
 #: Canonical tab/selection order across the app — Logical, Network, Data flow,
-#: Security. Public alias so callers outside this module (page merging) don't
-#: reach for the private name.
+#: Security, ArchiMate. Public alias so callers outside this module (page
+#: merging) don't reach for the private name.
+#:
+#: ArchiMate is last on purpose: the four cloud views describe one system from
+#: four angles and read as a set, while ArchiMate re-tells the same system in a
+#: different *notation* for a different audience — putting it between them
+#: would break the cloud sequence for readers who never asked for it.
 VIEW_ORDER = _VIEW_ORDER
 VIEW_PAGE_NAMES = {
     "logical": "Logical",
     "network": "Network",
     "security": "Security",
     "data_flow": "Data flow",
+    "archimate": "ArchiMate",
 }
 _DOCS_PACK_FILE = "docs/adr_raid.txt"
 _GAP_ANALYSIS_PACK_FILE = "gap_analysis.txt"
@@ -120,6 +126,11 @@ def build_views_prompt_block(views: list[str], *, adr_notes: bool = False, raid_
         "data_flow": (
             "Focus this page on the Data flow view: labeled request/data path edges "
             "(protocol / data type); keep topology sparse."
+        ),
+        "archimate": (
+            "Focus this page on the ArchiMate view: proper ArchiMate 3 notation — "
+            "business / application / technology layers and typed ArchiMate "
+            "relationships. No cloud service icons or VPC topology on this page."
         ),
     }
     lines = [
@@ -1665,6 +1676,7 @@ _VIEW_TITLE_PREFIX: dict[str, str] = {
     "data flow": "Data journey",
     "data_flow": "Data journey",
     "network": "Network architecture",
+    "archimate": "Enterprise architecture",
 }
 _VIEW_LENS: dict[str, str] = {
     "logical": (
@@ -1675,6 +1687,7 @@ _VIEW_LENS: dict[str, str] = {
     "data flow": "Data Journey & Classification — for Data/Integration Engineers and Privacy Officers",
     "data_flow": "Data Journey & Classification — for Data/Integration Engineers and Privacy Officers",
     "network": "Cloud Infrastructure & Deployment — for Platform/SRE and Network Engineers",
+    "archimate": "ArchiMate 3 notation — for Enterprise Architects and business stakeholders",
 }
 _VIEW_FOOTER: dict[str, str] = {
     "logical": "Out of scope: network topology, trust controls, payloads (other tabs).",
@@ -1682,6 +1695,7 @@ _VIEW_FOOTER: dict[str, str] = {
     "data flow": "Out of scope: network layout and security controls (other tabs).",
     "data_flow": "Out of scope: network layout and security controls (other tabs).",
     "network": "Out of scope: business capabilities, trust controls, and data payloads (other tabs).",
+    "archimate": "Out of scope: cloud topology, trust controls, and data payloads (other tabs).",
 }
 #: Header for the LLM-authored bullet section (see _overview_notes in
 #: compiler/corridor.py, and synthesize_ir_overview_body below) — Logical

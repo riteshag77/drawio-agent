@@ -68,6 +68,34 @@ REGION_GAP_X = 32.0
 #: hub shelf — the three vertically-stacked bands inside Cloud.
 EDGE_LAYER_GAP_Y = 32.0
 
+# ── ArchiMate view ─────────────────────────────────────────────────────
+#: ArchiMate elements are labelled *inside* the box (the notation puts its type
+#: glyph in the top-right corner and the name in the body), so they cannot use
+#: the square LEAF_W/LEAF_H icon footprint the cloud views use — a 78px-wide
+#: box cannot hold "Policy Administration System" at a readable size. These are
+#: the standard ArchiMate proportions and, like every other constant here, they
+#: are compiler-owned: the model never sizes anything.
+ARCHIMATE_ELEMENT_W = 170.0
+ARCHIMATE_ELEMENT_H = 70.0
+#: Pitch between adjacent elements (left edge to left edge / top to top).
+ARCHIMATE_ELEMENT_PITCH_X = ARCHIMATE_ELEMENT_W + 30.0
+ARCHIMATE_ELEMENT_PITCH_Y = ARCHIMATE_ELEMENT_H + 40.0
+#: Elements per row inside a band or grouping before wrapping. Lower than the
+#: cloud views' 4-per-row grid because each box is more than twice as wide.
+ARCHIMATE_MAX_COLS = 4
+#: Vertical clear space between two layer bands. Generous on purpose: the
+#: cross-layer serving/realization relationships that give a layered view its
+#: meaning all run through these gaps, and they need room for a label.
+ARCHIMATE_BAND_GAP_Y = 70.0
+#: Horizontal gap between peer groupings inside one band.
+ARCHIMATE_GROUP_GAP_X = 36.0
+#: Groupings per row inside a band before wrapping to a second row.
+ARCHIMATE_GROUPS_PER_ROW = 3
+#: An element count above which a band is crowded enough that domain groupings
+#: earn their visual cost. Below it, groupings still appear in the overview
+#: panel but not as boxes — see compiler/archimate.py.
+ARCHIMATE_GROUPING_THRESHOLD = 8
+
 # ── Root-layer placement ───────────────────────────────────────────────
 #: Cloud boundary's origin. Non-zero so external actors placed to its left
 #: still land at positive coordinates (draw.io tolerates negatives, but the

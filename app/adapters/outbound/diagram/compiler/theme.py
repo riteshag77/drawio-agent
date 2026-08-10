@@ -207,6 +207,107 @@ def actor_style(kind: str = "users") -> str:
     )
 
 
+# ── ArchiMate ──────────────────────────────────────────────────────────
+#
+# Unlike every other view's leaf, an ArchiMate element's style is emitted
+# *complete* here rather than as a grey placeholder awaiting MCP resolution.
+# That is not a break with the LLM/MCP ownership split — it is the same choice
+# ``actor_style()`` above already makes for the AWS person stencil. The
+# reasoning: an ArchiMate glyph is notation, not a vendor product icon. The
+# vocabulary is closed (25 types), draw.io ships the official stencil, and
+# there is exactly one correct answer per type — nothing for a fuzzy shape
+# search to add, and a miss would silently degrade a *standards-compliant*
+# diagram into a wrong one. The element still carries its ``shape_type``, and
+# ``drawio_mcp_client._ARCHIMATE_BUILTIN_STYLES`` resolves it to the identical
+# string, so the MCP pass is a confirmed no-op instead of a risk.
+#
+# Style strings verified against draw.io's own ``Sidebar-ArchiMate3.js`` and
+# ``shapes/mxArchiMate3.js``: the stencil is ``mxgraph.archimate3.application``
+# parameterised by ``appType`` (the corner glyph) and ``archiType``
+# (square | rounded corners).
+
+_ARCHIMATE_ELEMENT_BASE = (
+    "html=1;outlineConnect=0;whiteSpace=wrap;shape=mxgraph.archimate3.application;"
+    "align=center;verticalAlign=top;labelPosition=center;verticalLabelPosition=middle;"
+    "fontSize=11;fontColor=#1A1A1A;spacingTop=6;spacingLeft=6;spacingRight=20;"
+)
+
+
+def archimate_element_style(glyph: str, shape: str, layer: str) -> str:
+    """One ArchiMate element box.
+
+    ``spacingRight`` leaves the top-right corner clear for the notation glyph
+    so a long name never runs underneath it — the one presentation detail the
+    draw.io stencil does not handle itself.
+    """
+    fill, stroke = palette.archimate_layer_colors(layer)
+    archi_type = "rounded" if shape == "rounded" else "square"
+    return (
+        f"{_ARCHIMATE_ELEMENT_BASE}appType={glyph};archiType={archi_type};"
+        f"fillColor={fill};strokeColor={stroke};"
+    )
+
+
+def archimate_band_style(layer: str) -> str:
+    """The layer band that the layered viewpoint stacks elements into.
+
+    A plain titled rectangle, not the ArchiMate Grouping stencil: a band is
+    this app's own reading aid ("everything here is the business layer"), not
+    an ArchiMate Grouping element, and drawing it as one would assert a model
+    element that does not exist.
+    """
+    fill, stroke = palette.archimate_band_colors(layer)
+    return (
+        "rounded=0;whiteSpace=wrap;html=1;container=1;dropTarget=0;collapsible=0;"
+        f"recursiveResize=0;fillColor={fill};strokeColor={stroke};strokeWidth=1;"
+        "align=left;verticalAlign=top;spacingLeft=14;spacingTop=8;"
+        f"fontStyle=1;fontSize=13;fontColor={stroke};"
+    )
+
+
+def archimate_grouping_style() -> str:
+    """A domain grouping nested inside a band — ArchiMate's dashed, unfilled
+    Grouping convention, kept unfilled so band > grouping > element does not
+    stack three washes of the same hue."""
+    return (
+        "rounded=0;whiteSpace=wrap;html=1;container=1;dropTarget=0;collapsible=0;"
+        f"recursiveResize=0;fillColor=none;strokeColor={palette.ARCHIMATE_GROUPING_STROKE};"
+        "strokeWidth=1;dashed=1;dashPattern=6 4;align=left;verticalAlign=top;"
+        f"spacingLeft=12;spacingTop=6;fontSize=12;fontColor={palette.ARCHIMATE_GROUPING_STROKE};"
+    )
+
+
+#: Line notation per relationship type, verbatim from draw.io's ArchiMate 3
+#: shape library. This is the part a reader who knows ArchiMate reads *instead*
+#: of the label, so it has to be exactly right: a filled diamond that should be
+#: hollow changes composition into aggregation.
+_ARCHIMATE_RELATION_STYLES: dict[str, str] = {
+    "composition": "startArrow=diamondThin;startFill=1;startSize=12;endArrow=none;endFill=0;",
+    "aggregation": "startArrow=diamondThin;startFill=0;startSize=12;endArrow=none;endFill=0;",
+    "assignment": "startArrow=oval;startFill=1;startSize=8;endArrow=block;endFill=1;",
+    "realization": "endArrow=block;endFill=0;dashed=1;dashPattern=8 4;",
+    "serving": "endArrow=open;endFill=1;",
+    "access": "endArrow=openThin;endFill=0;dashed=1;dashPattern=1 4;",
+    "influence": "endArrow=open;endFill=0;dashed=1;dashPattern=6 4;",
+    "triggering": "endArrow=block;endFill=1;",
+    "flow": "endArrow=block;endFill=1;dashed=1;dashPattern=6 4;",
+    "specialization": "endArrow=block;endFill=0;",
+    "association": "endArrow=none;endFill=0;",
+}
+
+
+def archimate_relation_style(rel_type: str, *, labelled: bool = True) -> str:
+    """Edge style for one ArchiMate relationship type."""
+    notation = _ARCHIMATE_RELATION_STYLES.get(rel_type, _ARCHIMATE_RELATION_STYLES["association"])
+    style = (
+        "edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;jettySize=auto;orthogonalLoop=1;"
+        f"strokeWidth=1;strokeColor={palette.ARCHIMATE_RELATION_STROKE};{notation}"
+    )
+    if labelled:
+        style += "labelBackgroundColor=#FFFFFF;fontSize=10;fontColor=#4D4D4D;"
+    return style
+
+
 def flow_style(*, primary: bool, labelled: bool, classification: str = "none", animated: bool = False) -> str:
     """Two independent channels, not one overloaded one: ``primary`` controls
     weight/dash (main path vs secondary/async); ``classification`` controls

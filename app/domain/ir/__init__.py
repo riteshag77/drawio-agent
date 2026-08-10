@@ -13,6 +13,25 @@ responsibility; the model only decides *what* exists and *how it connects*.
 Pure domain: no I/O, no draw.io vocabulary, no rendering concerns.
 """
 
+from app.domain.ir.archimate import (
+    ArchimateElement,
+    ArchimateGrouping,
+    ArchimateIR,
+    ArchimateRelationship,
+    ArchimateViewpoint,
+    OpenQuestion,
+    SourceConfidence,
+)
+from app.domain.ir.archimate_types import (
+    ARCHIMATE_ELEMENT_TABLE,
+    ArchimateAspect,
+    ArchimateElementType,
+    ArchimateLayer,
+    ArchimateRelationshipType,
+    ArchimateTypeSpec,
+    is_legal_relationship,
+    nearest_legal_substitute,
+)
 from app.domain.ir.base import (
     ActorKind,
     DiagramIR,
@@ -48,8 +67,19 @@ from app.domain.ir.network import (
 from app.domain.ir.security import SecurityIR
 
 __all__ = [
+    "ARCHIMATE_ELEMENT_TABLE",
     "ActorKind",
     "AnchoredCorridor",
+    "ArchimateAspect",
+    "ArchimateElement",
+    "ArchimateElementType",
+    "ArchimateGrouping",
+    "ArchimateIR",
+    "ArchimateLayer",
+    "ArchimateRelationship",
+    "ArchimateRelationshipType",
+    "ArchimateTypeSpec",
+    "ArchimateViewpoint",
     "AvailabilityZone",
     "CloudBoundary",
     "Corridor",
@@ -71,12 +101,16 @@ __all__ = [
     "Leaf",
     "LogicalIR",
     "NetworkIR",
+    "OpenQuestion",
     "Region",
     "SecurityIR",
+    "SourceConfidence",
     "Subnet",
     "SubnetTier",
     "ViewKind",
     "Vpc",
+    "is_legal_relationship",
+    "nearest_legal_substitute",
 ]
 
 #: Maps a primary-view key to its IR type — the single dispatch table every
@@ -87,4 +121,5 @@ IR_TYPES_BY_VIEW: dict[str, type[DiagramIR]] = {
     "logical": LogicalIR,
     "security": SecurityIR,
     "data_flow": DataFlowIR,
+    "archimate": ArchimateIR,
 }

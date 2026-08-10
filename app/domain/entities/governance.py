@@ -35,7 +35,7 @@ GovernanceRuleKind = Literal[
 ]
 
 #: "any" applies the rule to every view/platform; a specific value scopes it.
-GovernanceView = Literal["any", "network", "logical", "security", "data_flow"]
+GovernanceView = Literal["any", "network", "logical", "security", "data_flow", "archimate"]
 GovernancePlatform = Literal["any", "aws", "gcp", "azure", "multi"]
 
 #: Overview/narrative field names a rule can point at — one per IR type's own

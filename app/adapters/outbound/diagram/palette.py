@@ -109,6 +109,65 @@ SHELF_IDS: frozenset[str] = frozenset({
 })
 
 
+# ── ArchiMate layers ────────────────────────────────────────────────────────
+#
+#: ``{layer: (fillColor, strokeColor)}`` for ArchiMate elements, plus the
+#: lighter band/grouping shades the layered viewpoint stacks them on.
+#:
+#: These live in their own table rather than in ``CORRIDOR_COLORS`` even though
+#: both are "container colours": ``corridor_colors()`` resolves unknown ids by
+#: *longest-prefix* match, so anything added to that dict becomes a fallback
+#: target for every future corridor id — and an ArchiMate layer is not a
+#: corridor, so it must never be one. Same module (one source of truth for
+#: colour), separate table (no accidental cross-talk).
+#:
+#: The hues are ArchiMate's own convention, which readers of the notation
+#: already know — yellow = business, blue = application, green = technology.
+#: They are deliberately NOT re-derived from this app's cloud palette: on this
+#: view the colour IS the notation, and overriding it would make a standard
+#: diagram unreadable to the people who read standard diagrams.
+ARCHIMATE_LAYER_COLORS: dict[str, tuple[str, str]] = {
+    "business": ("#FFFFB5", "#B3B300"),
+    "application": ("#B5FFFF", "#0F8C8C"),
+    "technology": ("#C9E7B7", "#4C9141"),
+}
+
+#: Band wrapper behind each layer's elements — a tint of the same hue, light
+#: enough that a filled element sitting on it still reads as the foreground.
+ARCHIMATE_BAND_COLORS: dict[str, tuple[str, str]] = {
+    "business": ("#FFFFF0", "#B3B300"),
+    "application": ("#F0FFFF", "#0F8C8C"),
+    "technology": ("#F2F9EE", "#4C9141"),
+}
+
+#: Domain groupings nested inside a band. ArchiMate draws a Grouping with a
+#: dashed border and no fill; keeping it unfilled is also what stops a
+#: three-deep nest (band > grouping > element) from turning into three stacked
+#: washes of the same colour.
+ARCHIMATE_GROUPING_STROKE = "#7F7F7F"
+
+#: Relationship stroke. One neutral colour for every relationship type: the
+#: type is already carried by the line notation (arrowheads, dashes) and by the
+#: edge label, and adding colour as a third redundant channel would spend the
+#: page's only remaining free channel on information it already shows twice.
+ARCHIMATE_RELATION_STROKE = "#4D4D4D"
+
+
+def archimate_layer_colors(layer: str) -> tuple[str, str]:
+    """``(fill, stroke)`` for an ArchiMate layer, defaulting to application.
+
+    Exact match only — unlike ``corridor_colors``, there are exactly three
+    layers and they come from a closed ``Literal``, so a prefix fallback would
+    only ever mask a bug.
+    """
+    return ARCHIMATE_LAYER_COLORS.get(layer, ARCHIMATE_LAYER_COLORS["application"])
+
+
+def archimate_band_colors(layer: str) -> tuple[str, str]:
+    """``(fill, stroke)`` for an ArchiMate layer band."""
+    return ARCHIMATE_BAND_COLORS.get(layer, ARCHIMATE_BAND_COLORS["application"])
+
+
 # ── Flow classification (edge stroke colour) ────────────────────────────────
 #
 #: One more visual channel than "primary" already gives (strokeWidth/dashed),

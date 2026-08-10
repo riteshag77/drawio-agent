@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from app.adapters.outbound.diagram.compiler import compile_corridor_ir, compile_generic_ir, compile_network_ir
+from app.adapters.outbound.diagram.compiler import (
+    compile_archimate_ir,
+    compile_corridor_ir,
+    compile_generic_ir,
+    compile_network_ir,
+)
 from app.adapters.outbound.diagram.diagram_edits import apply_diagram_edits
 from app.adapters.outbound.llm.prompt_builders import build_chat_prompt
 from app.adapters.outbound.utils.chat import (
@@ -12,6 +17,7 @@ from app.adapters.outbound.utils.chat import (
     build_suggestions_instruction_block,
 )
 from app.adapters.outbound.llm.prompts.ir import (
+    get_archimate_ir_system_prompt,
     get_corridor_ir_system_prompt,
     get_generic_ir_system_prompt,
     get_network_ir_system_prompt,
@@ -26,7 +32,7 @@ from app.core.ports.llm import LlmPort, get_llm
 from app.core.services.governance import evaluate_governance_rules, findings_to_warnings
 from app.domain.entities import DiagramEditPlan, MermaidDiagram, VisualQaResult, XmlDiagram
 from app.domain.entities.xml_diagram import DiagramSuggestion
-from app.domain.ir import IR_TYPES_BY_VIEW, GenericDiagramIR, NetworkIR
+from app.domain.ir import IR_TYPES_BY_VIEW, ArchimateIR, GenericDiagramIR, NetworkIR
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
@@ -407,6 +413,7 @@ IR_MAX_CORRECTIVE_PASSES = 1
 _IR_PAGE_NAMES: dict[str, str] = {
     "network": "Network", "logical": "Logical",
     "security": "Security", "data_flow": "Data flow",
+    "archimate": "ArchiMate",
 }
 
 
@@ -860,6 +867,52 @@ def generate_network_ir(
     )
 
 
+def generate_archimate_ir(
+    user_request: str,
+    provider: str = "claude",
+    platform: str = "aws",
+    logger: "StepLogger | None" = None,
+    messages: list[dict[str, str]] | None = None,
+    custom_system_message: str = "",
+    applied_suggestions: list[str] | None = None,
+    context_text: str | None = None,
+    attachment_documents: list[dict] | None = None,
+    image_replicate: bool = False,
+    *,
+    llm: LlmPort | None = None,
+) -> ArchimateIR:
+    """Ask the LLM for an ArchimateIR and correct it until it satisfies its own rules.
+
+    A third sibling of ``generate_network_ir``/``generate_corridor_ir`` rather
+    than a branch inside either: ArchiMate shares the corrective loop but
+    neither the corridor prompt assembly nor Network's cloud packs.
+    """
+    provider_key, chat_messages, hint, _llm, provider_spec = _prepare_ir_call(
+        user_request=user_request, provider=provider, messages=messages, llm=llm,
+    )
+    system_prompt = get_archimate_ir_system_prompt(
+        model_id=provider_spec.default_model,
+        provider=provider_key,
+        platform=platform,
+        custom_system_message=custom_system_message,
+        user_hint=hint,
+    )
+    human_content = _build_ir_human_content(
+        view="archimate", platform=platform, chat_messages=chat_messages,
+        applied_suggestions=applied_suggestions, context_text=context_text,
+        image_replicate=image_replicate,
+    )
+    if logger:
+        logger.log("prompt", "Prepared ArchiMate IR request", details={
+            "provider": provider_key, "platform": platform,
+        })
+    return _generate_ir_with_corrections(
+        ir_type=ArchimateIR, system_prompt=system_prompt, human_content=human_content,
+        provider_key=provider_key, logger=logger, attachment_documents=attachment_documents,
+        llm=_llm, view_label="ArchiMate", view_key="archimate",
+    )
+
+
 def generate_corridor_ir(
     view: str,
     user_request: str,
@@ -915,11 +968,21 @@ def generate_corridor_ir(
 
 
 def _ir_inventory_lines(ir: object, *, limit: int = 40) -> list[str]:
-    """Short label inventory from a NetworkIR or CorridorIR for suggestion prompts."""
+    """Short label inventory from any view's IR, for suggestion prompts.
+
+    Written entirely with ``getattr`` defaults so a new IR shape contributes
+    whatever it has and skips the rest, rather than needing a branch per view.
+    """
     lines: list[str] = []
     title = getattr(ir, "title", "") or ""
     if title:
         lines.append(f"Title: {title}")
+    # ArchiMate elements — named `name`, not `label`, since they are model
+    # elements rather than icons.
+    for element in getattr(ir, "elements", None) or []:
+        lab = getattr(element, "name", "") or getattr(element, "id", "")
+        if lab:
+            lines.append(lab)
     # Corridor leaves
     for corridor in getattr(ir, "corridors", None) or []:
         for leaf in getattr(corridor, "leaves", None) or []:
@@ -1159,6 +1222,9 @@ def generate_xml_diagram_from_ir(
     if view_key == "network":
         ir = generate_network_ir(user_request, **kwargs)
         xml = compile_network_ir(ir, animated_connectors=animated_connectors)
+    elif view_key == "archimate":
+        ir = generate_archimate_ir(user_request, **kwargs)
+        xml = compile_archimate_ir(ir, page_name=_IR_PAGE_NAMES[view_key])
     else:
         ir = generate_corridor_ir(view_key, user_request, **kwargs)
         xml = compile_corridor_ir(ir, page_name=_IR_PAGE_NAMES[view_key], animated_connectors=animated_connectors)

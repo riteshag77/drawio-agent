@@ -161,6 +161,50 @@ _LOGICAL_BUILTIN_STYLES: dict[str, str] = {
 }
 
 
+#: ``archimate_<element-type>`` -> the official draw.io ArchiMate 3 style.
+#:
+#: Built from the notation table rather than hand-typed, and deliberately NOT
+#: routed through MCP ``search_shapes`` — same reasoning as
+#: ``_LOGICAL_BUILTIN_STYLES`` above, only stronger. The vocabulary is closed
+#: (25 types), draw.io ships one official stencil for all of them
+#: (``mxgraph.archimate3.application``, parameterised by ``appType``/
+#: ``archiType``), and there is exactly one correct answer per type. A fuzzy
+#: search over a notation library has nothing to add and everything to lose: a
+#: miss on a *standards-compliant* diagram is not a grey placeholder a reader
+#: forgives, it is a diagram that says the wrong thing.
+#:
+#: The strings are identical to what ``compiler/theme.archimate_element_style``
+#: already emits, which makes the MCP style pass a confirmed no-op on this view
+#: instead of a source of drift — see that function's comment for why the
+#: compiler emits the final style directly.
+def _archimate_builtin_styles() -> dict[str, str]:
+    from app.adapters.outbound.diagram.compiler.theme import archimate_element_style
+    from app.domain.ir.archimate_types import ARCHIMATE_ELEMENT_TABLE
+
+    return {
+        f"archimate_{element_type.replace('-', '_')}": archimate_element_style(
+            spec.glyph, spec.shape, spec.layer
+        )
+        for element_type, spec in ARCHIMATE_ELEMENT_TABLE.items()
+    }
+
+
+_ARCHIMATE_BUILTIN_STYLES_CACHE: dict[str, str] | None = None
+
+
+def _archimate_builtin_style(shape_type: str) -> str | None:
+    """Style for an ``archimate_*`` shape_type, or ``None``.
+
+    Lazily built (and then cached) because the table lives in the compiler/
+    domain layers, which import this module's package — resolving it at import
+    time here would create a cycle.
+    """
+    global _ARCHIMATE_BUILTIN_STYLES_CACHE
+    if _ARCHIMATE_BUILTIN_STYLES_CACHE is None:
+        _ARCHIMATE_BUILTIN_STYLES_CACHE = _archimate_builtin_styles()
+    return _ARCHIMATE_BUILTIN_STYLES_CACHE.get((shape_type or "").strip().lower())
+
+
 #: A handful of AWS acronyms confirmed, via multiple live captures, to search
 #: badly against search_shapes' index as a bare 2-3 letter string — "kms"
 #: alone consistently top-ranks to the Kinesis Data Firehose icon, which has
@@ -335,6 +379,13 @@ def __getattr__(name: str):
     # Tests / importers historically imported ``_SAAS_BUILTIN_STYLES`` as a dict.
     if name == "_SAAS_BUILTIN_STYLES":
         return _saas_builtin_styles()
+    # Same convention for the ArchiMate table, which is also lazily built (see
+    # _archimate_builtin_style) but reads naturally as a dict from outside.
+    if name == "_ARCHIMATE_BUILTIN_STYLES":
+        global _ARCHIMATE_BUILTIN_STYLES_CACHE
+        if _ARCHIMATE_BUILTIN_STYLES_CACHE is None:
+            _ARCHIMATE_BUILTIN_STYLES_CACHE = _archimate_builtin_styles()
+        return _ARCHIMATE_BUILTIN_STYLES_CACHE
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -346,6 +397,11 @@ def _builtin_style(shape_type: str) -> str | None:
     vague queries often return empty or non-rendering shapes.
     """
     st = (shape_type or "").strip().lower()
+    if st.startswith("archimate_"):
+        style = _archimate_builtin_style(st)
+        if style and not style.endswith(";"):
+            return style + ";"
+        return style
     if st.startswith("logical_"):
         style = _LOGICAL_BUILTIN_STYLES.get(st)
         if style and not style.endswith(";"):

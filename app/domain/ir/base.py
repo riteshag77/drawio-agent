@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-ViewKind = Literal["network", "logical", "security", "data_flow"]
+ViewKind = Literal["network", "logical", "security", "data_flow", "archimate"]
 
 # Cell ids end up as draw.io `id=` attributes and as edge source/target refs.
 # Constraining them here means the compiler never has to escape or sanitize.

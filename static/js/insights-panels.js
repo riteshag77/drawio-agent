@@ -525,12 +525,13 @@ function displaySuggestions(suggestions) {
         return;
     }
 
-    var categoryOrder = ['network', 'logical', 'security', 'data_flow', 'general'];
+    var categoryOrder = ['network', 'logical', 'security', 'data_flow', 'archimate', 'general'];
     var categoryLabels = {
         network: 'Applies to Network page',
         logical: 'Applies to Logical page',
         security: 'Applies to Security page',
         data_flow: 'Applies to Data flow page',
+        archimate: 'Applies to ArchiMate page',
         general: 'Applies generally',
     };
     var byCat = {};
@@ -574,7 +575,7 @@ function displaySuggestions(suggestions) {
 
             var chip = document.createElement('span');
             chip.className = 'suggestion-category-chip';
-            chip.textContent = cat === 'data_flow' ? 'Data flow' : (cat.charAt(0).toUpperCase() + cat.slice(1));
+            chip.textContent = cat === 'data_flow' ? 'Data flow' : cat === 'archimate' ? 'ArchiMate' : (cat.charAt(0).toUpperCase() + cat.slice(1));
 
             var textSpan = document.createElement('span');
             textSpan.className = 'suggestion-text';

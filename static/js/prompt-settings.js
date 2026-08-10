@@ -31,7 +31,7 @@ function getSelectedDiagramViews() {
         if (cb.checked) selected.push(cb.value);
     });
     if (!selected.length) return ['logical'];
-    const order = ['logical', 'network', 'security', 'data_flow'];
+    const order = ['logical', 'network', 'security', 'data_flow', 'archimate'];
     return order.filter(function (v) { return selected.indexOf(v) !== -1; });
 }
 

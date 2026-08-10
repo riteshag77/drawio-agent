@@ -230,7 +230,9 @@ class EnvConfigAdapter:
         """
         return [
             v.lower()
-            for v in self.get_list("DIAGRAM_IR_VIEWS", ["network", "security", "data_flow", "logical"])
+            for v in self.get_list(
+                "DIAGRAM_IR_VIEWS", ["network", "security", "data_flow", "logical", "archimate"]
+            )
         ]
 
     @property
