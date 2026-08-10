@@ -1,6 +1,9 @@
 function getDrawioUrl(theme) {
     const ui = DRAWIO_THEMES.includes(theme) ? theme : 'kennedy';
-    return `${DRAWIO_ORIGIN}/?embed=1&ui=${ui}&spin=1&proto=json&configure=1&libs=aws4;gcp2;azure2&nav=1&saveAndExit=0&noSaveBtn=1&noExitBtn=1&sidebar=0&format=0`;
+    // spin=0: suppress drawio's own boot spinner. The app's own placeholder/
+    // loading overlay already covers this window, so drawio's spinner was a
+    // second, differently-styled loading indicator competing with ours.
+    return `${DRAWIO_ORIGIN}/?embed=1&ui=${ui}&spin=0&proto=json&configure=1&libs=aws4;gcp2;azure2&nav=1&saveAndExit=0&noSaveBtn=1&noExitBtn=1&sidebar=0&format=0`;
 }
 
 function exportDiagramXml() {
@@ -93,7 +96,10 @@ function bindDrawioMessages(iframe) {
                 config: {
                     defaultFonts: ['Helvetica', 'Arial', 'sans-serif'],
                     defaultLibraries: 'aws4;gcp2;azure2',
-                    css: '.geDiagramContainer { background: #ffffff !important; }'
+                    // .geDiagramContainer: keep the canvas white regardless of embed UI theme.
+                    // .geSpinnerStatus: belt-and-suspenders alongside spin=0 in getDrawioUrl —
+                    // the embed's own boot spinner competes with this app's loading UI.
+                    css: '.geDiagramContainer { background: #ffffff !important; } .geSpinnerStatus { display: none !important; }'
                 }
             }), DRAWIO_ORIGIN);
         }
