@@ -798,7 +798,7 @@
 
         .chat-bubble {
             padding: 0.85rem 1rem;
-            border-radius: 14px;
+            border-radius: var(--radius-lg);
             font-size: 0.88rem;
             line-height: 1.6;
             white-space: pre-wrap;
@@ -1194,7 +1194,7 @@
             align-self: flex-start;
             display: none;
             padding: 0.75rem 1rem;
-            border-radius: 14px;
+            border-radius: var(--radius-lg);
             background: var(--surface-hover);
             border: 1px solid var(--sidebar-border);
             gap: 0.35rem;
@@ -1680,7 +1680,7 @@
         }
         .provider-card {
             border: 1px solid var(--sidebar-border);
-            border-radius: 10px;
+            border-radius: var(--radius-md);
             background: var(--surface-raised);
             padding: 0.6rem 0.7rem;
             display: flex;
@@ -1893,7 +1893,7 @@
         .platform-card {
             background: var(--surface-raised);
             border: 1px solid var(--sidebar-border);
-            border-radius: 10px;
+            border-radius: var(--radius-md);
             padding: 0.75rem;
             cursor: pointer;
             transition: all 0.2s ease;
@@ -1929,7 +1929,7 @@
             width: 100%;
             background: var(--surface-raised);
             border: 1px solid var(--sidebar-border);
-            border-radius: 10px;
+            border-radius: var(--radius-md);
             color: var(--text-primary);
             font-family: inherit;
             transition: border-color 0.2s, box-shadow 0.2s;
