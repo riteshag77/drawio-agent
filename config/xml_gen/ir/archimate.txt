@@ -35,24 +35,37 @@ entry in `relationships`, not as a `flow`.
 
 ## Choosing a viewpoint
 
-Pick the one that answers the question the brief actually asks — don't
-default to `layered` out of habit:
+**Default to `layered` — it is the answer for almost every brief, including
+ones that read like a list of technical components.** A description like "an
+ingestion API, object storage, ETL processing, and a data warehouse" is not a
+reason to skip the business/technology layers — it is exactly the case where
+`layered` earns its keep, by making you name the business capability this
+pipeline exists to serve (infer one, `source_confidence: "inferred"`, if the
+brief never says it in so many words — "Data Analytics & Reporting" or
+similar) and the technology it runs on (infer the platform/hosting from
+context, or add one honest `open_questions` entry if you truly cannot, but
+still model the application layer either way). A thin or partly-inferred
+layered diagram beats a complete but narrower one — narrowing the viewpoint
+is not a substitute for inferring.
 
-- **`layered`** — the default. Use it when the brief is about the whole
-  system: how a business capability is realized by applications, which run
-  on technology. Renders as three stacked bands, business over application
-  over technology.
-- **`application_cooperation`** — use it when the brief is specifically about
-  how application components/services interact with each other (integration,
-  service composition) and the business/technology framing would be noise.
-  Elements should be mostly `application-*` (a few `business-service`/
-  `data-object` peers are fine; do not fill this viewpoint with only business
-  elements — pick `layered` instead if the brief is really about the business
-  layer).
-- **`technology`** — use it when the brief is specifically about
-  infrastructure/deployment/hosting. Every element must be a
-  `technology-*` type or `artifact` — no business or application elements on
-  this viewpoint.
+Only switch away from `layered` when the brief's own words ask a narrower
+question, not merely because it happens to list application components:
+
+- **`application_cooperation`** — only when the brief explicitly asks how
+  named application components/services integrate with each other (e.g. "how
+  do these microservices talk to each other," "show the application
+  landscape," "an integration diagram of our services") — a request about
+  *interaction patterns themselves*, not just a description of what the
+  system contains. Elements should be mostly `application-*`.
+- **`technology`** — only when the brief explicitly asks about
+  infrastructure/deployment/hosting itself (e.g. "our technology stack,"
+  "how this is deployed," "the hosting architecture") rather than merely
+  mentioning technical nouns in passing. Every element must be a
+  `technology-*` type or `artifact`.
+
+If you are unsure which of the three the brief is really asking for, pick
+`layered` — it is never the wrong choice, only sometimes more than a narrow
+question strictly needed.
 
 Say which you picked and why in `viewpoint_rationale` — one sentence.
 
@@ -127,6 +140,19 @@ legal type, or dropped and turned into an open question if nothing fits — so
 **choose the relationship you actually mean**, don't default to `association`
 to avoid being wrong. Every element pair with a real relationship needs one:
 `relationships` is required and must be non-empty whenever 2+ elements exist.
+
+**Direction matters, especially for passive elements.** A `data-object` /
+`business-object` / `artifact` (passive-structure) can only ever be the
+*target* of `access`, `serving`, `realization`, `triggering`, `flow`, or
+`assignment` — never the source. Something active or behavioral always
+reads/writes/depends on the passive element, not the other way around. Get
+this backwards (e.g. `"Data Warehouse" -[serving]-> "BI Analytics"`, when the
+truth is "BI Analytics reads from the Data Warehouse") and there is no legal
+fix to auto-correct to — the relationship is simply dropped and you lose a
+real connection the diagram should have shown. Before writing a relationship
+whose source is passive-structure, flip it: ask what actually *acts on* that
+passive element, and make that the source instead
+(`"BI Analytics" -[access]-> "Data Warehouse"`).
 
 ## Groupings
 
