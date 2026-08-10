@@ -1,4 +1,4 @@
-        /* Layout-only tokens shared by every theme. Color/surface tokens are
+﻿        /* Layout-only tokens shared by every theme. Color/surface tokens are
            defined per-theme in /static/themes/*.css under :root[data-theme="..."]. */
         :root {
             --sidebar-width: 440px;
@@ -48,7 +48,7 @@
             background: var(--sidebar-bg);
         }
 
-        /* ── Sidebar ─────────────────────────────── */
+        /* â”€â”€ Sidebar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
         .sidebar {
             width: var(--sidebar-width);
             min-width: var(--sidebar-min-width);
@@ -77,10 +77,10 @@
             display: none;
         }
 
-        /* Collapsed-panel rail — full-height strip with an icon + rotated text
+        /* Collapsed-panel rail â€” full-height strip with an icon + rotated text
            label (a thin labeled rail) rather than a small floating chevron button.
            Lives inside .diagram-panel, which is always light regardless of
-           app theme (--panel-bg) — so it uses the canvas-area tokens, not
+           app theme (--panel-bg) â€” so it uses the canvas-area tokens, not
            the sidebar's dark-surface tokens (--surface-raised is a ~3%
            white tint meant to sit on a dark background and is invisible here). */
         .collapsed-rail {
@@ -165,7 +165,7 @@
             writing-mode: vertical-rl;
             transform: rotate(180deg);
             font-size: 0.66rem;
-            font-weight: 700;
+            font-weight: 500;
             letter-spacing: 0.08em;
             text-transform: uppercase;
             color: var(--canvas-text-muted, #71717a);
@@ -236,7 +236,7 @@
 
         .brand-text { flex: 1; min-width: 0; }
 
-        /* ── Icon buttons ───────────────────────── */
+        /* â”€â”€ Icon buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
         .icon-btn {
             width: 36px;
             height: 36px;
@@ -262,7 +262,7 @@
 
         .settings-trigger:hover svg { transform: rotate(45deg); transition: transform 0.3s ease; }
 
-        /* ── Compact control bar (platform only) ── */
+        /* â”€â”€ Compact control bar (platform only) â”€â”€ */
         .control-bar {
             padding: 0.55rem 1rem;
             border-bottom: 1px solid var(--sidebar-border);
@@ -316,7 +316,7 @@
 
         .control-bar-row select { padding: 0.6rem 0.85rem; font-size: 0.84rem; }
 
-        /* ── Settings drawer ────────────────────── */
+        /* â”€â”€ Settings drawer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
         .settings-backdrop {
             position: absolute;
             inset: 0;
@@ -407,7 +407,7 @@
 
         .drawer-group-title {
             font-size: 0.68rem;
-            font-weight: 700;
+            font-weight: 500;
             text-transform: uppercase;
             letter-spacing: 0.09em;
             color: var(--text-muted);
@@ -521,7 +521,7 @@
             flex-direction: column;
         }
 
-        /* ── Chat panel ─────────────────────────── */
+        /* â”€â”€ Chat panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
         .chat-panel {
             flex: 1;
             min-height: 0;
@@ -541,7 +541,7 @@
 
         .chat-toolbar span {
             font-size: 0.72rem;
-            font-weight: 600;
+            font-weight: 500;
             color: var(--text-secondary);
             text-transform: uppercase;
             letter-spacing: 0.08em;
@@ -553,7 +553,7 @@
             gap: 0.4rem;
         }
 
-        /* Icon-only ghost button — for the secondary, occasional action
+        /* Icon-only ghost button â€” for the secondary, occasional action
            (browsing past sessions). No label: the history glyph plus a
            tooltip is enough, and keeping it unlabeled is what visually
            subordinates it to New chat next to it. */
@@ -577,7 +577,7 @@
             color: var(--text-primary);
         }
 
-        /* New chat is the primary, most-used action here — same accent
+        /* New chat is the primary, most-used action here â€” same accent
            gradient language as .btn-send, so it reads as "the" call to
            action rather than competing on equal footing with Sessions. */
         .btn-new-chat {
@@ -648,7 +648,7 @@
             margin-bottom: 0.85rem;
         }
 
-        /* ── Patterns Gallery ───────────────────── */
+        /* â”€â”€ Patterns Gallery â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
         .patterns-gallery {
             margin-bottom: 1rem;
         }
@@ -659,7 +659,7 @@
 
         .gallery-header h3 {
             font-size: 0.78rem;
-            font-weight: 700;
+            font-weight: 500;
             text-transform: uppercase;
             letter-spacing: 0.06em;
             color: var(--text-primary);
@@ -746,7 +746,7 @@
 
         .gallery-badge {
             font-size: 0.58rem;
-            font-weight: 700;
+            font-weight: 500;
             text-transform: uppercase;
             letter-spacing: 0.04em;
             padding: 0.1rem 0.4rem;
@@ -827,7 +827,7 @@
 
         .chat-message.user .chat-meta { text-align: right; }
 
-        /* ── Validation status line (VLM visual QA) ───────────── */
+        /* â”€â”€ Validation status line (VLM visual QA) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
         .validation-card {
             border: 1px solid var(--border-subtle, var(--sidebar-border));
             border-radius: 8px;
@@ -945,7 +945,7 @@
         }
         .validation-fix-btn:hover { background: var(--accent); color: var(--btn-primary-text, #fff); }
 
-        /* "Why this design" card — the model's own tradeoff bullets
+        /* "Why this design" card â€” the model's own tradeoff bullets
            (NetworkIR/CorridorIR.design_tradeoffs), surfaced as its own small
            chat-feed card rather than folded into the assistant's one-line
            summary, so it reads as the AI explaining a judgment call instead
@@ -1038,7 +1038,7 @@
 
         .chat-suggestions-title {
             font-size: 0.68rem;
-            font-weight: 700;
+            font-weight: 500;
             text-transform: uppercase;
             letter-spacing: 0.06em;
             color: var(--text-muted);
@@ -1105,7 +1105,7 @@
             margin-left: auto;
             flex-shrink: 0;
             font-size: 0.62rem;
-            font-weight: 700;
+            font-weight: 500;
             text-transform: uppercase;
             letter-spacing: 0.05em;
             color: var(--success-soft);
@@ -1224,7 +1224,7 @@
             flex-shrink: 0;
         }
 
-        /* ── Composer ────────────────────────────── */
+        /* â”€â”€ Composer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
         .composer {
             display: flex;
             flex-direction: column;
@@ -1302,7 +1302,7 @@
             color: var(--text-primary);
         }
 
-        /* ── Provider picker (BYOK-aware, replaces the plain <select>) ──── */
+        /* â”€â”€ Provider picker (BYOK-aware, replaces the plain <select>) â”€â”€â”€â”€ */
         .provider-picker {
             position: relative;
             flex-shrink: 1;
@@ -1339,7 +1339,7 @@
             height: 10px;
             opacity: 0.7;
         }
-        /* Centered command-palette modal ("Search models…" dialog) — not an
+        /* Centered command-palette modal ("Search modelsâ€¦" dialog) â€” not an
            anchored corner popover. Backdrop dims/blurs the
            whole app; the panel itself floats independently of the trigger
            button, matching a Cmd+K-style picker rather than a dropdown. */
@@ -1525,7 +1525,7 @@
 
         /* Without this, optgroup falls back to the browser's UA default (often
            white-on-black regardless of app theme) since it isn't covered by the
-           plain `select option` rule above — matters now that provider-select
+           plain `select option` rule above â€” matters now that provider-select
            groups multi-model providers (NVIDIA, Gemini, OpenRouter, OpenCode)
            under an <optgroup> label. */
         .composer-tools select optgroup {
@@ -1672,7 +1672,7 @@
         .template-row span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .template-pin-btn { flex-shrink: 0; }
 
-        /* ── Custom (BYOK) provider cards ─────────────────────── */
+        /* â”€â”€ Custom (BYOK) provider cards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
         .provider-card-list {
             display: flex;
             flex-direction: column;
@@ -2039,7 +2039,7 @@
             display: none !important;
         }
 
-        /* ── Cost estimate panel ─────────────────── */
+        /* â”€â”€ Cost estimate panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
         .cost-panel {
             display: none;
             flex-shrink: 0;
@@ -2311,7 +2311,7 @@
             line-height: 1.5;
         }
 
-        /* ── Cost category cards ─────────────────── */
+        /* â”€â”€ Cost category cards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
         .cost-category-card {
             background: var(--surface-raised);
             border: 1px solid var(--border-subtle);
@@ -2415,7 +2415,7 @@
             line-height: 1.4;
         }
 
-        /* ── Well-Architected panel ──────────────── */
+        /* â”€â”€ Well-Architected panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
         .waf-panel {
             display: none;
             flex-shrink: 0;
@@ -2529,7 +2529,7 @@
             color: var(--text-primary);
         }
 
-        /* ── Governance tab — org house-style rules checked against this
+        /* â”€â”€ Governance tab â€” org house-style rules checked against this
            diagram. Same pass/fail visual language as the WAF panel above
            (same tokens), since a user already knows how to read that. */
         .governance-panel-intro {
@@ -2648,7 +2648,7 @@
             line-height: 1.5;
         }
 
-        /* ── Right log panel ─────────────────────── */
+        /* â”€â”€ Right log panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
         .log-panel {
             width: 0;
             min-width: 0;
@@ -2872,7 +2872,7 @@
             color: var(--text-primary);
         }
 
-        /* ── Diagram panel ───────────────────────── */
+        /* â”€â”€ Diagram panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
         .diagram-panel {
             flex: 1;
             min-width: 0;
@@ -2916,7 +2916,7 @@
             min-width: 150px;
             max-width: 220px;
             padding: 4px 8px 5px;
-            /* Canvas toolbar is often light even when the app chrome is dark —
+            /* Canvas toolbar is often light even when the app chrome is dark â€”
                use canvas tokens so summary/label text stays readable. */
             color: var(--canvas-text);
             border-color: var(--canvas-border);
@@ -3199,7 +3199,7 @@
             opacity: 1;
         }
 
-        /* ── Compliance panel ───────────────────── */
+        /* â”€â”€ Compliance panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
         .compliance-panel {
             display: none;
             flex-shrink: 0;
@@ -3450,7 +3450,7 @@
             font-style: italic;
         }
 
-        /* ── Compliance framework checkboxes in settings ── */
+        /* â”€â”€ Compliance framework checkboxes in settings â”€â”€ */
         .compliance-fw-checkboxes {
             display: flex;
             flex-wrap: wrap;
@@ -3502,7 +3502,7 @@
             }
         }
 
-/* ── Toast ─────────────────────────────────────────────── */
+/* â”€â”€ Toast â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .app-toast {
     position: fixed;
     left: 50%;
@@ -3524,7 +3524,7 @@
 .app-toast-warning { background: #b45309; }
 .app-toast[hidden] { display: none !important; }
 
-/* ── Context chip + versions ───────────────────────────── */
+/* â”€â”€ Context chip + versions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .context-chip {
     font-size: 0.72rem;
     color: var(--text-muted, #64748b);
@@ -3574,7 +3574,7 @@
     font-weight: 700;
 }
 
-/* ── History dialog ────────────────────────────────────── */
+/* â”€â”€ History dialog â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .history-dialog {
     position: fixed;
     top: 8%;
@@ -3668,7 +3668,7 @@
 }
 
 /* Primary (Open/Restore) vs destructive (Delete) must never share visual
-   weight — a text-link pair reads as two equally-safe choices, which is how
+   weight â€” a text-link pair reads as two equally-safe choices, which is how
    session data gets deleted by accident. Open is a filled pill (same accent
    language as .btn-new-chat/.btn-send); Delete is an icon-only ghost button
    that only commits to its danger color on hover, not at rest. */
@@ -3714,7 +3714,7 @@
     color: var(--error, #ef4444);
 }
 
-/* ── Provider config dialog (BYOK — "AI Model Configuration") ──── */
+/* â”€â”€ Provider config dialog (BYOK â€” "AI Model Configuration") â”€â”€â”€â”€ */
 .provider-config-dialog {
     position: fixed;
     top: 8%;
@@ -3941,7 +3941,7 @@
 .admin-test-result.ok { color: var(--success); }
 .admin-test-result.fail { color: var(--error-soft); }
 
-/* ── Insights tabs ─────────────────────────────────────── */
+/* â”€â”€ Insights tabs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .insights-tabs {
     display: flex;
     gap: 4px;
@@ -4002,7 +4002,7 @@
 .insights-tab.loading .insights-tab-spinner {
     display: block;
 }
-/* A tiny pulsing node graph, not a generic ring — three service nodes
+/* A tiny pulsing node graph, not a generic ring â€” three service nodes
    lighting up in sequence around their connecting edges, like data moving
    through the architecture while its data loads. */
 .insights-tab-spinner .node {
@@ -4057,7 +4057,7 @@
     flex-direction: column;
 }
 
-/* ── Mobile tab bar ────────────────────────────────────── */
+/* â”€â”€ Mobile tab bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .mobile-tab-bar {
     display: none;
     position: fixed;
@@ -4106,3 +4106,4 @@
         min-height: calc(100vh - 56px);
     }
 }
+
