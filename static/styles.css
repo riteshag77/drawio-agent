@@ -911,7 +911,7 @@
         .validation-issue-badge {
             flex-shrink: 0;
             font-size: 0.6rem;
-            font-weight: 700;
+            font-weight: 500;
             text-transform: uppercase;
             letter-spacing: 0.04em;
             padding: 0.05rem 0.35rem;
@@ -1416,7 +1416,7 @@
         .provider-picker-group-label {
             padding: 0.6rem 0.5rem 0.3rem;
             font-size: 0.68rem;
-            font-weight: 700;
+            font-weight: 500;
             text-transform: uppercase;
             letter-spacing: 0.06em;
             color: var(--text-muted);
@@ -1464,7 +1464,7 @@
         .provider-picker-item-untested {
             flex-shrink: 0;
             font-size: 0.6rem;
-            font-weight: 700;
+            font-weight: 500;
             text-transform: uppercase;
             letter-spacing: 0.03em;
             padding: 0.1rem 0.35rem;
@@ -1877,7 +1877,7 @@
         label {
             display: block;
             font-size: 0.72rem;
-            font-weight: 600;
+            font-weight: 500;
             color: var(--text-secondary);
             text-transform: uppercase;
             letter-spacing: 0.08em;
@@ -2084,7 +2084,7 @@
         }
         .suggestions-group-header {
             font-size: 0.72rem;
-            font-weight: 600;
+            font-weight: 500;
             text-transform: uppercase;
             letter-spacing: 0.04em;
             color: var(--text-muted);
@@ -2107,7 +2107,7 @@
             display: inline-block;
             align-self: flex-start;
             font-size: 0.65rem;
-            font-weight: 600;
+            font-weight: 500;
             letter-spacing: 0.03em;
             text-transform: uppercase;
             padding: 0.12rem 0.4rem;
@@ -2245,7 +2245,7 @@
         .cost-donut-center-label {
             font-size: 0.62rem;
             color: var(--text-muted);
-            font-weight: 600;
+            font-weight: 500;
             text-transform: uppercase;
             letter-spacing: 0.04em;
         }
@@ -2340,7 +2340,7 @@
 
         .cost-category-name {
             font-size: 0.7rem;
-            font-weight: 700;
+            font-weight: 500;
             text-transform: uppercase;
             letter-spacing: 0.07em;
             color: var(--text-muted);
@@ -2586,7 +2586,7 @@
         .governance-item-body { min-width: 0; }
         .governance-item-message { font-size: 0.78rem; font-weight: 600; color: var(--text-primary); line-height: 1.4; }
         .governance-item-detail { font-size: 0.71rem; color: var(--text-muted); margin-top: 0.15rem; line-height: 1.4; }
-        .governance-item-scope { font-size: 0.66rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; margin-top: 0.2rem; }
+        .governance-item-scope { font-size: 0.66rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; margin-top: 0.2rem; font-weight: 500; }
 
         .waf-pillar-desc {
             font-size: 0.7rem;
@@ -2984,7 +2984,7 @@
             min-width: 168px;
             max-width: 240px;
             padding: 6px 10px 7px;
-            border-radius: 10px;
+            border-radius: var(--radius-md);
             border: 1px solid var(--border-subtle, rgba(15, 23, 42, 0.08));
             background: var(--surface-raised, rgba(15, 23, 42, 0.03));
             color: var(--text-secondary, #475569);
@@ -3005,7 +3005,7 @@
 
         .token-meter-label {
             font-size: 0.65rem;
-            font-weight: 600;
+            font-weight: 500;
             letter-spacing: 0.04em;
             text-transform: uppercase;
             color: var(--canvas-text-muted, var(--text-muted, #64748b));
@@ -3428,7 +3428,7 @@
 
         .compliance-scope-title {
             font-size: 0.7rem;
-            font-weight: 700;
+            font-weight: 500;
             color: var(--text-muted);
             text-transform: uppercase;
             letter-spacing: 0.06em;
@@ -3618,14 +3618,12 @@
     gap: 0.35rem;
     padding: 0.8rem 0.85rem;
     border: 1px solid var(--sidebar-border);
-    border-radius: 12px;
+    border-radius: var(--radius-lg);
     background: var(--surface-raised);
     transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
 }
 .history-card:hover {
-    transform: translateY(-2px);
     border-color: var(--accent);
-    box-shadow: 0 8px 24px -8px var(--accent-glow);
 }
 .history-card-version {
     display: inline-block;
