@@ -1,8 +1,8 @@
 {
   "permissions": {
-    "allow": [
-      "Bash(node verify_theme.js)",
-      "Bash(node scripts/validate_palette.js)"
-    ]
+    "defaultMode": "acceptEdits",
+    "allow": ["Read", "Grep", "Glob", "Bash(npm run *)", "Bash(git status)", "Python(*)"],
+    "ask": ["Bash(git push*)"],
+    "deny": ["Bash(rm -rf*)"]
   }
 }
