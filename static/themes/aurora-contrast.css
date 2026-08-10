@@ -113,11 +113,8 @@
 
 /* Flat instrument-panel surfaces — no blur, no glow. The reference page's
    control panel is a solid dark slate card with a 1px neutral hairline, not
-   a translucent blurred sheet, so elevated surfaces here match that: solid
-   fills and crisp borders instead of glassmorphism. Corners are squared off
-   (4-6px, down from the app's default 10-14px) for the same "precision
-   instrument" read, and the most-seen surfaces get extra breathing room to
-   match the reference's generous whitespace. */
+   a translucent blurred sheet, so elevated surfaces here use solid fills and
+   crisp borders instead of glassmorphism. */
 :root[data-theme="aurora-contrast"] .settings-drawer {
     background: #0f0f13;
     border-left: 1px solid var(--border-strong);
