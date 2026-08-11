@@ -22,7 +22,7 @@ from app.adapters.outbound.diagram import geometry_spec as geo
 from app.adapters.outbound.diagram.compiler import generic_theme as theme
 from app.adapters.outbound.diagram.compiler.emit import CellWriter
 from app.adapters.outbound.diagram.compiler.shared import CompilerError
-from app.domain.ir.generic import GenericDiagramIR, GenericEdge, GenericNode
+from app.domain.ir.generic import GenericDiagramIR, GenericEdge, GenericGroup, GenericNode
 
 _ORIGIN_X = 40.0
 _ORIGIN_Y = 40.0
@@ -33,6 +33,11 @@ _PITCH = geo.DATA_CANONICAL_PITCH
 #: measurement but reasonably good at "this is bigger/smaller than that"
 #: comparisons) — scaled evenly on both axes, no per-shape special-casing.
 _SIZE_SCALE: dict[str, float] = {"small": 0.72, "normal": 1.0, "large": 1.35}
+#: Ceiling on the proportional canvas, in leaf pitches *per node*. Generous
+#: enough that a genuinely sparse layout never hits it, small enough that
+#: near-identical hints can't produce a six-figure page — see
+#: ``_place_proportional``.
+_MAX_CANVAS_PITCHES = 4.0
 
 
 def compile_generic_ir(ir: GenericDiagramIR, *, page_name: str = "Diagram") -> str:
@@ -56,14 +61,28 @@ def _overlaps(ax: float, ay: float, aw: float, ah: float, bx: float, by: float, 
     return ax < bx + bw and ax + aw > bx and ay < by + bh and ay + ah > by
 
 
+def _free_prefix(preferred: str, taken: set[str]) -> str:
+    """A prefix no declared id starts with, so ``f"{prefix}_{i}"`` can never
+    collide with a model-authored id. Mirrors
+    ``elk_layout_network.connectivity_shelf_id``'s approach for the other
+    compiler-invented id in this codebase."""
+    if not any(cid.startswith(f"{preferred}_") for cid in taken):
+        return preferred
+    suffix = 2
+    while any(cid.startswith(f"{preferred}{suffix}_") for cid in taken):
+        suffix += 1
+    return f"{preferred}{suffix}"
+
+
 def _resolve_collision(
     px: float, py: float, w: float, h: float, placed: list[tuple[float, float, float, float]],
 ) -> tuple[float, float]:
     """Nudge ``(px, py)`` right until its box clears every already-placed box.
 
-    Same "push along one axis until clear" idea the ordinal row/col grid
-    already used (see the old ``_place`` occupied-cell loop this replaces),
-    adapted to continuous coordinates and variable per-node sizes.
+    A "push along one axis until clear" sweep over continuous coordinates
+    with variable per-node sizes. Note this only ever pushes right, so a
+    source image with genuinely overlapping shapes (nested boxes, corner
+    badges, Venn diagrams) cannot be reproduced by this placement model.
     """
     moved = True
     while moved:
@@ -111,18 +130,35 @@ def _place_proportional(
     leaf-plus-gap keeps distinct rows/columns distinct without needing any
     collision push for legitimately different positions.
     """
-    canvas_w, canvas_h, _cols, _rows = geo.grid_size(len(nodes), is_group=False)
-    canvas_w = max(canvas_w, geo.LEAF_W)
-    canvas_h = max(canvas_h, geo.LEAF_H)
+    base_w, base_h, _cols, _rows = geo.grid_size(len(nodes), is_group=False)
+    canvas_w = max(base_w, geo.LEAF_W)
+    canvas_h = max(base_h, geo.LEAF_H)
+
+    # Widening is bounded. The gap-derived canvas is 1/gap, so hints that are
+    # *nearly* identical (not equal — those already collapse at the 4dp
+    # rounding in _min_positive_gap) blow it up without limit: measured,
+    # x=0.5 vs x=0.5001 produced a 490,377px-wide page, and a vision model
+    # emitting 4-decimal coordinates is entirely ordinary.
+    #
+    # The ceiling scales with node count rather than with the (dense, <=4-col)
+    # base grid, so it stays clear of real layouts: N nodes spread across the
+    # image need at most a few pitches each, and the genuinely-distinct-hints
+    # case this widening exists for (e.g. 6 nodes over 4 y-levels, gaps ~0.25)
+    # lands an order of magnitude below it. When hints really are that close,
+    # the correct rendering is two adjacent nodes — which _resolve_collision
+    # already produces — not a tiny fraction inflated into a huge pixel gap.
+    ceiling = max(len(nodes), 1) * _PITCH * _MAX_CANVAS_PITCHES
+    max_w = max(canvas_w, ceiling)
+    max_h = max(canvas_h, ceiling)
 
     xs = [n.x for n in nodes if n.x is not None]
     ys = [n.y for n in nodes if n.y is not None]
     gap_x = _min_positive_gap(xs)
     gap_y = _min_positive_gap(ys)
     if gap_x:
-        canvas_w = max(canvas_w, (geo.LEAF_W + geo.LEAF_MIN_GAP) / gap_x)
+        canvas_w = min(max_w, max(canvas_w, (geo.LEAF_W + geo.LEAF_MIN_GAP) / gap_x))
     if gap_y:
-        canvas_h = max(canvas_h, (geo.LEAF_H + geo.LEAF_MIN_GAP) / gap_y)
+        canvas_h = min(max_h, max(canvas_h, (geo.LEAF_H + geo.LEAF_MIN_GAP) / gap_y))
 
     placed: list[tuple[float, float, float, float]] = []
     positions: dict[str, tuple[float, float]] = {}
@@ -137,7 +173,13 @@ def _place_proportional(
             cy = node.y * canvas_h
         else:
             cy = (fallback_index // geo.LEAF_GRID_MAX_COLS) * geo.ROW_PITCH_Y + geo.LEAF_H / 2.0
-        if node.x is None and node.y is None:
+        # Advance whenever *either* axis was unhinted, not only when both
+        # were. Incrementing on both-missing alone gave every x-only node the
+        # same fallback row and every y-only node the same fallback column,
+        # which _resolve_collision then untangled by shoving them sideways
+        # into columns no hint asked for — the docstring above already
+        # described the per-axis behaviour this now implements.
+        if node.x is None or node.y is None:
             fallback_index += 1
         px = max(0.0, cx - w / 2.0)
         py = max(0.0, cy - h / 2.0)
@@ -174,18 +216,63 @@ def _place_topological(
             adjacency[edge.source].append(edge.target)
             indegree[edge.target] += 1
 
-    depth: dict[str, int] = {n.id: 0 for n in nodes if indegree[n.id] == 0}
+    # Drop back-edges first, so what follows runs on a DAG. A "retry" arrow
+    # to an earlier step is ordinary in the flowcharts this view targets, and
+    # a cycle used to break layering twice over: a *fully* cyclic graph has no
+    # indegree-0 node at all, so nothing seeded the walk and every node fell
+    # back to depth 0 (one flat row), and longest-path relaxation around a
+    # loop never settles. Removing the edges that close a loop keeps the arrow
+    # in the diagram (this only affects layering, not what is drawn) while
+    # letting the layering see the underlying forward flow.
+    roots = [n.id for n in nodes if indegree[n.id] == 0] or ([nodes[0].id] if nodes else [])
+    forward: dict[str, list[str]] = {n.id: [] for n in nodes}
+    on_stack: set[str] = set()
+    visited: set[str] = set()
+    # Iterative DFS — a recursive one would hit Python's stack limit on a long
+    # chain, and nothing caps node count on this view (the "<=40 nodes" line in
+    # generic.txt is prose only; the node count is the source image's, not a
+    # design choice).
+    for start in [*roots, *(n.id for n in nodes)]:
+        if start in visited:
+            continue
+        stack: list[tuple[str, int]] = [(start, 0)]
+        visited.add(start)
+        on_stack.add(start)
+        while stack:
+            nid, cursor = stack[-1]
+            if cursor >= len(adjacency[nid]):
+                stack.pop()
+                on_stack.discard(nid)
+                continue
+            stack[-1] = (nid, cursor + 1)
+            nxt = adjacency[nid][cursor]
+            if nxt in on_stack:
+                continue  # closes a loop — not a layering constraint
+            forward[nid].append(nxt)
+            if nxt not in visited:
+                visited.add(nxt)
+                on_stack.add(nxt)
+                stack.append((nxt, 0))
+
+    depth: dict[str, int] = {rid: 0 for rid in roots}
     queue = list(depth.keys())
+    # Longest-path relaxation over the DAG. A node must be re-visited when its
+    # depth *increases*, or a later increase never reaches its descendants —
+    # for a->b, a->c, c->b, b->d that put d on the same row as its own parent
+    # b. `in_queue` replaces what was an O(n) list scan per edge.
+    in_queue = set(queue)
     head = 0
     while head < len(queue):
         nid = queue[head]
         head += 1
-        for nxt in adjacency[nid]:
+        in_queue.discard(nid)
+        for nxt in forward[nid]:
             candidate = depth[nid] + 1
             if candidate > depth.get(nxt, -1):
                 depth[nxt] = candidate
-            if nxt not in queue:
-                queue.append(nxt)
+                if nxt not in in_queue:
+                    queue.append(nxt)
+                    in_queue.add(nxt)
     for node in nodes:
         depth.setdefault(node.id, 0)
 
@@ -227,6 +314,33 @@ def _place_nodes(
     return positions, content_w, content_h
 
 
+#: Shapes whose base style is a bare draw.io keyword (``rhombus;``,
+#: ``ellipse;shape=cloud;``, ``text;``) rather than a ``shape=`` assignment.
+#: merge_drawio_styles is a plain dict merge, so an MCP stencil's ``shape=``
+#: lands *alongside* the keyword instead of replacing it — the leading keyword
+#: typically wins and the icon silently doesn't render, while a borderless
+#: ``text`` cell also gains a fill. Resolution is skipped for these.
+_ICON_UNSAFE_SHAPES = frozenset({"ellipse", "diamond", "cloud", "text", "actor"})
+
+
+def _resolvable_icon_hint(node: GenericNode) -> str:
+    """``node.icon_hint``, or "" when resolving it would cost more fidelity
+    than the icon is worth.
+
+    MCP wins on fill/stroke in ``merge_drawio_styles``, so resolving an icon
+    for a node whose colour was transcribed from the source image silently
+    replaces that colour with the vendor's — on the one view whose contract is
+    to reproduce what the user drew. Fidelity wins here; the icon is a bonus.
+    """
+    if not node.icon_hint:
+        return ""
+    if node.fill_color or node.stroke_color:
+        return ""
+    if node.shape in _ICON_UNSAFE_SHAPES:
+        return ""
+    return node.icon_hint
+
+
 class _GenericCompiler:
     def __init__(self, ir: GenericDiagramIR, page_name: str) -> None:
         self.ir = ir
@@ -254,19 +368,57 @@ class _GenericCompiler:
                     style=theme.node_style(node.shape, fill_color=node.fill_color, stroke_color=node.stroke_color),
                     x=cursor_x + rel_x, y=_ORIGIN_Y + rel_y,
                     w=w, h=h, parent="1",
-                    shape_type=node.icon_hint,
+                    shape_type=_resolvable_icon_hint(node),
                 )
             cursor_x += content_w + _BLOCK_GAP_X
             max_bottom = max(max_bottom, _ORIGIN_Y + content_h)
 
+        # Group boxes honour their own x/y hints in one page-global frame, so
+        # a boundary drawn at the bottom of the source image renders at the
+        # bottom. Without hints they keep the original left-to-right
+        # sequencing, so an un-hinted diagram is laid out exactly as before.
+        boxes: list[tuple[GenericGroup, list[GenericNode], dict, float, float]] = []
         for group in self.ir.groups:
             nodes = by_group.get(group.id, [])
             positions, content_w, content_h = _place_nodes(nodes, self.ir.edges)
-            box_w = max(content_w + geo.PAD * 2, 160.0)
-            box_h = max(geo.TITLE_PAD + content_h + geo.PAD, 120.0)
+            boxes.append((
+                group, nodes, positions,
+                max(content_w + geo.PAD * 2, 160.0),
+                max(geo.TITLE_PAD + content_h + geo.PAD, 120.0),
+            ))
+
+        hinted_groups = [b for b in boxes if b[0].x is not None or b[0].y is not None]
+        group_origins: dict[str, tuple[float, float]] = {}
+        if hinted_groups:
+            # Canvas spans the un-hinted content already placed plus room for
+            # every hinted box, so a hint of 1.0 lands inside the page rather
+            # than off the right/bottom edge.
+            span_w = max(
+                sum(b[3] for b in boxes) + _BLOCK_GAP_X * len(boxes),
+                cursor_x - _ORIGIN_X,
+                1.0,
+            )
+            span_h = max(
+                sum(b[4] for b in boxes) + _BLOCK_GAP_X * len(boxes) + (max_bottom - _ORIGIN_Y),
+                1.0,
+            )
+            placed: list[tuple[float, float, float, float]] = []
+            for group, _nodes, _pos, box_w, box_h in boxes:
+                if group.x is None and group.y is None:
+                    continue
+                gx = _ORIGIN_X + (group.x or 0.0) * max(span_w - box_w, 0.0)
+                gy = _ORIGIN_Y + (group.y or 0.0) * max(span_h - box_h, 0.0)
+                gx, gy = _resolve_collision(gx, gy, box_w, box_h, placed)
+                placed.append((gx, gy, box_w, box_h))
+                group_origins[group.id] = (gx, gy)
+
+        for group, nodes, positions, box_w, box_h in boxes:
+            gx, gy = group_origins.get(group.id, (cursor_x, _ORIGIN_Y))
+            if group.id not in group_origins:
+                cursor_x += box_w + _BLOCK_GAP_X
             self.w.vertex(
                 id=group.id, label=group.label, style=theme.group_style(group.boundary),
-                x=cursor_x, y=_ORIGIN_Y, w=box_w, h=box_h, parent="1",
+                x=gx, y=gy, w=box_w, h=box_h, parent="1",
             )
             for node in nodes:
                 rel_x, rel_y = positions[node.id]
@@ -276,14 +428,22 @@ class _GenericCompiler:
                     style=theme.node_style(node.shape, fill_color=node.fill_color, stroke_color=node.stroke_color),
                     x=geo.PAD + rel_x, y=geo.TITLE_PAD + rel_y,
                     w=w, h=h, parent=group.id,
-                    shape_type=node.icon_hint,
+                    shape_type=_resolvable_icon_hint(node),
                 )
-            cursor_x += box_w + _BLOCK_GAP_X
-            max_bottom = max(max_bottom, _ORIGIN_Y + box_h)
+            max_bottom = max(max_bottom, gy + box_h)
+            cursor_x = max(cursor_x, gx + box_w + _BLOCK_GAP_X)
 
+        # Edge ids are minted here, so they must not collide with an id the
+        # model already used: "edge_0" is a perfectly legal node id (_ID_RE
+        # only requires a leading letter), and the collision silently rewired
+        # the diagram — the user's node was renamed by resolve_duplicate_ids
+        # and the edge ended up pointing at itself. Same collision-safe
+        # prefix search elk_layout_network.connectivity_shelf_id already uses
+        # for its own invented container id.
+        edge_prefix = _free_prefix("edge", self.ir.all_ids())
         for index, edge in enumerate(self.ir.edges):
             self.w.edge(
-                id=f"edge_{index}", source=edge.source, target=edge.target, label=edge.label,
+                id=f"{edge_prefix}_{index}", source=edge.source, target=edge.target, label=edge.label,
                 style=theme.edge_style(
                     line_style=edge.line_style, dashed=edge.dashed, arrow=edge.arrow, color=edge.color,
                 ),

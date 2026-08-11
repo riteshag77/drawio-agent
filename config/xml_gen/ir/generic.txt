@@ -1,7 +1,13 @@
 # Generic (as-is) diagram replication — sparse image-tracing JSON IR
 
 Page name: **Diagram**. You emit **JSON only** (GenericDiagramIR). Never
-draw.io XML, coordinates, or style strings — the compiler lays those out.
+draw.io XML, pixel coordinates, or style strings — the compiler turns your
+description into those.
+
+Unlike the cloud views, this one **does** want position information from you:
+the `x`/`y` fields below are fractions of the source image (not pixels), and
+they are the main thing that lets the output resemble the picture you were
+given. Fill them in whenever you can see where a shape sits.
 
 Role: the user attached an image of a diagram that is **not** an AWS/GCP/Azure
 architecture — a flowchart, org chart, process diagram, mind map, or any other
@@ -118,9 +124,35 @@ minor label.
 
 ## Forbidden
 
-Raw draw.io style strings, mxCell ids/coordinates, cloud service names or
-`shape_type` keys (this is not a cloud diagram), and any field not in the
-schema below.
+Raw draw.io style strings, mxCell ids, **pixel** coordinates, a `shape_type`
+field (this is not a cloud diagram — there is no such field on this schema),
+and any field not listed in the Field reference below.
+
+Note the distinction: `shape_type` is forbidden, but `icon_hint` is expected —
+it is free text describing what the shape *looks like*, and naming a vendor
+there ("aws s3 bucket", "slack") is exactly right. Fractional `x`/`y` hints
+are likewise wanted; only *pixel* coordinates are forbidden.
+
+## Field reference
+
+Every node and group needs an `id`: starts with a letter, then letters, digits
+or underscores only, 64 characters max (`checkout_step`, `n1`). Ids must be
+unique across **both** nodes and groups — they share one namespace — and
+`"0"`/`"1"` are reserved. A malformed or duplicate id fails the whole
+generation rather than being corrected, so keep them simple.
+
+- **nodes[]** — `id`, `shape` (one of the ten in §Shape mapping), `label`
+  (verbatim from the image; may be empty if the shape genuinely has no text),
+  optional `group`, `x`, `y`, `size_hint`, `icon_hint`, `fill_color`,
+  `stroke_color`.
+- **groups[]** — `id`, `label`, `boundary` (`none`/`dashed`/`solid`), optional
+  `x`, `y` for where the box itself sits in the image.
+- **edges[]** — `source`, `target` (ids declared above; a self-loop is fine and
+  is drawn as one), `label`, `line_style`, `dashed`, `arrow`, `color`.
+
+`x`/`y` must be within `[0.0, 1.0]` and colours must be exactly six hex digits
+with a leading `#` (`#3B82F6`, never `#fff` or `red`) — both are hard schema
+requirements, not preferences.
 
 ### Example — simple approval flowchart
 
@@ -136,14 +168,21 @@ schema below.
     {"id": "end", "shape": "rounded_rectangle", "label": "Reimbursed", "x": 0.2, "y": 0.9, "fill_color": "#D1E7DD"}
   ],
   "edges": [
-    {"source": "start", "target": "check", "line_style": "orthogonal", "arrow": "forward"},
-    {"source": "check", "target": "manager", "label": "Yes", "line_style": "orthogonal", "arrow": "forward"},
-    {"source": "check", "target": "auto", "label": "No", "line_style": "orthogonal", "arrow": "forward"},
-    {"source": "manager", "target": "end", "line_style": "orthogonal", "arrow": "forward"},
-    {"source": "auto", "target": "end", "line_style": "orthogonal", "arrow": "forward"}
+    {"source": "start", "target": "check"},
+    {"source": "check", "target": "manager", "label": "Yes"},
+    {"source": "check", "target": "auto", "label": "No"},
+    {"source": "manager", "target": "manager", "label": "Request changes", "dashed": true},
+    {"source": "manager", "target": "end"},
+    {"source": "auto", "target": "end"}
   ]
 }
 ```
+
+Two things to copy from that example: the edges omit `line_style`/`arrow`
+entirely because the defaults (orthogonal, forward) already match what is
+drawn — only set them when the image differs — and `manager → manager` is a
+self-loop, which is a perfectly normal thing to trace when a step can send
+work back to itself.
 
 ### Example — grouped org chart
 
@@ -151,13 +190,13 @@ schema below.
 {
   "title": "Engineering Org",
   "groups": [
-    {"id": "platform_team", "label": "Platform Team", "boundary": "dashed"}
+    {"id": "platform_team", "label": "Platform Team", "boundary": "dashed", "x": 0.5, "y": 0.6}
   ],
   "nodes": [
     {"id": "cto", "shape": "rectangle", "label": "CTO", "x": 0.5, "y": 0.05, "size_hint": "large"},
     {"id": "eng_lead", "shape": "rectangle", "label": "Eng Lead", "group": "platform_team", "x": 0.5, "y": 0.1},
-    {"id": "swe1", "shape": "rectangle", "label": "SWE", "group": "platform_team", "x": 0.2, "y": 0.6},
-    {"id": "swe2", "shape": "rectangle", "label": "SWE", "group": "platform_team", "x": 0.8, "y": 0.6}
+    {"id": "swe1", "shape": "rectangle", "label": "SWE", "group": "platform_team", "x": 0.2, "y": 0.7},
+    {"id": "swe2", "shape": "rectangle", "label": "SWE", "group": "platform_team", "x": 0.8, "y": 0.7}
   ],
   "edges": [
     {"source": "cto", "target": "eng_lead", "line_style": "straight", "arrow": "none"},
@@ -166,6 +205,12 @@ schema below.
   ]
 }
 ```
+
+Note the group carries its **own** `x`/`y` for where the boundary box sits in
+the image (here: centered, lower half), while the nodes inside it carry
+positions **relative to that box**. Without a hint on the group the box is
+placed after any ungrouped shapes, left to right — fine for a single cluster,
+but give the hint when the image shows you where the box belongs.
 
 ### Example — sketch with recognizable icons
 
@@ -179,8 +224,14 @@ schema below.
     {"id": "notify", "shape": "rectangle", "label": "#uploads channel", "x": 0.9, "y": 0.5, "icon_hint": "slack"}
   ],
   "edges": [
-    {"source": "user", "target": "bucket", "label": "Upload", "line_style": "orthogonal", "arrow": "forward"},
-    {"source": "bucket", "target": "notify", "label": "Notify", "line_style": "orthogonal", "arrow": "forward"}
+    {"source": "user", "target": "bucket", "label": "Upload"},
+    {"source": "bucket", "target": "notify", "label": "Notify", "dashed": true}
   ]
 }
 ```
+
+`icon_hint` is free text, so vendor names belong there — that is not the same
+as the forbidden `shape_type` field. Note also that the two icon-bearing nodes
+carry no `fill_color`: when you give both, the traced colour is kept and the
+icon is skipped, because reproducing the colour you actually saw matters more
+than decorating the shape.

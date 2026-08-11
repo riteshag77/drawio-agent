@@ -790,9 +790,15 @@ def generate_generic_diagram_from_ir(
 
     Sibling to ``generate_xml_diagram_from_ir`` — same return type, so the
     caller (``xml_pipeline._run_generic_image_pipeline``) can reuse the same
-    structural-hygiene post-processing — but this path skips MCP icon
-    resolution and every cloud-specific enrichment step entirely, since a
-    generic diagram carries no ``shape_type``/corridor/platform concepts.
+    structural-hygiene post-processing — but this path skips the cloud-specific
+    enrichment steps (cost, Well-Architected, compliance, multi-view fan-out),
+    since a generic diagram carries no corridor/platform concepts.
+
+    It does NOT skip MCP icon resolution, contrary to what this docstring used
+    to claim: ``GenericNode.icon_hint`` becomes a transient ``shape_type`` that
+    ``_run_generic_image_pipeline`` resolves with ``platform="any"`` (narrowed
+    by ``compiler/generic._resolvable_icon_hint`` so it can't overwrite a
+    colour traced from the source image).
     """
     provider_key, chat_messages, hint, _llm, provider_spec = _prepare_ir_call(
         user_request=user_request, provider=provider, messages=messages, llm=llm,

@@ -987,8 +987,11 @@ async def _run_generic_image_pipeline(
     xml_output = choose_fixed_xml(xml_output, check)
 
     await _emit(on_progress, "repair", "Checking for overlaps, dangling edges, missing labels…")
-    pre_repair_diagnostics = diagnose_xml(xml_output)
-    xml_output, diagnostics = repair_xml(xml_output)
+    # view="generic" keeps repair's (and diagnose's) cloud-semantic steps off
+    # this page — a traced diagram's own edges and blank labels are content,
+    # not defects (see repair_xml's docstring for the two measured failures).
+    pre_repair_diagnostics = diagnose_xml(xml_output, view="generic")
+    xml_output, diagnostics = repair_xml(xml_output, view="generic")
     fixed_count = (
         (len(pre_repair_diagnostics.errors) + len(pre_repair_diagnostics.warnings))
         - (len(diagnostics.errors) + len(diagnostics.warnings))

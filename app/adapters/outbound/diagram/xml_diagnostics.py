@@ -382,8 +382,16 @@ def _coordinate_nesting_violations(
     return violations
 
 
-def diagnose_xml(xml: str) -> XmlDiagnostics:
-    """Return structural errors/warnings found in ``xml`` — never raises."""
+def diagnose_xml(xml: str, *, view: str = "") -> XmlDiagnostics:
+    """Return structural errors/warnings found in ``xml`` — never raises.
+
+    ``view`` mirrors ``repair_xml``'s parameter: on the Generic (as-is image
+    replication) page, a container labelled e.g. "Management Team" is an
+    ordinary traced swimlane, not one of Network's cross-cutting shelves, so
+    edges touching it are content rather than a violation. Skipping the repair
+    without skipping this check would keep the edge but still report it,
+    surfacing a spurious error in the pipeline's residual-issues log.
+    """
     diag = XmlDiagnostics()
     parsed = _parse_docroot(xml)
     if parsed is None:
@@ -435,7 +443,7 @@ def diagnose_xml(xml: str) -> XmlDiagnostics:
         if (is_vertex or is_edge) and cid in _RESERVED_IDS:
             diag.errors.append(f"cell {cid!r} reuses reserved id 0/1")
 
-        if is_edge and cross_cutting_ids:
+        if is_edge and cross_cutting_ids and view != "generic":
             src, tgt = cell.get("source"), cell.get("target")
             if (src and src in cross_cutting_ids) or (tgt and tgt in cross_cutting_ids):
                 diag.errors.append(
@@ -2299,13 +2307,31 @@ def validate_layout(xml: str) -> list[str]:
     return issues
 
 
-def repair_xml(xml: str) -> tuple[str, XmlDiagnostics]:
+def repair_xml(xml: str, *, view: str = "") -> tuple[str, XmlDiagnostics]:
     """Structural hygiene + edge ports + overview/legend.
 
     Geometry for IR-compiled pages stays with the compiler; this path never
     re-lays out corridors/leaves. The same thin chain runs for IR and for
     rare non-IR (3D / surgical) pages — LLM-era pitch/journey mutators are gone.
+
+    ``view`` names the page's own view so the two steps below that encode
+    *cloud* semantics can be skipped where they don't apply. Both were
+    measured silently destroying content on the Generic (as-is image
+    replication) path, which is the one view whose entire contract is to
+    reproduce what the user drew:
+
+    - ``remove_cross_cutting_edges`` deletes every edge touching a container
+      whose label *starts with* security/monitoring/integration/management.
+      That's Network's "cross-cutting shelves carry no lines" rule; on a
+      traced org chart a "Management Team" swimlane lost all of its edges,
+      with no warning and no error.
+    - ``ensure_leaf_labels`` fills a blank vertex with ``"Service"`` (or a
+      shape_type-derived name). Generic explicitly permits unlabeled shapes,
+      so a deliberately blank box came back labelled "Service".
+
+    Default stays "" so every existing caller keeps byte-identical behaviour.
     """
+    skip_cloud_semantics = view == "generic"
     dup_id_warnings: list[str] = []
     fixed = resolve_reserved_id_reuse(xml)
     fixed = resolve_duplicate_ids(fixed, dup_id_warnings)
@@ -2315,9 +2341,11 @@ def repair_xml(xml: str) -> tuple[str, XmlDiagnostics]:
     fixed = ensure_overview_panel_parent_root(fixed)
     fixed = clear_overview_panel_children(fixed)
     fixed = sanitize_overview_panel_style(fixed)
-    fixed = ensure_leaf_labels(fixed)
+    if not skip_cloud_semantics:
+        fixed = ensure_leaf_labels(fixed)
     fixed = remove_dangling_edges(fixed)
-    fixed = remove_cross_cutting_edges(fixed)
+    if not skip_cloud_semantics:
+        fixed = remove_cross_cutting_edges(fixed)
 
     from app.adapters.outbound.diagram.edge_routing import (
         fix_edge_anchors_from_geometry,
@@ -2347,6 +2375,6 @@ def repair_xml(xml: str) -> tuple[str, XmlDiagnostics]:
     fixed = ensure_legend_position(fixed)
     fixed = ensure_overview_panel_parent_root(fixed)
     fixed = move_overview_and_legend_to_end(fixed)
-    diagnostics = diagnose_xml(fixed)
+    diagnostics = diagnose_xml(fixed, view=view)
     diagnostics.warnings.extend(dup_id_warnings)
     return fixed, diagnostics

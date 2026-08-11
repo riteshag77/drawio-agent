@@ -3,8 +3,15 @@
 Kept separate from ``theme.py`` deliberately: that module's helpers are keyed
 to cloud concepts (platform accent colours, ``shape_type`` icon placeholders,
 ``SubnetTier``/``GroupKind``) that don't apply here. The generic path maps a
-closed, small shape vocabulary directly to plain draw.io style keywords —
-there is no ``shape_type``/MCP icon-resolution step for these cells at all.
+closed, small shape vocabulary directly to plain draw.io style keywords.
+
+Icon resolution *does* run on this path, contrary to what this docstring used
+to say: ``compiler/generic.py`` stamps a transient ``shape_type`` from
+``GenericNode.icon_hint`` and ``xml_pipeline._run_generic_image_pipeline``
+resolves it via MCP with ``platform="any"``. It is deliberately narrowed
+though — see ``generic._resolvable_icon_hint``, which skips resolution when
+it would overwrite a colour traced from the source image or produce a broken
+double-``shape`` style on a keyword-styled shape.
 
 When the source image gave an actual fill/stroke/line colour (``GenericNode.
 fill_color``/``stroke_color``, ``GenericEdge.color``), it's used verbatim —

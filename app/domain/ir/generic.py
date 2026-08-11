@@ -39,6 +39,23 @@ class GenericGroup(Identified):
 
     label: str = ""
     boundary: Literal["none", "dashed", "solid"] = "dashed"
+    x: float | None = Field(
+        default=None, ge=0.0, le=1.0,
+        description=(
+            "Coarse left-to-right position hint for this boundary box itself, as a "
+            "fraction of the source image's width (0.0 = leftmost, 1.0 = rightmost). "
+            "Leave blank when unsure; boxes without a hint are laid out left to right "
+            "in declaration order."
+        ),
+    )
+    y: float | None = Field(
+        default=None, ge=0.0, le=1.0,
+        description=(
+            "Coarse top-to-bottom position hint for this boundary box itself, as a "
+            "fraction of the source image's height (0.0 = topmost, 1.0 = bottommost). "
+            "Leave blank when unsure."
+        ),
+    )
 
 
 class GenericNode(Identified):
@@ -175,8 +192,15 @@ class GenericDiagramIR(IRModel):
                 errors.append(f"edge source {edge.source!r} is not a known cell id")
             if edge.target not in known:
                 errors.append(f"edge target {edge.target!r} is not a known cell id")
-            if edge.source == edge.target:
-                errors.append(f"edge {edge.source!r} -> itself is not meaningful")
+            # Deliberately NO self-loop rule here, unlike every other view.
+            # DiagramIR._base_flow_errors rejects source == target because on
+            # a cloud diagram a service calling itself conveys nothing. On an
+            # as-is replication of a flowchart or state machine a self-
+            # transition ("retry", "repeat until valid") is ordinary content
+            # that is literally drawn in the source image. It used to be a
+            # hard error the prompt never mentioned, which then got silently
+            # deleted by agent._drop_invalid_generic_edges — the diagram came
+            # back missing an arrow the user could see in their own picture.
         return errors
 
     def semantic_warnings(self) -> list[str]:

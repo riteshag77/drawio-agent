@@ -109,10 +109,14 @@ class GenericDiagramIRSemanticTests(unittest.TestCase):
         errors = ir.semantic_errors()
         self.assertTrue(any("missing" in e for e in errors))
 
-    def test_self_loop_is_an_error(self) -> None:
+    def test_self_loop_is_allowed_on_this_view(self) -> None:
+        """Unlike every other view: a self-transition ("retry", "repeat until
+        valid") is ordinary flowchart/state-machine content that is literally
+        drawn in the source image this view exists to reproduce. It used to be
+        a hard error the prompt never mentioned, after which
+        agent._drop_invalid_generic_edges deleted the connector silently."""
         ir = GenericDiagramIR(nodes=[_node("a")], edges=[GenericEdge(source="a", target="a")])
-        errors = ir.semantic_errors()
-        self.assertTrue(any("itself" in e for e in errors))
+        self.assertEqual(ir.semantic_errors(), [])
 
     def test_duplicate_node_id_is_an_error(self) -> None:
         ir = GenericDiagramIR(nodes=[_node("a"), _node("a")])

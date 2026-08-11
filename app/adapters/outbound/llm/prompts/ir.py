@@ -1,4 +1,6 @@
-"""System prompt assembly for IR generation — Network and the three corridor views.
+"""System prompt assembly for IR generation — every view that emits an IR:
+Network, the three corridor views (Logical/Security/Data-flow), ArchiMate, and
+Generic.
 
 Far smaller than the XML-generation prompts: everything those packs teach
 about geometry, styles, parent wiring, padding, arcSize, pitch and container
@@ -7,10 +9,10 @@ a deterministic layout engine's job — see ``domain/ir/corridor.py``), so none
 of it needs to be said. What remains is the part that is genuinely a judgement
 call — which service belongs where, and what the story is.
 
-One assembly function (``_assemble_ir_prompt``) backs all four views; the
-public functions below just supply each view's specific pack list. That's the
-prompt-side counterpart to sharing one ``CorridorIR``/compiler across three
-views instead of writing three near-identical ones.
+One assembly function (``_assemble_ir_prompt``) backs every view; the public
+functions below just supply each view's specific pack list and icon knobs.
+That's the prompt-side counterpart to sharing one ``CorridorIR``/compiler
+across three views instead of writing three near-identical ones.
 
 Reuses the same cache-breakpoint and hint-filtered icon catalog machinery as
 ``prompts.system`` so IR calls get identical prompt-cache behaviour.
