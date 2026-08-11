@@ -51,6 +51,7 @@ from typing import Literal
 from pydantic import Field, model_validator
 
 from app.domain.ir.archimate_types import (
+    CORE_LAYER_ORDER,
     LAYER_ORDER,
     ArchimateElementType,
     ArchimateLayer,
@@ -72,6 +73,15 @@ __all__ = [
 ]
 
 ArchimateViewpoint = Literal["layered", "application_cooperation", "technology"]
+
+#: Balance thresholds for a `layered` viewpoint (see semantic_warnings). Tuned
+#: against four real multi-view generations: 1/1/7 and 1/2/9 must be flagged
+#: (they read as single-layer diagrams), while 2/3/3 and 5/2/5 must stay
+#: silent. Only applied once the diagram is big enough for balance to be a
+#: meaningful ask — a 4-element sketch has nothing to rebalance.
+_LAYERED_BALANCE_MIN_ELEMENTS = 6
+_LAYERED_MIN_PER_LAYER = 2
+_LAYERED_MAX_LAYER_SHARE = 0.6
 
 #: Where a fact in this diagram came from. The whole anti-hallucination story
 #: rests on this being answered per element rather than as one blanket
@@ -97,9 +107,10 @@ class ArchimateElement(Identified):
     )
     layer: ArchimateLayer = Field(
         description=(
-            "business | application | technology. Must match the layer the chosen "
-            "archimate_type belongs to — it is corrected from the notation table if not, "
-            "so never use it to try to place an element in a different layer."
+            "motivation | strategy | business | application | technology | implementation. "
+            "Must match the layer the chosen archimate_type belongs to — it is corrected "
+            "from the notation table if not, so never use it to try to place an element in "
+            "a different layer."
         )
     )
     name: str = Field(description="Short business-readable element name, e.g. 'Quote & Bind'.")
@@ -576,12 +587,46 @@ class ArchimateIR(DiagramIR):
                 "viewpoint answers the question that was asked"
             )
 
-        missing_layers = [layer for layer in LAYER_ORDER if layer not in self.layers_present()]
+        # Only the core stack is expected on every layered view — motivation,
+        # strategy and implementation are genuinely optional additions.
+        missing_layers = [
+            layer for layer in CORE_LAYER_ORDER if layer not in self.layers_present()
+        ]
         if self.viewpoint == "layered" and missing_layers and not self.layers_excluded_reason:
             warnings.append(
                 f"the {', '.join(missing_layers)} layer(s) are absent from a layered view but "
                 "layers_excluded_reason is empty — say in one sentence why they are out of scope"
             )
+
+        # A layer can be technically present and still useless. Measured across
+        # real multi-view generations: an insurance brief produced
+        # business=1 / application=1 / technology=7 and a logistics brief
+        # produced business=1 / application=2 / technology=9 — both pass the
+        # "layer is missing" check above, and both read as a single-layer
+        # diagram, which is exactly the "it only drew the technology view"
+        # complaint. A layered viewpoint has to earn its name: every layer
+        # carries real content, and no one layer swallows the diagram.
+        if self.viewpoint == "layered" and n >= _LAYERED_BALANCE_MIN_ELEMENTS and not missing_layers:
+            per_layer = Counter(e.layer for e in self.elements)
+            thin = sorted(
+                layer for layer in CORE_LAYER_ORDER
+                if per_layer.get(layer, 0) < _LAYERED_MIN_PER_LAYER
+            )
+            if thin:
+                warnings.append(
+                    f"the {', '.join(thin)} layer(s) have fewer than {_LAYERED_MIN_PER_LAYER} "
+                    "elements in a layered view — a layer with a single token element reads as "
+                    "absent; name the business capability and the technology that actually carry "
+                    "this system, inferring them with source_confidence='inferred' if the brief "
+                    "does not say"
+                )
+            dominant, dominant_n = per_layer.most_common(1)[0]
+            if dominant_n / n > _LAYERED_MAX_LAYER_SHARE:
+                warnings.append(
+                    f"{dominant_n} of {n} elements sit in the {dominant} layer — that is a "
+                    f"{dominant} view wearing a layered label. Rebalance so each layer carries "
+                    "its part of the story end to end"
+                )
 
         unexplained = [
             e.id for e in self.elements if e.source_confidence != "explicit" and not e.notes

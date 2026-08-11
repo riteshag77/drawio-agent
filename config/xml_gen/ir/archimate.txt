@@ -59,6 +59,56 @@ Switch away only when the brief's own words ask a narrower question:
 
 Unsure? Pick `layered`. Say which you picked and why in `viewpoint_rationale`.
 
+### A layered view must actually be layered
+
+Picking `layered` and then putting almost everything in one layer produces a
+technology (or application) diagram wearing a layered label — the single most
+common failure on this view. **Every layer carries real content: aim for a
+rough balance, at least 2 elements per layer, and never more than about half
+the diagram in any one layer.**
+
+An infrastructure-heavy brief is the case that tempts this most. "ECS services
+in private subnets with RDS and S3" is a technology *list*; the layered answer
+still has to name:
+
+- **business** — who is served and what process this supports (`Claims Handler`
+  business-actor, `Process Claim` business-process). Infer it and mark
+  `source_confidence: "inferred"` — an inferred business layer is right, an
+  absent one is wrong.
+- **application** — the components and the services they realize
+  (`Claims API` application-component realizing `Claims Intake`
+  application-service).
+- **technology** — collapse the infrastructure to what carries the application.
+  Ten AWS services become two or three technology-service/node elements; this
+  is a viewpoint, not an inventory. Resist listing every subnet and bucket.
+
+If a layer genuinely does not apply, fill `layers_excluded_reason` — but on a
+layered viewpoint that is rare and needs a real reason.
+
+### Reaching above and below the core stack
+
+Business / application / technology are the layers a layered view must always
+carry. Three more are available when the brief actually asks for them — add
+them because the brief raises them, never to look thorough:
+
+- **Motivation** (`stakeholder`, `driver`, `goal`, `outcome`, `requirement`,
+  `constraint`, `principle`) — when the brief states *why*: an objective, a
+  pain point, a regulation, a stakeholder's concern. "Cut claim cycle time
+  from 12 days to 3" is a `goal` with a `driver` behind it. This is what turns
+  a picture of systems into an end-to-end story.
+- **Strategy** (`capability`, `resource`, `value-stream`, `course-of-action`)
+  — when the brief talks about what the organisation must be *able to do*, or
+  names a value stream, rather than only which systems exist.
+- **Implementation & Migration** (`work-package`, `deliverable`, `plateau`,
+  `gap`) — only for roadmap/phasing/transition questions ("how do we get from
+  here to there", "what lands in FY26").
+
+A brief that says "we want to cut claim cycle time, our claims handlers use a
+portal, it runs on ECS" wants motivation + business + application + technology.
+Tie them together: `driver -[influence]-> goal`, `requirement -[realization]->
+goal`, and the application component realizing that requirement — that chain is
+the end-to-end thread a reviewer follows.
+
 ## How to answer short user prompts
 
 Users send short briefs across many domains. Map them to **JSON IR**:
@@ -109,6 +159,33 @@ approximated. If nothing fits, pick the closest listed type and say why in
   layer — a managed database service)
 - *passive-structure*: `artifact` (a deployable file — a container image)
 
+**Strategy** (tan) — what the organisation must be able to do, above the
+business layer. Use when the brief talks about capabilities, objectives or
+ways of working rather than only systems.
+- *active-structure*: `resource` (an asset the organisation has — a skilled
+  team, a licence, a data set)
+- *behavior*: `capability` (an ability the organisation has or needs — "Claims
+  Handling"), `course-of-action` (how it intends to get there),
+  `value-stream` (the end-to-end sequence that delivers value — "Claim to
+  Settlement")
+
+**Motivation** (purple) — *why*. These are not structure or behaviour; they
+are the reasons behind both, and they carry their own relationship rules
+(see `influence` below).
+- `stakeholder` (whose concern this is), `driver` (an external or internal
+  force — "Claims Cost"), `assessment` (an analysis of a driver — "Cycle time
+  is 12 days"), `goal` (the intended end state), `outcome` (a measurable
+  result), `principle` (a general rule — "Buy before build"),
+  `requirement` (something the system must do), `constraint` (a restriction
+  on how), `meaning`, `value`
+
+**Implementation & Migration** (pink) — *how we get there*. Use only when the
+brief actually asks about roadmap, phasing or transition.
+- `work-package` (a project or phase), `implementation-event`,
+  `deliverable` (what a work package produces), `plateau` (a stable state of
+  the architecture at a point in time — "Target State 2027"), `gap` (what is
+  missing between two plateaus)
+
 **Cross-layer tie-breaker.** When something plausibly spans layers (a managed
 cloud database is both a data store and infrastructure), classify by its
 *defining job*: a managed database stores data → `technology-service`, with an
@@ -140,7 +217,27 @@ Legality depends almost entirely on the two endpoints' **aspects**
 | `composition` | same aspect **and same layer** | **no** |
 | `aggregation` | same aspect **and same layer** | **no** |
 | `specialization` | same aspect **and same layer** | **no** |
+| `influence` | anything → **a motivation element** | yes |
 | `association` | anything (last resort — prefer a specific type) | yes |
+
+**Motivation elements relate differently.** A driver, goal or requirement is
+never *served* or *triggered* by anything — those types are rejected against
+it. Only four work:
+
+- `influence` — something affects whether a motivation element is achieved
+  (`Claims Cost -[influence]-> Cut Cycle Time`). The target must be a
+  motivation element.
+- `realization` — something makes a motivation element real. A `requirement`
+  realizes a `goal`; an `application-component` realizes the `requirement` it
+  was built for.
+- `aggregation` / `composition` / `specialization` — decomposing motivation
+  into motivation (a goal aggregates outcomes).
+- `association` — the loose one, e.g. `stakeholder` ↔ `driver`.
+
+**Implementation & Migration** adds two shapes the general rules don't cover,
+both legal here: `work-package -[realization]-> deliverable` (and `-> plateau`),
+and `plateau -[aggregation]-> anything`, since a plateau gathers the elements
+that exist at that point in time regardless of layer.
 
 Read the table before writing an edge. The three consequences that matter:
 

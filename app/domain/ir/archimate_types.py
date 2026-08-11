@@ -49,20 +49,26 @@ __all__ = [
     "relationship_label",
 ]
 
-#: v1 layers. The wider ArchiMate 3.x set (motivation/strategy/physical/
-#: implementation) is deliberately absent — see the module docstring.
-ArchimateLayer = Literal["business", "application", "technology"]
+#: The full ArchiMate 3.x layer/aspect set this app models. ``motivation`` and
+#: ``implementation`` are strictly *aspects* rather than layers in the
+#: standard's own framework, but they are rendered as bands here for the same
+#: reason the rest are: a reader follows one top-to-bottom story, and "why →
+#: what → who → app → tech → how we get there" is that story.
+ArchimateLayer = Literal[
+    "motivation", "strategy", "business", "application", "technology", "implementation",
+]
 
-#: ArchiMate's three "aspects" — the column axis of the standard's own
-#: framework grid. Almost every relationship rule below is expressible purely
-#: in terms of these, which is why they, not the element types, are what the
-#: legality function reasons over.
-ArchimateAspect = Literal["active-structure", "behavior", "passive-structure"]
+#: ArchiMate's aspects — the column axis of the standard's own framework grid.
+#: Almost every relationship rule below is expressible purely in terms of
+#: these, which is why they, not the element types, are what the legality
+#: function reasons over. ``motivation`` is its own aspect: motivation
+#: elements are neither structure nor behaviour, and the standard gives them
+#: their own relationship rules (see ``influence``).
+ArchimateAspect = Literal["active-structure", "behavior", "passive-structure", "motivation"]
 
-#: Corner treatment. ArchiMate draws behaviour with rounded corners and
-#: structure with square ones; that is the whole distinction at v1 scope
-#: (the diagonal-corner motivation shapes arrive with the motivation layer).
-ArchimateShape = Literal["square", "rounded"]
+#: Corner treatment. ArchiMate draws behaviour with rounded corners, structure
+#: with square ones, and motivation elements with cut (diagonal) corners.
+ArchimateShape = Literal["square", "rounded", "diagonal"]
 
 ArchimateElementType = Literal[
     # ── business layer ────────────────────────────────────────────────
@@ -93,9 +99,35 @@ ArchimateElementType = Literal[
     "artifact",
     "communication-network",
     "path",
+    # ── strategy layer ────────────────────────────────────────────────
+    "resource",
+    "capability",
+    "course-of-action",
+    "value-stream",
+    # ── motivation aspect ─────────────────────────────────────────────
+    "stakeholder",
+    "driver",
+    "assessment",
+    "goal",
+    "outcome",
+    "principle",
+    "requirement",
+    "constraint",
+    "meaning",
+    "value",
+    # ── implementation & migration ────────────────────────────────────
+    "work-package",
+    "deliverable",
+    "implementation-event",
+    "plateau",
+    "gap",
 ]
 
-#: ``influence`` is deliberately NOT here. It is a real ArchiMate 3.x
+#: ``influence`` is now present: it is only meaningful against motivation
+#: elements, and the motivation aspect has arrived, so it finally has legal
+#: endpoints. The note below records why it was held back until now.
+#:
+#: (Historical) ``influence`` was deliberately NOT here. It is a real ArchiMate 3.x
 #: relationship, but it is only defined against motivation elements, and v1's
 #: vocabulary has no motivation layer — so it could never be legal between any
 #: two types in ``ARCHIMATE_ELEMENT_TABLE``. Leaving it in the Literal put it
@@ -113,6 +145,7 @@ ArchimateRelationshipType = Literal[
     "flow",
     "specialization",
     "association",
+    "influence",
 ]
 
 
@@ -212,14 +245,62 @@ ARCHIMATE_ELEMENT_TABLE: dict[str, ArchimateTypeSpec] = {
         "technology", "active-structure", "square", "netw", "Communication Network"
     ),
     "path": _spec("technology", "active-structure", "square", "path", "Path"),
+    # ── strategy ──────────────────────────────────────────────────────
+    # A resource is what the organisation *has*; capability/course-of-action/
+    # value-stream are what it *does* with it — so the same
+    # structure/behaviour split as every other layer.
+    "resource": _spec("strategy", "active-structure", "square", "resource", "Resource"),
+    "capability": _spec("strategy", "behavior", "rounded", "capability", "Capability"),
+    "course-of-action": _spec(
+        "strategy", "behavior", "rounded", "courseOfAction", "Course of Action"
+    ),
+    "value-stream": _spec("strategy", "behavior", "rounded", "valueStream", "Value Stream"),
+    # ── motivation ────────────────────────────────────────────────────
+    # All one aspect and all diagonal-cornered: motivation elements are
+    # neither structure nor behaviour, they are the reasons behind both.
+    "stakeholder": _spec("motivation", "motivation", "diagonal", "stakeholder", "Stakeholder"),
+    "driver": _spec("motivation", "motivation", "diagonal", "driver", "Driver"),
+    "assessment": _spec("motivation", "motivation", "diagonal", "assessment", "Assessment"),
+    "goal": _spec("motivation", "motivation", "diagonal", "goal", "Goal"),
+    "outcome": _spec("motivation", "motivation", "diagonal", "outcome", "Outcome"),
+    "principle": _spec("motivation", "motivation", "diagonal", "principle", "Principle"),
+    "requirement": _spec("motivation", "motivation", "diagonal", "requirement", "Requirement"),
+    "constraint": _spec("motivation", "motivation", "diagonal", "constraint", "Constraint"),
+    "meaning": _spec("motivation", "motivation", "diagonal", "meaning", "Meaning"),
+    "value": _spec("motivation", "motivation", "diagonal", "value", "Value"),
+    # ── implementation & migration ────────────────────────────────────
+    # Work packages and events are things that happen (behaviour); a
+    # deliverable is the passive thing they produce. A plateau is a *state* of
+    # the architecture and a gap is the difference between two of them — both
+    # sit closest to passive structure, which is what keeps "work package
+    # realizes deliverable/plateau" legal under the realization rule below.
+    "work-package": _spec("implementation", "behavior", "rounded", "workpackage", "Work Package"),
+    "implementation-event": _spec("implementation", "behavior", "rounded", "event", "Implementation Event"),
+    "deliverable": _spec(
+        "implementation", "passive-structure", "square", "deliverable", "Deliverable"
+    ),
+    "plateau": _spec("implementation", "passive-structure", "square", "plateau", "Plateau"),
+    "gap": _spec("implementation", "passive-structure", "square", "gap", "Gap"),
 }
 
 ARCHIMATE_ELEMENT_TYPES: frozenset[str] = frozenset(get_args(ArchimateElementType))
 ARCHIMATE_RELATIONSHIP_TYPES: tuple[str, ...] = get_args(ArchimateRelationshipType)
 
-#: Band render order, top to bottom — the standard ArchiMate reading order
-#: (business drives application, application runs on technology).
-LAYER_ORDER: tuple[str, ...] = ("business", "application", "technology")
+#: Band render order, top to bottom. Extends the standard ArchiMate reading
+#: order (business drives application, application runs on technology) at both
+#: ends, so one page answers the whole question: *why* (motivation), *what we
+#: must be able to do* (strategy), *who does it* (business), *what supports
+#: them* (application), *what it runs on* (technology), and *how we get there*
+#: (implementation & migration).
+LAYER_ORDER: tuple[str, ...] = (
+    "motivation", "strategy", "business", "application", "technology", "implementation",
+)
+
+#: The three layers a `layered` viewpoint must actually populate. Motivation,
+#: strategy and implementation are genuinely optional — plenty of good layered
+#: diagrams have no roadmap on them — so the balance rule in ``ArchimateIR``
+#: only ever holds the core stack to account.
+CORE_LAYER_ORDER: tuple[str, ...] = ("business", "application", "technology")
 
 _RELATIONSHIP_DISPLAY: dict[str, str] = {
     "composition": "composed of",
@@ -272,6 +353,7 @@ def relationship_label(rel_type: str) -> str:
 _ACTIVE = "active-structure"
 _BEHAVIOR = "behavior"
 _PASSIVE = "passive-structure"
+_MOTIVATION = "motivation"
 
 
 def is_legal_relationship(source_type: str, rel_type: str, target_type: str) -> bool:
@@ -285,6 +367,51 @@ def is_legal_relationship(source_type: str, rel_type: str, target_type: str) -> 
     tgt = element_spec(target_type)
     if src is None or tgt is None:
         return True
+
+    # ── motivation ────────────────────────────────────────────────────
+    # Motivation elements answer "why", so they relate to the rest of the
+    # model differently: a driver/goal/requirement does not *serve* or
+    # *trigger* an application component, it influences it or is realized by
+    # it. Handling the aspect up front keeps the structural rules below from
+    # having to special-case it in five places.
+    if _MOTIVATION in (src.aspect, tgt.aspect):
+        if rel_type == "influence":
+            # The motivation-specific relationship: something affects the
+            # achievement of a motivation element (positively or otherwise).
+            return tgt.aspect == _MOTIVATION
+        if rel_type == "realization":
+            # A requirement realizes a goal; anything in the core stack can
+            # realize the requirement/goal/outcome it was built for.
+            return tgt.aspect == _MOTIVATION
+        if rel_type in ("aggregation", "composition", "specialization"):
+            # Decomposing motivation into motivation: a goal aggregates
+            # outcomes, a requirement specializes another requirement.
+            return src.aspect == _MOTIVATION and tgt.aspect == _MOTIVATION
+        if rel_type == "association":
+            # Stakeholder <-> driver, and anything else the standard leaves
+            # deliberately loose.
+            return True
+        # serving / access / triggering / flow / assignment have no meaning
+        # against a motivation element.
+        return False
+
+    if rel_type == "influence":
+        # Outside the motivation aspect, influence has no defined endpoints.
+        return False
+
+    # ── implementation & migration ────────────────────────────────────
+    # Two canonical relationships here break the general rules below, so they
+    # are stated explicitly rather than by weakening a rule the other layers
+    # depend on:
+    #   * "work package realizes deliverable" crosses behaviour -> passive,
+    #     which the realization rule otherwise reserves for passive -> passive.
+    #   * a plateau aggregates the elements that exist at that point in time,
+    #     which is deliberately cross-layer — the whole point of a plateau.
+    if src.layer == "implementation" or tgt.layer == "implementation":
+        if rel_type == "realization" and src.aspect == _BEHAVIOR and tgt.aspect == _PASSIVE:
+            return True
+        if rel_type == "aggregation" and source_type == "plateau":
+            return True
 
     if rel_type in ("composition", "aggregation"):
         # Structural decomposition: a whole and its parts are the same kind of
@@ -372,6 +499,11 @@ _SUBSTITUTIONS: dict[str, tuple[str, ...]] = {
     "flow": ("serving", "access"),
     "specialization": ("realization", "serving"),
     "association": (),
+    # An influence aimed at a non-motivation target is usually a realization
+    # ("this component realizes that requirement") pointed the wrong way, or a
+    # plain serving relationship. Both are strictly weaker than influence's
+    # "target must be motivation" predicate, so both can actually fire.
+    "influence": ("realization", "serving"),
 }
 
 

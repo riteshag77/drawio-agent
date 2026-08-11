@@ -4,6 +4,7 @@ legality auto-correction, and the overview-panel derivation helpers."""
 from __future__ import annotations
 
 import unittest
+import xml.etree.ElementTree as ET
 
 from pydantic import ValidationError
 
@@ -325,6 +326,227 @@ class SemanticWarningTests(unittest.TestCase):
         self.assertEqual(ir.semantic_warnings(), [])
 
 
+class LayeredBalanceTests(unittest.TestCase):
+    """A layered viewpoint has to actually be layered.
+
+    Every distribution below is one measured on a real generation during a
+    combined multi-view run. The two that fire both passed the pre-existing
+    "is a layer missing?" check — all three layers were present — and still
+    rendered as a single-layer diagram, which is the "it only drew the
+    technology view" report this rule exists to catch.
+    """
+
+    _TYPE_FOR = {
+        "business": "business-actor",
+        "application": "application-component",
+        "technology": "technology-node",
+    }
+
+    def _ir(self, business: int, application: int, technology: int) -> ArchimateIR:
+        elements = [
+            _el(f"{layer[:3]}{i}", self._TYPE_FOR[layer], layer, f"{layer.title()} {i}")
+            for layer, count in (
+                ("business", business), ("application", application), ("technology", technology),
+            )
+            for i in range(count)
+        ]
+        return minimal_ir(
+            elements=elements,
+            relationships=[_rel("r1", "serving", elements[0].id, elements[1].id)],
+            panel_summary="Shows the system end to end.",
+            walkthrough=["one", "two", "three"],
+            viewpoint_rationale="The brief asks for the end-to-end picture.",
+        )
+
+    def _kinds(self, ir: ArchimateIR) -> set[str]:
+        warnings = ir.semantic_warnings()
+        kinds = set()
+        if any("fewer than" in w for w in warnings):
+            kinds.add("thin")
+        if any("wearing a layered label" in w for w in warnings):
+            kinds.add("dominant")
+        return kinds
+
+    def test_technology_dominated_diagram_warns(self) -> None:
+        """Measured on an insurance brief: business=1, application=1,
+        technology=7 — the exact "only a technology view" complaint."""
+        self.assertEqual(self._kinds(self._ir(1, 1, 7)), {"thin", "dominant"})
+
+    def test_application_dominated_diagram_warns(self) -> None:
+        """Measured on a logistics brief: application=9 of 12."""
+        self.assertEqual(self._kinds(self._ir(1, 9, 2)), {"thin", "dominant"})
+
+    def test_balanced_diagrams_stay_silent(self) -> None:
+        for dist in ((3, 2, 3), (2, 5, 5), (3, 3, 3)):
+            with self.subTest(distribution=dist):
+                self.assertEqual(self._kinds(self._ir(*dist)), set())
+
+    def test_small_diagram_is_not_asked_to_rebalance(self) -> None:
+        """Below the element threshold there is nothing meaningful to balance."""
+        self.assertEqual(self._kinds(self._ir(1, 1, 2)), set())
+
+    def test_narrow_viewpoints_are_exempt(self) -> None:
+        """A `technology` viewpoint is *supposed* to be all one layer."""
+        ir = minimal_ir(
+            viewpoint="technology",
+            elements=[
+                _el(f"t{i}", "technology-node", "technology", f"Node {i}") for i in range(7)
+            ],
+            relationships=[_rel("r1", "serving", "t0", "t1")],
+            panel_summary="Deployment topology.",
+            walkthrough=["one", "two", "three"],
+            viewpoint_rationale="The brief asks how this is deployed.",
+        )
+        self.assertEqual(self._kinds(ir), set())
+
+
+class FullStackVocabularyTests(unittest.TestCase):
+    """Strategy, Motivation and Implementation & Migration.
+
+    Before these existed the model could not draw *why* a system exists or
+    *how* it gets built — a "layered" diagram could only ever be
+    business/application/technology, which is what made every generation look
+    like a systems inventory rather than an end-to-end architecture.
+    """
+
+    def test_all_six_bands_are_available_in_reading_order(self) -> None:
+        from app.domain.ir.archimate_types import CORE_LAYER_ORDER, LAYER_ORDER
+
+        self.assertEqual(
+            LAYER_ORDER,
+            ("motivation", "strategy", "business", "application", "technology", "implementation"),
+        )
+        # The balance rule only polices the core stack — a layered diagram
+        # without a roadmap on it is perfectly good.
+        self.assertEqual(CORE_LAYER_ORDER, ("business", "application", "technology"))
+
+    def test_every_element_type_has_a_table_row_and_a_known_layer(self) -> None:
+        from app.domain.ir.archimate_types import (
+            ARCHIMATE_ELEMENT_TABLE,
+            ARCHIMATE_ELEMENT_TYPES,
+            LAYER_ORDER,
+        )
+
+        self.assertEqual(set(ARCHIMATE_ELEMENT_TABLE), set(ARCHIMATE_ELEMENT_TYPES))
+        for name, spec in ARCHIMATE_ELEMENT_TABLE.items():
+            with self.subTest(element=name):
+                self.assertIn(spec.layer, LAYER_ORDER)
+
+    def test_motivation_elements_use_the_cut_corner_shape(self) -> None:
+        from app.domain.ir.archimate_types import ARCHIMATE_ELEMENT_TABLE
+
+        motivation = [s for s in ARCHIMATE_ELEMENT_TABLE.values() if s.layer == "motivation"]
+        self.assertTrue(motivation)
+        for spec in motivation:
+            self.assertEqual(spec.shape, "diagonal")
+            self.assertEqual(spec.aspect, "motivation")
+
+    def test_canonical_motivation_relationships_are_legal(self) -> None:
+        from app.domain.ir.archimate_types import is_legal_relationship as legal
+
+        self.assertTrue(legal("driver", "influence", "goal"))
+        self.assertTrue(legal("requirement", "realization", "goal"))
+        self.assertTrue(legal("application-component", "realization", "requirement"))
+        self.assertTrue(legal("goal", "aggregation", "outcome"))
+        self.assertTrue(legal("stakeholder", "association", "driver"))
+
+    def test_meaningless_motivation_relationships_are_rejected(self) -> None:
+        from app.domain.ir.archimate_types import is_legal_relationship as legal
+
+        # Nothing "serves" or "triggers" a goal, and influence has no meaning
+        # between two non-motivation elements.
+        self.assertFalse(legal("application-component", "serving", "goal"))
+        self.assertFalse(legal("business-process", "triggering", "driver"))
+        self.assertFalse(legal("application-component", "influence", "application-service"))
+
+    def test_canonical_strategy_relationships_are_legal(self) -> None:
+        from app.domain.ir.archimate_types import is_legal_relationship as legal
+
+        self.assertTrue(legal("resource", "assignment", "capability"))
+        self.assertTrue(legal("business-process", "realization", "capability"))
+        self.assertTrue(legal("capability", "serving", "business-process"))
+
+    def test_implementation_shapes_the_general_rules_would_reject(self) -> None:
+        from app.domain.ir.archimate_types import is_legal_relationship as legal
+
+        # behaviour -> passive realization, and cross-layer plateau aggregation
+        self.assertTrue(legal("work-package", "realization", "deliverable"))
+        self.assertTrue(legal("work-package", "realization", "plateau"))
+        self.assertTrue(legal("plateau", "aggregation", "application-component"))
+
+    def test_end_to_end_six_layer_diagram_compiles_clean(self) -> None:
+        from app.adapters.outbound.diagram.compiler.archimate import compile_archimate_ir
+        from app.adapters.outbound.diagram.xml_diagnostics import diagnose_xml
+
+        ir = minimal_ir(
+            elements=[
+                _el("drv", "driver", "motivation", "Claims Cost"),
+                _el("goal", "goal", "motivation", "Cut Cycle Time"),
+                _el("cap", "capability", "strategy", "Claims Handling"),
+                _el("vs", "value-stream", "strategy", "Claim to Settlement"),
+                _el("act", "business-actor", "business", "Claims Handler"),
+                _el("proc", "business-process", "business", "Process Claim"),
+                _el("svc", "application-service", "application", "Claims Intake"),
+                _el("comp", "application-component", "application", "Claims API"),
+                _el("node", "technology-node", "technology", "Container Platform"),
+                _el("db", "technology-service", "technology", "Managed Postgres"),
+                _el("wp", "work-package", "implementation", "STP Rollout"),
+                _el("plat", "plateau", "implementation", "Target State"),
+            ],
+            relationships=[
+                _rel("r1", "influence", "drv", "goal"),
+                _rel("r2", "realization", "proc", "cap"),
+                _rel("r3", "assignment", "act", "proc"),
+                _rel("r4", "serving", "svc", "proc"),
+                _rel("r5", "realization", "comp", "svc"),
+                _rel("r6", "serving", "node", "comp"),
+                _rel("r7", "realization", "wp", "plat"),
+            ],
+            panel_summary="End-to-end claims architecture.",
+            walkthrough=["why", "what", "who", "app", "tech", "when"],
+            viewpoint_rationale="The brief asks for the full picture.",
+        )
+        self.assertEqual(ir.semantic_errors(), [])
+        self.assertEqual(
+            ir.layers_present(),
+            ["motivation", "strategy", "business", "application", "technology", "implementation"],
+        )
+        # Nothing was auto-corrected away: every relationship above is legal.
+        self.assertEqual(len(ir.relationships), 7)
+
+        xml = compile_archimate_ir(ir)
+        self.assertEqual(diagnose_xml(xml).errors, [])
+        cells = {c.get("id"): c for c in ET.fromstring(xml).iter("mxCell") if c.get("id")}
+        bands = [
+            (c.get("value"), float(c.find("mxGeometry").get("y")))
+            for cid, c in cells.items() if cid.startswith("archimate_band_")
+        ]
+        self.assertEqual(
+            [label for label, _y in sorted(bands, key=lambda b: b[1])],
+            ["Motivation", "Strategy Layer", "Business Layer", "Application Layer",
+             "Technology Layer", "Implementation & Migration"],
+        )
+
+    def test_optional_layers_absent_does_not_warn(self) -> None:
+        """A plain business/application/technology diagram is still complete —
+        motivation and strategy are opt-in, so their absence must not nag."""
+        ir = minimal_ir(
+            elements=[
+                _el("a1", "business-actor", "business", "Actor"),
+                _el("p1", "business-process", "business", "Process"),
+                _el("s1", "application-service", "application", "Service"),
+                _el("c1", "application-component", "application", "Component"),
+                _el("n1", "technology-node", "technology", "Node"),
+                _el("t1", "technology-service", "technology", "Managed DB"),
+            ],
+            relationships=[_rel("r1", "serving", "s1", "p1")],
+            panel_summary="Core stack only.",
+            walkthrough=["one", "two", "three"],
+            viewpoint_rationale="The brief only concerns delivery.",
+        )
+        self.assertEqual(ir.semantic_warnings(), [])
+
+
 class DerivedHelperTests(unittest.TestCase):
     def test_layers_present_is_in_canonical_order(self) -> None:
         ir = minimal_ir(
@@ -487,14 +709,27 @@ class PromptVocabularyDriftTests(unittest.TestCase):
                 f"relationship type {rel_type!r} is in the schema but never mentioned in the prompt",
             )
 
-    def test_influence_is_not_taught_or_offered(self) -> None:
-        # influence can never be legal against the v1 vocabulary (no
-        # motivation layer) — it must not be in the enum the model sees, and
-        # the prompt must not mention it as something to choose.
-        from app.domain.ir.archimate_types import ARCHIMATE_RELATIONSHIP_TYPES
+    def test_influence_is_offered_and_has_legal_endpoints(self) -> None:
+        """influence was held out of the enum until the motivation aspect
+        existed, because a relationship the model can select but that can
+        never be legal is silently rewritten or dropped every time. Now that
+        motivation elements exist it must be selectable, taught, AND actually
+        legal for at least one pair — the same reachability property the
+        substitution chains are held to."""
+        from app.domain.ir.archimate_types import (
+            ARCHIMATE_ELEMENT_TABLE,
+            ARCHIMATE_RELATIONSHIP_TYPES,
+            is_legal_relationship,
+        )
 
-        self.assertNotIn("influence", ARCHIMATE_RELATIONSHIP_TYPES)
-        self.assertNotIn("`influence`", self.prompt_text)
+        self.assertIn("influence", ARCHIMATE_RELATIONSHIP_TYPES)
+        self.assertIn("`influence`", self.prompt_text)
+        reachable = any(
+            is_legal_relationship(src, "influence", tgt)
+            for src in ARCHIMATE_ELEMENT_TABLE
+            for tgt in ARCHIMATE_ELEMENT_TABLE
+        )
+        self.assertTrue(reachable, "influence is offered but legal for no element pair")
 
 
 if __name__ == "__main__":

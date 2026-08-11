@@ -55,9 +55,16 @@ __all__ = ["ARCHIMATE_BAND_ID_PREFIX", "compile_archimate_ir"]
 ARCHIMATE_BAND_ID_PREFIX = "archimate_band_"
 
 _LAYER_LABELS: dict[str, str] = {
+    # Motivation and Implementation & Migration are aspects rather than layers
+    # in the standard, so they are labelled as what they are — a reader
+    # shouldn't be told "Motivation Layer" by a tool claiming to follow the
+    # notation.
+    "motivation": "Motivation",
+    "strategy": "Strategy Layer",
     "business": "Business Layer",
     "application": "Application Layer",
     "technology": "Technology Layer",
+    "implementation": "Implementation & Migration",
 }
 
 _VIEWPOINT_LABELS: dict[str, str] = {

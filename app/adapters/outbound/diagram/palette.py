@@ -130,17 +130,27 @@ SHELF_IDS: frozenset[str] = frozenset({
 #: view the colour IS the notation, and overriding it would make a standard
 #: diagram unreadable to the people who read standard diagrams.
 ARCHIMATE_LAYER_COLORS: dict[str, tuple[str, str]] = {
+    # The standard's own layer colours — purple for motivation, tan/orange for
+    # strategy, yellow/blue/green for the core stack, pink for implementation
+    # & migration. Kept verbatim so a diagram from this app reads the same way
+    # as one from Archi or a textbook.
+    "motivation": ("#CCCCFF", "#6666B3"),
+    "strategy": ("#F5DEAA", "#B39A50"),
     "business": ("#FFFFB5", "#B3B300"),
     "application": ("#B5FFFF", "#0F8C8C"),
     "technology": ("#C9E7B7", "#4C9141"),
+    "implementation": ("#FFE0E0", "#B36666"),
 }
 
 #: Band wrapper behind each layer's elements — a tint of the same hue, light
 #: enough that a filled element sitting on it still reads as the foreground.
 ARCHIMATE_BAND_COLORS: dict[str, tuple[str, str]] = {
+    "motivation": ("#F5F5FF", "#6666B3"),
+    "strategy": ("#FDF8EE", "#B39A50"),
     "business": ("#FFFFF0", "#B3B300"),
     "application": ("#F0FFFF", "#0F8C8C"),
     "technology": ("#F2F9EE", "#4C9141"),
+    "implementation": ("#FFF5F5", "#B36666"),
 }
 
 #: Domain groupings nested inside a band. ArchiMate draws a Grouping with a

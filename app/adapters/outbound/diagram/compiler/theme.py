@@ -241,7 +241,11 @@ def archimate_element_style(glyph: str, shape: str, layer: str) -> str:
     draw.io stencil does not handle itself.
     """
     fill, stroke = palette.archimate_layer_colors(layer)
-    archi_type = "rounded" if shape == "rounded" else "square"
+    # draw.io's archimate3 stencil carries the corner treatment itself:
+    # rounded for behaviour, square for structure, octagon (cut corners) for
+    # the motivation aspect — which is how a reader tells a Goal from a
+    # Business Service without reading the glyph.
+    archi_type = {"rounded": "rounded", "diagonal": "octagon"}.get(shape, "square")
     return (
         f"{_ARCHIMATE_ELEMENT_BASE}appType={glyph};archiType={archi_type};"
         f"fillColor={fill};strokeColor={stroke};"
