@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 from app.adapters.outbound.diagram.elk_bridge import ElkLayoutError
 from app.adapters.outbound.diagram.logical_layout import layout_corridor_ir
-from app.domain.ir import AnchoredCorridor, Corridor, Flow, Leaf, LogicalIR
+from app.domain.ir import AnchoredCorridor, Corridor, DataFlowIR, Flow, Leaf, LogicalIR
 
 
 def _leaf(i: str, label: str) -> Leaf:
@@ -163,6 +163,68 @@ class ElkCorridorLayoutTests(unittest.TestCase):
         ]
         ordered = order_leaves_by_flow(leaves, flows)
         self.assertEqual([l.id for l in ordered][0], "a")
+
+
+def _dl_leaf(i: str, label: str) -> Leaf:
+    return Leaf(id=i, shape_type="aws_ecs", label=label)
+
+
+def _data_flow_ir() -> DataFlowIR:
+    """Zero prior ELK-layer coverage exercised Data-flow at all (this file
+    was built entirely on LogicalIR) — Data-flow is the one view with an
+    ``anchor_id=None`` ("below the whole row") shelf, a shape none of
+    Logical's/Security's fixtures can represent, so the ELK row/shelf
+    interaction for it was untested at this layer."""
+    return DataFlowIR(
+        corridors=[
+            Corridor(id="phase_ingest", label="Ingest", leaves=[_dl_leaf("apigw", "API GW")]),
+            Corridor(id="phase_process", label="Process", leaves=[_dl_leaf("lam", "Lambda")]),
+            Corridor(id="phase_store", label="Store", leaves=[_dl_leaf("db", "DB")]),
+        ],
+        anchored=[
+            AnchoredCorridor(id="phase_consume", label="Consume", anchor_id="phase_store", leaves=[_dl_leaf("dash", "Dashboard")]),
+            AnchoredCorridor(id="phase_control", label="Control", anchor_id=None, leaves=[_dl_leaf("sched", "Scheduler")]),
+        ],
+        flows=[
+            Flow(source="apigw", target="lam"),
+            Flow(source="lam", target="db"),
+            Flow(source="dash", target="db"),
+        ],
+    )
+
+
+class DataFlowElkLayoutTests(unittest.TestCase):
+    def test_returns_geo_for_every_corridor_shelf_and_leaf(self) -> None:
+        geos, _routes = layout_corridor_ir(_data_flow_ir())
+        expected_ids = {
+            "phase_ingest", "phase_process", "phase_store", "phase_consume", "phase_control",
+            "apigw", "lam", "db", "dash", "sched",
+        }
+        self.assertEqual(expected_ids, set(geos.keys()))
+
+    def test_named_anchor_shelf_sits_below_its_anchor(self) -> None:
+        geos, _routes = layout_corridor_ir(_data_flow_ir())
+        anchor, shelf = geos["phase_store"], geos["phase_consume"]
+        self.assertGreaterEqual(shelf.y, anchor.y + anchor.h)
+        self.assertAlmostEqual(shelf.x, anchor.x)
+
+    def test_whole_row_shelf_sits_below_the_named_anchor_shelf_too(self) -> None:
+        """phase_control (anchor_id=None) must clear phase_consume's own
+        bottom, not just the main row's — the exact geometry §1.1 fixed."""
+        geos, _routes = layout_corridor_ir(_data_flow_ir())
+        self.assertGreater(geos["phase_control"].y, geos["phase_consume"].y + geos["phase_consume"].h)
+
+    def test_no_leaf_overflows_its_own_corridor(self) -> None:
+        ir = _data_flow_ir()
+        geos, _routes = layout_corridor_ir(ir)
+        for corridor in ir.corridors + ir.anchored:
+            box = geos[corridor.id]
+            for leaf in corridor.leaves:
+                lg = geos[leaf.id]
+                self.assertGreaterEqual(lg.x, 0)
+                self.assertGreaterEqual(lg.y, 0)
+                self.assertLessEqual(lg.x + lg.w, box.w + 1.0)
+                self.assertLessEqual(lg.y + lg.h, box.h + 1.0)
 
 
 if __name__ == "__main__":

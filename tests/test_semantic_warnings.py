@@ -95,7 +95,17 @@ class SecurityWarningsTests(unittest.TestCase):
 
 
 class DataFlowWarningsTests(unittest.TestCase):
-    def test_streaming_ingest_without_dlq_warns(self) -> None:
+    """Required-companions trigger: config/xml_gen/ir/data_flow.txt states
+    ONE condition for all four companions (DLQ, backup, CDC replica, schema
+    registry) — external SaaS present AND a primary store exists. Previously
+    the code enforced two different, undocumented heuristics instead
+    (streaming-keyword-in-ingest for DLQ, store-exists-at-all for backup) —
+    fixed to match the documented trigger exactly (Data-flow correctness
+    audit)."""
+
+    def test_streaming_ingest_without_saas_does_not_warn_for_dlq(self) -> None:
+        """Streaming ingest alone (no SaaS shelf) is not the documented
+        trigger — this is the old bug's exact false-positive shape."""
         ir = DataFlowIR(
             corridors=[
                 Corridor(id="phase_ingest", label="Ingest", leaves=[_leaf("kinesis", "Kinesis Stream")]),
@@ -103,9 +113,11 @@ class DataFlowWarningsTests(unittest.TestCase):
             ],
             flows=[Flow(source="kinesis", target="db")],
         )
-        self.assertTrue(any("dead-letter/DLQ" in w for w in ir.semantic_warnings()))
+        self.assertFalse(any("dead-letter/DLQ" in w for w in ir.semantic_warnings()))
 
-    def test_store_without_snapshot_warns(self) -> None:
+    def test_store_without_saas_does_not_warn_for_snapshot(self) -> None:
+        """A bare phase_store with no SaaS shelf is not the documented
+        trigger — the old bug padded every thin diagram with this warning."""
         ir = DataFlowIR(
             corridors=[
                 Corridor(id="phase_process", label="Process", leaves=[_leaf("etl", "ETL Job")]),
@@ -113,19 +125,53 @@ class DataFlowWarningsTests(unittest.TestCase):
             ],
             flows=[Flow(source="etl", target="db")],
         )
-        self.assertTrue(any("snapshot/archive/backup" in w for w in ir.semantic_warnings()))
+        self.assertFalse(any("snapshot/archive/backup" in w for w in ir.semantic_warnings()))
 
-    def test_dlq_and_snapshot_present_is_clean(self) -> None:
+    def test_saas_and_store_without_companions_warns_all_four(self) -> None:
+        ir = DataFlowIR(
+            corridors=[
+                Corridor(id="phase_ingest", label="Ingest", leaves=[_leaf("apigw", "API GW")]),
+                Corridor(id="phase_process", label="Process", leaves=[_leaf("lam", "Lambda")]),
+                Corridor(id="phase_store", label="Store", leaves=[_leaf("db", "Primary DB")]),
+            ],
+            anchored=[AnchoredCorridor(
+                id="phase_saas_consumer", label="SaaS Consumers", anchor_id="phase_store",
+                leaves=[_leaf("stripe", "Stripe")],
+            )],
+            flows=[Flow(source="apigw", target="lam"), Flow(source="lam", target="db"), Flow(source="db", target="stripe")],
+        )
+        warnings = ir.semantic_warnings()
+        self.assertTrue(any("dead-letter/DLQ" in w for w in warnings))
+        self.assertTrue(any("snapshot/archive/backup" in w for w in warnings))
+        self.assertTrue(any("CDC/read-replica" in w for w in warnings))
+        self.assertTrue(any("schema-registry" in w for w in warnings))
+
+    def test_saas_and_store_with_all_companions_present_is_clean(self) -> None:
         ir = DataFlowIR(
             corridors=[
                 Corridor(id="phase_ingest", label="Ingest", leaves=[_leaf("kinesis", "Kinesis Stream")]),
                 Corridor(id="phase_process", label="Process", leaves=[_leaf("dlq", "Dead-Letter Queue")]),
                 Corridor(id="phase_store", label="Store", leaves=[
-                    _leaf("db", "Primary DB"), _leaf("archive", "S3 Archive"),
+                    _leaf("db", "Primary DB"), _leaf("archive", "S3 Archive"), _leaf("replica", "Read Replica"),
                 ]),
             ],
-            flows=[Flow(source="kinesis", target="dlq", primary=False), Flow(source="kinesis", target="db")],
+            anchored=[
+                AnchoredCorridor(
+                    id="phase_saas_consumer", label="SaaS Consumers", anchor_id="phase_store",
+                    leaves=[_leaf("stripe", "Stripe")],
+                ),
+                AnchoredCorridor(
+                    id="phase_control", label="Control", anchor_id=None,
+                    leaves=[_leaf("registry", "Schema Registry")],
+                ),
+            ],
+            flows=[
+                Flow(source="kinesis", target="dlq", primary=False), Flow(source="kinesis", target="db"),
+                Flow(source="db", target="archive"), Flow(source="db", target="replica"),
+                Flow(source="db", target="stripe"),
+            ],
             data_classification="Financial",
+            design_tradeoffs=["Kafka over polling: near-real-time ingest, worth the added operational complexity."],
         )
         self.assertEqual(ir.semantic_warnings(), [])
 

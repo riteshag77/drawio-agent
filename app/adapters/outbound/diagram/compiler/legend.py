@@ -48,6 +48,12 @@ def _rows_for(ir: CorridorIR) -> list[str]:
             "internal (blue) &#8594; restricted (red)"
         )
 
+    if ir.view == "data_flow" and any(f.classification not in ("none", "") for f in ir.flows):
+        rows.append(
+            "Edge colour = data sensitivity: PII (red) &#8226; PCI (dark red) &#8226; "
+            "confidential (purple)"
+        )
+
     return rows
 
 

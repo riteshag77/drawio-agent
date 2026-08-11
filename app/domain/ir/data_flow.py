@@ -9,9 +9,11 @@ undifferentiated bucket: `phase_saas_producer` for SaaS systems that feed data
 INTO the pipeline, `phase_saas_consumer` for systems the pipeline sends data
 OUT to — this is the model's own per-leaf decision (see
 ``config/xml_gen/ir/data_flow.txt``), the same way it already decides which of
-`phase_ingest`/`phase_process`/`phase_store` a leaf belongs to. Judgment calls
-— the required DLQ/backup/replica/schema-registry companions — stay in that
-prompt pack.
+`phase_ingest`/`phase_process`/`phase_store` a leaf belongs to. The *trigger*
+for the required DLQ/backup/replica/schema-registry companions (SaaS + a
+primary store both present) is promoted to ``semantic_warnings()`` below;
+which specific leaf to add and how to label it stays the model's judgment,
+in that prompt pack.
 """
 
 from __future__ import annotations
@@ -28,11 +30,50 @@ _WHOLE_ROW_SHELF_ID = "phase_control"
 
 # See CorridorIR._strip_cross_cutting_infra — these never belong on Data-flow
 # (Security/Network own them) regardless of what the LLM tries to add.
+#
+# Networking-plumbing tokens (vpc/subnet/nat/gateway/cloudfront/alb/route53)
+# mirror the identical extension LogicalIR's own denylist got after an audit
+# found logical.txt's exclude list already claimed these get stripped as
+# noise when they didn't — data_flow.txt makes the identical claim ("Network
+# plumbing... never draw them here"), so it inherited the same unmet promise
+# until now. One vocabulary, kept in sync with logical.py's list by hand
+# since the two views' denylists aren't otherwise shared code.
 _INFRA_NOISE_DENYLIST = frozenset({
     "cloudwatch", "secrets_manager", "secret_manager", "key_vault", "_kms",
     "guardduty", "_waf", "shield", "aws_iam", "azure_iam", "gcp_iam",
     "x_ray", "xray", "azure_monitor", "cloud_logging", "cloudtrail",
+    "_vpc", "vnet", "_subnet", "nat_gateway", "internet_gateway",
+    "transit_gateway", "cloudfront", "application_load_balancer", "_alb",
+    "network_load_balancer", "_nlb", "route53", "route_53", "datadog",
 })
+
+
+def _strip_infra_noise_from_actors(data: object) -> object:
+    """Drop any external_actors entry matching _INFRA_NOISE_DENYLIST.
+
+    See ``LogicalIR._strip_infra_noise_from_actors`` — identical shape and
+    identical reasoning (Data-flow, like Logical, has no fixed "perimeter
+    service" leaf slot the way Network's ``edge_layer`` is, so a misfiled
+    infra actor is dropped outright rather than relocated).
+    """
+    if not isinstance(data, dict):
+        return data
+    actors = data.get("external_actors")
+    if not isinstance(actors, list) or not actors:
+        return data
+
+    def _is_noise(actor: object) -> bool:
+        if not isinstance(actor, dict):
+            return False
+        needle = (actor.get("shape_type") or actor.get("label") or "").lower().replace(" ", "_")
+        return any(token in needle for token in _INFRA_NOISE_DENYLIST)
+
+    kept = [a for a in actors if not _is_noise(a)]
+    if len(kept) == len(actors):
+        return data
+    data = dict(data)
+    data["external_actors"] = kept
+    return data
 
 
 class DataFlowIR(CorridorIR):
@@ -76,7 +117,8 @@ class DataFlowIR(CorridorIR):
                 _WHOLE_ROW_SHELF_ID: None,
             },
         )
-        return cls._strip_cross_cutting_infra(data)
+        data = cls._strip_cross_cutting_infra(data)
+        return _strip_infra_noise_from_actors(data)
 
     @model_validator(mode="before")
     @classmethod
@@ -110,9 +152,18 @@ class DataFlowIR(CorridorIR):
         return self
 
     def semantic_warnings(self) -> list[str]:
-        """Promotes two "required companions" rules from
-        ``config/xml_gen/ir/data_flow.txt`` prose into code — see that file's
-        "Required companions" section for the judgment calls these mirror.
+        """Promotes the "required companions" trigger from
+        ``config/xml_gen/ir/data_flow.txt`` prose into code — see that
+        file's "Required companions" section, which states one trigger for
+        all four companions (DLQ, backup/archive, CDC replica, schema
+        registry): the app calls external SaaS AND a primary store exists.
+        Previously this promoted two different, undocumented heuristics
+        instead (streaming-keyword-in-ingest for DLQ, phase_store-exists-
+        at-all for backup) — the first almost never matched the documented
+        case, the second padded every thin diagram with a phase_store
+        regardless of SaaS, directly contradicting data_flow.txt's own
+        "never density padding" rule. Fixed to match the single documented
+        trigger exactly, for all four.
 
         Also nudges for the overview-panel fields: same lesson learned for
         business_notes (see NetworkIR/LogicalIR) — an optional field with a
@@ -130,24 +181,51 @@ class DataFlowIR(CorridorIR):
                 "whichever genuinely apply to the data this pipeline handles (see the Overview "
                 "panel metadata section of your instructions)"
             )
-        ingest = self.corridor_by_id("phase_ingest")
-        if ingest is not None and self.leaves_mention(
-            ingest.leaves, "kafka", "kinesis", "stream", "event hub", "pub/sub",
-        ):
-            process = self.corridor_by_id("phase_process")
-            has_dlq = process is not None and self.leaves_mention(
-                process.leaves, "dlq", "dead-letter", "dead letter", "retry",
-            )
-            if not has_dlq:
-                warnings.append(
-                    "phase_ingest has a streaming/event leaf but phase_process has no "
-                    "dead-letter/DLQ leaf — the required-companions rule calls for one when "
-                    "ingest is streaming."
-                )
+
+        saas_producer = self.corridor_by_id("phase_saas_producer")
+        saas_consumer = self.corridor_by_id("phase_saas_consumer")
         store = self.corridor_by_id("phase_store")
-        if store is not None and not self.leaves_mention(store.leaves, "snapshot", "archive", "backup"):
+        has_saas = bool(saas_producer) or bool(saas_consumer)
+
+        if has_saas and store is not None:
+            process = self.corridor_by_id("phase_process")
+            if not (process is not None and self.leaves_mention(
+                process.leaves, "dlq", "dead-letter", "dead letter", "retry", "sqs",
+            )):
+                warnings.append(
+                    "app calls external SaaS and a primary store exists but phase_process has "
+                    "no dead-letter/DLQ leaf — the required-companions rule calls for one (see "
+                    "the Required companions section of your instructions)"
+                )
+            if not self.leaves_mention(store.leaves, "snapshot", "archive", "backup"):
+                warnings.append(
+                    "app calls external SaaS and a primary store exists but phase_store has no "
+                    "snapshot/archive/backup leaf — the required-companions rule calls for one"
+                )
+            if not self.leaves_mention(store.leaves, "replica", "read replica", "cdc"):
+                warnings.append(
+                    "app calls external SaaS and a primary store exists but phase_store has no "
+                    "CDC/read-replica leaf — the required-companions rule calls for one"
+                )
+            control = self.corridor_by_id("phase_control")
+            if not (control is not None and self.leaves_mention(
+                control.leaves, "schema", "registry", "glue", "catalog",
+            )):
+                warnings.append(
+                    "app calls external SaaS and a primary store exists but phase_control has "
+                    "no schema-registry leaf — the required-companions rule calls for one"
+                )
+
+        # design_tradeoffs is fully wired (CorridorIR field, rendered as its
+        # own frontend card) but this view's prompt never asked for it and
+        # no nudge existed — the field's own docstring says Security/
+        # Data-flow are where it matters most, yet it was empty on
+        # essentially every Data-flow generation. Same threshold/pattern as
+        # NetworkIR's own design_tradeoffs nudge.
+        if len(self.leaf_ids()) >= 4 and not self.design_tradeoffs:
             warnings.append(
-                "phase_store has no snapshot/archive/backup leaf — the required-companions "
-                "rule calls for one so the primary store isn't the only copy of the data."
+                "design_tradeoffs is empty — name 2-4 genuine data-handling choices in this "
+                "pipeline and the specific alternative each one beat (see the Design tradeoffs "
+                "section of your instructions)"
             )
         return warnings

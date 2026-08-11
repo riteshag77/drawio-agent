@@ -158,6 +158,31 @@ apply), and rendered as its own labeled bullet:
   "mTLS assumed between all internal services"). Leave blank if there's
   nothing genuinely implicit to flag.
 
+## Design tradeoffs (`design_tradeoffs`)
+
+Once the pipeline is fully decided, add 2-4 short bullets (1 sentence each)
+to `design_tradeoffs` — each names ONE choice you actually made in this data
+journey and the specific alternative it beat. This is different from the
+Overview panel fields above: those describe what protects the data; this
+explains **why you picked this handling choice over the obvious other one**.
+
+- One choice per bullet, one sentence: `"<what you chose> over <the
+  alternative>: <the reason>."`
+- Only include a choice if a competent data/integration architect would
+  genuinely have considered the alternative for this request.
+- Tie it to a real element already in this diagram — never invent a
+  component just to have a tradeoff to describe.
+
+Good: "CDC read replica over nightly batch export: downstream dashboards
+need near-real-time freshness, worth the added replication complexity." /
+"SQS dead-letter queue over silent retry-and-drop: failed webhook deliveries
+must be inspectable, not lost." / "S3 archive over deleting old records:
+compliance retention requirement outweighs the storage cost."
+
+Leave `design_tradeoffs` empty rather than invent a tradeoff that wasn't a
+genuine judgment call — an empty list is correct for a simple, single-option
+pipeline.
+
 ## Density
 
 8–12 when supported; 5–7 when thin — never invent brokers to pad except the

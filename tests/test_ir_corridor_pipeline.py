@@ -17,6 +17,7 @@ from app.core.services import xml_pipeline
 from app.domain.entities import XmlDiagram
 from tests.test_corridor_compiler import (
     _non_routing_warnings,
+    realistic_data_flow_ir,
     realistic_logical_ir,
     realistic_security_ir,
 )
@@ -53,6 +54,24 @@ class PrimaryCorridorViewTests(unittest.TestCase):
         # on a leaf that belongs to it instead (see corridor.py module docstring).
         self.assertIn("orgchart", cells)
         self.assertIn("workday", cells)
+        self.assertIn("overview_panel", cells)
+
+    def test_data_flow_as_primary_view_produces_a_diagram(self) -> None:
+        """Data-flow's primary-view path was entirely untested end-to-end
+        before this (every test in this file used Logical/Security/Network)
+        — the Data-flow correctness audit found this exact gap."""
+        ir = realistic_data_flow_ir()
+        with _IrEnabled(views="data_flow"), \
+                patch("app.core.services.agent.generate_corridor_ir", return_value=ir), \
+                patch.object(xml_pipeline, "resolve_shape_styles", side_effect=_no_styles):
+            result = _run(diagram_views=["data_flow"])
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["generation_path"], "ir")
+        cells = {c.get("id") for c in ET.fromstring(result["xml"]).iter("mxCell")}
+        self.assertIn("phase_store", cells)
+        self.assertIn("phase_saas_consumer", cells)
+        self.assertIn("stripe", cells)
         self.assertIn("overview_panel", cells)
 
     def test_security_as_primary_view_needs_no_repair(self) -> None:
@@ -122,6 +141,41 @@ class ExtraViewFanOutTests(unittest.TestCase):
         # Logical renders as a flat storyboard — no domain_core box — so assert
         # on a leaf that belongs to it instead (see corridor.py module docstring).
         self.assertIn("orgchart", result["xml"])
+
+    def test_data_flow_as_extra_view_uses_ir_path(self) -> None:
+        """Data-flow's extra-view fan-out path was entirely untested before
+        this — same gap as the primary-view test above."""
+        network_diagram = XmlDiagram(
+            xml=compile_network_ir(realistic_ir()),
+            assistant_message="ok", suggestions=[], step_markers=[], ir_title="Network",
+        )
+        data_flow_diagram = XmlDiagram(
+            xml=compile_corridor_ir(realistic_data_flow_ir(), page_name="Data flow"),
+            assistant_message="Generated Data flow diagram.", suggestions=[], step_markers=[],
+            ir_title="Data flow",
+        )
+
+        def _from_ir(view, *_a, **_k):
+            if view == "network":
+                return network_diagram
+            if view == "data_flow":
+                return data_flow_diagram
+            raise AssertionError(f"unexpected view {view!r}")
+
+        with _IrEnabled(views="network,data_flow"), \
+                patch.object(xml_pipeline, "generate_xml_diagram_from_ir", side_effect=_from_ir) as ir_gen, \
+                patch.object(xml_pipeline, "generate_xml_diagram") as direct, \
+                patch.object(xml_pipeline, "resolve_shape_styles", side_effect=_no_styles):
+            result = _run(diagram_views=["network", "data_flow"])
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["generation_path"], "ir")
+        direct.assert_not_called()
+        called_views = [c.args[0] for c in ir_gen.call_args_list]
+        self.assertIn("network", called_views)
+        self.assertIn("data_flow", called_views)
+        self.assertIn("Data flow", result["xml"])
+        self.assertIn("phase_saas_consumer", result["xml"])
 
     def test_image_replicate_reaches_extra_view(self) -> None:
         """image_replicate must thread through to a corridor view generated as

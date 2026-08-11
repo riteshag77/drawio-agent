@@ -39,6 +39,14 @@ _FORBIDDEN_BY_VIEW: dict[str, tuple[str, ...]] = {
     "data_flow": (
         "waf", "shield", "cognito", "entra", "login", "subnet", "vpc", "vnet",
         "availability zone", "authn", "authz", "mfa ", "bastion",
+        # Reconciled with DataFlowIR._INFRA_NOISE_DENYLIST (the code-level
+        # strip) so neither list is missing a token the other treats as
+        # settled — kms/secrets/guardduty/cloudwatch/iam were only ever
+        # enforced at the IR level; load balancer/CDN/DNS network-plumbing
+        # tokens data_flow.txt itself forbids were missing from both.
+        "kms", "secrets manager", "secret manager", "key vault", "guardduty",
+        "cloudwatch", "iam role", "iam policy", "load balancer", "route 53",
+        "route53", "cloudfront", "nat gateway", "internet gateway", "transit gateway",
     ),
     "archimate": (
         # This is notation, not cloud topology — a vendor product name or a

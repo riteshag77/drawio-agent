@@ -1115,6 +1115,6 @@ def _is_anchored_shelf(page_name: str, cell: ET.Element) -> bool:
     if page_name == "security":
         return cid.startswith("zone_external_saas") or ("saas" in cid and cid.startswith("zone_"))
     if page_name in {"data flow", "data_flow"}:
-        return cid.startswith("phase_consume") or cid.startswith("phase_saas")
+        return cid.startswith(("phase_consume", "phase_saas", "phase_control"))
     return False
 

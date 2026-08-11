@@ -469,25 +469,45 @@ def _anchor_shelves(
     A fixed spatial relationship ("this shelf sits below that corridor"), not
     a layout search problem — kept as this explicit step rather than folded
     into the ELK graph (see the module's ELK section docstring).
+
+    Two passes, not one: named-anchor shelves (stacked under one real
+    corridor) are placed first; "below the whole row" shelves (``anchor_id
+    is None`` — only Data-flow's ``phase_control`` uses this today) are
+    placed second, starting below the taller of the main row or any
+    named-anchor shelf stack. A single pass keyed by ``shelf.anchor_id``
+    used to place the ``None`` bucket from ``row_bottom`` alone, with zero
+    awareness of how tall a same-run named-anchor stack (e.g. Data-flow's
+    three ``phase_store`` shelves) had grown — confirmed to produce a real,
+    reproducible sibling-container overlap once that stack out-grew the main
+    row. "The whole row" has to mean the complete visual row including its
+    own shelves, not just the main corridor boxes.
     """
     all_flows = [(f.source, f.target) for f in ir.flows]
-    cursor_by_anchor: dict[str | None, float] = {}
-    for shelf in ir.anchored:
-        if shelf.anchor_id is not None:
-            anchor_geo = geos.get(shelf.anchor_id)
-            base_x = anchor_geo.x if anchor_geo is not None else row_right
-            default_top = (anchor_geo.y + anchor_geo.h if anchor_geo is not None else row_bottom) + INTER_CONTAINER_GAP
-        else:
-            base_x = _ROW_START_X
-            default_top = row_bottom + INTER_CONTAINER_GAP
-        base_top = cursor_by_anchor.get(shelf.anchor_id, default_top)
 
+    def _place(shelf, base_x: float, base_top: float) -> float:
         shelf.leaves = order_leaves_by_flow(list(shelf.leaves), ir.flows)
         leaf_ids = {leaf.id for leaf in shelf.leaves}
         local_edges = [(s, t) for s, t in all_flows if s in leaf_ids and t in leaf_ids]
         width, height = _place_leaves(shelf.leaves, local_edges, geos)
         geos[shelf.id] = Geo(x=base_x, y=base_top, w=width, h=height)
-        cursor_by_anchor[shelf.anchor_id] = base_top + height + INTER_CONTAINER_GAP
+        return base_top + height + INTER_CONTAINER_GAP
+
+    cursor_by_anchor: dict[str, float] = {}
+    whole_row_shelves: list = []
+    for shelf in ir.anchored:
+        if shelf.anchor_id is None:
+            whole_row_shelves.append(shelf)
+            continue
+        anchor_geo = geos.get(shelf.anchor_id)
+        base_x = anchor_geo.x if anchor_geo is not None else row_right
+        default_top = (anchor_geo.y + anchor_geo.h if anchor_geo is not None else row_bottom) + INTER_CONTAINER_GAP
+        base_top = cursor_by_anchor.get(shelf.anchor_id, default_top)
+        cursor_by_anchor[shelf.anchor_id] = _place(shelf, base_x, base_top)
+
+    floor = max([row_bottom, *(v - INTER_CONTAINER_GAP for v in cursor_by_anchor.values())], default=row_bottom)
+    cursor = floor + INTER_CONTAINER_GAP
+    for shelf in whole_row_shelves:
+        cursor = _place(shelf, _ROW_START_X, cursor)
 
 
 # ── ELK-driven layout (node placement + edge routing in one call) ─────────

@@ -100,6 +100,24 @@ def realistic_security_ir() -> SecurityIR:
     )
 
 
+def realistic_data_flow_ir() -> DataFlowIR:
+    return DataFlowIR(
+        corridors=[
+            Corridor(id="phase_ingest", label="Ingest", leaves=[_leaf("apigw", "aws_api_gateway", "API GW")]),
+            Corridor(id="phase_process", label="Process", leaves=[_leaf("lambda1", "aws_lambda", "Lambda")]),
+            Corridor(id="phase_store", label="Store", leaves=[_leaf("db", "aws_rds", "RDS")]),
+        ],
+        anchored=[AnchoredCorridor(
+            id="phase_saas_consumer", label="SaaS Consumers", anchor_id="phase_store",
+            leaves=[_leaf("stripe", "saas_stripe", "Stripe")],
+        )],
+        flows=[
+            Flow(source="apigw", target="lambda1"), Flow(source="lambda1", target="db"),
+            Flow(source="db", target="stripe"),
+        ],
+    )
+
+
 def _non_routing_warnings(warnings: list[str]) -> list[str]:
     """Filter out edge-routing warnings (box/parallel overlap) — see this
     module's docstring for why raw compiler output legitimately has them."""
@@ -433,17 +451,34 @@ class SemanticFieldsThroughFullPipelineTests(unittest.TestCase):
                 Flow(source="db", target="archive", label="Automated Snapshots"),
             ],
             data_classification="PII",
+            design_tradeoffs=["SQS dead-letter queue over silent retry-and-drop: failed events must be inspectable."],
         )
-        self.assertEqual(ir.semantic_warnings(), [])  # DLQ + archive both present
+        # No SaaS shelf here, so the required-companions checks (SaaS + store
+        # triggers DLQ/backup/replica/schema-registry) never fire regardless
+        # of the DLQ/archive leaves already present — this fixture is purely
+        # exercising overview-field + design_tradeoffs cleanliness plus
+        # criticality/classification survival through compile+repair below.
+        self.assertEqual(ir.semantic_warnings(), [])
         xml = compile_corridor_ir(ir, page_name="Data flow")
         pre = diagnose_xml(xml)
         self.assertEqual(pre.errors, [])
         self.assertEqual(_non_routing_warnings(pre.warnings), [])
-        _repaired, post = repair_xml(xml)
+        repaired, post = repair_xml(xml)
         self.assertEqual(post.errors, [])
         # Soft lane-overlap hints are acceptable after band equalization
         # snaps ELK's staggered Y onto one row (same filter as pre above).
         self.assertEqual(_non_routing_warnings(post.warnings), [])
+
+        # The semantic fields survived the full repair pipeline as stamped
+        # attributes — same assertions the Security test above makes,
+        # previously never checked for Data-flow specifically.
+        cells = {c.get("id"): c for c in ET.fromstring(repaired).iter("mxCell") if c.get("id")}
+        self.assertEqual(cells["db"].get("criticality"), "critical")
+        self.assertNotIn("criticality", cells["lambda1"].keys())  # standard leaves stay unstamped
+        pii_edges = [c for c in cells.values() if c.get("classification") == "pii"]
+        self.assertEqual(len(pii_edges), 1)
+        self.assertEqual(pii_edges[0].get("source"), "lambda1")
+        self.assertEqual(pii_edges[0].get("target"), "db")
 
 
 class SafetyTests(unittest.TestCase):

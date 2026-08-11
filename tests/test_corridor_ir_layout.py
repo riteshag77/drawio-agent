@@ -240,6 +240,27 @@ class DataFlowEquivalenceTests(unittest.TestCase):
         for a, b in zip(ys, ys[1:]):
             self.assertGreater(b, a, "shelves must be stacked, not overlapping at the same y")
 
+    def test_multi_shelf_stack_does_not_collide_with_phase_control(self) -> None:
+        """The shelf most likely to collide with the phase_store stack —
+        phase_control, the only anchor_id=None ('below the whole row')
+        shelf in the app — was excluded from the test above; this is the
+        actual overlap-catching scenario (correctness-audit finding),
+        widened past the 1-leaf-per-shelf shared fixture so the stack is
+        tall enough to have collided under the pre-fix single-cursor logic.
+        """
+        ir = realistic_data_flow_ir(with_control=True)
+        for shelf in ir.anchored:
+            if shelf.id != "phase_control":
+                shelf.leaves = shelf.leaves + [_leaf(f"{shelf.id}_extra", "aws_ecs", "Extra")]
+        ir.anchored[-1].leaves = [_leaf(f"ctrl{i}", "aws_glue", f"Registry{i}") for i in range(6)]
+
+        new_geo, _routes = layout_corridor_ir(ir)
+        store_shelf_bottoms = [
+            new_geo[cid].y + new_geo[cid].h
+            for cid in ("phase_consume", "phase_saas_producer", "phase_saas_consumer")
+        ]
+        self.assertGreater(new_geo["phase_control"].y, max(store_shelf_bottoms))
+
 
 class LogicalLayoutTests(unittest.TestCase):
     """Unlike Security/Data-flow, Logical's legacy XML-repair path does not

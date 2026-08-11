@@ -388,12 +388,20 @@ class CorridorIR(DiagramIR):
         catch. Subclasses that need more would extend this list rather than
         override it outright, so the shared checks can never silently
         disappear.
+
+        Checks ``external_actors`` alongside ``leaf_ids()`` — previously
+        only leaves counted, so an IR with 1 leaf + 2 external actors + zero
+        flows passed cleanly even though ``corridor_core.txt`` already
+        documents "flows is REQUIRED whenever 2+ leaves or any external
+        actor exist." Strictly additive: widens what counts as a violation,
+        never narrows it, so it cannot regress any diagram that was already
+        compliant with the shared prompt's own stated contract.
         """
         errors = self._base_flow_errors()
-        if not self.flows and len(self.leaf_ids()) >= 2:
+        if not self.flows and (len(self.leaf_ids()) >= 2 or self.external_actors):
             errors.append(
-                "flows is empty but there are 2+ leaves — add the request/data-flow edges "
-                "between them; a diagram with no relationships is not useful"
+                "flows is empty but there are 2+ leaves or an external actor — add the "
+                "request/data-flow edges between them; a diagram with no relationships is not useful"
             )
         return errors
 

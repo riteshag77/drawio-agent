@@ -71,6 +71,28 @@ class LegendContentTests(unittest.TestCase):
         self.assertIsNotNone(body)
         self.assertNotIn("trust level", body)
 
+    def test_classification_row_only_when_a_flow_is_classified(self) -> None:
+        base_corridors = [
+            Corridor(id="phase_ingest", label="Ingest", leaves=[_leaf("a")]),
+            Corridor(id="phase_process", label="Process", leaves=[_leaf("b")]),
+            Corridor(id="phase_store", label="Store", leaves=[_leaf("c")]),
+        ]
+        anchored = [AnchoredCorridor(id="phase_consume", label="Consume", anchor_id="phase_store", leaves=[_leaf("d")])]
+
+        unclassified = DataFlowIR(
+            corridors=base_corridors, anchored=anchored,
+            flows=[Flow(source="a", target="b"), Flow(source="b", target="c"), Flow(source="c", target="d")],
+        )
+        self.assertNotIn("data sensitivity", build_legend(unclassified) or "")
+
+        classified = DataFlowIR(
+            corridors=base_corridors, anchored=anchored,
+            flows=[Flow(source="a", target="b"), Flow(source="b", target="c", classification="pii"), Flow(source="c", target="d")],
+        )
+        body = build_legend(classified)
+        self.assertIsNotNone(body)
+        self.assertIn("data sensitivity", body)
+
     def test_singular_vs_plural_shelf_wording(self) -> None:
         one_shelf = SecurityIR(
             corridors=[
