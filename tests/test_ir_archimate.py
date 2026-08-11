@@ -139,13 +139,24 @@ class RelationshipLegalityFunctionTests(unittest.TestCase):
             nearest_legal_substitute("business-process", "assignment", "business-actor"), "serving",
         )
 
-    def test_no_substitute_returns_none(self) -> None:
-        # composition/aggregation both require same-aspect+same-layer; a
-        # cross-aspect composition has no honest structural substitute.
-        self.assertIsNone(nearest_legal_substitute("business-process", "composition", "business-actor"))
+    def test_illegal_composition_with_substitute_now_salvages(self) -> None:
+        # Regression guard: composition/aggregation's substitute chains used to
+        # point at each other with an identical legality predicate, so no
+        # illegal whole-part relationship could ever be corrected. The chain
+        # now runs through assignment/access/realization/serving instead.
+        self.assertEqual(
+            nearest_legal_substitute("business-process", "composition", "business-actor"),
+            "serving",
+        )
+
+    def test_no_substitute_returns_none_for_a_passive_source(self) -> None:
+        # A passive-structure element can never legally be a relationship
+        # source (nothing flows out of data) — this is the genuine no-honest-
+        # correction case now that composition/aggregation can salvage.
+        self.assertIsNone(nearest_legal_substitute("business-object", "composition", "business-actor"))
 
     def test_association_never_offered_as_a_substitute(self) -> None:
-        substitute = nearest_legal_substitute("business-process", "composition", "business-actor")
+        substitute = nearest_legal_substitute("business-object", "composition", "business-actor")
         self.assertNotEqual(substitute, "association")
 
 
@@ -179,14 +190,14 @@ class RelationshipAutoCorrectionTests(unittest.TestCase):
     def test_illegal_relationship_with_no_substitute_is_dropped_and_questioned(self) -> None:
         ir = minimal_ir(
             elements=[
-                _el("proc1", "business-process", "business"),
+                _el("policy", "business-object", "business"),
                 _el("actor1", "business-actor", "business"),
             ],
-            relationships=[_rel("r1", "composition", "proc1", "actor1")],
+            relationships=[_rel("r1", "composition", "policy", "actor1")],
         )
         self.assertEqual(ir.relationships, [])
         self.assertEqual(len(ir.open_questions), 1)
-        self.assertIn("proc1", ir.open_questions[0].blocks)
+        self.assertIn("policy", ir.open_questions[0].blocks)
         self.assertIn("actor1", ir.open_questions[0].blocks)
 
     def test_relationship_with_unknown_endpoint_is_left_for_semantic_errors(self) -> None:
@@ -292,10 +303,10 @@ class SemanticWarningTests(unittest.TestCase):
     def test_missing_coaching_note_warns_when_open_questions_exist(self) -> None:
         ir = minimal_ir(
             elements=[
-                _el("proc1", "business-process", "business"),
+                _el("policy", "business-object", "business"),
                 _el("actor1", "business-actor", "business"),
             ],
-            relationships=[_rel("r1", "composition", "proc1", "actor1")],  # dropped -> open question
+            relationships=[_rel("r1", "composition", "policy", "actor1")],  # dropped -> open question
         )
         self.assertTrue(ir.open_questions)
         self.assertTrue(any("coaching_note" in w for w in ir.semantic_warnings()))
@@ -340,6 +351,150 @@ class DerivedHelperTests(unittest.TestCase):
     def test_open_question_can_be_constructed_standalone(self) -> None:
         q = OpenQuestion(id="q1", question="Which system owns the customer record?")
         self.assertEqual(q.blocks, [])
+
+
+class SubstitutionChainReachabilityTests(unittest.TestCase):
+    """A chain entry can only fire if its predicate is strictly weaker than
+    the one that just failed. Getting that wrong is silent: composition and
+    aggregation once pointed at each other with an identical predicate, so
+    every illegal whole-part relationship was dropped while the prompt told
+    the model such relationships would be auto-corrected. This test makes a
+    dead chain entry a hard failure instead of a quiet capability loss."""
+
+    def test_every_substitution_chain_entry_is_reachable(self) -> None:
+        from app.domain.ir.archimate_types import ARCHIMATE_ELEMENT_TYPES, _SUBSTITUTIONS
+
+        types = sorted(ARCHIMATE_ELEMENT_TYPES)
+        dead: list[tuple[str, str]] = []
+        for rel_type, chain in _SUBSTITUTIONS.items():
+            for candidate in chain:
+                fired = any(
+                    not is_legal_relationship(s, rel_type, t)
+                    and nearest_legal_substitute(s, rel_type, t) == candidate
+                    for s in types
+                    for t in types
+                )
+                if not fired:
+                    dead.append((rel_type, candidate))
+        self.assertEqual(dead, [], f"unreachable substitution chain entries: {dead}")
+
+
+class GroupingEndpointAndCrossBandTests(unittest.TestCase):
+    """Regression coverage for two bugs found by audit: a relationship
+    pointing at a grouping id used to bypass legality checking entirely (and
+    was then silently deleted downstream by dangling-edge removal), and a
+    grouping spanning two layer bands used to render as two mxCells sharing
+    one id, corrupting the compiled XML."""
+
+    def test_relationship_endpoint_cannot_be_a_grouping(self) -> None:
+        ir = ArchimateIR.model_validate({
+            "viewpoint": "layered",
+            "elements": [
+                {"id": "a", "archimate_type": "application-component", "name": "A",
+                 "source_confidence": "explicit", "group": "g1"},
+                {"id": "b", "archimate_type": "application-component", "name": "B",
+                 "source_confidence": "explicit", "group": "g1"},
+            ],
+            "groupings": [{"id": "g1", "label": "G1"}],
+            "relationships": [{"id": "r1", "type": "serving", "source": "a", "target": "g1"}],
+        })
+        errors = ir.semantic_errors()
+        self.assertTrue(any("is a grouping, not an element" in e for e in errors))
+
+    def test_grouping_spanning_two_layers_is_rejected(self) -> None:
+        ir = ArchimateIR.model_validate({
+            "viewpoint": "layered",
+            "elements": [
+                {"id": "a", "archimate_type": "business-actor", "name": "A",
+                 "source_confidence": "explicit", "group": "g1"},
+                {"id": "b", "archimate_type": "application-component", "name": "B",
+                 "source_confidence": "explicit", "group": "g1"},
+            ],
+            "groupings": [{"id": "g1", "label": "G1"}],
+            "relationships": [{"id": "r1", "type": "serving", "source": "b", "target": "a"}],
+        })
+        errors = ir.semantic_errors()
+        self.assertTrue(any("more than one layer" in e for e in errors))
+
+    def test_grouping_within_one_layer_is_accepted(self) -> None:
+        ir = ArchimateIR.model_validate({
+            "viewpoint": "layered",
+            "elements": [
+                {"id": "a", "archimate_type": "application-component", "name": "A",
+                 "source_confidence": "explicit", "group": "g1"},
+                {"id": "b", "archimate_type": "application-component", "name": "B",
+                 "source_confidence": "explicit", "group": "g1"},
+            ],
+            "groupings": [{"id": "g1", "label": "G1"}],
+            "relationships": [{"id": "r1", "type": "serving", "source": "a", "target": "b"}],
+        })
+        errors = ir.semantic_errors()
+        self.assertEqual([e for e in errors if "layer" in e], [])
+
+
+class PromptVocabularyDriftTests(unittest.TestCase):
+    """The prompt hand-types the closed vocabulary rather than having it
+    injected from code (see app/adapters/outbound/llm/prompts/ir.py — ArchiMate
+    deliberately gets no catalog injection, since its 'icons' are notation
+    glyphs, not a cloud service list). Nothing then keeps the prompt in sync
+    with ARCHIMATE_ELEMENT_TABLE/ArchimateRelationshipType. archimate_types.py
+    already guards the Literal against the table at import time; this is the
+    same guard for the prompt text, one layer further out."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        from app.adapters.outbound.llm.prompts.system import _load_prompt
+
+        cls.prompt_text = _load_prompt("ir/archimate.txt")
+
+    def test_every_backticked_hyphenated_token_is_a_known_element_type(self) -> None:
+        # Every hyphenated `word-word` backticked token in this file is, by
+        # construction, meant to be an element type — nothing else in
+        # ArchiMate notation gets a hyphenated backticked name here. Exact set
+        # equality on the hyphenated subset catches drift in BOTH directions:
+        # a type added to code and never taught, or a stale type still taught
+        # after being removed from code.
+        import re
+
+        from app.domain.ir.archimate_types import ARCHIMATE_ELEMENT_TYPES
+
+        hyphenated_types = {t for t in ARCHIMATE_ELEMENT_TYPES if "-" in t}
+        found = set(re.findall(r"`([a-z]+(?:-[a-z]+)+)`", self.prompt_text))
+        self.assertEqual(
+            found, hyphenated_types,
+            "prompt's element vocabulary has drifted from ARCHIMATE_ELEMENT_TABLE",
+        )
+        # The two non-hyphenated types (`artifact`, `path`) can't use the same
+        # regex without false-positiving on ordinary English, so check them
+        # directly.
+        for bare_type in sorted(t for t in ARCHIMATE_ELEMENT_TYPES if "-" not in t):
+            self.assertIn(
+                f"`{bare_type}`", self.prompt_text,
+                f"element type {bare_type!r} is in the schema but never mentioned in the prompt",
+            )
+
+    def test_every_relationship_type_is_mentioned(self) -> None:
+        # Relationship types are bare words (`access`, `flow`) that coincide
+        # with ordinary English, so exact backtick-set equality would be noisy
+        # — this checks the direction that actually matters: nothing in the
+        # code enum is missing from the prompt (the historical `influence` bug:
+        # in the schema, never described, always silently rewritten).
+        from app.domain.ir.archimate_types import ARCHIMATE_RELATIONSHIP_TYPES
+
+        for rel_type in ARCHIMATE_RELATIONSHIP_TYPES:
+            self.assertIn(
+                f"`{rel_type}`", self.prompt_text,
+                f"relationship type {rel_type!r} is in the schema but never mentioned in the prompt",
+            )
+
+    def test_influence_is_not_taught_or_offered(self) -> None:
+        # influence can never be legal against the v1 vocabulary (no
+        # motivation layer) — it must not be in the enum the model sees, and
+        # the prompt must not mention it as something to choose.
+        from app.domain.ir.archimate_types import ARCHIMATE_RELATIONSHIP_TYPES
+
+        self.assertNotIn("influence", ARCHIMATE_RELATIONSHIP_TYPES)
+        self.assertNotIn("`influence`", self.prompt_text)
 
 
 if __name__ == "__main__":

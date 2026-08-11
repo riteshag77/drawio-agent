@@ -1706,6 +1706,13 @@ _BIZ_SECTION_HEADER: dict[str, str] = {
     "security": "Security posture",
     "data flow": "Data governance",
     "data_flow": "Data governance",
+    # ArchiMate's bullets are its whole transparency story (what we inferred,
+    # what we auto-corrected, open questions, coaching note, confidence
+    # tally — see compiler/archimate.py::_overview_notes). Omitting this key
+    # did not degrade the panel, it silently deleted that story: the notes
+    # were computed and stored on the page, then dropped at render time
+    # because this dict is what routes them into the panel body.
+    "archimate": "Model notes",
 }
 
 #: Cap on how many steps the numbered story (panel prose + canvas badges)

@@ -444,8 +444,15 @@ def _finalize_view_page_xml(
     check = validate_and_fix_xml(xml)
     xml = choose_fixed_xml(xml, check)
     xml = normalize_single_page_xml(xml, title)
-    if primary_xml and view != "logical":
+    if primary_xml and view not in ("logical", "archimate"):
         # Logical keeps its own shape_types (logical_* and intentional aws_*).
+        # ArchiMate is excluded for a stronger reason: this injection matches
+        # by label against the cloud primary page, so it would stamp aws_*/
+        # gcp_*/azure_* keys onto ArchiMate elements and feed them to MCP icon
+        # resolution — replacing official ArchiMate notation glyphs (resolved
+        # from _ARCHIMATE_BUILTIN_STYLES, deliberately never via MCP search)
+        # with cloud vendor icons on the one view whose entire premise is that
+        # it is not a cloud diagram.
         xml = inject_shape_types_from_primary(xml, primary_xml)
     if not page_has_overview_panel(xml):
         if logger:

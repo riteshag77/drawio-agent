@@ -176,8 +176,9 @@ class ArchimateGrouping(Identified):
     layer_hint: ArchimateLayer | None = Field(
         default=None,
         description=(
-            "Optional: the layer this grouping mostly lives in. Only a hint — the "
-            "compiler places a grouping in whichever band its members are in."
+            "Optional: the layer this grouping lives in. Every member must be in that one "
+            "layer — a grouping is drawn inside a single layer band, so one spanning two "
+            "layers is rejected. Split it into one grouping per layer instead."
         ),
     )
     rationale: str = Field(
@@ -294,14 +295,24 @@ class ArchimateIR(DiagramIR):
         ),
     )
     # Declared last, same reasoning as relationships: only worth writing once
-    # everything else is decided. Kept empty for ArchiMate (the panel's own
-    # fields already carry the narrative) but declared because
-    # ``agent.generate_xml_diagram_from_ir`` surfaces it on every IR view.
+    # everything else is decided.
+    #
+    # This is NOT panel content — it does not appear in `_overview_notes`'s
+    # eleven bullets. It flows through `agent.generate_xml_diagram_from_ir` to
+    # the API response and renders as the frontend's "Why this design" card
+    # (static/js/app.js::appendDesignRationaleCard). An earlier comment here
+    # claimed it was "kept empty for ArchiMate" while this description asked
+    # the model to fill it — so whether the card appeared at all was luck.
+    # It is genuinely optional; the prompt documents when it earns its place.
     design_tradeoffs: list[str] = Field(
         default_factory=list,
         description=(
-            "Optional: 0-3 short bullets, each naming one genuine modeling choice and the "
-            "alternative it beat. Leave empty rather than invent one."
+            "Optional: 0-3 short bullets, each naming one genuine *modelling* choice and the "
+            "alternative it beat — e.g. modelling a managed database as a technology-service "
+            "rather than an application-component, or collapsing five microservices into one "
+            "application-component. Not a summary of the architecture, and not a restatement "
+            "of an assumption (that is what `notes` and the panel's inferred list are for). "
+            "Leave empty rather than invent one — most diagrams have no genuine fork."
         ),
     )
     external_actors: list[ExternalActor] = Field(
@@ -458,13 +469,31 @@ class ArchimateIR(DiagramIR):
         lesson this codebase already learned on corridor vocabulary.
         """
         errors: list[str] = []
-        known = self.leaf_ids() | self.structural_ids()
+        # Deliberately elements only, NOT `structural_ids()`. A grouping is a
+        # visual container, not a model element, so it cannot be a relationship
+        # endpoint. Accepting grouping ids here was a silent edge-eater:
+        # `_enforce_relationship_legality` resolves endpoints against
+        # `elements` alone, so a grouping endpoint skipped legality entirely,
+        # got an edge emitted, and was then deleted downstream by
+        # `remove_dangling_edges` whenever the grouping box wasn't drawn —
+        # no correction note, no open question, the relationship just vanished.
+        element_ids = self.leaf_ids()
+        grouping_ids = {g.id for g in self.groupings}
 
         for rel in self.relationships:
-            if rel.source not in known:
-                errors.append(f"relationship {rel.id!r} source {rel.source!r} is not a known element id")
-            if rel.target not in known:
-                errors.append(f"relationship {rel.id!r} target {rel.target!r} is not a known element id")
+            for end, ref in (("source", rel.source), ("target", rel.target)):
+                if ref in element_ids:
+                    continue
+                if ref in grouping_ids:
+                    errors.append(
+                        f"relationship {rel.id!r} {end} {ref!r} is a grouping, not an element — "
+                        "relationships connect elements to each other; point this at the specific "
+                        "element inside that grouping"
+                    )
+                else:
+                    errors.append(
+                        f"relationship {rel.id!r} {end} {ref!r} is not a known element id"
+                    )
             if rel.source == rel.target:
                 errors.append(f"relationship {rel.id!r} points {rel.source!r} at itself, which is not meaningful")
 
@@ -473,12 +502,30 @@ class ArchimateIR(DiagramIR):
         if dupes:
             errors.append(f"duplicate relationship ids: {', '.join(dupes)}")
 
-        grouping_ids = {g.id for g in self.groupings}
         for element in self.elements:
             if element.group and element.group not in grouping_ids:
                 errors.append(
                     f"element {element.id!r} references grouping {element.group!r}, which is not "
                     "declared in `groupings`"
+                )
+
+        # A grouping whose members sit in different layer bands cannot be
+        # drawn: the compiler plans one box per band, so a cross-band grouping
+        # produced two cells sharing one id, and `resolve_duplicate_ids` (which
+        # by contract never rewrites `parent=` refs) then re-parented the first
+        # band's elements into the second band's box. Reject it here — the
+        # notation has no cross-layer grouping either, so this is a real
+        # modelling error, not a rendering limitation.
+        layers_by_group: dict[str, set[str]] = {}
+        for element in self.elements:
+            if element.group:
+                layers_by_group.setdefault(element.group, set()).add(element.layer)
+        for group_id, layers in sorted(layers_by_group.items()):
+            if len(layers) > 1:
+                errors.append(
+                    f"grouping {group_id!r} has members in more than one layer "
+                    f"({', '.join(sorted(layers))}) — a grouping sits inside a single layer band, "
+                    "so split it into one grouping per layer"
                 )
 
         if not self.relationships and len(self.elements) >= 2:

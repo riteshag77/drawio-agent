@@ -317,9 +317,15 @@ def _overview_notes(ir: ArchimateIR) -> list[str]:
         notes.append(f"Viewpoint: {viewpoint}")
 
     # Derived: which layers actually have elements on the canvas.
-    layers = [_LAYER_LABELS.get(layer, layer).replace(" Layer", "") for layer in ir.layers_present()]
+    present = ir.layers_present()
+    layers = [_LAYER_LABELS.get(layer, layer).replace(" Layer", "") for layer in present]
     included = f"Layers included: {', '.join(layers)}" if layers else ""
-    if included and ir.layers_excluded_reason:
+    # Only append the exclusion reason when a layer is genuinely missing — the
+    # prompt tells the model this field is for that case alone ("ONLY when a
+    # layer genuinely has no elements"); appending it unconditionally would
+    # let a model note ride along on a diagram that excludes nothing.
+    missing = [layer for layer in LAYER_ORDER if layer not in present]
+    if included and missing and ir.layers_excluded_reason:
         included += f" (others excluded: {ir.layers_excluded_reason})"
     if included:
         notes.append(included)

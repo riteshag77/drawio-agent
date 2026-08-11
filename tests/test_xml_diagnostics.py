@@ -715,25 +715,30 @@ class EstimatePanelContentHeightTests(unittest.TestCase):
         self.assertGreater(with_tail_h, without_tail_h)
 
     def test_biz_section_capped_matching_trim(self) -> None:
-        """_PANEL_MAX_BIZ (10 — raised to fit Security's up to 9 named
-        overview fields, see compiler/corridor.py's _overview_notes) must
-        cap the height estimate the same way _trim_overview_panel_value caps
-        what actually survives, or the two silently diverge again."""
+        """_PANEL_MAX_BIZ (raised to 12 to fit ArchiMate's 11-bullet panel,
+        up from 10 for Security's 9 named overview fields — see
+        compiler/corridor.py's and compiler/archimate.py's _overview_notes)
+        must cap the height estimate the same way _trim_overview_panel_value
+        caps what actually survives, or the two silently diverge again.
+        Referencing the constant directly (not a hardcoded copy of its value)
+        is the point: a future cap change can't desync this test from it."""
+        from app.adapters.outbound.diagram.xml_diagnostics import _PANEL_MAX_BIZ
+
         value = _panel_value(
             '<div style="font-size:22px;font-weight:bold;">Title</div>',
-            *[f'<div data-section="biz" style="font-size:14px;">Bullet {i}</div>' for i in range(15)],
+            *[f'<div data-section="biz" style="font-size:14px;">Bullet {i}</div>' for i in range(_PANEL_MAX_BIZ + 5)],
         )
-        h_fifteen = _estimate_panel_content_height(value)
+        h_over_cap = _estimate_panel_content_height(value)
         value_capped = _panel_value(
             '<div style="font-size:22px;font-weight:bold;">Title</div>',
-            *[f'<div data-section="biz" style="font-size:14px;">Bullet {i}</div>' for i in range(10)],
+            *[f'<div data-section="biz" style="font-size:14px;">Bullet {i}</div>' for i in range(_PANEL_MAX_BIZ)],
         )
         h_capped = _estimate_panel_content_height(value_capped)
         # Bullets past the cap are dropped by _trim_overview_panel_value
         # before this ever runs in production, so the estimate must not keep
         # growing past it either — otherwise the box would be sized for text
         # that was never actually kept.
-        self.assertEqual(h_fifteen, h_capped)
+        self.assertEqual(h_over_cap, h_capped)
 
     def test_wider_panel_needs_less_height_for_the_same_content(self) -> None:
         value = _panel_value(

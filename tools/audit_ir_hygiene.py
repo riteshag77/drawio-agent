@@ -14,10 +14,11 @@ from app.adapters.outbound.diagram.architecture_docs import (
     assign_logical_shape_types,
     assign_saas_shape_types,
 )
-from app.adapters.outbound.diagram.compiler import compile_corridor_ir
+from app.adapters.outbound.diagram.compiler import compile_archimate_ir, compile_corridor_ir
 from app.adapters.outbound.diagram.logical_layout import INTER_CONTAINER_GAP
 from app.adapters.outbound.diagram.xml_diagnostics import diagnose_xml, repair_xml
 from app.domain.ir import AnchoredCorridor, Corridor, ExternalActor, Flow, Leaf, LogicalIR
+from tests.test_archimate_compiler_layout import realistic_archimate_ir
 from tests.test_corridor_ir_layout import (
     realistic_data_flow_ir,
     realistic_logical_ir,
@@ -131,6 +132,51 @@ def pipeline_data_flow() -> str:
     return xml
 
 
+def pipeline_archimate() -> str:
+    xml = compile_archimate_ir(realistic_archimate_ir(), page_name="ArchiMate")
+    xml, _ = repair_xml(xml)
+    return xml
+
+
+def audit_archimate_page(xml: str) -> list[str]:
+    """ArchiMate's band -> grouping -> element containment doesn't share
+    audit_page's row-corridor assumptions (LEAF_W/H, domain_/zone_/phase_
+    prefixes, INTER_CONTAINER_GAP) — those are cloud-view-specific. This
+    checks the ArchiMate-appropriate equivalents instead."""
+    problems: list[str] = []
+    root = ET.fromstring(xml)
+    cells = {c.get("id"): c for c in root.iter("mxCell") if c.get("id")}
+    layer = cells.get("1")
+    if layer is None or layer.get("layout") != "ir":
+        problems.append("ArchiMate: missing layout=ir on layer 1")
+
+    band_ids = [cid for cid in cells if cid.startswith("archimate_band_")]
+    if len(band_ids) >= 2:
+        lefts = {_geo(cells[b])[0] for b in band_ids}
+        if len(lefts) > 1:
+            problems.append(f"ArchiMate: bands do not share a left edge: {sorted(lefts)}")
+
+    for cid, cell in cells.items():
+        if cell.get("vertex") != "1" or cell.get("edge") == "1":
+            continue
+        style = cell.get("style") or ""
+        if "mxgraph.archimate3" not in style:
+            continue  # not an element vertex (band/grouping/panel/badge)
+        x, y, w, h = _geo(cell)
+        if abs(w - geo.ARCHIMATE_ELEMENT_W) > 1.5 or abs(h - geo.ARCHIMATE_ELEMENT_H) > 1.5:
+            problems.append(f"ArchiMate: element {cid} size {w}x{h} != {geo.ARCHIMATE_ELEMENT_W}x{geo.ARCHIMATE_ELEMENT_H}")
+        parent = cell.get("parent") or ""
+        if parent in cells:
+            pw, ph = _geo(cells[parent])[2], _geo(cells[parent])[3]
+            if x + w > pw + 1.5 or y + h > ph + 1.5:
+                problems.append(f"ArchiMate: element {cid} overflows {parent}")
+
+    diag = diagnose_xml(xml)
+    for e in diag.errors:
+        problems.append(f"ArchiMate: diagnose error: {e}")
+    return problems
+
+
 def capture_snapshot(path: Path) -> dict:
     """Summarize an on-disk capture (may predate the fix)."""
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -209,6 +255,10 @@ def main() -> int:
         probs = audit_page(label, xml, row_prefix=prefix)
         problems.extend(probs)
         print(f"  {label}: {'OK' if not probs else probs}")
+
+    archimate_probs = audit_archimate_page(pipeline_archimate())
+    problems.extend(archimate_probs)
+    print(f"  ArchiMate: {'OK' if not archimate_probs else archimate_probs}")
 
     # Dense Logical that previously staggered
     dense = LogicalIR(

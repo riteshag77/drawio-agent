@@ -15,6 +15,7 @@ from app.adapters.outbound.diagram.architecture_docs import (
     _plain_cell_label,
 )
 from app.adapters.outbound.diagram.xml_tools import ensure_diagram_document
+from app.domain.ir.archimate_types import ARCHIMATE_RELATIONSHIP_TYPES, relationship_label
 
 _ERROR_WEIGHT = 12
 _WARN_WEIGHT = 5
@@ -39,6 +40,14 @@ _FORBIDDEN_BY_VIEW: dict[str, tuple[str, ...]] = {
         "waf", "shield", "cognito", "entra", "login", "subnet", "vpc", "vnet",
         "availability zone", "authn", "authz", "mfa ", "bastion",
     ),
+    "archimate": (
+        # This is notation, not cloud topology — a vendor product name or a
+        # network-plumbing concept on this page is exactly the "cloud diagram
+        # wearing ArchiMate colours" failure mode the prompt's Forbidden
+        # section names.
+        "amazon", "aws ", "azure", "google cloud", "gcp ",
+        "vpc", "subnet", "load balancer", "nat gateway", "availability zone",
+    ),
 }
 
 _EDGE_VOCAB: dict[str, tuple[str, ...]] = {
@@ -59,6 +68,11 @@ _EDGE_VOCAB: dict[str, tuple[str, ...]] = {
         "json", "sql", "event", "cache", "object", "pub", "sub", "cdc", "batch",
         "avro", "payload", "snapshot", "archive", "schema", "retry", "replication",
     ),
+    # Derived from the code enum via relationship_label, not retyped — the
+    # ArchiMate compiler labels every edge with exactly this verb (see
+    # compiler/archimate.py::_emit_relationships), so this can never drift
+    # from what the page actually renders the way a hand-typed list could.
+    "archimate": tuple(relationship_label(rel_type) for rel_type in ARCHIMATE_RELATIONSHIP_TYPES),
 }
 
 _GROUP_HINTS: dict[str, tuple[str, ...]] = {
@@ -71,6 +85,7 @@ _GROUP_HINTS: dict[str, tuple[str, ...]] = {
         "ingest", "process", "storage", "store", "analytics", "hot path", "cold path",
         "lifecycle", "producer", "consumer",
     ),
+    "archimate": ("business", "application", "technology", "layer"),
 }
 
 
@@ -497,8 +512,11 @@ def score_view(
                 ))
                 break
 
-    # Network clone (label Jaccard)
-    if primary_xml:
+    # Network clone (label Jaccard) — exempt ArchiMate: unlike the cloud
+    # views, it is *supposed* to describe the same system as the primary
+    # page, just in a different notation, so heavy label overlap with the
+    # primary is the expected case, not a sign the page is an unedited copy.
+    if primary_xml and view != "archimate":
         primary_root = _parse_root(primary_xml, "Network")
         if primary_root is not None:
             page_labs = _leaf_labels(root)

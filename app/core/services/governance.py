@@ -34,13 +34,30 @@ def _all_leaves(ir) -> list:
     """Every leaf regardless of IR shape — Network nests them in a
     cloud/region/vpc/zone/subnet hierarchy (``iter_leaves()``), corridor views
     (Logical/Security/Data-flow) keep a flat corridor/leaves list
-    (``all_corridors()``). Neither shape is reachable from the other, so this
-    is the one place that needs to know both."""
+    (``all_corridors()``), ArchiMate keeps a flat ``elements`` list. Neither
+    shape is reachable from the others, so this is the one place that needs
+    to know all three.
+
+    ArchimateElement has no ``shape_type`` (icons resolve from
+    ``ARCHIMATE_ELEMENT_TABLE``, not a leaf-authored key) and names itself
+    via ``.name`` rather than ``.label`` — callers below read both through
+    ``getattr`` with a fallback rather than assuming the corridor/leaf shape,
+    so a rule like ``forbidden_label_pattern`` (``view: "any"``) still
+    actually runs against ArchiMate instead of silently seeing no leaves.
+    """
     if hasattr(ir, "iter_leaves"):
         return list(ir.iter_leaves())
     if hasattr(ir, "all_corridors"):
         return [leaf for corridor in ir.all_corridors() for leaf in corridor.leaves]
+    if hasattr(ir, "elements"):
+        return list(ir.elements)
     return []
+
+
+def _leaf_label(leaf) -> str:
+    """``leaf.label`` for corridor/Network leaves, ``leaf.name`` for
+    ArchimateElement — see ``_all_leaves``."""
+    return getattr(leaf, "label", None) or getattr(leaf, "name", "") or ""
 
 
 def _corridor_ids(ir) -> set[str]:
@@ -111,13 +128,16 @@ def _check_rule(ir, rule: GovernanceRule) -> tuple[bool, str]:
 
     if kind == "required_leaf_shape":
         needle = (rule.shape_type or "").lower()
-        shapes = [leaf.shape_type for leaf in _all_leaves(ir) if leaf.shape_type]
+        shapes = [s for leaf in _all_leaves(ir) if (s := getattr(leaf, "shape_type", None))]
         ok = any(needle in s.lower() for s in shapes)
         return ok, "" if ok else f"no leaf with a shape_type containing {rule.shape_type!r}"
 
     if kind == "forbidden_shape_type":
         needle = (rule.shape_type or "").lower()
-        matches = [leaf.label for leaf in _all_leaves(ir) if leaf.shape_type and needle in leaf.shape_type.lower()]
+        matches = [
+            _leaf_label(leaf) for leaf in _all_leaves(ir)
+            if (s := getattr(leaf, "shape_type", None)) and needle in s.lower()
+        ]
         ok = not matches
         return ok, "" if ok else f"forbidden shape used by: {', '.join(matches)}"
 
@@ -157,7 +177,7 @@ def _check_rule(ir, rule: GovernanceRule) -> tuple[bool, str]:
             pattern = re.compile(rule.label_pattern or "", re.IGNORECASE)
         except re.error:
             return True, ""  # an unparseable admin-authored pattern must never break generation
-        matches = [leaf.label for leaf in _all_leaves(ir) if leaf.label and pattern.search(leaf.label)]
+        matches = [lab for leaf in _all_leaves(ir) if (lab := _leaf_label(leaf)) and pattern.search(lab)]
         ok = not matches
         return ok, "" if ok else f"label matches forbidden pattern {rule.label_pattern!r}: {', '.join(matches)}"
 

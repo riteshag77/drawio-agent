@@ -95,6 +95,13 @@ ArchimateElementType = Literal[
     "path",
 ]
 
+#: ``influence`` is deliberately NOT here. It is a real ArchiMate 3.x
+#: relationship, but it is only defined against motivation elements, and v1's
+#: vocabulary has no motivation layer — so it could never be legal between any
+#: two types in ``ARCHIMATE_ELEMENT_TABLE``. Leaving it in the Literal put it
+#: in the JSON schema handed to the model as a selectable value that the
+#: prompt never described and that was silently rewritten or dropped every
+#: single time it was chosen. It returns with the motivation layer.
 ArchimateRelationshipType = Literal[
     "composition",
     "aggregation",
@@ -102,7 +109,6 @@ ArchimateRelationshipType = Literal[
     "realization",
     "serving",
     "access",
-    "influence",
     "triggering",
     "flow",
     "specialization",
@@ -312,14 +318,6 @@ def is_legal_relationship(source_type: str, rel_type: str, target_type: str) -> 
         # reads/writes a passive element.
         return src.aspect in (_ACTIVE, _BEHAVIOR) and tgt.aspect == _PASSIVE
 
-    if rel_type == "influence":
-        # Influence is defined only against motivation elements, which v1's
-        # vocabulary does not include — so it is never legal here yet, and
-        # always gets substituted (see the chains below). Kept in the
-        # relationship enum so diagrams authored now stay valid when the
-        # motivation layer lands.
-        return False
-
     if rel_type in ("triggering", "flow"):
         # Temporal/informational sequence between things that *happen*.
         return src.aspect == _BEHAVIOR and tgt.aspect == _BEHAVIOR
@@ -344,17 +342,35 @@ def is_legal_relationship(source_type: str, rel_type: str, target_type: str) -> 
 #: which reads as a real modeling decision the architect never made. When
 #: nothing meaningful fits, the relationship is dropped and turned into an
 #: open question instead — see ``ArchimateIR._enforce_relationship_legality``.
+#:
+#: **A candidate can only ever fire if its predicate is strictly weaker than
+#: the one that just failed.** That is not obvious, and getting it wrong is
+#: silent: the first version of this table paired ``composition`` with
+#: ``aggregation`` and vice versa, but those two share a byte-identical
+#: predicate (same aspect AND same layer), so *no illegal whole-part
+#: relationship could ever be corrected* — every one was dropped, while the
+#: prompt told the model such relationships would be auto-corrected. Eight
+#: more entries were dead the same way (``flow``/``triggering`` are strictly
+#: narrower than ``serving``; ``aggregation`` is identical to
+#: ``specialization``). ``tests/test_ir_archimate.py`` now asserts every entry
+#: below is reachable for at least one element pair, so a dead chain fails CI
+#: instead of quietly costing edges.
+#:
+#: The chains below run structural → behavioural → data → generic, i.e. the
+#: correction that keeps the most of the author's original intent first:
+#: an ``application-component`` "composed of" a ``data-object`` becomes
+#: ``assignment`` ("this component holds that data"), which is what the
+#: modeller meant, rather than vanishing.
 _SUBSTITUTIONS: dict[str, tuple[str, ...]] = {
-    "composition": ("aggregation",),
-    "aggregation": ("composition",),
-    "assignment": ("realization", "serving"),
-    "realization": ("serving", "assignment"),
-    "serving": ("flow", "triggering", "realization"),
-    "access": ("serving", "flow"),
-    "influence": ("serving", "triggering"),
-    "triggering": ("flow", "serving"),
-    "flow": ("triggering", "serving"),
-    "specialization": ("realization", "aggregation"),
+    "composition": ("assignment", "access", "realization", "serving"),
+    "aggregation": ("assignment", "access", "realization", "serving"),
+    "assignment": ("realization", "access", "serving"),
+    "realization": ("assignment", "access", "serving"),
+    "serving": ("access", "realization"),
+    "access": ("serving", "realization"),
+    "triggering": ("serving", "access"),
+    "flow": ("serving", "access"),
+    "specialization": ("realization", "serving"),
     "association": (),
 }
 

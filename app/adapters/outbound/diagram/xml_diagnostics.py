@@ -115,7 +115,12 @@ _PANEL_MAX_STEP_CHARS = 140
 #: Security's overview has up to 9 named fields (Purpose, Scope, Security
 #: zones, Threat model, Data classification, Compliance frameworks, Control
 #: types, Key assumptions) — see compiler/corridor.py's _overview_notes.
-_PANEL_MAX_BIZ = 10
+#: Raised again to 12 for ArchiMate, whose panel is 11 bullets and whose last
+#: one is deliberately the confidence tally (see compiler/archimate.py's
+#: _overview_notes) — at 10 the trim silently ate exactly the bullet that
+#: tells a reader how much of the diagram was inferred rather than stated.
+#: This is a cap, not a target: no other view emits near it.
+_PANEL_MAX_BIZ = 12
 
 _ACTOR_SHAPE_TYPES = {
     "aws_users", "aws_user", "users", "user", "aws_client", "client", "aws_mobile_client",

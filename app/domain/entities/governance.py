@@ -47,6 +47,9 @@ GovernanceOverviewField = Literal[
     "scope_excluded", "threat_model_reference", "data_classification",
     "compliance_frameworks", "control_types", "key_assumptions",
     "trust_zones_referenced",
+    # ArchiMate's own overview fields (see domain/ir/archimate.py::ArchimateIR).
+    "panel_summary", "viewpoint_rationale", "layers_excluded_reason",
+    "walkthrough", "compliance_notes", "coaching_note",
 ]
 
 

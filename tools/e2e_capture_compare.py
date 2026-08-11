@@ -75,6 +75,72 @@ def _is_leaf(cell: ET.Element) -> bool:
     return True
 
 
+def score_archimate_page(name: str, xml: str) -> dict:
+    """ArchiMate's own polish axis — NOT comparable to score_page's number.
+
+    score_page's weights are cloud-view-shaped and cannot be reused as-is:
+    element size is checked against LEAF_W/H (78x78) when ArchiMate elements
+    are ARCHIMATE_ELEMENT_W/H (170x70, verified empirically to score
+    wrong_leaf_size=100% on a perfect page), edges_anchored counts exitX/
+    entryX ports that ArchiMate's root-layer relationship edges never carry,
+    and bottom_labels rewards a label position ArchiMate never uses (elements
+    are top-labeled, by design, to leave room for the notation glyph).
+    icon_rate is left out on purpose too, but for the opposite reason: every
+    ArchiMate element shares one stencil family
+    (mxgraph.archimate3.application), so it is always ~100% regardless of
+    diagram quality — present, but not a real signal.
+    """
+    root = ET.fromstring(xml)
+    cells = [c for c in root.iter("mxCell") if c.get("id")]
+    by_id = {c.get("id"): c for c in cells}
+    elements = [c for c in cells if "mxgraph.archimate3" in (c.get("style") or "")]
+    edges = [c for c in cells if c.get("edge") == "1"]
+    bands = [cid for cid in by_id if cid.startswith("archimate_band_")]
+
+    wrong_size = sum(
+        1 for c in elements
+        if abs(_geo(c)[2] - geo.ARCHIMATE_ELEMENT_W) > 1 or abs(_geo(c)[3] - geo.ARCHIMATE_ELEMENT_H) > 1
+    )
+    overflow = 0
+    for c in elements:
+        x, y, w, h = _geo(c)
+        parent = by_id.get(c.get("parent") or "")
+        if parent is not None and "container=1" in (parent.get("style") or ""):
+            _, _, pw, ph = _geo(parent)
+            if x + w > pw + 1 or y + h > ph + 1:
+                overflow += 1
+    labelled_edges = sum(1 for e in edges if (e.get("value") or "").strip())
+    band_lefts = {round(_geo(by_id[b])[0], 1) for b in bands}
+    layout_ir = any(c.get("id") == "1" and c.get("layout") == "ir" for c in cells)
+
+    n_elements = max(len(elements), 1)
+    n_edges = max(len(edges), 1)
+    size_ok = 1.0 - (wrong_size / n_elements)
+    overflow_ok = 1.0 - (overflow / n_elements)
+    label_coverage = labelled_edges / n_edges
+    band_aligned = 1.0 if len(band_lefts) <= 1 else 0.0
+
+    polish = round(100 * (
+        0.35 * size_ok
+        + 0.25 * overflow_ok
+        + 0.25 * label_coverage
+        + 0.15 * band_aligned
+    ))
+
+    return {
+        "page": name,
+        "layout_ir": layout_ir,
+        "elements": len(elements),
+        "edges": len(edges),
+        "wrong_element_size": wrong_size,
+        "element_overflow": overflow,
+        "edges_labelled": labelled_edges,
+        "bands": len(bands),
+        "bands_left_aligned": len(band_lefts) <= 1,
+        "polish_score": polish,
+    }
+
+
 def score_page(name: str, xml: str) -> dict:
     """Polish score aligned with AWS-skill conventions."""
     root = ET.fromstring(xml)
@@ -191,19 +257,28 @@ def score_page(name: str, xml: str) -> dict:
 
 def score_mxfile(xml: str, label: str) -> dict:
     pages = _pages(xml)
-    page_scores = {n: score_page(n, pxml) for n, pxml in pages.items() if n not in {"ADR Notes", "RAID"}}
+    # ArchiMate scores on its own axis (score_archimate_page) — its numbers
+    # are not comparable to the cloud pages' polish_score, so it is kept out
+    # of page_scores/mean_polish and reported separately.
+    cloud_pages = {n: pxml for n, pxml in pages.items() if n not in {"ADR Notes", "RAID", "ArchiMate"}}
+    page_scores = {n: score_page(n, pxml) for n, pxml in cloud_pages.items()}
+    archimate_score = score_archimate_page("ArchiMate", pages["ArchiMate"]) if "ArchiMate" in pages else None
     view_scores = {}
     primary = pages.get("Network") or pages.get("Logical") or next(iter(pages.values()), "")
-    for view, pname in (("logical", "Logical"), ("network", "Network"), ("security", "Security"), ("data_flow", "Data flow")):
+    for view, pname in (
+        ("logical", "Logical"), ("network", "Network"), ("security", "Security"),
+        ("data_flow", "Data flow"), ("archimate", "ArchiMate"),
+    ):
         if pname in pages:
             vs = score_view(pages[pname], view=view, primary_xml=primary, request_text="", min_score=75)
             view_scores[pname] = {"score": vs.score, "passes": vs.passes, "violations": [v.code for v in vs.violations][:6]}
     polish_vals = [s["polish_score"] for s in page_scores.values()]
     return {
         "label": label,
-        "pages": list(page_scores.keys()),
+        "pages": list(page_scores.keys()) + (["ArchiMate"] if archimate_score else []),
         "mean_polish": round(sum(polish_vals) / len(polish_vals), 1) if polish_vals else 0,
         "page_scores": page_scores,
+        "archimate_score": archimate_score,
         "view_conformance": view_scores,
     }
 
@@ -294,6 +369,18 @@ def print_report(old: dict, new: dict | None, prompt: str, capture_path: Path) -
                 f"band_dY={ps['row_y_range']}  "
                 f"view={vc.get('score', '-')}{' PASS' if vc.get('passes') else (' FAIL' if vc else '')}"
             )
+        archi = scored.get("archimate_score")
+        if archi:
+            vc = scored["view_conformance"].get("ArchiMate", {})
+            # Own axis, own number — never averaged into mean_polish above.
+            print(
+                f"  {'ArchiMate':12} polish={archi['polish_score']:3} (own axis)  "
+                f"elements={archi['elements']:2}  bands={archi['bands']}  "
+                f"bad_size={archi['wrong_element_size']}  overflow={archi['element_overflow']}  "
+                f"labelled={archi['edges_labelled']}/{archi['edges']}  "
+                f"bands_aligned={archi['bands_left_aligned']}  "
+                f"view={vc.get('score', '-')}{' PASS' if vc.get('passes') else (' FAIL' if vc else '')}"
+            )
         print()
 
     _block("HISTORICAL CAPTURE", old)
@@ -329,7 +416,7 @@ def extract_irs_from_capture(data: dict) -> dict[str, dict]:
         except json.JSONDecodeError:
             continue
         view = str(obj.get("view") or "").lower()
-        if view in IR_TYPES_BY_VIEW and ("cloud" in obj or "corridors" in obj):
+        if view in IR_TYPES_BY_VIEW and ("cloud" in obj or "corridors" in obj or "elements" in obj):
             found[view] = obj  # last write wins (post-correction)
     return found
 
@@ -342,7 +429,7 @@ def recompile_from_capture_irs(data: dict) -> str:
         assign_saas_shape_types,
         merge_mxfile_pages,
     )
-    from app.adapters.outbound.diagram.compiler import compile_corridor_ir, compile_network_ir
+    from app.adapters.outbound.diagram.compiler import compile_archimate_ir, compile_corridor_ir, compile_network_ir
     from app.adapters.outbound.diagram.xml_diagnostics import repair_xml
     from app.domain.ir import IR_TYPES_BY_VIEW
 
@@ -350,7 +437,7 @@ def recompile_from_capture_irs(data: dict) -> str:
     if not irs:
         raise RuntimeError("No IR payloads found in capture logs")
     pages: list[tuple[str, str]] = []
-    order = ["logical", "network", "security", "data_flow"]
+    order = ["logical", "network", "security", "data_flow", "archimate"]
     for view in order:
         if view not in irs:
             continue
@@ -400,6 +487,8 @@ def recompile_from_capture_irs(data: dict) -> str:
                 if not model.is_valid():
                     raise RuntimeError("; ".join(model.semantic_errors()[:2]))
                 xml = compile_network_ir(model)
+            elif view == "archimate":
+                xml = compile_archimate_ir(model, page_name=title)
             else:
                 xml = compile_corridor_ir(model, page_name=title)
         except Exception as exc:
@@ -408,6 +497,11 @@ def recompile_from_capture_irs(data: dict) -> str:
         if view == "logical":
             xml = assign_logical_shape_types(xml)
             xml = assign_saas_shape_types(xml)
+        elif view == "archimate":
+            # ArchiMate icons resolve only from _ARCHIMATE_BUILTIN_STYLES
+            # (compiler/theme.py), never MCP search — assign_saas_shape_types
+            # would be a no-op here at best and a wrong-icon risk at worst.
+            pass
         else:
             xml = assign_saas_shape_types(xml)
         xml, _ = repair_xml(xml)
