@@ -1,18 +1,23 @@
 """Shared ELK graph-building/parsing helpers for the Network and Corridor
 compilers.
 
-Two different leaf-container shapes are used, deliberately:
+Both compilers use the same leaf-container shape: a container is handed to
+ELK *sized but childless* (``sized_container_node`` + ``leaf_grid_size``),
+and its leaves are placed separately once the container's own final position
+is known — by ``compiler/shared.emit_leaf_grid`` for Network, by
+``logical_layout._place_leaves`` for Corridor.
 
-- **Corridor** needs precise per-leaf edge routing (that's the whole point
-  of its ELK migration — see ``logical_layout.py``), so its corridors are
-  compound nodes with each leaf as a real ELK child (``leaf_grid_container``,
-  partitioned into rows of ``LEAF_MAX_COLS``).
-- **Network** carries no real flow edges into ELK at all (see
-  ``compiler/elk_layout_network.py``'s module docstring), so a leaf-grid
-  container (subnet/group/edge-layer/hub-shelf) only needs to be *sized*
-  correctly (``sized_container_node`` + ``leaf_grid_size``, no ELK
-  children) — leaves are placed by ``compiler/shared.emit_leaf_grid`` once
-  the container's final position is known, same math either way.
+Corridor briefly did the other thing — each leaf as a real ELK child, so
+leaf-level cross-corridor edges could be routed by ELK directly. That
+required ``elk.hierarchyHandling: INCLUDE_CHILDREN``, which makes one
+algorithm instance lay out the whole hierarchy in the root's direction and
+therefore silently discarded each corridor's own direction and partitioned
+row wrap (measured: a 526×420 grid rendered as a 126×1784 single column).
+See ``logical_layout._build_elk_corridor_graph``. Corridor now collapses
+those edges onto the corridors themselves, so ELK routes lanes between
+boxes and the per-leaf anchoring is finished by
+``edge_routing.fix_edge_anchors_from_geometry`` — the same division of
+labour Network already used.
 
 ``band_transition_edges`` and ``MODEL_ORDER_OPTIONS`` are Network's
 mechanism for deterministic sibling order — see
@@ -26,16 +31,10 @@ from app.adapters.outbound.diagram import geometry_spec as geo
 from app.adapters.outbound.diagram.elk_bridge import ElkLayoutError
 from app.domain.ir.base import Leaf
 
-#: Gap (edge-to-edge, not pitch) between leaves in the same row/column — ELK
-#: wants a gap, geometry_spec's constants are a pitch (left-edge to left-edge).
-#: Cross-cutting shelves use a denser pitch than data-path rows/subnets (see
-#: geometry_spec.pitch_for) — same distinction, kept as two named gaps rather
-#: than always deriving from the same constant.
-LEAF_GAP_X = max(4.0, geo.DATA_CANONICAL_PITCH - geo.LEAF_W)
-# Pitch between leaf tops is ROW_PITCH_Y; nodes now include LABEL_BAND_H so the
-# inter-layer gap is the residual (not ROW_PITCH_Y - LEAF_H alone).
-LEAF_GAP_Y = max(4.0, geo.ROW_PITCH_Y - geo.LEAF_H - geo.LABEL_BAND_H)
-GROUP_GAP_X = max(4.0, geo.GROUP_CANONICAL_PITCH - geo.LEAF_W)
+#: Max leaves per grid row. No ELK option derives from this any more (leaf
+#: placement is deterministic on both compilers — see the module docstring);
+#: it is re-exported here only because ``logical_layout`` reads it as the
+#: canonical column cap.
 LEAF_MAX_COLS = geo.LEAF_GRID_MAX_COLS
 
 #: Graph-wide options that make edge-free same-rank siblings ("rows" — see
@@ -60,47 +59,9 @@ def leaf_grid_size(leaves: list[Leaf], *, is_group: bool = False) -> tuple[float
 
 
 def sized_container_node(node_id: str, width: float, height: float) -> dict:
-    """An ELK node sized to hold a leaf grid — no ELK children (Network's
-    leaf containers; see module docstring)."""
+    """An ELK node sized to hold a leaf grid — no ELK children. Used by both
+    compilers for every leaf container; see the module docstring."""
     return {"id": node_id, "width": width, "height": height}
-
-
-def elk_leaf_node(leaf_id: str, index: int) -> dict:
-    """One leaf as an ELK node, partitioned into rows of ``LEAF_MAX_COLS``.
-
-    Height includes ``LABEL_BAND_H`` because corridor leaves use
-    ``verticalLabelPosition=bottom`` — without the band, shelves and sibling
-    rows sit under the hanging label and look overlapped.
-    """
-    return {
-        "id": leaf_id,
-        "width": geo.LEAF_W,
-        "height": geo.LEAF_H + geo.LABEL_BAND_H,
-        "layoutOptions": {"elk.partitioning.partition": str(index // LEAF_MAX_COLS)},
-    }
-
-
-def leaf_grid_container(
-    node_id: str, leaves: list[Leaf], *,
-    is_group: bool = False,
-    extra_options: dict[str, str] | None = None,
-) -> dict:
-    """A compound ELK node holding ``leaves`` as real children (Corridor
-    only — see module docstring) — direction DOWN, partitioned rows,
-    canonical spacing. ``is_group=True`` for a denser pitch."""
-    options = {
-        "elk.direction": "DOWN",
-        "elk.partitioning.activate": "true",
-        "elk.spacing.nodeNode": str(GROUP_GAP_X if is_group else LEAF_GAP_X),
-        "elk.layered.spacing.nodeNodeBetweenLayers": str(LEAF_GAP_Y),
-    }
-    if extra_options:
-        options.update(extra_options)
-    return {
-        "id": node_id,
-        "layoutOptions": options,
-        "children": [elk_leaf_node(leaf.id, i) for i, leaf in enumerate(leaves)],
-    }
 
 
 _BAND_EDGE_PREFIX = "__band__"

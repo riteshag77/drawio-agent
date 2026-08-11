@@ -106,6 +106,11 @@ _GROUP_HINTS: dict[str, tuple[str, ...]] = {
     "security": (
         "trust", "zone", "dmz", "public", "private", "restricted", "identity", "detect",
         "perimeter", "untrusted",
+        # zone_partner and zone_external_saas are first-class Security
+        # containers with model-authored labels ("Broker Partners", "Vendor
+        # SaaS"), so without these a valid page tripped a spurious
+        # group_taxonomy warning.
+        "partner", "saas", "external",
     ),
     "data_flow": (
         "ingest", "process", "storage", "store", "analytics", "hot path", "cold path",
@@ -474,8 +479,15 @@ def score_view(
             tgt = by_id.get(cell.get("target") or "")
             src_zone = src.get("parent") or "" if src is not None else ""
             tgt_zone = tgt.get("parent") or "" if tgt is not None else ""
-            touches_boundary = src_zone.startswith(boundary_prefixes) or tgt_zone.startswith(boundary_prefixes)
-            if touches_boundary and (cell.get("protection") or "none") == "none":
+            # Exactly one end in a boundary zone == a real crossing. "Either
+            # end touches one" also fired on flows with both ends inside
+            # zone_public, which cross nothing — kept in step with the same
+            # correction in SecurityIR.semantic_warnings so the IR warning and
+            # this score never disagree about what a crossing is.
+            crosses_boundary = (
+                src_zone.startswith(boundary_prefixes) != tgt_zone.startswith(boundary_prefixes)
+            )
+            if crosses_boundary and (cell.get("protection") or "none") == "none":
                 violations.append(ViewViolation(
                     "unprotected_boundary_flow",
                     "warning",

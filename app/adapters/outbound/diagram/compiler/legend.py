@@ -43,12 +43,22 @@ def _rows_for(ir: CorridorIR) -> list[str]:
         rows.append(f"Dashed container border = anchored {kind} (outside the main journey)")
 
     if ir.view == "security":
+        # Only the zones actually on the trust axis (palette.SECURITY_TRUST_ORDER)
+        # get a colour ramp. identity/partner/detect are deliberately OFF that
+        # axis and have their own hues — the previous wording implied a single
+        # monotone ramp across every zone and called zone_public's orange
+        # "yellow", so on a full 7-zone page four of the eight fills on screen
+        # were either unexplained or actively mis-keyed.
         rows.append(
-            "Zone colour = trust level: exposed/perimeter (yellow) &#8594; "
-            "internal (blue) &#8594; restricted (red)"
+            "Zone colour ramps by trust on the main path: public (orange) &#8594; "
+            "DMZ (yellow) &#8594; private (blue) &#8594; restricted (red). "
+            "Identity, partner and detect zones sit off that axis and carry their own colour."
         )
 
-    if ir.view == "data_flow" and any(f.classification not in ("none", "") for f in ir.flows):
+    if any(f.classification not in ("none", "") for f in ir.flows):
+        # Every corridor view colours edges from flow.classification
+        # (compiler/shared.py -> theme.flow_style), so any of them can render a
+        # coloured stroke with no key. Previously only Data-flow got the row.
         rows.append(
             "Edge colour = data sensitivity: PII (red) &#8226; PCI (dark red) &#8226; "
             "confidential (purple)"

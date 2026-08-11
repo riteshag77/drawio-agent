@@ -1748,6 +1748,12 @@ _MAX_STORY_STEPS = 5
 _MAX_STORY_STEPS_LOGICAL = 6
 #: Network primary path often needs edge + gateway + app + data (7 hops).
 _MAX_STORY_STEPS_NETWORK = 7
+#: Security has the most zones of any view (7), and security.txt's own worked
+#: journey is 6 hops: public → partner → identity → private → restricted →
+#: detect. At the default cap of 5 both the panel steps and the canvas badges
+#: stopped before the restricted/detect end of the trust axis — the part a
+#: security reviewer most needs numbered.
+_MAX_STORY_STEPS_SECURITY = 7
 #: Business-journey bullets kept short so the panel stays scannable.
 _MAX_BUSINESS_STEPS = 3
 
@@ -1759,6 +1765,8 @@ def story_step_cap(view_title: str = "") -> int:
         return _MAX_STORY_STEPS_LOGICAL
     if title_key == "network":
         return _MAX_STORY_STEPS_NETWORK
+    if title_key == "security":
+        return _MAX_STORY_STEPS_SECURITY
     return _MAX_STORY_STEPS
 
 

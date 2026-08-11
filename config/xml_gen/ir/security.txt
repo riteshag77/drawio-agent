@@ -61,6 +61,16 @@ reinsurers, marketplace counterparties): use `shape_type=security_partner_org`
 **Partner API Gateway** leaf, all inside `zone_partner` — **never** as
 private-app children, **never** merged into `zone_external_saas`.
 
+**`annotation`** — a short bracket tag rendered after the leaf's label. On
+this view use it for the control or data property that matters at a glance:
+`KMS`, `mTLS`, `PHI`, `PCI`, `MFA`. One tag, only when it adds something the
+label doesn't already say.
+
+**`criticality`** — set `"critical"` (a heavier red border) on the few leaves
+whose compromise is the whole point of the diagram: the identity/auth service,
+the key-management service, and the restricted-zone datastore. Two or three per
+diagram, not a highlight on everything.
+
 ## Required companions
 
 **When a private app + enterprise SaaS both appear:**
@@ -82,8 +92,9 @@ private-app children, **never** merged into `zone_external_saas`.
 ## Allowed edges
 
 `AuthN`, `AuthZ`, `TLS`, `mTLS`, `inspect`, `perimeter cross`, `private path`,
-`issues token`, `Fetches Credentials (TLS)`, `Logs & Telemetry` (dashed),
-`Partner API (mTLS)`, `B2B Federation`, `Scoped Partner API`.
+`issues token`, `Fetches Credentials (TLS)`, `Encrypted (TLS)`,
+`Logs & Telemetry` (dashed), `Partner API (mTLS)`, `B2B Federation`,
+`Scoped Partner API`.
 
 Set each flow's structured `protection` to match its label: `mtls` for any
 `(mTLS)`-labeled flow (partner/gateway links), `tls` for `(TLS)`-labeled
@@ -95,29 +106,52 @@ crossing with `protection: none` is flagged for review.
 ### Mini example
 
 ```json
+"purpose": "Shows how a customer request reaches item data, and which control stops it at each trust boundary.",
 "external_actors": [{"id": "users", "kind": "users", "label": "Users"}],
 "corridors": [
   {"id": "zone_public", "label": "Public", "leaves": [
+    {"id": "waf", "shape_type": "aws_waf", "label": "WAF"},
     {"id": "api_gw", "shape_type": "aws_api_gateway", "label": "API Gateway"}
   ]},
   {"id": "zone_identity", "label": "Identity", "leaves": [
-    {"id": "cognito", "shape_type": "aws_cognito", "label": "Cognito"}
+    {"id": "cognito", "shape_type": "aws_cognito", "label": "Cognito", "criticality": "critical"}
   ]},
   {"id": "zone_private", "label": "Private", "leaves": [
-    {"id": "item_api", "shape_type": "aws_ecs", "label": "Item API"}
+    {"id": "item_api", "shape_type": "aws_ecs", "label": "Item API"},
+    {"id": "secrets", "shape_type": "aws_secrets_manager", "label": "Secrets Manager", "annotation": "KMS"}
+  ]},
+  {"id": "zone_restricted", "label": "Restricted", "leaves": [
+    {"id": "item_db", "shape_type": "aws_rds", "label": "Item DB", "criticality": "critical"}
   ]},
   {"id": "zone_detect", "label": "Detect", "leaves": [
     {"id": "guardduty", "shape_type": "aws_guardduty", "label": "GuardDuty"}
   ]}
 ],
-"anchored": [],
+"anchored": [
+  {"id": "zone_external_saas", "label": "External SaaS", "anchor_id": "zone_restricted", "leaves": [
+    {"id": "workday", "shape_type": "saas_workday", "label": "Workday"}
+  ]}
+],
 "flows": [
-  {"source": "users", "target": "api_gw", "label": "TLS", "protection": "tls"},
-  {"source": "api_gw", "target": "cognito", "label": "AuthN"},
-  {"source": "api_gw", "target": "item_api", "label": "private path"},
+  {"source": "users", "target": "waf", "label": "TLS", "protection": "tls"},
+  {"source": "waf", "target": "api_gw", "label": "Inspect", "protection": "tls"},
+  {"source": "api_gw", "target": "cognito", "label": "AuthN (TLS)", "protection": "tls"},
+  {"source": "api_gw", "target": "item_api", "label": "private path (TLS)", "protection": "tls"},
+  {"source": "item_api", "target": "secrets", "label": "Fetches Credentials (TLS)", "protection": "tls"},
+  {"source": "item_api", "target": "item_db", "label": "Encrypted (TLS)", "protection": "tls", "classification": "pii"},
+  {"source": "item_db", "target": "workday", "label": "Scoped Export (mTLS)", "protection": "mtls"},
   {"source": "item_api", "target": "guardduty", "label": "Logs & Telemetry", "primary": false}
+],
+"design_tradeoffs": [
+  "Secrets Manager over environment variables: credentials rotate without a redeploy, and every read is auditable.",
+  "mTLS on the Workday export over one-way TLS: the vendor endpoint must authenticate too, not just us."
 ]
 ```
+
+Note what the flows above do: every hop that touches `zone_public` carries
+`protection`, and each label's `(TLS)`/`(mTLS)` suffix matches the structured
+field beside it. The one `protection`-free flow is internal telemetry that
+never crosses a boundary — the single case the rule above allows.
 
 `zone_detect` is always a **main-row** corridor — never put it in `anchored`
 (only `zone_external_saas` may be anchored).
@@ -159,11 +193,39 @@ cover everything:
 field for it.)
 
 **Forbidden:** Orders/Catalog/Checkout/UI soup, Kafka-as-hero, DB
-table/CRUD labels, full AZ/subnet wallpaper (that's Network's lens), SaaS
-leaves inside `zone_private`, partner leaves inside `zone_private` or
+table/CRUD labels, full AZ/subnet wallpaper and the network plumbing that goes
+with it — NAT gateways, internet gateways, route tables (all Network's lens; a
+NAT Gateway relaying egress is not itself a security control) — SaaS leaves
+inside `zone_private`, partner leaves inside `zone_private` or
 `zone_external_saas`, routing partner traffic **straight into** `zone_private`
 without passing through `zone_partner`'s Partner API Gateway, putting any leaf
 in `external_actors` that is not actually outside the trust boundary.
+
+## Design tradeoffs (`design_tradeoffs`)
+
+Once the zones and controls are decided, add 2-4 short bullets (1 sentence
+each) to `design_tradeoffs` — each names ONE control choice you actually made
+here and the specific alternative it beat. This is different from `purpose`:
+that says what the view is for; this says **why you picked this control over
+the obvious other one**.
+
+- One choice per bullet, one sentence: `"<what you chose> over <the
+  alternative>: <the reason>."`
+- Only include a choice a competent security architect would genuinely have
+  weighed for this request — not "used IAM because access needs controlling"
+  (there is no real alternative there).
+- Tie it to a control already on this page — never invent one to have a
+  tradeoff to describe.
+
+Good: "mTLS over one-way TLS on the partner link: the partner service must
+authenticate too, not just the caller." / "Secrets Manager over environment
+variables: credentials rotate without a redeploy, and access is auditable." /
+"A dedicated Partner API Gateway over reusing the consumer WAF: partner traffic
+gets its own authn and rate limits, so a partner incident can't degrade the
+consumer path."
+
+Leave `design_tradeoffs` empty rather than invent a tradeoff that wasn't a
+genuine judgment call.
 
 ## Density
 

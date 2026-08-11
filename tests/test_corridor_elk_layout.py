@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 from app.adapters.outbound.diagram.elk_bridge import ElkLayoutError
 from app.adapters.outbound.diagram.logical_layout import layout_corridor_ir
-from app.domain.ir import AnchoredCorridor, Corridor, DataFlowIR, Flow, Leaf, LogicalIR
+from app.domain.ir import AnchoredCorridor, Corridor, DataFlowIR, Flow, Leaf, LogicalIR, SecurityIR
 
 
 def _leaf(i: str, label: str) -> Leaf:
@@ -216,6 +216,80 @@ class DataFlowElkLayoutTests(unittest.TestCase):
 
     def test_no_leaf_overflows_its_own_corridor(self) -> None:
         ir = _data_flow_ir()
+        geos, _routes = layout_corridor_ir(ir)
+        for corridor in ir.corridors + ir.anchored:
+            box = geos[corridor.id]
+            for leaf in corridor.leaves:
+                lg = geos[leaf.id]
+                self.assertGreaterEqual(lg.x, 0)
+                self.assertGreaterEqual(lg.y, 0)
+                self.assertLessEqual(lg.x + lg.w, box.w + 1.0)
+                self.assertLessEqual(lg.y + lg.h, box.h + 1.0)
+
+
+def _sec_leaf(i: str, st: str, label: str) -> Leaf:
+    return Leaf(id=i, shape_type=st, label=label)
+
+
+def _security_ir() -> SecurityIR:
+    """Security had zero ELK-layer coverage — this file was built on Logical
+    and later extended to Data-flow, never to the view with the most row
+    corridors (7) and therefore the most exposure to row/band behaviour."""
+    return SecurityIR(
+        corridors=[
+            Corridor(id="zone_public", label="Public", leaves=[_sec_leaf("waf", "aws_waf", "WAF")]),
+            Corridor(id="zone_dmz", label="DMZ", leaves=[_sec_leaf("alb", "aws_alb", "Public ALB")]),
+            Corridor(id="zone_identity", label="Identity", leaves=[_sec_leaf("idp", "saas_okta", "Okta")]),
+            Corridor(id="zone_partner", label="Partner", leaves=[
+                _sec_leaf("pgw", "aws_api_gateway", "Partner API Gateway"),
+            ]),
+            Corridor(id="zone_private", label="Private", leaves=[_sec_leaf("app", "aws_ecs", "App")]),
+            Corridor(id="zone_restricted", label="Restricted", leaves=[_sec_leaf("rds", "aws_rds", "RDS")]),
+            Corridor(id="zone_detect", label="Detect", leaves=[_sec_leaf("gd", "aws_guardduty", "GuardDuty")]),
+        ],
+        anchored=[AnchoredCorridor(
+            id="zone_external_saas", label="External SaaS", anchor_id="zone_restricted",
+            leaves=[_sec_leaf("workday", "saas_workday", "Workday")],
+        )],
+        flows=[
+            Flow(source="waf", target="alb", protection="tls"),
+            Flow(source="alb", target="idp", protection="tls"),
+            Flow(source="idp", target="app", protection="tls"),
+            Flow(source="pgw", target="app", protection="mtls"),
+            Flow(source="app", target="rds", protection="tls"),
+            Flow(source="rds", target="workday", primary=False, protection="tls"),
+        ],
+        purpose="ELK-layer Security fixture.",
+    )
+
+
+class SecurityElkLayoutTests(unittest.TestCase):
+    def test_returns_geo_for_every_corridor_shelf_and_leaf(self) -> None:
+        ir = _security_ir()
+        geos, _routes = layout_corridor_ir(ir)
+        expected = {c.id for c in ir.corridors} | {s.id for s in ir.anchored}
+        expected |= {l.id for c in ir.corridors for l in c.leaves}
+        expected |= {l.id for s in ir.anchored for l in s.leaves}
+        self.assertEqual(expected, set(geos.keys()))
+
+    def test_all_seven_row_corridors_are_left_to_right_in_canonical_order(self) -> None:
+        geos, _routes = layout_corridor_ir(_security_ir())
+        xs = [
+            geos[z].x for z in (
+                "zone_public", "zone_dmz", "zone_identity", "zone_partner",
+                "zone_private", "zone_restricted", "zone_detect",
+            )
+        ]
+        self.assertEqual(xs, sorted(xs))
+
+    def test_shelf_anchored_below_zone_restricted(self) -> None:
+        geos, _routes = layout_corridor_ir(_security_ir())
+        anchor, shelf = geos["zone_restricted"], geos["zone_external_saas"]
+        self.assertGreaterEqual(shelf.y, anchor.y + anchor.h)
+        self.assertAlmostEqual(shelf.x, anchor.x)
+
+    def test_no_leaf_overflows_its_own_corridor(self) -> None:
+        ir = _security_ir()
         geos, _routes = layout_corridor_ir(ir)
         for corridor in ir.corridors + ir.anchored:
             box = geos[corridor.id]

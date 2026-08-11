@@ -63,31 +63,10 @@ def _non_routing_warnings(warnings: list[str]) -> list[str]:
     ]
 
 
-def realistic_security_ir() -> SecurityIR:
-    return SecurityIR(
-        corridors=[
-            Corridor(id="zone_public", label="Public", leaves=[_leaf("dns", "aws_route53", "Route 53")]),
-            Corridor(id="zone_dmz", label="DMZ", leaves=[_leaf("waf", "aws_waf", "WAF")]),
-            Corridor(id="zone_identity", label="Identity", leaves=[_leaf("okta", "saas_okta", "Okta")]),
-            Corridor(id="zone_private", label="Private", leaves=[
-                _leaf("app", "aws_ecs", "App"), _leaf("secrets", "aws_secrets_manager", "Secrets Manager"),
-            ]),
-            Corridor(id="zone_restricted", label="Restricted", leaves=[_leaf("rds", "aws_rds", "RDS")]),
-            Corridor(id="zone_detect", label="Detect", leaves=[
-                _leaf("gd", "aws_guardduty", "GuardDuty"), _leaf("cw", "aws_cloudwatch", "CloudWatch"),
-            ]),
-        ],
-        anchored=[AnchoredCorridor(
-            id="zone_external_saas", label="External SaaS Zone", anchor_id="zone_restricted",
-            leaves=[_leaf("workday", "saas_workday", "Workday")],
-        )],
-        flows=[
-            Flow(source="dns", target="waf"), Flow(source="waf", target="okta"),
-            Flow(source="okta", target="app"), Flow(source="app", target="rds"),
-            Flow(source="app", target="secrets", label="Fetches Credentials"),
-            Flow(source="app", target="gd", label="Logs & Telemetry", primary=False),
-        ],
-    )
+#: Imported, not redefined — this file used to carry a byte-identical copy of
+#: test_corridor_compiler's fixture, so a change to one silently diverged the
+#: other's coverage.
+from tests.test_corridor_compiler import realistic_security_ir  # noqa: E402
 
 
 def realistic_data_flow_ir(*, with_control: bool = False) -> DataFlowIR:

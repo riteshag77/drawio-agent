@@ -414,6 +414,7 @@ class SemanticFieldsThroughFullPipelineTests(unittest.TestCase):
                 Flow(source="rds", target="workday", classification="pci", protection="tls"),
             ],
             purpose="Shows the public-to-restricted trust boundary and SaaS egress.",
+            design_tradeoffs=["mTLS to Workday over one-way TLS: the vendor endpoint authenticates too."],
         )
         self.assertEqual(ir.semantic_warnings(), [])  # secrets + detect + protected boundary all present
         xml = compile_corridor_ir(ir, page_name="Security")

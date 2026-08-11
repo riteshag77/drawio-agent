@@ -203,14 +203,23 @@ class _CorridorCompiler:
                         criticality=leaf.criticality,
                     )
             row_ids = {c.id for c in self.ir.corridors}
+            all_ids = {c.id for c in all_corridors}
             row_left = min((g.x for cid, g in geos.items() if cid in row_ids), default=_ROW_ORIGIN_X)
+            row_top = min((g.y for cid, g in geos.items() if cid in row_ids), default=_ROW_TOP_Y)
+            # Both extents span row corridors AND anchored shelves. A shelf
+            # wraps up to LEAF_GRID_MAX_COLS wide, so it can reach further
+            # right than the last row corridor — and content_right is what
+            # the legend gutter and the right-hand actor band are placed
+            # against. Measuring it on row corridors alone put right-side
+            # actors *inside* a wide shelf's box, with diagnose_xml reporting
+            # zero errors (Security's zone_external_saas anchors under
+            # zone_restricted, which is not the rightmost column).
             content_right = max(
-                (g.x + g.w for cid, g in geos.items() if cid in row_ids),
+                (g.x + g.w for cid, g in geos.items() if cid in all_ids),
                 default=_ROW_ORIGIN_X,
             )
-            row_top = min((g.y for cid, g in geos.items() if cid in row_ids), default=_ROW_TOP_Y)
             content_bottom = max(
-                (g.y + g.h for cid, g in geos.items() if cid in {c.id for c in all_corridors}),
+                (g.y + g.h for cid, g in geos.items() if cid in all_ids),
                 default=_ROW_TOP_Y,
             )
 

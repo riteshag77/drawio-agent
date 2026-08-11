@@ -528,40 +528,66 @@ def _anchor_shelves(
 # routing edges — the whole connected subgraph must be laid out by one
 # recursive algorithm instance; (2) leaves with no edges between them (the
 # common case *within* one corridor) don't wrap into a neat multi-column
-# grid under the `layered` algorithm on their own, so each corridor's leaves
-# are explicitly partitioned into rows of ``LEAF_GRID_MAX_COLS`` to reproduce
-# that wrap deterministically rather than leaving it to chance.
+# grid under the `layered` algorithm on their own. Handing that wrap to ELK
+# was tried and did not work (see `_build_elk_corridor_graph`): the leaves
+# are now gridded deterministically by `_place_leaves` — the same call the
+# anchored shelves already use — and each corridor enters ELK as a single
+# pre-sized box, so ELK only ever decides corridor placement and the routing
+# lanes between corridors.
 
-def _elk_corridor_node(corridor: Corridor, partition: int) -> dict:
-    node = elk_graph.leaf_grid_container(
-        corridor.id, corridor.leaves,
-        extra_options={
-            "elk.partitioning.partition": str(partition),
-            "elk.padding": (
-                f"[top={CONTAINER_LABEL_HEIGHT},left={CONTAINER_PADDING_X},"
-                f"bottom={CONTAINER_PADDING_Y + int(geo.LABEL_BAND_H)},right={CONTAINER_PADDING_X}]"
-            ),
-        },
+def _elk_corridor_node(
+    corridor: Corridor, partition: int, size: tuple[float, float],
+) -> dict:
+    return dict(
+        elk_graph.sized_container_node(corridor.id, *size),
+        layoutOptions={"elk.partitioning.partition": str(partition)},
     )
-    return node
 
 
 def _build_elk_corridor_graph(
     row: list[Corridor],
     row_edges: list[tuple[str, str, str]],
+    sizes: dict[str, tuple[float, float]],
+    leaf_to_corridor: dict[str, str],
     *,
     view: str = "",
 ) -> dict:
     """``row_edges`` are ``(flow_id, source_leaf_id, target_leaf_id)`` for
     flows whose endpoints are both leaves of a row corridor (the only edges
-    this graph needs to know about — see the module section docstring)."""
+    this graph needs to know about — see the module section docstring).
+
+    Corridors enter as **pre-sized, childless** boxes (``sizes``, computed by
+    ``_place_leaves``) and the leaf-level ``row_edges`` are collapsed onto
+    their owning corridors. Leaves are deliberately NOT ELK children: a
+    corridor's internal grid is a fixed 4-up wrap, not a layout search, and
+    handing it to ELK actively broke it. ``elk.hierarchyHandling:
+    INCLUDE_CHILDREN`` (needed for leaf-level cross-corridor edges) makes one
+    algorithm instance lay out the whole hierarchy in the ROOT's direction,
+    so each corridor's own ``elk.direction: DOWN`` + partitioned rows never
+    applied — measured: 8 leaves rendered as a 126×1784 single column with
+    scrambled order instead of 526×420, and ``_equalize_row_band`` then
+    propagated that height to every row (worst on Security's 7 zones).
+    Removing the leaf level removes the direction conflict outright, which is
+    the same resolution ``compiler/network.py`` already documents for the
+    same ELK limitation (kieler/elkjs#26).
+    """
     gap = LOGICAL_INTER_CONTAINER_GAP if view == "logical" else INTER_CONTAINER_GAP
+    seen: set[tuple[str, str]] = set()
+    edges: list[dict] = []
+    for fid, src, tgt in row_edges:
+        pair = (leaf_to_corridor[src], leaf_to_corridor[tgt])
+        # Keep one edge per corridor pair: ELK is now routing lanes between
+        # boxes, and N parallel leaf edges between the same two corridors
+        # would each claim their own lane and splay the columns apart.
+        if pair in seen:
+            continue
+        seen.add(pair)
+        edges.append({"id": fid, "sources": [pair[0]], "targets": [pair[1]]})
     return {
         "id": "root",
         "layoutOptions": {
             "elk.algorithm": "layered",
             "elk.direction": "RIGHT",
-            "elk.hierarchyHandling": "INCLUDE_CHILDREN",
             "elk.edgeRouting": "ORTHOGONAL",
             "elk.partitioning.activate": "true",
             # Between L→R corridor columns (layers), not same-layer siblings.
@@ -570,28 +596,23 @@ def _build_elk_corridor_graph(
             "elk.padding": f"[top={_ROW_START_Y},left={_ROW_START_X},bottom=40,right=40]",
             **elk_graph.MODEL_ORDER_OPTIONS,
         },
-        "children": [_elk_corridor_node(c, i) for i, c in enumerate(row)],
-        "edges": [
-            {"id": fid, "sources": [src], "targets": [tgt]}
-            for fid, src, tgt in row_edges
-        ],
+        "children": [_elk_corridor_node(c, i, sizes[c.id]) for i, c in enumerate(row)],
+        "edges": edges,
     }
 
 
 def _parse_elk_corridor_result(
-    result: dict, row: list[Corridor],
+    result: dict, row: list[Corridor], geos: dict[str, Geo],
 ) -> tuple[dict[str, Geo], dict[str, list[tuple[float, float]]]]:
-    geos: dict[str, Geo] = {}
+    """Record each corridor's ELK-decided box into ``geos``.
+
+    Leaf entries are already in ``geos`` — ``_place_leaves`` put them there,
+    parent-relative, before the graph was built — so this only fills in the
+    corridor boxes themselves and never touches a leaf.
+    """
     for corridor in row:
         cnode = elk_graph.require_child(result, corridor.id)
         geos[corridor.id] = Geo(x=cnode["x"], y=cnode["y"], w=cnode["width"], h=cnode["height"])
-        for leaf in corridor.leaves:
-            lnode = elk_graph.require_child(cnode, leaf.id)
-            # ELK nodes include LABEL_BAND_H for inter-row spacing; mxCells stay
-            # LEAF_W×LEAF_H so post-passes never fight a second size contract.
-            geos[leaf.id] = Geo(
-                x=lnode["x"], y=lnode["y"], w=geo.LEAF_W, h=geo.LEAF_H,
-            )
     return geos, elk_graph.edge_routes(result)
 
 
@@ -910,9 +931,22 @@ def layout_corridor_ir(ir: CorridorIR) -> tuple[dict[str, Geo], dict[str, list[t
         if cs in row_ids and ct in row_ids and cs != ct:
             row_edges.append((f"flow_{index}", flow.source, flow.target))
 
-    graph = _build_elk_corridor_graph(row, row_edges, view=ir.view)
+    # Grid each corridor's leaves first (parent-relative) so ELK receives a
+    # correctly-sized box per corridor — see _build_elk_corridor_graph for
+    # why the leaves are kept out of the ELK graph entirely.
+    geos: dict[str, Geo] = {}
+    sizes: dict[str, tuple[float, float]] = {}
+    all_flow_pairs = [(f.source, f.target) for f in ir.flows]
+    for corridor in row:
+        own = {leaf.id for leaf in corridor.leaves}
+        local_edges = [(s, t) for s, t in all_flow_pairs if s in own and t in own]
+        sizes[corridor.id] = _place_leaves(corridor.leaves, local_edges, geos)
+
+    graph = _build_elk_corridor_graph(
+        row, row_edges, sizes, leaf_to_corridor, view=ir.view,
+    )
     result = run_elk(graph)
-    geos, routes = _parse_elk_corridor_result(result, row)
+    geos, routes = _parse_elk_corridor_result(result, row, geos)
 
     # Snap the row to one Y/H band. Shift bend points when both endpoints
     # moved together; drop only asymmetrically moved routes (local router

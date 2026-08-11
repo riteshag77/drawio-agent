@@ -23,7 +23,7 @@ from typing import Literal
 from pydantic import Field, field_validator, model_validator
 
 from app.domain.ir.base import ActorKind, DiagramIR, ExternalActor, Flow, Identified, Leaf
-from app.domain.ir.security import _PERIMETER_SERVICE_SHAPE_TYPES
+from app.domain.ir.security import _PERIMETER_SERVICE_SHAPE_TYPES, perimeter_leaf_id
 
 __all__ = [
     "ActorKind",  # re-exported for backward compatibility — canonical home is base.py
@@ -130,6 +130,59 @@ class CloudBoundary(Identified):
     )
 
 
+def _collect_network_ids(data: dict, *, excluding: list[dict]) -> set[str]:
+    """Every id already present in a raw NetworkIR payload — the Network
+    equivalent of ``security._collect_taken_ids`` (see it for why relocating
+    actors are excluded). Walks the nested cloud hierarchy rather than a flat
+    corridor list."""
+    moving = {id(a) for a in excluding}
+    taken: set[str] = set()
+
+    def _add(obj: object) -> None:
+        if isinstance(obj, dict) and isinstance(obj.get("id"), str):
+            taken.add(obj["id"])
+
+    cloud = data.get("cloud")
+    if isinstance(cloud, dict):
+        _add(cloud)
+        edge_layer = cloud.get("edge_layer")
+        if isinstance(edge_layer, dict):
+            _add(edge_layer)
+            for leaf in edge_layer.get("leaves") or []:
+                _add(leaf)
+        for hub in cloud.get("connectivity_hubs") or []:
+            _add(hub)
+        for region in cloud.get("regions") or []:
+            if not isinstance(region, dict):
+                continue
+            _add(region)
+            for vpc in region.get("vpcs") or []:
+                if not isinstance(vpc, dict):
+                    continue
+                _add(vpc)
+                _add(vpc.get("gateway"))
+                for zone in vpc.get("zones") or []:
+                    if not isinstance(zone, dict):
+                        continue
+                    _add(zone)
+                    for subnet in zone.get("subnets") or []:
+                        if not isinstance(subnet, dict):
+                            continue
+                        _add(subnet)
+                        for leaf in subnet.get("leaves") or []:
+                            _add(leaf)
+                for group in vpc.get("groups") or []:
+                    if not isinstance(group, dict):
+                        continue
+                    _add(group)
+                    for leaf in group.get("leaves") or []:
+                        _add(leaf)
+    for actor in data.get("external_actors") or []:
+        if isinstance(actor, dict) and id(actor) not in moving:
+            _add(actor)
+    return taken
+
+
 def _relocate_perimeter_services_from_actors(data: object) -> object:
     """Move any external_actors entry matching ``_PERIMETER_SERVICE_SHAPE_TYPES``
     into a Leaf under ``cloud.edge_layer``, creating that layer if it doesn't
@@ -146,22 +199,35 @@ def _relocate_perimeter_services_from_actors(data: object) -> object:
         return data
 
     kept: list[object] = []
-    relocated: list[dict[str, str]] = []
+    moving: list[tuple[dict, str]] = []
     for actor in actors:
         label = actor.get("label") if isinstance(actor, dict) else None
         shape_type = _PERIMETER_SERVICE_SHAPE_TYPES.get((label or "").strip().lower())
         if isinstance(actor, dict) and shape_type:
-            relocated.append({
-                "id": actor.get("id") or label or "perimeter_service",
-                "shape_type": shape_type,
-                "label": label,
-                "annotation": "",
-                "criticality": "standard",
-            })
+            moving.append((actor, shape_type))
         else:
             kept.append(actor)
-    if not relocated:
+    if not moving:
         return data
+
+    # Same id-synthesis rules as Security's original — see perimeter_leaf_id
+    # for why "actor id or label" was wrong (multi-word vendor labels are not
+    # legal ids, and the resulting failure is swallowed into a direct-XML
+    # fallback). The taken-id walk differs only because Network's payload is
+    # nested (cloud -> regions -> vpcs -> zones -> subnets) rather than a flat
+    # corridor list.
+    taken = _collect_network_ids(data, excluding=[a for a, _ in moving])
+    relocated: list[dict[str, str]] = []
+    for actor, shape_type in moving:
+        leaf_id = perimeter_leaf_id(actor, shape_type, taken)
+        taken.add(leaf_id)
+        relocated.append({
+            "id": leaf_id,
+            "shape_type": shape_type,
+            "label": actor.get("label"),
+            "annotation": "",
+            "criticality": "standard",
+        })
 
     data = dict(data)
     data["external_actors"] = kept

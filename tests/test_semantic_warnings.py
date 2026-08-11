@@ -58,6 +58,7 @@ class SecurityWarningsTests(unittest.TestCase):
                 Flow(source="app", target="db"),
             ],
             purpose="Shows the private app tier's trust boundary and SaaS egress.",
+            design_tradeoffs=["Secrets Manager over env vars: credentials rotate without a redeploy."],
         )
         self.assertEqual(ir.semantic_warnings(), [])
 
@@ -70,6 +71,35 @@ class SecurityWarningsTests(unittest.TestCase):
             flows=[Flow(source="broker", target="app")],
         )
         self.assertTrue(any("Partner API Gateway" in w for w in ir.semantic_warnings()))
+
+    def test_partner_zone_with_gateway_does_not_warn(self) -> None:
+        """The positive case above had no negative counterpart, so a broken
+        "gateway" needle would still have passed green."""
+        ir = SecurityIR(
+            corridors=[
+                Corridor(id="zone_partner", label="Partner", leaves=[
+                    _leaf("pgw", "Partner API Gateway"), _leaf("broker", "Broker Feed"),
+                ]),
+                Corridor(id="zone_private", label="Private", leaves=[_leaf("app", "App")]),
+            ],
+            flows=[Flow(source="pgw", target="app", label="Scoped Partner API", protection="mtls")],
+        )
+        self.assertFalse([w for w in ir.semantic_warnings() if "Partner API Gateway" in w])
+
+    def test_blank_purpose_warns_and_filled_purpose_does_not(self) -> None:
+        """The purpose nudge was only ever exercised incidentally, by other
+        fixtures setting the field to keep their own assertions clean."""
+        def _ir(purpose: str) -> SecurityIR:
+            return SecurityIR(
+                corridors=[Corridor(id="zone_private", label="Private", leaves=[
+                    _leaf("app", "App"), _leaf("db", "DB"),
+                ])],
+                flows=[Flow(source="app", target="db")],
+                purpose=purpose,
+            )
+        self.assertTrue([w for w in _ir("").semantic_warnings() if "purpose is empty" in w])
+        self.assertFalse([w for w in _ir("Shows the app-to-data trust boundary.").semantic_warnings()
+                          if "purpose is empty" in w])
 
     def test_unprotected_boundary_flow_warns(self) -> None:
         ir = SecurityIR(

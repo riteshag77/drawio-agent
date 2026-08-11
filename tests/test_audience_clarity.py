@@ -25,7 +25,11 @@ class StoryStepCapTests(unittest.TestCase):
     def test_matches_view_story_caps(self) -> None:
         self.assertEqual(story_step_cap("logical"), 6)
         self.assertEqual(story_step_cap("network"), 7)
-        self.assertEqual(story_step_cap("security"), 5)
+        # Security has the most zones of any view and security.txt's own
+        # worked journey is 6 hops (public -> partner -> identity -> private
+        # -> restricted -> detect); at the default 5 the panel steps and the
+        # canvas badges both stopped before the restricted/detect end.
+        self.assertEqual(story_step_cap("security"), 7)
         self.assertEqual(story_step_cap(""), 5)
 
 
