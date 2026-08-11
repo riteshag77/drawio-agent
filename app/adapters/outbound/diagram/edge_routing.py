@@ -626,10 +626,6 @@ def _edge_points(edge: ET.Element) -> list[tuple[float, float]]:
     return pts
 
 
-def _edge_has_points(edge: ET.Element) -> bool:
-    return bool(_edge_points(edge))
-
-
 def _set_edge_waypoints(edge: ET.Element, points: list[tuple[float, float]]) -> None:
     """Replace intermediate routing points on an edge (orthogonal elbows)."""
     geom = edge.find("mxGeometry")

@@ -88,11 +88,19 @@ _EDGE_VOCAB: dict[str, tuple[str, ...]] = {
     # compiler/archimate.py::_emit_relationships), so this can never drift
     # from what the page actually renders the way a hand-typed list could.
     "archimate": tuple(relationship_label(rel_type) for rel_type in ARCHIMATE_RELATIONSHIP_TYPES),
-    # Request-path verbs/protocol tokens network.txt's own flow-label
-    # guidance names (1-2 word hop intent: protocol or verb).
+    # Request-path protocols and hop intents, per network.txt's own flow-label
+    # guidance. Tokens are STEMS: matching is substring, so "forwards" cannot
+    # match the "Forward" a model actually writes, while "forward" matches
+    # both. The first version of this list used plural/gerund forms and was
+    # too narrow, which flagged ordinary labels (Auth, Forward, Redirect,
+    # Sync, Token, Write, MQTT) on every one of five multi-view runs.
     "network": (
-        "https", "dns", "inspect", "sql", "async", "mtls", "tls",
-        "routes", "forwards", "connects", "replicates",
+        # protocols / transports
+        "http", "dns", "tls", "mtls", "sql", "grpc", "mqtt", "amqp", "ssh", "vpn",
+        # hop intent
+        "route", "forward", "connect", "replicat", "inspect", "async", "sync",
+        "auth", "token", "redirect", "read", "write", "publish", "subscribe",
+        "stream", "query", "request", "response", "ingest", "egress", "peer",
     ),
 }
 
@@ -601,15 +609,3 @@ def score_view(
     return ViewScore(view=view, score=score, violations=violations, metrics=metrics)
 
 
-def format_violations_for_repair(score: ViewScore) -> str:
-    """Turn violations into reviewer instructions for the repair LLM."""
-    if not score.violations:
-        return "No violations."
-    lines = [
-        f"REVIEWER ({score.view}): score={score.score}. Fix ONLY the issues below.",
-        "Do not invent products absent from inventory. Preserve shape_type on real services.",
-    ]
-    for i, v in enumerate(score.violations, 1):
-        ids = f" (cells: {', '.join(v.cell_ids)})" if v.cell_ids else ""
-        lines.append(f"{i}. [{v.severity}/{v.code}] {v.message}{ids}")
-    return "\n".join(lines)

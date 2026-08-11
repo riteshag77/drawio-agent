@@ -352,21 +352,6 @@ def delete_session(session_id: str) -> int:
             conn.close()
 
 
-def clear_history() -> None:
-    """Test helper — wipe every stored version."""
-    global _db_ready
-    with _db_lock:
-        conn = _connect()
-        if conn is None:
-            return
-        try:
-            with conn:
-                conn.execute("DELETE FROM diagram_versions")
-        except sqlite3.Error:
-            pass
-        finally:
-            conn.close()
-
 
 def reset_ready_flag() -> None:
     """Test helper — force schema re-creation after the configured path changes."""

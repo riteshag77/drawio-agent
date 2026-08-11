@@ -20,7 +20,6 @@ LEAF_H = 78.0
 LABEL_BAND_H = 28.0
 
 LEAF_GRID_MAX_COLS = 4
-LEAF_GRID_MAX_ROWS = 50
 LEAF_MIN_GAP = 20.0
 
 # ── Pitch (left-edge to left-edge spacing between adjacent icons) ──────
@@ -55,8 +54,6 @@ SUBNET_TIER_GAP = 56.0
 GROUP_GAP_BELOW_ZONES = 80.0
 #: Clear space between the VPC gateway's row and the zones row below it.
 GATEWAY_GAP_BELOW = 60.0
-#: Horizontal gap between the four cross-cutting shelves (network.txt: 20-30px).
-GROUP_GAP_X = 24.0
 #: Horizontal gap between peer availability zones (network.txt: 20-30px).
 ZONE_GAP_X = 24.0
 #: Horizontal gap between peer VPCs inside a region.
@@ -115,10 +112,6 @@ DEFAULT_CONTAINER_SIZE = (160.0, 120.0)
 def pitch_for(is_group: bool) -> float:
     """Canonical horizontal pitch for a row of icons."""
     return GROUP_CANONICAL_PITCH if is_group else DATA_CANONICAL_PITCH
-
-
-def pitch_range_for(is_group: bool) -> tuple[float, float]:
-    return GROUP_PITCH_RANGE if is_group else DATA_PITCH_RANGE
 
 
 def grid_size(count: int, *, is_group: bool) -> tuple[float, float, int, int]:

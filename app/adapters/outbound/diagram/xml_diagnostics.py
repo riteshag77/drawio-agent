@@ -151,10 +151,6 @@ _PRESERVE_SECTION_MARK = re.compile(
     r'data-section\s*=\s*["\'](?:lens|howto|purpose|biz-header|biz|tech-header|tech|facts|footer|gaps)["\']',
     re.IGNORECASE,
 )
-_TECH_STEP_MARK = re.compile(
-    r'data-section\s*=\s*["\']tech["\']|^\s*\d+\.\s+',
-    re.IGNORECASE,
-)
 
 
 @dataclass

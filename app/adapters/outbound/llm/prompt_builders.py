@@ -18,14 +18,6 @@ PLATFORM_LABELS = {
     "multi": "Multi-Cloud / Hybrid",
 }
 
-_PLATFORM_EDGE_COLORS = {
-    "aws": "#232F3E",
-    "gcp": "#4285F4",
-    "azure": "#0078D4",
-    "multi": "#8C4FFF",
-}
-
-
 def trim_chat_messages(messages: list[dict[str, str]]) -> list[dict[str, str]]:
     if not messages:
         raise ValueError("At least one user message is required.")

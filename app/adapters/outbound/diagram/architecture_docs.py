@@ -943,11 +943,6 @@ _VIEW_LEAF_PLACEHOLDER_STYLE = (
     "fontColor=#232F3E;verticalLabelPosition=bottom;verticalAlign=top;"
     "align=center;fontSize=12;aspect=fixed;"
 )
-_VIEW_CARD_STYLE = (
-    "rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9E9E9E;"
-    "strokeWidth=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=8;fontSize=11;"
-)
-
 _LOGICAL_ROLE_TO_SHAPE_TYPE: dict[str, str] = {
     "actor": "logical_actor",
     "channel": "logical_channel",
@@ -1013,16 +1008,6 @@ _SAAS_JOURNEY_ROLE: dict[str, str] = {
     "saas_microsoft_365": "collab",
 }
 
-_SAAS_JOURNEY_ORDER: dict[str, int] = {
-    "identity": 0,
-    "experience": 1,
-    "workforce": 2,
-    "industry": 3,
-    "payments": 4,
-    "collab": 5,
-    "other": 6,
-}
-
 # Default Network side when edges don't decide the call path.
 # identity = user hits IdP first (Okta → redirect into Cloud).
 # Most enterprise systems-of-record are Cloud→SaaS API dependencies (right of Cloud).
@@ -1057,14 +1042,6 @@ _SAAS_GENERIC_NEEDLES = (
     "entra id", "cognito", "twilio", "sendgrid", "shopify",
 )
 
-_SAAS_HINT_TOKENS = frozenset({
-    "bank", "banking", "insurance", "insurer", "claims", "policy", "underwriting",
-    "fintech", "payments", "salesforce", "workday", "successfactors", "guidewire", "temenos",
-    "servicenow", "okta", "duck", "creek", "finastra", "fiserv", "murex",
-    "bloomberg", "refinitiv", "experian", "equifax", "stripe", "adyen", "plaid",
-    "saas", "bfsi", "sfsf",
-})
-
 
 def saas_journey_role(shape_type: str | None, label: str = "") -> str:
     """Return journey role key for Network L→R ordering."""
@@ -1076,11 +1053,6 @@ def saas_journey_role(shape_type: str | None, label: str = "") -> str:
         if matched and matched in _SAAS_JOURNEY_ROLE:
             return _SAAS_JOURNEY_ROLE[matched]
     return "other"
-
-
-def saas_journey_sort_key(shape_type: str | None, label: str = "") -> tuple[int, str]:
-    role = saas_journey_role(shape_type, label)
-    return (_SAAS_JOURNEY_ORDER.get(role, 6), (label or "").lower())
 
 
 def saas_default_network_side(shape_type: str | None, label: str = "") -> str:

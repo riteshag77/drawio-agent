@@ -490,11 +490,6 @@ def apply_edge_label_defaults(page_xml: str, *, view: str) -> str:
     return _serialize(tree) if changed else page_xml
 
 
-_EDGE_LABEL_READABILITY = (
-    "labelBackgroundColor=#F5F5F5;fontSize=11;fontColor=#333333;"
-)
-
-
 def ensure_edge_label_readability(page_xml: str, *, view: str = "") -> str:
     """Opaque label backgrounds + orthogonal style so line text stays readable.
 

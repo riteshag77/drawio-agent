@@ -154,10 +154,13 @@ stopping at the gateway or CDN is incomplete.
   `Failure:` / `DR:` / `Fallback:` — never use dashed alone for a normal async call.
 - Keep the flow set sparse and readable. A diagram where everything connects to
   everything is unreadable — model the story, not every possible call.
-- **Every flow needs a short `label`** (1–2 words): protocol or hop intent —
-  `"HTTPS"`, `"DNS"`, `"inspect"`, `"SQL"`, `"async"`, `"mTLS"`. Never leave
-  `label` blank on the primary path; empty labels make Network diagrams
-  unreadable for platform reviews.
+- **Every flow needs a short `label`** (1–2 words): a protocol or a hop intent.
+  Protocols: `"HTTPS"`, `"DNS"`, `"TLS"`, `"mTLS"`, `"SQL"`, `"gRPC"`,
+  `"MQTT"`, `"VPN"`. Hop intents: `"Route"`, `"Forward"`, `"Connect"`,
+  `"Replicate"`, `"Inspect"`, `"Auth"`, `"Token"`, `"Redirect"`, `"Sync"`,
+  `"Async"`, `"Read"`, `"Write"`, `"Publish"`, `"Stream"`, `"Query"`,
+  `"Ingest"`. Never leave `label` blank on the primary path; empty labels make
+  Network diagrams unreadable for platform reviews.
 - Set `protection` (`tls`/`mtls`) and `classification` (`pii`/`pci`/
   `confidential`) when the request implies them (PHI/PII clinical paths,
   payment to Stripe, etc.).
