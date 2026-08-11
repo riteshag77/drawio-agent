@@ -1228,6 +1228,29 @@ def ensure_saas_labels_on_logical(page_xml: str) -> str:
     return ET.tostring(tree, encoding="unicode")
 
 
+def _preserve_criticality_border(cell: ET.Element, new_style: str) -> str:
+    """Re-append the critical-leaf border to a style about to overwrite one.
+
+    ``theme.leaf_style(criticality)`` draws a critical leaf's red border at
+    compile time, but both ``assign_logical_shape_types`` and
+    ``assign_saas_shape_types`` unconditionally overwrite ``style`` afterward
+    with a builtin lookup that has no notion of criticality — silently
+    dropping the border on every leaf that gets reclassified (i.e. any leaf
+    not already ``aws_*``/``gcp_*``/``azure_*``, which is most of Logical's
+    own ``logical_*`` vocabulary). Reads the ``criticality`` XML attribute
+    ``CellWriter.vertex`` already stamps for exactly this purpose, rather
+    than sniffing the outgoing style string for a stroke colour that could
+    change shape later.
+    """
+    if cell.get("criticality") != "critical":
+        return new_style
+    if palette.CRITICAL_LEAF_STROKE in new_style:
+        return new_style
+    if not new_style.endswith(";"):
+        new_style += ";"
+    return new_style + f"strokeWidth=3;strokeColor={palette.CRITICAL_LEAF_STROKE};"
+
+
 def assign_saas_shape_types(page_xml: str) -> str:
     """Stamp curated saas_* + builtin SVG styles when a vendor label matches.
 
@@ -1274,6 +1297,7 @@ def assign_saas_shape_types(page_xml: str) -> str:
             changed = True
         builtin = _builtin_style(matched)
         if builtin and cell.get("style") != builtin:
+            builtin = _preserve_criticality_border(cell, builtin)
             cell.set("style", builtin)
             changed = True
         # Never touch mxGeometry — IR compiler owns leaf size (LEAF_W×LEAF_H).
@@ -1367,6 +1391,7 @@ def assign_logical_shape_types(page_xml: str) -> str:
             cell.set("shape_type", st)
             changed = True
         if cell.get("style") != new_style:
+            new_style = _preserve_criticality_border(cell, new_style)
             cell.set("style", new_style)
             changed = True
         # Style/shape_type only — never resize. Compiler laid out LEAF_W×LEAF_H.

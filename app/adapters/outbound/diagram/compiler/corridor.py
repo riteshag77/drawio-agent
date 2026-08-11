@@ -38,6 +38,7 @@ from app.adapters.outbound.diagram.logical_layout import (
     CONTAINER_PADDING_X,
     CONTAINER_PADDING_Y,
     INTER_CONTAINER_GAP,
+    _row_rank_key,
     grid_fill,
     layout_corridor_ir,
 )
@@ -165,6 +166,16 @@ class _CorridorCompiler:
         flat = getattr(self.ir, "view", None) == "logical"
 
         if flat:
+            # The non-flat path below looks up geometry by corridor id
+            # (geos[corridor.id]), so JSON declaration order never mattered
+            # for it. _emit_logical_flat has no such indirection — it builds
+            # its left-to-right leaf order directly from list order — so an
+            # LLM that emits corridors out of canonical rank order (nothing
+            # validates or normalizes this; only membership in the fixed id
+            # set is checked) would silently invert the journey read
+            # direction. Sort by the same rank table the ELK path already
+            # uses so declaration order can never affect the visual result.
+            all_corridors = sorted(all_corridors, key=lambda c: _row_rank_key("logical", c.id, c.label))
             content_right, content_bottom, row_left, row_top = self._emit_logical_flat(
                 all_corridors,
             )

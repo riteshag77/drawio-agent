@@ -43,8 +43,11 @@ from __future__ import annotations
 #: ``INTENTIONAL_COLOR_TWINS``.
 CORRIDOR_COLORS: dict[str, tuple[str, str]] = {
     # ── logical: channel → application → data, with identity/platform aside ──
+    # (all of these are dead for Logical's actual rendered output — the flat
+    # storyboard path never emits a domain_* box at all, see logical.py's
+    # module docstring — but kept for the corridor-color contract these keys
+    # are part of, and in case a future compile path draws them.)
     "domain_experience": ("#F5F5F5", "#666666"),
-    "domain_identity": ("#E1D5E7", "#9673A6"),
     "domain_core": ("#DAE8FC", "#6C8EBF"),
     "domain_commerce": ("#DAE8FC", "#6C8EBF"),
     "domain_platform": ("#E8EEF7", "#147EBA"),

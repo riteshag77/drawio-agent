@@ -487,7 +487,14 @@ def _finalize_view_page_xml(
         from app.adapters.outbound.diagram.architecture_docs import (
             assign_logical_shape_types,
             assign_saas_shape_types,
+            ensure_saas_labels_on_logical,
         )
+        # Same order as the primary-view path below (ensure_saas_labels_on_logical
+        # -> assign_logical_shape_types -> assign_saas_shape_types) — this branch
+        # previously skipped the label pass, so a SaaS leaf only got its
+        # " (SAAS)" label suffix when Logical happened to be the primary view,
+        # not when it was selected as an extra one.
+        xml = ensure_saas_labels_on_logical(xml)
         xml = assign_logical_shape_types(xml)
         # Brand saas_* SVGs overwrite logical_saas when vendor matches.
         xml = assign_saas_shape_types(xml)
@@ -1313,6 +1320,11 @@ async def run_xml_pipeline(
         xml_output = reposition_step_badges(xml_output)
 
     # Stamp curated saas_* on primary leaves before MCP resolve (all architecture views).
+    # Order matters and is implicit: ensure_saas_labels_on_logical must run before
+    # assign_logical_shape_types (labels the leaf before shape_type is decided
+    # from that label), which must run before assign_saas_shape_types (so a
+    # brand SVG can still overwrite logical_saas) — same order enforced at the
+    # extra-view call site in _finalize_view_page_xml above.
     if primary_view in ("network", "security", "data_flow", "logical"):
         from app.adapters.outbound.diagram.architecture_docs import assign_saas_shape_types
         if primary_view == "logical":

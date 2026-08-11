@@ -76,7 +76,12 @@ _EDGE_VOCAB: dict[str, tuple[str, ...]] = {
 }
 
 _GROUP_HINTS: dict[str, tuple[str, ...]] = {
-    "logical": ("domain", "bounded", "capability", "experience", "platform", "business"),
+    # No "logical" entry: the group-taxonomy check below is unconditionally
+    # skipped for view == "logical" (Logical's flat storyboard never emits a
+    # domain_* box to check titles against — see logical.py's module
+    # docstring), so an entry here would be dead weight that misleadingly
+    # reads as if Logical had a group-taxonomy check when it structurally
+    # cannot.
     "security": (
         "trust", "zone", "dmz", "public", "private", "restricted", "identity", "detect",
         "perimeter", "untrusted",

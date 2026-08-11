@@ -80,7 +80,10 @@ domain columns:
 4. `domain_platform` — shared platform / observability (optional; omit if unused)
 
 Anchored shelf: `domain_saas` — external SaaS products (Stripe, Workday, Okta as
-egress), anchored under `domain_data` in JSON. 
+egress), anchored under `domain_data` in JSON. **`domain_saas` requires
+`domain_data` to also be present as a row corridor — never emit the shelf
+alone; if there's no system-of-record store in this brief, either add a
+minimal `domain_data` row or omit the shelf entirely.**
 Use when 2+ egress SaaS products
 appear, or one important partner (e.g. Stripe) sits outside the primary cloud
 path. Cloud `aws_*`/`gcp_*`/`azure_*` leaves may render inside one dashed cloud
@@ -163,7 +166,7 @@ Prefer short process verbs: `Uses`, `Authenticates`, `Authenticates via`,
 `Cache Miss: Fetches via API`. Secondary / error paths: `primary: false` with
 labels like `401 Unauthorized`, `402 Payment Required`, `Failure: …`.
 
-Never TLS/WAF/JSON-payload-class vocabulary — that belongs to Security / Data-flow.
+Avoid TLS/WAF/JSON-payload-class vocabulary — that belongs to Security / Data-flow.
 
 ### Mini example — serverless auth (AWS) — full JSON object
 
@@ -227,6 +230,10 @@ Never TLS/WAF/JSON-payload-class vocabulary — that belongs to Security / Data-
     {"source": "retrieve", "target": "vectors", "label": "Similarity search", "primary": true},
     {"source": "retrieve", "target": "llm", "label": "Context + prompt", "primary": true},
     {"source": "llm", "target": "chat", "label": "Answer", "primary": true}
+  ],
+  "business_notes": [
+    "Answers grounded in the org's own documents, not the model's general knowledge.",
+    "Vector store is the single source of truth retrieval depends on — critical."
   ]
 }
 ```

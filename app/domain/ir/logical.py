@@ -26,11 +26,72 @@ _SHELF_ID = "domain_saas"
 
 # See CorridorIR._strip_cross_cutting_infra — these never belong on Logical
 # (Security/Network own them) regardless of what the LLM tries to add.
+#
+# Networking-plumbing tokens (vpc/subnet/nat/gateway/cloudfront/alb/route53)
+# were added after an audit found logical.txt's own exclude/forbidden lists
+# already claimed these get stripped as noise — they didn't, so a model that
+# ignored the prompt had no deterministic backstop, unlike WAF/CloudWatch/etc.
+# _strip_cross_cutting_infra's own docstring even names CloudFront as an
+# observed live-capture failure mode; it just was never actually added here.
+# Every token below is checked against real shape_type values seen in this
+# app's own capture corpus (aws_cloudfront, aws_route53, aws_alb,
+# aws_application_load_balancer, aws_vpc, aws_subnet, aws_nat_gateway,
+# aws_internet_gateway, aws_transit_gateway, gcp_vpc, azure_vnet — plus
+# "datadog" for the one observability vendor still missing) rather than a
+# guessed naming convention.
 _INFRA_NOISE_DENYLIST = frozenset({
     "cloudwatch", "secrets_manager", "secret_manager", "key_vault", "_kms",
     "guardduty", "_waf", "shield", "aws_iam", "azure_iam", "gcp_iam",
     "x_ray", "xray", "azure_monitor", "cloud_logging", "cloudtrail",
+    "_vpc", "vnet", "_subnet", "nat_gateway", "internet_gateway",
+    "transit_gateway", "cloudfront", "application_load_balancer", "_alb",
+    "network_load_balancer", "_nlb", "route53", "route_53", "datadog",
 })
+
+
+def _strip_infra_noise_from_actors(data: object) -> object:
+    """Drop any external_actors entry matching _INFRA_NOISE_DENYLIST.
+
+    Mirrors SecurityIR's _relocate_perimeter_services_from_actors in shape
+    (a deterministic backstop for a model misfiling something across the
+    leaf/actor boundary) but not in outcome: Security's version *relocates*
+    a misfiled perimeter service into zone_public, because that's exactly
+    where it belongs. Logical has no such destination — this vocabulary
+    (VPC/CloudFront/WAF/CloudWatch/...) doesn't belong on Logical in ANY
+    form, leaf or actor, so the correct fix is to remove it entirely, using
+    the same denylist _strip_cross_cutting_infra already applies to leaves
+    (one vocabulary, two entry points, instead of two lists to keep in sync).
+
+    Deliberately does NOT attempt the other direction (an internal IdP like
+    Cognito misfiled as an actor instead of a domain_core leaf) — logical.txt
+    offers both "Cloud IdP as leaf" and "External IdP as actor" as legitimate
+    choices depending on the brief, so that's a judgment call, not a
+    deterministic fix; relocating it could just as easily be wrong.
+    """
+    if not isinstance(data, dict):
+        return data
+    actors = data.get("external_actors")
+    if not isinstance(actors, list) or not actors:
+        return data
+
+    def _is_noise(actor: object) -> bool:
+        if not isinstance(actor, dict):
+            return False
+        # shape_type (rare on a raw actor dict, but a model can hallucinate
+        # one before Pydantic's extra="forbid" would reject it) is already
+        # underscore-joined; label is human-readable ("Route 53", "NAT
+        # Gateway") — normalize spaces to underscores so both match the same
+        # denylist tokens instead of needing a parallel space-separated copy
+        # of every multi-word entry.
+        needle = (actor.get("shape_type") or actor.get("label") or "").lower().replace(" ", "_")
+        return any(token in needle for token in _INFRA_NOISE_DENYLIST)
+
+    kept = [a for a in actors if not _is_noise(a)]
+    if len(kept) == len(actors):
+        return data
+    data = dict(data)
+    data["external_actors"] = kept
+    return data
 
 
 class LogicalIR(CorridorIR):
@@ -53,7 +114,8 @@ class LogicalIR(CorridorIR):
         data = cls._relocate_vocabulary(
             data, row_ids=_ROW_IDS, shelf_anchors={_SHELF_ID: "domain_data"},
         )
-        return cls._strip_cross_cutting_infra(data)
+        data = cls._strip_cross_cutting_infra(data)
+        return _strip_infra_noise_from_actors(data)
 
     @model_validator(mode="before")
     @classmethod
@@ -87,6 +149,17 @@ class LogicalIR(CorridorIR):
     #: part of the Logical process story. See semantic_errors below.
     _REPLICA_MARKERS: ClassVar[tuple[str, ...]] = (
         "replica", "standby", "read-replica", "read replica", "mirror",
+    )
+
+    #: Vendor/shape_type markers for profile/directory-style SaaS -- the ONLY
+    #: category logical.txt's cache-aside rule applies to ("Do not invent
+    #: cache-aside for Stripe / billing / SMS, or for thin Cognito serverless
+    #: demos"). Without this table the cache-aside warning fired on ANY
+    #: domain_saas shelf regardless of what SaaS it held, including billing
+    #: vendors the prompt explicitly carves out.
+    _PROFILE_DIRECTORY_SAAS_MARKERS: ClassVar[tuple[str, ...]] = (
+        "okta", "workday", "auth0", "onelogin", "ping_identity", "ping identity",
+        "azure_ad", "azure ad", "entra", "ldap", "active_directory", "active directory",
     )
 
     def semantic_errors(self) -> list[str]:
@@ -148,6 +221,12 @@ class LogicalIR(CorridorIR):
             )
         saas_shelf = next((s for s in self.anchored if s.id == _SHELF_ID), None)
         if saas_shelf is None:
+            return warnings
+        # Cache-aside is a profile/directory-SaaS concern only (the prompt is
+        # explicit: never for Stripe/billing/SMS) — a shelf holding only a
+        # billing vendor must not trigger this, so gate on the shelf actually
+        # containing a profile/directory marker before nudging at all.
+        if not self.leaves_mention(saas_shelf.leaves, *self._PROFILE_DIRECTORY_SAAS_MARKERS):
             return warnings
         # Skip when core already hosts cloud IdP (Cognito) — serverless auth path.
         core = self.corridor_by_id("domain_core") or self.corridor_by_id("domain_commerce")
