@@ -14,13 +14,15 @@ Layout order mirrors the canonical Network IR hierarchy
 (``config/xml_gen/ir/network.txt``):
 
     Cloud
+      Edge/Global layer (top row, still inside cloud — where the request
+        path enters, per network.txt; this really is above Region, not
+        below it — a prior version of this diagram had it reversed)
       Region
         VPC
           gateway (own row, above zones)
           Zone x N
             Subnet (public -> app -> data, top to bottom)
           cross-cutting shelves (below all zones)
-      Edge/Global layer (below region, still inside cloud)
     external actors (root layer, ingress left / egress right)
 """
 
@@ -40,6 +42,7 @@ from app.adapters.outbound.diagram.compiler.shared import (
     emit_leaf_grid,
     leaf_label,
 )
+from app.adapters.outbound.diagram.elk_bridge import ElkLayoutError
 from app.adapters.outbound.diagram.logical_layout import (
     Geo,
     align_leaves_across_containers,
@@ -57,7 +60,18 @@ def compile_network_ir(ir: NetworkIR, *, page_name: str = "Network", animated_co
     errors = ir.semantic_errors()
     if errors:
         raise CompilerError(f"cannot compile an invalid IR: {'; '.join(errors[:3])}")
-    return _NetworkCompiler(ir, page_name, animated_connectors).run()
+    try:
+        return _NetworkCompiler(ir, page_name, animated_connectors).run()
+    except ElkLayoutError as exc:
+        # There is no pre-ELK fallback layout left for Network (see this
+        # module's own docstring — the cursor-arithmetic layout ELK replaced
+        # no longer exists), so a real ELK failure (engine unavailable,
+        # timeout, malformed output) must not surface as an unhandled
+        # internal exception. Converting to CompilerError gives it the same
+        # recognizable shape as the invalid-IR case two lines above, so
+        # every caller of compile_network_ir has exactly one exception type
+        # to handle for "this diagram could not be compiled."
+        raise CompilerError(f"layout engine failed to compile this diagram: {exc}") from exc
 
 
 class _NetworkCompiler:
@@ -159,8 +173,10 @@ class _NetworkCompiler:
             gg = geos[vpc.gateway.id]
             self._leaf_abs_cy[vpc.gateway.id] = abs_y + gg.y + gg.h / 2.0
             self.w.vertex(
-                id=vpc.gateway.id, label=leaf_label(vpc.gateway), style=theme.leaf_style(),
+                id=vpc.gateway.id, label=leaf_label(vpc.gateway),
+                style=theme.leaf_style(vpc.gateway.criticality),
                 x=gg.x, y=gg.y, w=gg.w, h=gg.h, parent=vpc.id, shape_type=vpc.gateway.shape_type,
+                criticality=vpc.gateway.criticality,
             )
         for zone in vpc.zones:
             self._emit_zone(zone, vpc.id, geos, parent_abs_y=abs_y)

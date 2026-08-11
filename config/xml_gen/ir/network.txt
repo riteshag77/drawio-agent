@@ -168,10 +168,10 @@ stopping at the gateway or CDN is incomplete.
 ```json
 "external_actors": [{"id": "users", "kind": "users", "label": "Users"}],
 "flows": [
-  {"source": "users", "target": "cdn", "primary": true},
-  {"source": "cdn", "target": "alb", "primary": true},
-  {"source": "alb", "target": "orders_api", "primary": true},
-  {"source": "orders_api", "target": "orders_db", "primary": true}
+  {"source": "users", "target": "cdn", "label": "HTTPS", "primary": true},
+  {"source": "cdn", "target": "alb", "label": "Routes", "primary": true},
+  {"source": "alb", "target": "orders_api", "label": "Forwards", "primary": true},
+  {"source": "orders_api", "target": "orders_db", "label": "SQL", "primary": true}
 ],
 "business_notes": [
   "The load balancer (ALB) spreads incoming orders across multiple app servers, so a big sale doesn't take checkout down for everyone at once.",

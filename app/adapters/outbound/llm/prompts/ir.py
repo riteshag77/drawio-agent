@@ -106,7 +106,7 @@ def get_network_ir_system_prompt(
         view_prompt_files=["ir/network.txt"],
         include_cloud_classify=True,
         include_cloud_icon_catalog=True,
-        include_saas_icons=False,
+        include_saas_icons=True,
         model_id=model_id, provider=provider, platform=platform,
         custom_system_message=custom_system_message, user_hint=user_hint,
     )

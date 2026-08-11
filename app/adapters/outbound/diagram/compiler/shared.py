@@ -55,9 +55,11 @@ def grid_box(count: int, *, is_group: bool) -> Box:
     """Outer size a container needs to hold a ``count``-icon grid.
 
     Split out of ``emit_leaf_grid`` so a caller can *measure* a grid without
-    emitting it. Network's zone layout needs that: to align subnet tiers across
-    peer availability zones it must know every subnet's required size before it
-    can decide where any of them goes (see ``network.py:_emit_vpc``).
+    emitting it. Network's own peer-zone/subnet-tier size equalization uses
+    the mirrored ``elk_graph.leaf_grid_size`` instead (kept dependency-free of
+    this compiler package — see that function's docstring), in
+    ``elk_layout_network.py:_elk_vpc``; this ``grid_box`` is used only by
+    ``emit_leaf_grid`` itself, not called directly from ``network.py``.
     """
     content_w, content_h, _cols, _rows = geo.grid_size(count, is_group=is_group)
     return Box(width=content_w + geo.PAD * 2, height=geo.TITLE_PAD + content_h + geo.PAD)

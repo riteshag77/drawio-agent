@@ -23,6 +23,7 @@ from typing import Literal
 from pydantic import Field, field_validator, model_validator
 
 from app.domain.ir.base import ActorKind, DiagramIR, ExternalActor, Flow, Identified, Leaf
+from app.domain.ir.security import _PERIMETER_SERVICE_SHAPE_TYPES
 
 __all__ = [
     "ActorKind",  # re-exported for backward compatibility — canonical home is base.py
@@ -74,7 +75,7 @@ class CrossCuttingGroup(Identified):
 
     These are inventory, not flow. ``NetworkIR.semantic_errors`` rejects any
     flow touching a member, which is the structural version of network.txt's
-    "ABSOLUTE RULE — NO LINES".
+    "These groups must have ZERO flows."
     """
 
     kind: GroupKind
@@ -127,6 +128,53 @@ class CloudBoundary(Identified):
             "Placed at cloud level, never inside a single VPC's service row."
         ),
     )
+
+
+def _relocate_perimeter_services_from_actors(data: object) -> object:
+    """Move any external_actors entry matching ``_PERIMETER_SERVICE_SHAPE_TYPES``
+    into a Leaf under ``cloud.edge_layer``, creating that layer if it doesn't
+    exist yet. Same table and stage as
+    ``SecurityIR._relocate_perimeter_services_from_actors`` (imported, not
+    duplicated) — Network has no fixed ``zone_public``-equivalent corridor to
+    relocate into, but ``edge_layer`` is the documented home for CDN/DNS/WAF/
+    static-hosting services per network.txt, so that's the target here.
+    """
+    if not isinstance(data, dict):
+        return data
+    actors = data.get("external_actors")
+    if not isinstance(actors, list) or not actors:
+        return data
+
+    kept: list[object] = []
+    relocated: list[dict[str, str]] = []
+    for actor in actors:
+        label = actor.get("label") if isinstance(actor, dict) else None
+        shape_type = _PERIMETER_SERVICE_SHAPE_TYPES.get((label or "").strip().lower())
+        if isinstance(actor, dict) and shape_type:
+            relocated.append({
+                "id": actor.get("id") or label or "perimeter_service",
+                "shape_type": shape_type,
+                "label": label,
+                "annotation": "",
+                "criticality": "standard",
+            })
+        else:
+            kept.append(actor)
+    if not relocated:
+        return data
+
+    data = dict(data)
+    data["external_actors"] = kept
+    # Shallow-copy cloud/edge_layer so mutating edge_layer's leaves below
+    # never reaches back into the caller's original nested structure.
+    cloud = dict(data["cloud"]) if isinstance(data.get("cloud"), dict) else {}
+    edge_layer = dict(cloud["edge_layer"]) if isinstance(cloud.get("edge_layer"), dict) else None
+    if edge_layer is None:
+        edge_layer = {"id": "edge_layer", "label": "Edge / Global Layer", "leaves": []}
+    edge_layer["leaves"] = list(edge_layer.get("leaves") or []) + relocated
+    cloud["edge_layer"] = edge_layer
+    data["cloud"] = cloud
+    return data
 
 
 class NetworkIR(DiagramIR):
@@ -208,6 +256,38 @@ class NetworkIR(DiagramIR):
             ids.add(self.cloud.edge_layer.id)
         return ids
 
+    def leaf_tiers(self) -> dict[str, str]:
+        """Map every subnet-hosted leaf id to its tier (public/app/data).
+
+        Leaves outside a subnet (edge_layer, connectivity_hubs, gateway) are
+        deliberately absent — they have no tier, only subnet members do.
+        """
+        tiers: dict[str, str] = {}
+        for region in self.cloud.regions:
+            for vpc in region.vpcs:
+                for zone in vpc.zones:
+                    for subnet in zone.subnets:
+                        for leaf in subnet.leaves:
+                            tiers[leaf.id] = subnet.tier
+        return tiers
+
+    def leaf_vpc_ids(self) -> dict[str, str]:
+        """Map every VPC-scoped leaf id (subnet leaves, gateway, group members)
+        to its owning VPC id — used to test connectivity-hub cardinality."""
+        ids: dict[str, str] = {}
+        for region in self.cloud.regions:
+            for vpc in region.vpcs:
+                if vpc.gateway:
+                    ids[vpc.gateway.id] = vpc.id
+                for zone in vpc.zones:
+                    for subnet in zone.subnets:
+                        for leaf in subnet.leaves:
+                            ids[leaf.id] = vpc.id
+                for group in vpc.groups:
+                    for leaf in group.leaves:
+                        ids[leaf.id] = vpc.id
+        return ids
+
     def no_edge_ids(self) -> set[str]:
         """Cross-cutting group containers and their members — flows must not touch these."""
         ids: set[str] = set()
@@ -219,6 +299,27 @@ class NetworkIR(DiagramIR):
         return ids
 
     # ── validation ─────────────────────────────────────────────────────
+
+    @classmethod
+    def sanitize_raw(cls, data: object) -> object:
+        """Pre-parse relocate — see ``SecurityIR.sanitize_raw``.
+
+        Network had no ``model_validator(mode="before")`` at all before this
+        — no scaffolding to hang a fixer on, unlike every other corridor-
+        shaped view. It's also the view most exposed to actor/leaf boundary
+        misclassification: it's the one place perimeter/edge services
+        (Route 53, CloudFront, WAF, ALB) legitimately belong, so a model
+        reaching for that vocabulary is likeliest to also misfile one as an
+        external actor here. Reuses Security's own
+        ``_PERIMETER_SERVICE_SHAPE_TYPES`` lookup rather than a third copy of
+        the same vendor-label table.
+        """
+        return _relocate_perimeter_services_from_actors(data)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _relocate_misplaced_actors(cls, data: object) -> object:
+        return cls.sanitize_raw(data)
 
     @model_validator(mode="after")
     def _check_unique_ids(self) -> "NetworkIR":
@@ -399,4 +500,81 @@ class NetworkIR(DiagramIR):
                 "design_tradeoffs is empty — name 2-4 genuine architectural choices in this "
                 "design and the specific alternative each one beat"
             )
+
+        # network.txt: "Never leave label blank on the primary path; empty
+        # labels make Network diagrams unreadable for platform reviews."
+        # Flow.label only truncates to 6 words — nothing enforces non-empty.
+        for flow in self.flows:
+            if flow.primary and not (flow.label or "").strip():
+                warnings.append(
+                    f"primary flow {flow.source!r} -> {flow.target!r} has no label — "
+                    "every flow needs a short label, especially the primary path"
+                )
+
+        # network.txt implies the primary request path is the spine of the
+        # diagram — a data-tier subnet that the primary path never reaches is
+        # a topology only reachable off-path, which is unusual enough to flag
+        # rather than silently accept. Gated on external_actors + an actual
+        # primary flow existing, mirroring the ingress-path warning above, so
+        # a leaf-only structural diagram with no actors (a legitimate shape —
+        # see `_external_actor_orphan_errors`) never trips this.
+        leaf_tiers = self.leaf_tiers()
+        if self.external_actors and any(f.primary for f in self.flows) and "data" in leaf_tiers.values():
+            entry_ids: set[str] = {a.id for a in self.external_actors}
+            if self.cloud.edge_layer:
+                entry_ids.update(leaf.id for leaf in self.cloud.edge_layer.leaves)
+            for region in self.cloud.regions:
+                for vpc in region.vpcs:
+                    if vpc.gateway:
+                        entry_ids.add(vpc.gateway.id)
+
+            adjacency: dict[str, list[str]] = {}
+            for flow in self.flows:
+                if flow.primary:
+                    adjacency.setdefault(flow.source, []).append(flow.target)
+
+            visited: set[str] = set()
+            queue = list(entry_ids)
+            while queue:
+                node = queue.pop()
+                if node in visited:
+                    continue
+                visited.add(node)
+                queue.extend(adjacency.get(node, []))
+
+            if not any(leaf_tiers.get(node) == "data" for node in visited):
+                warnings.append(
+                    "a data-tier subnet exists but the primary flow path never reaches it — "
+                    "the primary request path should flow through to the data tier "
+                    "(e.g. edge -> app -> data)"
+                )
+
+        # network.txt: connectivity hubs are "only for hubs that span multiple
+        # VPCs, accounts, or regions... A hub serving one VPC is not a hub,
+        # put it in a subnet." Gated on the hub actually having a flow yet —
+        # early in a multi-turn edit a hub may be declared with no edges at
+        # all, which shouldn't hard-fail a judgment call this soft.
+        if self.cloud.connectivity_hubs:
+            leaf_vpc_ids = self.leaf_vpc_ids()
+            for hub in self.cloud.connectivity_hubs:
+                touched_vpcs: set[str] = set()
+                has_flow = False
+                for flow in self.flows:
+                    if flow.source == hub.id:
+                        other = flow.target
+                    elif flow.target == hub.id:
+                        other = flow.source
+                    else:
+                        continue
+                    has_flow = True
+                    vpc_id = leaf_vpc_ids.get(other)
+                    if vpc_id:
+                        touched_vpcs.add(vpc_id)
+                if has_flow and len(touched_vpcs) < 2:
+                    warnings.append(
+                        f"connectivity hub {hub.label!r} only touches {len(touched_vpcs)} VPC(s) via "
+                        "its flows — hubs are for connections spanning multiple VPCs/accounts/regions; "
+                        "a hub serving one VPC is not a hub, put it in a subnet instead"
+                    )
+
         return warnings

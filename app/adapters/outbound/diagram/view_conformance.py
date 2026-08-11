@@ -48,6 +48,13 @@ _FORBIDDEN_BY_VIEW: dict[str, tuple[str, ...]] = {
         "amazon", "aws ", "azure", "google cloud", "gcp ",
         "vpc", "subnet", "load balancer", "nat gateway", "availability zone",
     ),
+    "network": (
+        # Business-journey/UI vocabulary — the opposite direction of Logical's
+        # own forbidden list. Network shows infrastructure topology, not a
+        # user's path through a product.
+        "checkout flow", "user journey", "wireframe", "shopping cart",
+        "add to cart", "storyboard", "ui screen", "mobile app", "spa ",
+    ),
 }
 
 _EDGE_VOCAB: dict[str, tuple[str, ...]] = {
@@ -73,6 +80,12 @@ _EDGE_VOCAB: dict[str, tuple[str, ...]] = {
     # compiler/archimate.py::_emit_relationships), so this can never drift
     # from what the page actually renders the way a hand-typed list could.
     "archimate": tuple(relationship_label(rel_type) for rel_type in ARCHIMATE_RELATIONSHIP_TYPES),
+    # Request-path verbs/protocol tokens network.txt's own flow-label
+    # guidance names (1-2 word hop intent: protocol or verb).
+    "network": (
+        "https", "dns", "inspect", "sql", "async", "mtls", "tls",
+        "routes", "forwards", "connects", "replicates",
+    ),
 }
 
 _GROUP_HINTS: dict[str, tuple[str, ...]] = {
@@ -91,6 +104,14 @@ _GROUP_HINTS: dict[str, tuple[str, ...]] = {
         "lifecycle", "producer", "consumer",
     ),
     "archimate": ("business", "application", "technology", "layer"),
+    # "subnet" is guaranteed present on every Network page (_emit_subnet always
+    # titles a subnet "{Tier} Subnet"); the rest cover VPC/Region/zone/edge/
+    # connectivity containers and the four CrossCuttingGroup kinds (each
+    # renders as "{Kind.title()} Group" — see theme.group_style/GroupKind).
+    "network": (
+        "subnet", "vpc", "region", "zone", "edge", "connectivity",
+        "security", "monitoring", "integration", "management",
+    ),
 }
 
 

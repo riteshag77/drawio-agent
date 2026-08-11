@@ -5,10 +5,19 @@ description — see ``tools/elk_layout/layout.js`` (a thin, generic stdin/stdout
 wrapper around ``elkjs``; all algorithm/spacing choices are made here in
 Python, as graph ``layoutOptions``, not hardcoded in the JS).
 
-Every caller treats ``ElkLayoutError`` as routine and falls back to the
-pre-ELK deterministic code path for that view — same "optimization, never a
-new failure mode" contract ``xml_pipeline._should_use_ir_path`` already uses
-for the IR path itself.
+``ElkLayoutError`` (raised here and in ``elk_layout_network.py``/
+``elk_layout_archimate.py``/``elk_graph.py``) is **not** caught by every
+caller — verified by grep across ``app/``: it propagates uncaught through
+``generate_xml_diagram_from_ir`` for every ELK-based view except Network
+(``compiler/network.py::compile_network_ir`` wraps it into ``CompilerError``,
+the one exception). There is no "pre-ELK deterministic code path" left to
+fall back to for any of these views — the cursor-arithmetic layouts ELK
+replaced no longer exist (see e.g. ``compiler/network.py``'s own docstring).
+A previous version of this comment claimed a fallback contract that was
+already gone by the time it was written; if ELK becomes unavailable
+(Node/elkjs missing, timeout, malformed output), a compile for any of these
+views other than Network currently raises an unhandled internal exception,
+not a graceful degradation.
 """
 
 from __future__ import annotations

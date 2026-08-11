@@ -89,24 +89,74 @@ def _leaf_grid(leaves: list[Leaf], node_id: str, *, is_group: bool = False) -> d
     return elk_graph.sized_container_node(node_id, w, h)
 
 
-def _elk_zone(zone: AvailabilityZone) -> dict:
+def _elk_zone(
+    zone: AvailabilityZone, all_tiers: list[str], common_subnet_w: float, tier_h: dict[str, float],
+) -> dict:
     """Returns the zone's ELK node — subnet tiers are bands (public -> app
-    -> data), so each consecutive pair gets a transition edge."""
-    ordered = sorted(zone.subnets, key=lambda s: TIER_ORDER.index(s.tier))
-    subnet_nodes = [_leaf_grid(s.leaves, s.id) for s in ordered]
+    -> data), so each consecutive pair gets a transition edge.
+
+    Builds one node per tier in ``all_tiers`` (the union of tiers across
+    every peer zone in this VPC, computed once by ``_elk_vpc``) rather than
+    just the tiers this zone happens to have. A tier this zone lacks still
+    gets a node — an invisible spacer sized ``(common_subnet_w,
+    tier_h[tier])`` — purely so ELK reserves the same vertical space a peer
+    zone with that tier would occupy. This is what makes
+    network.txt's "peer zones render as mirrors, same size, matching tiers
+    on the same row" promise real: previously this function sized every
+    zone from its own leaves alone with zero awareness of sibling zones, so
+    a zone with one tier rendered at roughly a third of a three-tier peer's
+    height, with its own subnet's own narrower width — the opposite of a
+    mirror. ``common_subnet_w``/``tier_h`` are always >= this zone's own
+    natural size for any tier it has (they're computed as the max across
+    every zone in the VPC), so forcing a real subnet's box to these values
+    only ever pads it, never clips its content.
+
+    Spacer ids are never looked up by ``compiler/network.py::_emit_zone``
+    (which only iterates real ``zone.subnets``), so they exist purely as an
+    ELK sizing device and never reach the compiled XML as a visible cell.
+    """
+    by_tier = {s.tier: s for s in zone.subnets}
+    node_ids: list[str] = []
+    nodes: list[dict] = []
+    for tier in all_tiers:
+        subnet = by_tier.get(tier)
+        node_id = subnet.id if subnet is not None else f"{zone.id}__spacer_{tier}"
+        node_ids.append(node_id)
+        nodes.append(elk_graph.sized_container_node(node_id, common_subnet_w, tier_h[tier]))
     return {
         "id": zone.id,
         "layoutOptions": {
             "elk.layered.spacing.nodeNodeBetweenLayers": str(geo.SUBNET_TIER_GAP),
             **elk_graph.MODEL_ORDER_OPTIONS,
         },
-        "children": subnet_nodes,
-        "edges": elk_graph.band_transition_edges([[s.id] for s in ordered]),
+        "children": nodes,
+        "edges": elk_graph.band_transition_edges([[nid] for nid in node_ids]),
     }
 
 
 def _elk_vpc(vpc: Vpc) -> dict:
-    zone_nodes = [_elk_zone(zone) for zone in vpc.zones]
+    # VPC-wide shared sizing so every zone's subnet nodes below are built
+    # from the same numbers instead of each zone's own leaves in isolation
+    # — see _elk_zone's docstring for what this actually fixes.
+    all_tiers = [
+        t for t in TIER_ORDER
+        if any(t == s.tier for zone in vpc.zones for s in zone.subnets)
+    ]
+    common_subnet_w = max(
+        (elk_graph.leaf_grid_size(s.leaves)[0] for zone in vpc.zones for s in zone.subnets),
+        default=0.0,
+    )
+    tier_h = {
+        t: max(
+            (
+                elk_graph.leaf_grid_size(s.leaves)[1]
+                for zone in vpc.zones for s in zone.subnets if s.tier == t
+            ),
+            default=0.0,
+        )
+        for t in all_tiers
+    }
+    zone_nodes = [_elk_zone(zone, all_tiers, common_subnet_w, tier_h) for zone in vpc.zones]
     zone_ids = [zone.id for zone in vpc.zones]
 
     bands: list[list[str]] = []

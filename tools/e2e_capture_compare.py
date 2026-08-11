@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from app.adapters.outbound.diagram import geometry_spec as geo  # noqa: E402
+from app.adapters.outbound.diagram.compiler import theme as network_theme  # noqa: E402
 from app.adapters.outbound.diagram.logical_layout import INTER_CONTAINER_GAP  # noqa: E402
 from app.adapters.outbound.diagram.view_conformance import score_view  # noqa: E402
 from app.adapters.outbound.diagram.xml_tools import ensure_diagram_document  # noqa: E402
@@ -30,6 +31,13 @@ from app.core.logging import StepLogger  # noqa: E402
 from app.core.services import xml_pipeline  # noqa: E402
 
 OUT_DIR = ROOT / "data" / "e2e_compare"
+
+#: Network's zone containers use one fixed, platform-independent style (see
+#: theme.zone_style) — unlike Logical/Security/Data-flow's corridors, Network
+#: has no fixed id vocabulary to key off (zone/VPC ids are whatever the model
+#: chose), so peer-zone detection below matches on this style signature and
+#: groups by the (arbitrary) parent VPC id instead.
+_NETWORK_ZONE_STYLE = network_theme.zone_style()
 
 
 def _pages(xml: str) -> dict[str, str]:
@@ -188,6 +196,8 @@ def score_page(name: str, xml: str) -> dict:
 
     # Corridor row band (Logical/Security/Data flow)
     row_y_range = None
+    min_gap = None
+    gap_floor = INTER_CONTAINER_GAP
     prefix = {"Logical": "domain_", "Security": "zone_", "Data flow": "phase_"}.get(name)
     if prefix:
         rows = [
@@ -211,10 +221,48 @@ def score_page(name: str, xml: str) -> dict:
                 bx, _, _, _ = _geo(by_id[b])
                 gaps.append(bx - (ax + aw))
             min_gap = min(gaps) if gaps else None
-        else:
-            min_gap = None
-    else:
-        min_gap = None
+    elif name == "Network":
+        # No fixed id vocabulary to key off (unlike domain_/zone_/phase_ above)
+        # — group AvailabilityZone containers by their real parent VPC id
+        # instead, matched via zone_style()'s fixed style signature. This is
+        # the direct visible signal network.txt's "peer zones render as
+        # mirrors, same size, matching tiers on the same row" promise
+        # produces once implemented (see elk_layout_network.py::_elk_zone) —
+        # previously this branch didn't exist at all, so Network's band_ok/
+        # gap_ok silently defaulted to a perfect 1.0 measuring nothing.
+        # zone_style()'s color (#6B7280) collides byte-for-byte with the
+        # "management" CrossCuttingGroup's own style (group_style reuses the
+        # same hex for a different kind — see theme.py's _GROUP_COLORS/
+        # _ZONE_COLOR) — style-string equality alone over-counts. Disambiguate
+        # structurally instead: a zone's children are Subnet containers
+        # (container=1 in their own style); a group's children are plain
+        # leaves (never container=1) — confirmed against a live compiled page
+        # before this branch shipped, catching a real false-positive.
+        children_by_parent: dict[str, list[ET.Element]] = {}
+        for c in by_id.values():
+            children_by_parent.setdefault(c.get("parent") or "", []).append(c)
+        zones_by_vpc: dict[str, list[str]] = {}
+        for cid, c in by_id.items():
+            if (c.get("style") or "") != _NETWORK_ZONE_STYLE:
+                continue
+            if not any("container=1" in (child.get("style") or "") for child in children_by_parent.get(cid, [])):
+                continue
+            zones_by_vpc.setdefault(c.get("parent") or "", []).append(cid)
+        peer_groups = [ids for ids in zones_by_vpc.values() if len(ids) >= 2]
+        if peer_groups:
+            row_y_range = max(
+                max(_geo(by_id[z])[3] for z in ids) - min(_geo(by_id[z])[3] for z in ids)
+                for ids in peer_groups
+            )
+            all_gaps: list[float] = []
+            for ids in peer_groups:
+                ordered = sorted(ids, key=lambda z: _geo(by_id[z])[0])
+                for a, b in zip(ordered, ordered[1:]):
+                    ax, _, aw, _ = _geo(by_id[a])
+                    bx, _, _, _ = _geo(by_id[b])
+                    all_gaps.append(bx - (ax + aw))
+            min_gap = min(all_gaps) if all_gaps else None
+        gap_floor = geo.ZONE_GAP_X
 
     n_leaves = max(len(leaves), 1)
     n_edges = max(len(edges), 1)
@@ -224,7 +272,7 @@ def score_page(name: str, xml: str) -> dict:
     anchor_rate = anchored / n_edges
     label_rate = bottom_label / n_leaves
     band_ok = 1.0 if row_y_range is None else (1.0 if row_y_range <= 2.0 else max(0.0, 1.0 - row_y_range / 200.0))
-    gap_ok = 1.0 if min_gap is None else (1.0 if min_gap >= INTER_CONTAINER_GAP - 20 else max(0.0, min_gap / INTER_CONTAINER_GAP))
+    gap_ok = 1.0 if min_gap is None else (1.0 if min_gap >= gap_floor - 20 else max(0.0, min_gap / gap_floor))
 
     # Weighted polish score (icons + geometry + edges)
     polish = round(100 * (
