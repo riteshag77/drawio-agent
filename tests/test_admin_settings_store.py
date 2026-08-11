@@ -12,9 +12,22 @@ from app.adapters.outbound.config import env_config
 
 
 class _TempAdminSettings:
+    """Point EnvConfigAdapter.base_dir at a temp dir for the duration.
+
+    ``base_dir`` must be saved and restored as the ``staticmethod`` descriptor
+    from the class ``__dict__``, not via attribute access: reading
+    ``EnvConfigAdapter.base_dir`` unwraps the descriptor to a plain function,
+    and assigning *that* back leaves an ordinary method behind. The class then
+    passes ``self`` on every later call, so anything calling
+    ``get_config().base_dir()`` — e.g. ``style_cache._db_path()`` — died with
+    "takes 0 positional arguments but 1 was given" for the rest of the run.
+    That leaked across files: StyleCacheLruTests passed alone and failed in a
+    full-suite run.
+    """
+
     def __enter__(self):
         self._dir = tempfile.TemporaryDirectory()
-        self._saved_base_dir = env_config.EnvConfigAdapter.base_dir
+        self._saved_base_dir = env_config.EnvConfigAdapter.__dict__["base_dir"]
         temp_path = Path(self._dir.name)
         env_config.EnvConfigAdapter.base_dir = staticmethod(lambda: temp_path)
         return self

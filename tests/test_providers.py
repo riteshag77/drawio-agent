@@ -15,37 +15,65 @@ from app.adapters.outbound.llm import providers as providers_module
 from app.adapters.outbound.llm.providers import MODEL_IDS, ProviderSpec, get_provider, reload_providers
 
 
-class ProviderTests(unittest.TestCase):
-    def test_gateway_providers_are_registered(self) -> None:
-        for key in ("openrouter", "opencode", "kimi", "nvidia"):
-            self.assertIn(key, MODEL_IDS)
-            self.assertIsInstance(MODEL_IDS[key], str)
-            self.assertTrue(len(MODEL_IDS[key]) > 0)
+def _declared_providers() -> list[dict]:
+    """The raw providers.json entries — the documented source of truth for
+    which providers exist (see CLAUDE.md). Tests assert *properties* of
+    whatever is declared there rather than a hardcoded copy of it: a snapshot
+    goes stale every time the catalog is legitimately edited, which is exactly
+    how these two tests broke (commit 882f74c dropped the `opencode` gateway
+    and refreshed NVIDIA's model list, and nothing here was updated)."""
+    path = Path(__file__).resolve().parents[1] / "config" / "providers.json"
+    return json.loads(path.read_text(encoding="utf-8"))
 
-    def test_nvidia_exposes_multiple_selectable_models(self) -> None:
-        # default_model is env-overridable (NVIDIA_MODEL) by design — assert
-        # it against a clean environment rather than the .env file's current
-        # value, so this test doesn't depend on ambient process state.
-        with patch.dict("os.environ", {}, clear=False):
-            os.environ.pop("NVIDIA_MODEL", None)
-            reload_providers()
-            try:
-                spec = get_provider("nvidia")
-                self.assertEqual(spec.default_model, "openai/gpt-oss-120b")
-            finally:
+
+class ProviderTests(unittest.TestCase):
+    def test_every_declared_provider_is_registered(self) -> None:
+        declared = {p["key"] for p in _declared_providers()}
+        self.assertTrue(declared, "providers.json declared no providers")
+        for key in declared:
+            with self.subTest(provider=key):
+                self.assertIn(key, MODEL_IDS)
+                self.assertIsInstance(MODEL_IDS[key], str)
+                self.assertTrue(MODEL_IDS[key])
+
+    def test_gateway_providers_carry_a_base_url(self) -> None:
+        """An OpenAI-compatible gateway is distinguished by having its own
+        base URL; which gateways exist is a config decision, not a test one."""
+        gateways = [p for p in _declared_providers() if p.get("base_url_default")]
+        self.assertTrue(gateways, "expected at least one gateway provider")
+        for entry in gateways:
+            with self.subTest(provider=entry["key"]):
+                spec = get_provider(entry["key"])
+                self.assertTrue(spec.base_url_default)
+                self.assertTrue(spec.base_url_env)
+
+    def test_multi_model_providers_expose_a_consistent_catalog(self) -> None:
+        multi = [p for p in _declared_providers() if len(p.get("models") or []) > 1]
+        self.assertTrue(multi, "expected at least one multi-model provider")
+        for entry in multi:
+            with self.subTest(provider=entry["key"]):
+                spec = get_provider(entry["key"])
+                # models is the fixed catalog — never env-overridden — and is
+                # ordered fast -> advanced, so the UI's pre-selected first
+                # entry is the fastest tier (see providers.py's models doc).
+                self.assertEqual(list(spec.models), list(entry["models"]))
+                self.assertEqual(len(set(spec.models)), len(spec.models), "duplicate model ids")
+                self.assertTrue(all(m.strip() for m in spec.models))
+
+    def test_default_model_comes_from_config_when_env_is_clean(self) -> None:
+        """default_model is env-overridable by design, so assert it against a
+        clean environment rather than whatever .env currently holds."""
+        for entry in _declared_providers():
+            env_var = entry.get("default_model_env")
+            if not env_var:
+                continue
+            with self.subTest(provider=entry["key"]), patch.dict("os.environ", {}, clear=False):
+                os.environ.pop(env_var, None)
                 reload_providers()
-        spec = get_provider("nvidia")
-        # models (the fixed catalog) is never env-overridden — ordered
-        # fast -> advanced; the fastest tier leads (also the UI's
-        # pre-selected pick — see providers.py's models doc).
-        self.assertEqual(spec.models[0], "openai/gpt-oss-20b")
-        self.assertEqual(spec.models[-1], "z-ai/glm-5.2")
-        self.assertIn("openai/gpt-oss-120b", spec.models)
-        self.assertIn("deepseek-ai/deepseek-v4-pro", spec.models)
-        self.assertIn("deepseek-ai/deepseek-v4-flash", spec.models)
-        self.assertIn("nvidia/nemotron-3-nano-30b-a3b", spec.models)
-        self.assertIn("moonshotai/kimi-k2.6", spec.models)
-        self.assertEqual(len(spec.models), 9)
+                try:
+                    self.assertEqual(get_provider(entry["key"]).default_model, entry["default_model"])
+                finally:
+                    reload_providers()
 
     def test_model_override_selects_an_available_model(self) -> None:
         from app.adapters.outbound.llm.providers import using_model_override
