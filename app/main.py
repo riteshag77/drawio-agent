@@ -22,6 +22,7 @@ from app.adapters.inbound.web.admin_routes import router as admin_router
 from app.adapters.inbound.web.rate_limit import RateLimitMiddleware
 from app.adapters.inbound.web.routes import router
 from app.adapters.outbound.config.env_config import get_config
+from app.adapters.outbound.diagram.elk_bridge import shutdown_elk_sidecar
 from app.adapters.outbound.llm import providers as providers_module
 from app.adapters.outbound.llm.concurrency import shutdown_llm_pool
 from app.core.config import STATIC_DIR, init_config
@@ -129,6 +130,9 @@ async def _lifespan(application: FastAPI):
     # letting them finish; wait=True lets the current calls complete while the
     # server has already stopped accepting new work.
     shutdown_llm_pool(wait=True)
+    # Then the ELK sidecar, after the pool — layouts run on pool threads, so
+    # stopping it first would strand in-flight work on the slow fallback path.
+    shutdown_elk_sidecar()
 
 
 def create_app() -> FastAPI:

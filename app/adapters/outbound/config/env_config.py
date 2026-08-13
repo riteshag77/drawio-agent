@@ -236,6 +236,21 @@ class EnvConfigAdapter:
         ]
 
     @property
+    def elk_sidecar_enabled(self) -> bool:
+        """Keep one long-lived ``tools/elk_layout/serve.js`` process for ELK layout.
+
+        Node start plus the elkjs load costs ~300-400ms; the layout itself is
+        ~46ms for a typical view. Measured over 5 views: 932ms of concurrent
+        cold spawns becomes 233ms through one warm process, and a single-view
+        request goes 385ms -> 46ms.
+
+        Set false to force the per-call ``layout.js`` spawn — the path that
+        predates the sidecar, and the one it automatically falls back to if the
+        sidecar dies, wedges or desynchronises.
+        """
+        return self.get_bool("ELK_SIDECAR_ENABLED", True)
+
+    @property
     def elk_layout_timeout_seconds(self) -> float:
         """Max seconds to wait for the ``node tools/elk_layout/layout.js`` subprocess."""
         return self.get_float("ELK_LAYOUT_TIMEOUT_SECONDS", 8.0)

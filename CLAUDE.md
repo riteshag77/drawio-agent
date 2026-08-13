@@ -38,6 +38,8 @@ app/
     diagram/              # draw.io XML validation/repair/MCP client
       compiler/           # IR → draw.io XML (deterministic; owns geometry + styles)
       geometry_spec.py    # canonical spacing constants — shared by compiler AND diagnostics
+      elk_bridge.py       # ELK layout: long-lived sidecar (tools/elk_layout/serve.js),
+                          # falling back to a per-call layout.js spawn
     utils/                # documents.py (attachment extraction), web.py, chat.py
     cost_estimator.py, well_architected.py, compliance.py, history_store.py
     sqlite_util.py        # tuned sqlite3.connect (WAL + busy timeout) — use for every store

@@ -1,12 +1,38 @@
-"""Tests for the ELK (elkjs) subprocess bridge."""
+"""Tests for the ELK (elkjs) subprocess bridge.
+
+The error-handling tests below drive the per-call ``layout.js`` spawn, which
+is now the *fallback* path — the sidecar (tests/test_elk_sidecar.py) handles
+the happy case. They pin it with ``_spawn_path()`` rather than relying on
+which path happens to be default: the fallback is what runs when the sidecar
+is unavailable, so its error handling still has to be right.
+"""
 
 from __future__ import annotations
 
+import os
 import subprocess
 import unittest
+from contextlib import contextmanager
 from unittest.mock import patch
 
+from app.adapters.outbound.config import env_config
 from app.adapters.outbound.diagram.elk_bridge import ElkLayoutError, run_elk
+
+
+@contextmanager
+def _spawn_path():
+    """Force run_elk down the per-call spawn instead of the sidecar."""
+    saved = os.environ.get("ELK_SIDECAR_ENABLED")
+    os.environ["ELK_SIDECAR_ENABLED"] = "false"
+    env_config._config_instance = None
+    try:
+        yield
+    finally:
+        if saved is None:
+            os.environ.pop("ELK_SIDECAR_ENABLED", None)
+        else:
+            os.environ["ELK_SIDECAR_ENABLED"] = saved
+        env_config._config_instance = None
 
 
 class RunElkTests(unittest.TestCase):
@@ -78,13 +104,14 @@ class RunElkTests(unittest.TestCase):
                 run_elk({"id": "root"})
 
     def test_subprocess_timeout_raises_elk_layout_error(self) -> None:
-        with patch("app.adapters.outbound.diagram.elk_bridge.shutil.which", return_value="node"):
-            with patch(
-                "app.adapters.outbound.diagram.elk_bridge.subprocess.run",
-                side_effect=subprocess.TimeoutExpired(cmd="node", timeout=8),
-            ):
-                with self.assertRaises(ElkLayoutError):
-                    run_elk({"id": "root"})
+        with _spawn_path():
+            with patch("app.adapters.outbound.diagram.elk_bridge.shutil.which", return_value="node"):
+                with patch(
+                    "app.adapters.outbound.diagram.elk_bridge.subprocess.run",
+                    side_effect=subprocess.TimeoutExpired(cmd="node", timeout=8),
+                ):
+                    with self.assertRaises(ElkLayoutError):
+                        run_elk({"id": "root"})
 
     def test_nonzero_exit_raises_elk_layout_error(self) -> None:
         class _Proc:
@@ -92,10 +119,11 @@ class RunElkTests(unittest.TestCase):
             stdout = ""
             stderr = "boom"
 
-        with patch("app.adapters.outbound.diagram.elk_bridge.shutil.which", return_value="node"):
-            with patch("app.adapters.outbound.diagram.elk_bridge.subprocess.run", return_value=_Proc()):
-                with self.assertRaises(ElkLayoutError):
-                    run_elk({"id": "root"})
+        with _spawn_path():
+            with patch("app.adapters.outbound.diagram.elk_bridge.shutil.which", return_value="node"):
+                with patch("app.adapters.outbound.diagram.elk_bridge.subprocess.run", return_value=_Proc()):
+                    with self.assertRaises(ElkLayoutError):
+                        run_elk({"id": "root"})
 
     def test_unparseable_output_raises_elk_layout_error(self) -> None:
         class _Proc:
@@ -103,10 +131,11 @@ class RunElkTests(unittest.TestCase):
             stdout = "not json"
             stderr = ""
 
-        with patch("app.adapters.outbound.diagram.elk_bridge.shutil.which", return_value="node"):
-            with patch("app.adapters.outbound.diagram.elk_bridge.subprocess.run", return_value=_Proc()):
-                with self.assertRaises(ElkLayoutError):
-                    run_elk({"id": "root"})
+        with _spawn_path():
+            with patch("app.adapters.outbound.diagram.elk_bridge.shutil.which", return_value="node"):
+                with patch("app.adapters.outbound.diagram.elk_bridge.subprocess.run", return_value=_Proc()):
+                    with self.assertRaises(ElkLayoutError):
+                        run_elk({"id": "root"})
 
 
 if __name__ == "__main__":
