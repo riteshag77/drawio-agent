@@ -14,4 +14,4 @@ import-linter>=2.0,<3.0
 
 # Generates requirements.lock. Pinned loosely: it produces the lock rather than
 # appearing in it, so its own version does not affect what ships.
-uv>=0.12,<1.0
+uv>=0.12.3,<1.0
