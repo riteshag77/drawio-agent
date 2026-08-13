@@ -1204,6 +1204,7 @@ def generate_xml_diagram_from_ir(
     image_replicate: bool = False,
     include_suggestions: bool = False,
     animated_connectors: bool = False,
+    include_governance_report: bool = False,
     *,
     llm: LlmPort | None = None,
 ) -> XmlDiagram:
@@ -1216,6 +1217,14 @@ def generate_xml_diagram_from_ir(
     here — the IR-generation LLM call never sees it, since this path's
     styling is entirely compiler-owned (see ``theme.flow_style``), unlike the
     direct-XML path where it's a prompt instruction.
+
+    ``include_governance_report`` gates only the *final findings* attached to
+    the returned diagram for display — matching cost_estimate/well_architected/
+    compliance's opt-in shape. It does not touch the earlier, always-on
+    governance pass inside ``_generate_ir_with_corrections`` (house-style
+    warnings feeding a corrective re-ask before the IR is finalized): that is
+    a generation-quality mechanism, not a report, and turning the report off
+    should not turn off a free quality improvement nobody asked to lose.
     """
     view_key = (view or "network").strip().lower()
     kwargs = dict(
@@ -1255,14 +1264,18 @@ def generate_xml_diagram_from_ir(
     # Final conformance report — evaluated fresh against the finished IR
     # (after any semantic-warning corrective pass), not reused from the
     # pre-correction check that fed the corrective prompt, so the report the
-    # user sees always reflects what actually got compiled.
+    # user sees always reflects what actually got compiled. Skipped entirely
+    # when the caller didn't ask for it, same as cost/WAF/compliance — the
+    # rule check itself is cheap, but the point is request-shaped symmetry:
+    # a client that turned the report off shouldn't receive one anyway.
     governance_findings = []
-    try:
-        rules = list_governance_rules(view_key, enabled_only=True)
-        if rules:
-            governance_findings = evaluate_governance_rules(ir, rules)
-    except Exception:
-        governance_findings = []  # governance is best-effort — never a reason a diagram fails
+    if include_governance_report:
+        try:
+            rules = list_governance_rules(view_key, enabled_only=True)
+            if rules:
+                governance_findings = evaluate_governance_rules(ir, rules)
+        except Exception:
+            governance_findings = []  # governance is best-effort — never a reason a diagram fails
     if logger and governance_findings:
         failed = [f for f in governance_findings if not f.passed]
         logger.log(

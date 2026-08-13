@@ -281,6 +281,7 @@ async function sendMessage(options = {}) {
             cost_estimate: promptSettings.cost_estimate,
             well_architected: promptSettings.well_architected,
             compliance: promptSettings.compliance,
+            governance: !!promptSettings.governance,
             compliance_frameworks: promptSettings.compliance_frameworks,
             context_text: contextText || null,
             attachment_documents: (attachmentDocuments.length || extraDocuments.length)
@@ -456,7 +457,13 @@ async function sendMessage(options = {}) {
         } catch (e) { appendVerboseLog('client', 'Suggestions panel error', 'error', { error: String(e) }); }
 
         try {
-            if (typeof displayGovernance === 'function') {
+            // Gated on the toggle, matching Suggestions above — was
+            // unconditional before, the one report panel whose toggle state
+            // was tracked (savePromptSettings persists it) but never actually
+            // wired into the display path. The server now mirrors this: the
+            // findings themselves aren't computed when the request didn't
+            // ask for them, so an off response has nothing to show anyway.
+            if (promptSettings.governance && typeof displayGovernance === 'function') {
                 displayGovernance(data.governance_findings || []);
                 // A failure is worth surfacing even if the panel is currently
                 // closed — same "auto-open for something you need to see"

@@ -130,6 +130,9 @@ function getPromptSettings() {
         suggestions: document.getElementById('suggestions-toggle')
             ? document.getElementById('suggestions-toggle').checked
             : false,
+        governance: document.getElementById('governance-toggle')
+            ? document.getElementById('governance-toggle').checked
+            : false,
         architecture_interview: document.getElementById('architecture-interview-toggle')
             ? document.getElementById('architecture-interview-toggle').checked
             : false,

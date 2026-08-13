@@ -812,6 +812,7 @@ async def _generate_primary_page(
     image_replicate: bool,
     animated_connectors: bool,
     include_suggestions: bool,
+    include_governance_report: bool,
     three_d: bool,
     on_progress: ProgressCallback | None,
 ) -> tuple[Any, bool]:
@@ -835,6 +836,7 @@ async def _generate_primary_page(
             image_replicate=image_replicate,
             include_suggestions=include_suggestions,
             animated_connectors=animated_connectors,
+            include_governance_report=include_governance_report,
         )
         await _emit(on_progress, "ir", "Architecture model compiled")
         if 'vertex="1"' not in (diagram.xml or ""):
@@ -1092,6 +1094,7 @@ async def run_xml_pipeline(
     cost_estimate: bool = False,
     well_architected: bool = False,
     compliance: bool = False,
+    governance: bool = False,
     compliance_frameworks: list[str] | None = None,
     context_text: str | None = None,
     attachment_documents: list[dict[str, Any]] | None = None,
@@ -1239,6 +1242,7 @@ async def run_xml_pipeline(
         image_replicate=image_replicate,
         animated_connectors=animated_connectors,
         include_suggestions=include_suggestions,
+        include_governance_report=governance,
         three_d=three_d,
         on_progress=on_progress,
     )

@@ -20,6 +20,7 @@ class PromptRequest(BaseModel):
     cost_estimate: bool = False
     well_architected: bool = False
     compliance: bool = False
+    governance: bool = False
     compliance_frameworks: list[str] | None = None
     libavoid: bool | None = None
     image_replicate: bool = False
@@ -80,6 +81,7 @@ class ChatRequest(BaseModel):
     cost_estimate: bool = False
     well_architected: bool = False
     compliance: bool = False
+    governance: bool = False
     compliance_frameworks: list[str] | None = None
     context_text: str | None = Field(default=None, max_length=20_000)
     attachment_documents: list[AttachmentDocument] | None = Field(default=None, max_length=3)

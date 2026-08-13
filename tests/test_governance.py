@@ -378,7 +378,14 @@ class GovernanceAdminRoutesTests(unittest.TestCase):
 
 class GovernancePipelineTests(unittest.TestCase):
     """IR -> XmlDiagram.governance_findings -> _build_response, mirroring
-    test_ir_pipeline.py's design_tradeoffs coverage."""
+    test_ir_pipeline.py's design_tradeoffs coverage.
+
+    governance now defaults to False (matching cost_estimate/well_architected/
+    compliance's opt-in shape — see docs on generate_xml_diagram_from_ir's
+    include_governance_report), so every case here passes governance=True
+    explicitly. Without it these would pass for the wrong reason: an empty
+    findings list because the report was never requested, not because of
+    what's actually under test (no rules configured, or a rule failing)."""
 
     def test_governance_findings_flow_from_ir_to_response(self) -> None:
         ir = realistic_ir()
@@ -387,7 +394,7 @@ class GovernancePipelineTests(unittest.TestCase):
                 patch("app.core.services.agent.generate_network_ir", return_value=ir), \
                 patch("app.core.services.agent.list_governance_rules", return_value=[rule]), \
                 patch.object(xml_pipeline, "resolve_shape_styles", side_effect=_no_styles):
-            result = _run()
+            result = _run(governance=True)
 
         self.assertEqual(result["status"], "success")
         self.assertEqual(len(result["governance_findings"]), 1)
@@ -401,9 +408,27 @@ class GovernancePipelineTests(unittest.TestCase):
                 patch("app.core.services.agent.generate_network_ir", return_value=ir), \
                 patch("app.core.services.agent.list_governance_rules", return_value=[]), \
                 patch.object(xml_pipeline, "resolve_shape_styles", side_effect=_no_styles):
-            result = _run()
+            result = _run(governance=True)
 
         self.assertEqual(result["governance_findings"], [])
+
+    def test_governance_off_skips_evaluation_even_with_failing_rules(self) -> None:
+        """The new default: a rule that would fail is never evaluated at all
+        when the caller didn't ask for the report — not just hidden after the
+        fact. Proven by patching evaluate_governance_rules itself and
+        asserting it is never called, not merely by checking the output is
+        empty (which an evaluated-but-passing result would also produce)."""
+        ir = realistic_ir()
+        rule = _rule("required_leaf_shape", shape_type="aws_shield", message="must include AWS Shield")
+        with _IrEnabled(), \
+                patch("app.core.services.agent.generate_network_ir", return_value=ir), \
+                patch("app.core.services.agent.list_governance_rules", return_value=[rule]), \
+                patch("app.core.services.agent.evaluate_governance_rules") as mock_eval, \
+                patch.object(xml_pipeline, "resolve_shape_styles", side_effect=_no_styles):
+            result = _run()  # governance not passed -> defaults to False
+
+        self.assertEqual(result["governance_findings"], [])
+        mock_eval.assert_not_called()
 
 
 if __name__ == "__main__":
