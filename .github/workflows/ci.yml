@@ -97,3 +97,33 @@ jobs:
       - name: Container logs
         if: always()
         run: docker logs drawio-ci || true
+
+  deploy:
+    # Gate: only after both `test` and `docker` succeed, and only for a real
+    # push to main — never a PR, never workflow_dispatch on some other branch.
+    # This is the whole point of the job: render.yaml sets `autoDeploy: false`
+    # so Render no longer deploys on its own the instant it sees a push, which
+    # would race ahead of (and ignore the result of) everything above.
+    needs: [test, docker]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Trigger Render deploy
+        # RENDER_DEPLOY_HOOK_URL: repo Settings -> Secrets and variables ->
+        # Actions -> New repository secret. The URL itself comes from Render:
+        # the service's Settings tab -> Deploy Hook -> Create Deploy Hook,
+        # then copy the generated URL (POSTing to it is what triggers a
+        # deploy; no other auth is needed since the URL itself is the secret).
+        #
+        # Warns and exits cleanly rather than failing CI when the secret is
+        # unset, so this step is a no-op until Render is actually configured
+        # instead of turning every push red.
+        run: |
+          if [ -z "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" ]; then
+            echo "::warning::RENDER_DEPLOY_HOOK_URL is not set — skipping deploy. See this step's comment for setup."
+            exit 0
+          fi
+          curl -fsS -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
+          echo "Deploy triggered — watch progress in the Render dashboard's Events tab."

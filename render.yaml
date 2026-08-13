@@ -17,6 +17,12 @@ services:
     plan: free
     region: oregon # pick the region closest to you; free plan ignores most others anyway
     healthCheckPath: /health
+    # Render's default is to deploy on every push it sees, independent of and
+    # racing against GitHub Actions CI — a red CI run would not stop a bad
+    # commit from going live. Disabled so the ONLY deploy trigger is the
+    # `deploy` job in .github/workflows/ci.yml, which runs after `test` and
+    # `docker` both pass. See that job for the Deploy Hook setup.
+    autoDeploy: false
     envVars:
       # --- required: at least one of these ---
       - key: ANTHROPIC_API_KEY

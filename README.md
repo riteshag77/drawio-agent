@@ -65,6 +65,32 @@ pool, the in-memory style cache and the rate-limit counters are all
 per-process, so a second worker would silently double the effective
 `MAX_CONCURRENT_LLM`. Scale with replicas, after moving the stores off SQLite.
 
+### Deploying (Render)
+
+[`render.yaml`](render.yaml) is a Render Blueprint that builds and runs the
+same `Dockerfile` — connect the repo as a Blueprint in the Render dashboard,
+then set the `sync: false` secrets it lists (an LLM key, `CORS_ORIGINS`,
+`API_KEY`, ...) in the service's Environment tab.
+
+Every store here degrades to a no-op rather than crashing when it can't
+write, so the free plan's ephemeral disk is fine to run on — history,
+templates and the icon-style cache just reset on restart instead of the app
+failing.
+
+`autoDeploy` is off. The only deploy trigger is the `deploy` job in
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml), which runs after
+`test` and `docker` both pass on a push to `main` — Render's default is to
+deploy the instant it sees a push, racing ahead of CI regardless of whether
+it's green. Wire it up once: Render service → Settings → Deploy Hook →
+Create Deploy Hook → copy the URL → GitHub repo → Settings → Secrets and
+variables → Actions → New repository secret →
+`RENDER_DEPLOY_HOOK_URL`. Until that secret exists the step logs a warning
+and exits cleanly rather than failing CI.
+
+Setting `API_KEY` gates every route except `/`, `/health` and `/static/*` —
+`static/js/api-key.js` is what lets the browser itself satisfy that gate
+(prompts once, stores the key in `localStorage`, retries transparently).
+
 ---
 
 ## Architecture overview
