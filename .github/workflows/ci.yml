@@ -30,7 +30,7 @@ jobs:
       # ELK layout shells out to `node tools/elk_layout/layout.js`. Without it,
       # every compiler test that lays out a corridor or network view fails —
       # this is a hard runtime dependency, not an optional extra.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
 
