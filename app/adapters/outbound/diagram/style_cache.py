@@ -5,8 +5,10 @@ from __future__ import annotations
 import sqlite3
 import threading
 from collections import OrderedDict
+from contextlib import closing
 from pathlib import Path
 
+from app.adapters.outbound import sqlite_util
 from app.adapters.outbound.config.env_config import get_config
 
 _STYLE_CACHE: OrderedDict[tuple[str, str], str] = OrderedDict()
@@ -23,7 +25,10 @@ def clear_style_cache() -> None:
         return
     with _db_lock:
         try:
-            with sqlite3.connect(path) as conn:
+            # `closing` as well as the transaction context manager: `with
+            # sqlite3.connect(...)` commits but leaves the handle (and its
+            # locks) open, which on Windows keeps the file locked.
+            with closing(sqlite_util.connect(path)) as conn:
                 conn.execute("DELETE FROM mcp_styles")
                 conn.commit()
         except sqlite3.Error:
@@ -52,7 +57,7 @@ def _ensure_db() -> Path | None:
         path.parent.mkdir(parents=True, exist_ok=True)
         # `with sqlite3.connect(...)` commits but does not close — close
         # explicitly so the db file isn't left locked (matters on Windows).
-        conn = sqlite3.connect(path)
+        conn = sqlite_util.connect(path)
         try:
             conn.execute(
                 """
@@ -82,7 +87,7 @@ def cache_get(key: tuple[str, str]) -> str | None:
     platform, shape_type = key
     with _db_lock:
         try:
-            with sqlite3.connect(path) as conn:
+            with closing(sqlite_util.connect(path)) as conn:
                 row = conn.execute(
                     "SELECT style FROM mcp_styles WHERE platform = ? AND shape_type = ?",
                     (platform, shape_type),
@@ -104,7 +109,7 @@ def cache_put(key: tuple[str, str], value: str) -> None:
     platform, shape_type = key
     with _db_lock:
         try:
-            with sqlite3.connect(path) as conn:
+            with closing(sqlite_util.connect(path)) as conn:
                 conn.execute(
                     """
                     INSERT INTO mcp_styles (platform, shape_type, style)

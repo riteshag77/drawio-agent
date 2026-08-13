@@ -21,11 +21,10 @@ from app.adapters.inbound.web.rate_limit import RateLimitMiddleware
 from app.adapters.inbound.web.routes import router
 from app.adapters.outbound.config.env_config import get_config
 from app.adapters.outbound.llm import providers as providers_module
-from app.core.config import STATIC_DIR, init_config, _resolve_config
+from app.core.config import STATIC_DIR, init_config
 
 # Initialize configuration before any other imports.
 init_config()
-_resolve_config()
 
 cfg = get_config()
 

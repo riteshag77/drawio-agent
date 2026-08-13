@@ -5,16 +5,17 @@ from __future__ import annotations
 
 import uvicorn
 
-from app.core.config import HOST, PORT, init_config, _resolve_config
+from app.adapters.outbound.config.env_config import get_config
+from app.core.config import init_config
 
 init_config()
-_resolve_config()
 
 if __name__ == "__main__":
+    cfg = get_config()
     uvicorn.run(
         "app.main:app",
-        host=HOST,
-        port=PORT,
+        host=cfg.host,
+        port=cfg.port,
         reload=True,
         # Prompt packs (config/xml_gen/**/*.txt) and provider config (config/*.json) are
         # read once and cached in-process (see prompts/system.py's lru_cache) —

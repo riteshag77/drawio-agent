@@ -21,7 +21,7 @@ pytest tests/test_documents.py::PdfExtractionTests::test_corrupt_pdf_is_an_error
 
 There is no lint/format command configured (no `pyproject.toml`, `pytest.ini`, or ruff/black config) — don't invent one.
 
-Config is `.env`-driven (`app/adapters/outbound/config/env_config.py`); at minimum one LLM API key must be set (e.g. `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`). See `docs/ENV_AND_MCP.md` for the full key list and MCP/renderer options.
+Config is `.env`-driven and single-sourced in `app/adapters/outbound/config/env_config.py` — read it via `get_config().<setting>` at the point of use, never as an import-time constant (a snapshot taken before `init_config()` can't be refreshed in modules that already imported it). `app/core/config.py` only owns the one-time `.env`/admin-override load and the static `BASE_DIR`/`STATIC_DIR` paths. At minimum one LLM API key must be set (e.g. `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`). See `docs/ENV_AND_MCP.md` for the full key list and MCP/renderer options.
 
 ## Architecture
 
@@ -40,6 +40,7 @@ app/
       geometry_spec.py    # canonical spacing constants — shared by compiler AND diagnostics
     utils/                # documents.py (attachment extraction), web.py, chat.py
     cost_estimator.py, well_architected.py, compliance.py, history_store.py
+    sqlite_util.py        # tuned sqlite3.connect (WAL + busy timeout) — use for every store
 ```
 
 ### Request flow (`POST /chat`, `/chat/stream`)

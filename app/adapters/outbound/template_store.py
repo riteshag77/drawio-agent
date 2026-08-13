@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from app.adapters.outbound import sqlite_util
 from app.adapters.outbound.config.env_config import get_config
 
 _db_lock = threading.Lock()
@@ -79,7 +80,7 @@ def _ensure_db() -> Path | None:
         return path
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(path)
+        conn = sqlite_util.connect(path)
         try:
             conn.executescript(_SCHEMA)
             conn.commit()
@@ -95,7 +96,7 @@ def _connect() -> sqlite3.Connection | None:
     path = _ensure_db()
     if path is None:
         return None
-    conn = sqlite3.connect(path)
+    conn = sqlite_util.connect(path)
     conn.row_factory = sqlite3.Row
     return conn
 
