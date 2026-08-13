@@ -5,7 +5,7 @@ uvicorn>=0.32.0,<1.0.0
 # silently ignores reload_includes — so prompt-pack edits would not take
 # effect until a manual restart, the exact thing that setting exists to avoid.
 watchfiles>=0.24.0,<2.0.0
-pydantic>=2.9.0,<3.0.0
+pydantic>=2.13.4,<3.0.0
 langchain-core>=0.3.0,<2.0.0
 langchain-openai>=0.2.0,<2.0.0
 langchain-google-genai>=2.0.0,<5.0.0
