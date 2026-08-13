@@ -40,8 +40,7 @@ jobs:
         # and installed here on Linux.
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.lock
-          pip install ruff
+          pip install -r requirements.lock -r requirements-dev.lock
 
       - name: Verify ELK toolchain
         # elkjs is vendored under tools/elk_layout/node_modules, so no npm
@@ -55,12 +54,18 @@ jobs:
       - name: Lint
         run: ruff check .
 
+      - name: Architecture boundaries
+        # domain stays pure; core's reach into adapters is frozen at its current
+        # set, so a new one fails here rather than being noticed a year later.
+        run: lint-imports
+
       - name: Test
         # No provider keys are set, so anything reaching a real LLM would fail
         # rather than silently pass. The live suite is opt-in via RUN_LIVE_E2E.
+        # --cov applies the fail_under floor in pyproject.toml.
         env:
           DRAWIO_STYLE_CACHE_RESET: "false"
-        run: pytest
+        run: pytest --cov
 
   docker:
     # Separate job: the image is slow to build and its failure mode is

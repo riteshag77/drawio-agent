@@ -19,7 +19,20 @@ pytest tests/test_documents.py -q       # single file
 pytest tests/test_documents.py::PdfExtractionTests::test_corrupt_pdf_is_an_error -q  # single test
 ```
 
-There is no lint/format command configured (no `pyproject.toml`, `pytest.ini`, or ruff/black config) — don't invent one.
+Quality gates (all run in CI, `.github/workflows/ci.yml`):
+
+```bash
+ruff check .        # narrow ruleset — see the rationale in pyproject.toml
+lint-imports        # architecture boundaries (import-linter)
+pytest --cov        # suite + the coverage floor
+```
+
+`pyproject.toml` holds all three configs. Two things there are deliberate and
+should not be "tidied": the ruff ruleset is narrow on purpose (a blanket one
+flags ~250 style disagreements with deliberate choices and buries the real
+findings), and `[tool.importlinter]`'s `ignore_imports` is a *frozen* list of
+pre-existing `core -> adapters` violations — it exists to stop new ones, and is
+meant to shrink, never grow.
 
 Config is `.env`-driven and single-sourced in `app/adapters/outbound/config/env_config.py` — read it via `get_config().<setting>` at the point of use, never as an import-time constant (a snapshot taken before `init_config()` can't be refreshed in modules that already imported it). `app/core/config.py` only owns the one-time `.env`/admin-override load and the static `BASE_DIR`/`STATIC_DIR` paths. At minimum one LLM API key must be set (e.g. `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`). See `docs/ENV_AND_MCP.md` for the full key list and MCP/renderer options.
 

@@ -13,6 +13,27 @@ testpaths = ["tests"]
 # Quiet by default; the suite is large and the signal is the summary line.
 addopts = "-q"
 
+[tool.coverage.run]
+source = ["app"]
+branch = false
+omit = [
+    # A standalone MCP wrapper for Cursor, run as its own process and driven by
+    # an external client — exercised by using it, not by the suite.
+    "app/mcp_server.py",
+]
+
+[tool.coverage.report]
+# Ratchet, not an aspiration: this is roughly where the suite already sits, so
+# it fails on a *regression* rather than nagging about an unmet goal. Raise it
+# when real coverage moves up; never lower it to make a build pass.
+#
+# The reason for having it at all is bf163dc, which merged ~6,000 lines that
+# could not run. Lint and tests could not catch that — unimported code is never
+# executed — but every one of those modules would have reported 0%.
+fail_under = 83
+show_missing = false
+precision = 1
+
 [tool.ruff]
 line-length = 120
 target-version = "py311"
@@ -59,4 +80,59 @@ ignore = [
 extend-immutable-calls = [
     "fastapi.Depends", "fastapi.Query", "fastapi.Header",
     "fastapi.File", "fastapi.Form", "fastapi.Body", "fastapi.Path",
+]
+
+# ── Architecture boundaries ──────────────────────────────────────────────────
+# Hexagonal layering, enforced rather than trusted. Run with `lint-imports`.
+#
+# The two contracts are deliberately different in kind. `domain` is already
+# clean, so it is enforced absolutely — a single new outward import fails.
+# `core` is not: it reaches into `adapters` in ~40 places, only one of which
+# (`core/ports/llm.py`) goes through a port. Fixing all of them is a large
+# refactor with no user-visible payoff, so instead the current set is frozen
+# below and anything new fails. The list is meant to shrink, never grow.
+[tool.importlinter]
+root_package = "app"
+
+[[tool.importlinter.contracts]]
+name = "domain is pure — no imports of core or adapters"
+type = "forbidden"
+source_modules = ["app.domain"]
+forbidden_modules = ["app.core", "app.adapters"]
+
+[[tool.importlinter.contracts]]
+name = "core does not reach into adapters (frozen allowlist)"
+type = "forbidden"
+source_modules = ["app.core"]
+forbidden_modules = ["app.adapters"]
+# FROZEN 2026-08-13. Every entry is a pre-existing violation, not an
+# endorsement. Adding a line here should be a conscious decision made in
+# review; removing one is the goal. The natural first target is the config
+# and logging pair, which only need `get_config` and could take it through
+# `core/ports/config.py` the way `core/ports/llm.py` already does.
+ignore_imports = [
+    "app.core.config -> app.adapters.outbound.admin_settings_store",
+    "app.core.config -> app.adapters.outbound.config.env_config",
+    "app.core.logging -> app.adapters.outbound.config.env_config",
+    "app.core.ports.config -> app.adapters.outbound.config.env_config",
+    "app.core.ports.llm -> app.adapters.outbound.llm.fallback",
+    "app.core.services.agent -> app.adapters.outbound.governance_store",
+    "app.core.services.agent -> app.adapters.outbound.llm.prompt_builders",
+    "app.core.services.agent -> app.adapters.outbound.llm.prompts.ir",
+    "app.core.services.agent -> app.adapters.outbound.llm.prompts.simple",
+    "app.core.services.agent -> app.adapters.outbound.llm.prompts.system",
+    "app.core.services.agent -> app.adapters.outbound.llm.prompts.vlm_qa",
+    "app.core.services.agent -> app.adapters.outbound.llm.providers",
+    "app.core.services.agent -> app.adapters.outbound.llm.response_parse",
+    "app.core.services.agent -> app.adapters.outbound.utils.chat",
+    "app.core.services.xml_pipeline -> app.adapters.outbound.compliance",
+    "app.core.services.xml_pipeline -> app.adapters.outbound.config.env_config",
+    "app.core.services.xml_pipeline -> app.adapters.outbound.cost_estimator",
+    "app.core.services.xml_pipeline -> app.adapters.outbound.llm.concurrency",
+    "app.core.services.xml_pipeline -> app.adapters.outbound.llm.llm_client",
+    "app.core.services.xml_pipeline -> app.adapters.outbound.llm.pricing",
+    "app.core.services.xml_pipeline -> app.adapters.outbound.llm.prompt_builders",
+    "app.core.services.xml_pipeline -> app.adapters.outbound.utils.chat",
+    "app.core.services.xml_pipeline -> app.adapters.outbound.well_architected",
+    "app.core.ssl_trust -> app.adapters.outbound.config.env_config",
 ]
