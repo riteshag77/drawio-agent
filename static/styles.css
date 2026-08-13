@@ -4345,3 +4345,24 @@
 .api-key-save:hover {
     background: var(--btn-primary-hover-bg);
 }
+
+/* The initial blocking gate: `.app-shell` is hidden entirely (see the
+   gate-hiding <style> at the top of index.html's <head>), so this needs an
+   opaque background — a translucent scrim over invisible content would just
+   look like a dim, empty screen rather than a proper login page. */
+.api-key-overlay-gate {
+    background: var(--sidebar-bg);
+}
+
+/* No-JS-dependency fallback — see index.html for why this exists. */
+#gate-loading {
+    position: fixed;
+    inset: 0;
+    background: var(--sidebar-bg);
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font: var(--text-body);
+    z-index: 99998; /* below .api-key-overlay (10000), above nothing else needs to be here */
+}

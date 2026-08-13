@@ -13,7 +13,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/styles.css?v=20260814a">
+    <link rel="stylesheet" href="/static/styles.css?v=20260814b">
     <link rel="stylesheet" href="/static/themes/midnight-slate.css?v=20260810e">
     <link rel="stylesheet" href="/static/themes/daylight.css?v=20260810e">
     <link rel="stylesheet" href="/static/themes/aurora-contrast.css?v=20260810g">
@@ -24,9 +24,27 @@
             document.documentElement.setAttribute('data-theme', known.indexOf(stored) !== -1 ? stored : 'midnight-slate');
         })();
     </script>
+    <!-- Access gate (static/js/api-key.js): hides the entire app — not just
+         data, the layout, the branding, everything — until that script
+         confirms the stored key works (or confirms none is required). Placed
+         here, before any stylesheet or body content, on the same reasoning
+         as the theme script above: nothing about the app should paint before
+         this decision is made. api-key.js removes this tag by id once
+         access is confirmed; if that script fails to load at all, the app
+         stays permanently hidden rather than silently exposed — a missing
+         script is a broken deploy, not a reason to skip the gate. -->
+    <style id="app-shell-gate-style">.app-shell{visibility:hidden}</style>
 </head>
 
 <body>
+    <!-- Sibling of .app-shell, not inside it, so hiding .app-shell via the
+         gate style doesn't hide this too. Visible the instant body paints,
+         with no JS dependency at all — the fallback if api-key.js itself
+         ever fails to load: rather than a silent, unexplained blank page,
+         there is at least a visible sign the app is stuck, not just gone.
+         api-key.js removes it the moment it has anything real to show
+         (the login dialog, or the revealed app). -->
+    <div id="gate-loading" aria-live="polite">Loading…</div>
     <div class="app-shell">
         <!-- Left: chat / input panel -->
         <aside class="sidebar">
@@ -763,7 +781,7 @@
         </div>
         <div id="sessions-grid" class="history-grid"></div>
     </div>
-    <script src="/static/js/api-key.js?v=20260814a"></script>
+    <script src="/static/js/api-key.js?v=20260814b"></script>
     <script src="/static/js/state.js?v=20260809b"></script>
     <script src="/static/js/theme.js?v=20260724f"></script>
     <script src="/static/js/resizer.js?v=20260808a"></script>
