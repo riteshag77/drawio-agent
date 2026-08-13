@@ -22,9 +22,11 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 WORKDIR /app
 
-# Dependencies first so a source-only change reuses this layer.
-COPY requirements.txt ./
-RUN pip install --upgrade pip && pip install -r requirements.txt
+# Dependencies first so a source-only change reuses this layer. Installs from
+# the pinned lock, not requirements.txt, so an image built today and one built
+# in six months contain the same versions.
+COPY requirements.txt requirements.lock ./
+RUN pip install --upgrade pip && pip install -r requirements.lock
 
 # elkjs is vendored under tools/elk_layout/node_modules, so there is no npm
 # install step — copying the tree is enough.

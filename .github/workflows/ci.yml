@@ -21,7 +21,10 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          # Matches the container (Debian bookworm's python3) and the lock's
+          # resolution target, so CI exercises the version that actually
+          # deploys rather than whatever a developer happens to run locally.
+          python-version: "3.11"
           cache: pip
 
       # ELK layout shells out to `node tools/elk_layout/layout.js`. Without it,
@@ -32,9 +35,12 @@ jobs:
           node-version: "20"
 
       - name: Install dependencies
+        # From the lock, not requirements.txt — this is also what proves the
+        # lock is genuinely cross-platform, since it is generated on Windows
+        # and installed here on Linux.
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.lock
           pip install ruff
 
       - name: Verify ELK toolchain
