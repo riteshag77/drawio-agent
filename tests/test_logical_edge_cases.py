@@ -10,7 +10,6 @@ from __future__ import annotations
 import unittest
 import xml.etree.ElementTree as ET
 
-from app.adapters.outbound.diagram import geometry_spec as geo
 from app.adapters.outbound.diagram import palette
 from app.adapters.outbound.diagram.architecture_docs import (
     _LOGICAL_ROLE_TO_SHAPE_TYPE,
@@ -182,7 +181,7 @@ class MultiActorTests(unittest.TestCase):
             boxes.append((cid, x, y, h))
         # No two left actors may vertically overlap.
         boxes_by_y = sorted(boxes, key=lambda b: b[2])
-        for (_id1, _x1, y1, h1), (_id2, x2, y2, h2) in zip(boxes_by_y, boxes_by_y[1:]):
+        for (_id1, _x1, y1, h1), (_id2, _x2, y2, _h2) in zip(boxes_by_y, boxes_by_y[1:]):
             self.assertGreaterEqual(y2, y1 + h1, "left actors overlap vertically")
 
         # Right-kind actor (Stripe) must not sit in the left actor column.

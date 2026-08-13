@@ -5,6 +5,8 @@ from __future__ import annotations
 import unittest
 import xml.etree.ElementTree as ET
 
+from pydantic import ValidationError
+
 from app.adapters.outbound.diagram import geometry_spec as geo
 from app.adapters.outbound.diagram.architecture_docs import (
     assign_logical_shape_types,
@@ -148,7 +150,7 @@ class LogicalRowOrderTests(unittest.TestCase):
             self.assertGreaterEqual(gap, INTER_CONTAINER_GAP - 15.0, msg=f"{a}->{b} gap={gap}")
 
     def test_rejects_both_core_and_commerce(self) -> None:
-        with self.assertRaises(Exception):
+        with self.assertRaises(ValidationError):
             LogicalIR(
                 corridors=[
                     Corridor(id="domain_experience", label="Experience", leaves=[_leaf("p", "logical_portal", "Portal")]),

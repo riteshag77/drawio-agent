@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from langchain_core.callbacks.usage import UsageMetadataCallbackHandler
 from langchain_core.exceptions import OutputParserException
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage
 
 from app.adapters.outbound.config.env_config import get_config
 from app.adapters.outbound.llm.caching import build_system_message

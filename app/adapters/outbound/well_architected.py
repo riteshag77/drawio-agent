@@ -80,7 +80,6 @@ PILLAR_SERVICE_MAP: dict[str, tuple[set[str], str, str]] = {
 def _pillar_findings(pillar_key: str, services: list[str], platform: str) -> list[dict[str, str]]:
     service_set, _, _ = PILLAR_SERVICE_MAP[pillar_key]
     matched = [s for s in services if s in service_set]
-    unmatched = [s for s in services if s not in service_set]
 
     findings: list[dict[str, str]] = []
 

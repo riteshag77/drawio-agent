@@ -4,7 +4,8 @@ Chat helpers — trim/format conversation history for LLM prompts.
 
 from __future__ import annotations
 
-import re
+from typing import Any
+
 
 ARCHITECTURE_OMITTED_PLACEHOLDER = (
     "[Previous diagram state omitted — see current architecture JSON in the latest turn.]"

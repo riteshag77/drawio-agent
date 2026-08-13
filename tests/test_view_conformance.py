@@ -16,7 +16,6 @@ from app.adapters.outbound.diagram.view_fixers import (
     apply_edge_label_defaults,
     apply_view_fixers,
     drop_forbidden_nodes,
-    ensure_gap_nodes,
     relabel_generic_data_stores,
 )
 from app.domain.ir import AnchoredCorridor, Corridor, Flow, Leaf, SecurityIR

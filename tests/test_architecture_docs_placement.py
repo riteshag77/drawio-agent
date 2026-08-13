@@ -21,7 +21,6 @@ from app.adapters.outbound.llm.prompts.ir import get_corridor_ir_system_prompt
 from app.adapters.outbound.diagram.edge_routing import (
     fix_edge_anchors_from_geometry,
 )
-from app.adapters.outbound.diagram.xml_diagnostics import repair_xml
 
 
 def _wrap(inner: str, *, name: str = "Network") -> str:

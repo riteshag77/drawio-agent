@@ -1,5 +1,7 @@
 """Prompt assembly: 3D XML pack + IR view packs (no legacy core/views)."""
 
+import pytest
+
 from app.adapters.outbound.llm.prompts.ir import (
     get_corridor_ir_system_prompt,
     get_network_ir_system_prompt,
@@ -20,7 +22,7 @@ def test_3d_prompt_under_budget():
 def test_non_3d_xml_prompt_raises():
     try:
         get_xml_gen_system_prompt(platform="aws")
-        assert False, "expected ValueError for non-3D XML prompt"
+        pytest.fail("expected ValueError for non-3D XML prompt")
     except ValueError as exc:
         assert "three_d=True" in str(exc)
 

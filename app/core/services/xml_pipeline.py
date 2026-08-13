@@ -891,7 +891,9 @@ async def _generate_primary_page(
                 ),
             )
             if 'vertex="1"' not in (diagram.xml or ""):
-                raise ValueError("LLM returned no diagram content on retry — nothing to validate or enrich.")
+                raise ValueError(
+                    "LLM returned no diagram content on retry — nothing to validate or enrich."
+                ) from exc
         return diagram
 
     if three_d:

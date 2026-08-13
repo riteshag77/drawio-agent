@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import html
-import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Any

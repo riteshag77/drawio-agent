@@ -663,7 +663,6 @@ def _bundle_under_corridor_trunks(
         # Find longest near-horizontal segment among waypoints.
         best = None
         best_len = 0.0
-        seq = pts
         meta = edge_meta.get(eid)
         if not meta:
             continue

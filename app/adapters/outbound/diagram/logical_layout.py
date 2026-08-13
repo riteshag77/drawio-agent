@@ -205,7 +205,7 @@ def barycenter_order(
                 pos[n] = i
 
     order: dict[str, int] = {}
-    for r, nodes in by_rank.items():
+    for _r, nodes in by_rank.items():
         for i, n in enumerate(nodes):
             order[n] = i
     return order

@@ -177,7 +177,6 @@ class FullLifecycleRegressionTests(unittest.TestCase):
 
         applied_suggestions: list[str] = []
         step_ids: list[tuple[str, set[str]]] = []  # (step label, ids newly introduced at that step)
-        prev_xml = xml1
         prev_ids = _vertex_ids(xml1)
         current_xml = xml1
 
@@ -201,10 +200,10 @@ class FullLifecycleRegressionTests(unittest.TestCase):
         # ── Step 2: apply a suggestion (implementSuggestions()'s exact shape) ──
         if suggestions:
             picked = suggestions[0]
-            xml2 = _apply_step("apply-suggestion", _suggestion_apply_prompt(picked))
+            _apply_step("apply-suggestion", _suggestion_apply_prompt(picked))
             applied_suggestions.append(picked.get("text") or picked.get("suggestion") or "")
-        else:
-            xml2 = current_xml  # suggestions degraded this run — skip, don't fail the chain over it
+        # No else: suggestions degraded this run — skip, don't fail the chain over it.
+        # _apply_step already advanced current_xml/prev_ids via nonlocal.
 
         # ── Step 3 & 4: apply two separate WAF/compliance findings — the
         # exact reported bug: applying the 2nd must not undo the 1st. ──

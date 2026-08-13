@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  # A new push to the same branch supersedes the old run.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # ELK layout shells out to `node tools/elk_layout/layout.js`. Without it,
+      # every compiler test that lays out a corridor or network view fails —
+      # this is a hard runtime dependency, not an optional extra.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff
+
+      - name: Verify ELK toolchain
+        # elkjs is vendored under tools/elk_layout/node_modules, so no npm
+        # install is needed — but assert it resolves, because the failure mode
+        # otherwise surfaces as confusing geometry assertions deep in the
+        # compiler tests rather than "the layout engine is missing".
+        run: |
+          node --version
+          node -e "require('./tools/elk_layout/node_modules/elkjs'); console.log('elkjs resolvable')"
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Test
+        # No provider keys are set, so anything reaching a real LLM would fail
+        # rather than silently pass. The live suite is opt-in via RUN_LIVE_E2E.
+        env:
+          DRAWIO_STYLE_CACHE_RESET: "false"
+        run: pytest

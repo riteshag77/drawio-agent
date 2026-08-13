@@ -66,7 +66,6 @@ class LlmConcurrencyTests(unittest.TestCase):
         """No more than MAX_CONCURRENT_LLM calls may be in flight at once."""
         peak = 0
         active = 0
-        lock = asyncio.Lock()
 
         def blocking_call() -> str:
             nonlocal peak, active

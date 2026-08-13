@@ -21,7 +21,6 @@ from app.adapters.outbound.llm.prompts.ir import get_network_ir_system_prompt
 from app.domain.ir import (
     AvailabilityZone,
     CloudBoundary,
-    CrossCuttingGroup,
     EdgeLayer,
     ExternalActor,
     Flow,

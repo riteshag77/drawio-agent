@@ -15,7 +15,6 @@ from app.adapters.outbound.diagram.edge_routing import (
 from app.adapters.outbound.diagram.xml_diagnostics import (
     clear_overview_panel_children,
     ensure_overview_panel_position,
-    repair_xml,
 )
 
 
@@ -244,7 +243,6 @@ class OverviewClearTests(unittest.TestCase):
 class LogicalJourneyEdgeTests(unittest.TestCase):
     def test_drops_data_store_to_okta(self) -> None:
         from app.adapters.outbound.diagram.view_fixers import (
-            apply_view_fixers,
             drop_nonsensical_logical_edges,
         )
 

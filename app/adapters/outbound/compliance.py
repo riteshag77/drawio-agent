@@ -7,7 +7,6 @@ from functools import lru_cache
 import yaml
 from pydantic import BaseModel, Field
 
-from app.adapters.outbound.config.env_config import get_config
 from app.adapters.outbound.diagram.xml_tools import find_service_keys
 from app.adapters.outbound.llm.llm_client import call_llm, is_quota_or_rate_limit_error
 from app.adapters.outbound.llm.providers import get_provider, normalize_provider_key
