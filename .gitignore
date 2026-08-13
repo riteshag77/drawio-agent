@@ -8,3 +8,5 @@ data/
 .idea/
 .superpowers/
 /*.png
+# Local secrets — never commit. See .env.example for the template.
+.env
