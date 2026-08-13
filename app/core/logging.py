@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import glob
 import json
 import logging
 import os
 import sys
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -71,6 +73,16 @@ class _JsonFormatter(logging.Formatter):
 _LOGGER: logging.Logger = logging.getLogger("drawio-agent")
 _LOGGER.setLevel(logging.DEBUG)
 
+# The console handler encodes through the active code page, which on Windows is
+# cp1252 — so a log message containing an em-dash or arrow (several already do)
+# raises UnicodeEncodeError inside logging and the line is lost, replaced by a
+# "--- Logging error ---" traceback. Widen stdout once here rather than
+# restricting every message to ASCII. The file handler is already UTF-8.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
+except (AttributeError, ValueError):
+    pass  # stdout replaced (pytest capture) or already detached — logging still works
+
 _console = logging.StreamHandler(sys.stdout)
 if _LOG_FORMAT == "json":
     _console.setFormatter(_JsonFormatter())
@@ -131,12 +143,108 @@ def get_logger() -> logging.Logger:
     return _LOGGER
 
 
+class _Span:
+    """Times a pipeline stage and logs one entry carrying ``duration_ms``.
+
+    Supports both ``with`` and ``async with`` so the same call reads the same
+    either side of the sync/async boundary in the pipeline.
+    """
+
+    def __init__(
+        self,
+        logger: "StepLogger",
+        step: str,
+        message: str,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        self._logger = logger
+        self._step = step
+        self._message = message
+        self._details = details or {}
+        self._t0 = 0.0
+
+    def __enter__(self) -> "_Span":
+        self._t0 = time.monotonic()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+        duration_ms = round((time.monotonic() - self._t0) * 1000)
+        self._logger._record_timing(self._step, duration_ms)
+        details = {**self._details, "duration_ms": duration_ms}
+        if exc_type is None:
+            self._logger.log(self._step, f"{self._message} ({duration_ms} ms)", details=details)
+        else:
+            # Cancellation is a normal timeout outcome, not a stage failure.
+            level = "info" if exc_type is asyncio.CancelledError else "warning"
+            details["error"] = str(exc_val)
+            self._logger.log(
+                self._step,
+                f"{self._message} failed after {duration_ms} ms: {exc_val}",
+                level=level,
+                details=details,
+            )
+        return False  # never suppress
+
+    async def __aenter__(self) -> "_Span":
+        return self.__enter__()
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> bool:
+        return self.__exit__(exc_type, exc_val, exc_tb)
+
+
 class StepLogger:
     """Append-only logger for pipeline steps returned to the UI."""
 
     def __init__(self, request_id: str | None = None) -> None:
         self.entries: list[LogEntry] = []
         self.request_id: str | None = request_id
+        #: step -> [call count, cumulative ms]. Populated by ``span``.
+        self.timings: dict[str, list[int]] = {}
+        self._timings_logged = False
+
+    def span(self, step: str, message: str, **details: Any) -> _Span:
+        """Time a stage: ``with logger.span("llm", "Generating IR"): ...``.
+
+        Entries already carry timestamps, but a caller reading a 90-second
+        generation could only recover per-stage cost by diffing them by hand —
+        and not at all for stages that overlap in the enrichment gather. This
+        records the duration explicitly, on the entry and in the summary.
+        """
+        return _Span(self, step, message, details or None)
+
+    def _record_timing(self, step: str, duration_ms: int) -> None:
+        slot = self.timings.setdefault(step, [0, 0])
+        slot[0] += 1
+        slot[1] += duration_ms
+
+    def timings_summary(self) -> dict[str, dict[str, int]]:
+        """Per-step ``{calls, total_ms}``, slowest first."""
+        return {
+            step: {"calls": calls, "total_ms": total}
+            for step, (calls, total) in sorted(
+                self.timings.items(), key=lambda kv: kv[1][1], reverse=True
+            )
+        }
+
+    def log_timings_summary(self) -> None:
+        """Emit the breakdown as a final ``step="timings"`` entry.
+
+        Goes out through the existing channels (response ``logs``, SSE, file
+        log) rather than adding a field every call site would have to thread
+        through.
+        """
+        if self._timings_logged:
+            return
+        summary = self.timings_summary()
+        if not summary:
+            return
+        self._timings_logged = True
+        total_ms = sum(item["total_ms"] for item in summary.values())
+        self.log(
+            "timings",
+            f"Stage timings ({total_ms} ms measured across {len(summary)} stages)",
+            details={"stages": summary, "measured_total_ms": total_ms},
+        )
 
     def log(
         self,

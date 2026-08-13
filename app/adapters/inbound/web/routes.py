@@ -59,9 +59,11 @@ async def _with_request_timeout(coro: Any) -> Any:
 
     A stuck/retrying LLM call can otherwise stall a request indefinitely — this
     cancels the *awaiting coroutine* on timeout so the user gets a clean 504
-    instead of an infinite wait. It does not kill the underlying worker thread
-    (Python threads can't be forcibly killed); see llm_client.call_llm's retry
-    backoff for the actual source of long-running background threads.
+    instead of an infinite wait. It still does not kill an already-running
+    worker thread (Python threads can't be forcibly killed), but that orphan no
+    longer escapes the concurrency cap: llm/concurrency.py runs LLM work on a
+    bounded private pool, so the orphan holds its slot until it finishes and a
+    call cancelled before dispatch is withdrawn without reaching the provider.
     """
     timeout = get_config().request_timeout_seconds
     try:

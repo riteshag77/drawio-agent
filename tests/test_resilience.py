@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -53,8 +54,11 @@ class _Env:
 
 class LlmConcurrencyTests(unittest.TestCase):
     def setUp(self) -> None:
-        concurrency._llm_semaphore = None
-        concurrency._llm_sem_limit = None
+        pool = concurrency._llm_pool
+        concurrency._llm_pool = None
+        concurrency._llm_pool_limit = None
+        if pool is not None:
+            pool.shutdown(wait=False)
 
     tearDown = setUp
 
@@ -102,17 +106,93 @@ class LlmConcurrencyTests(unittest.TestCase):
 
         self.assertEqual(asyncio.run(main()), "alive")
 
-    def test_semaphore_rebuilds_when_limit_changes(self) -> None:
+    def test_pool_rebuilds_when_limit_changes(self) -> None:
         async def main():
             with _Env(MAX_CONCURRENT_LLM="2"):
                 await concurrency.run_llm_sync(lambda: None)
-                first = concurrency._llm_sem_limit
+                first = concurrency._llm_pool_limit
             with _Env(MAX_CONCURRENT_LLM="5"):
                 await concurrency.run_llm_sync(lambda: None)
-                return first, concurrency._llm_sem_limit
+                return first, concurrency._llm_pool_limit
 
         first, second = asyncio.run(main())
         self.assertEqual((first, second), (2, 5))
+
+    def test_cap_holds_when_callers_time_out(self) -> None:
+        """Regression: a cancelled caller must not free a slot the call still occupies.
+
+        With a semaphore around ``asyncio.to_thread`` this failed — cancelling
+        the coroutine released the permit while the provider call kept running,
+        so a cap of 2 admitted 4 simultaneous calls.
+        """
+        peak = 0
+        active = 0
+        lock = threading.Lock()
+
+        def slow_call() -> str:
+            nonlocal peak, active
+            with lock:
+                active += 1
+                peak = max(peak, active)
+            time.sleep(0.5)
+            with lock:
+                active -= 1
+            return "ok"
+
+        async def wave(size: int, settle: float) -> None:
+            tasks = [asyncio.create_task(concurrency.run_llm_sync(slow_call)) for _ in range(size)]
+            await asyncio.sleep(settle)
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        async def main():
+            with _Env(MAX_CONCURRENT_LLM="2"):
+                # Wave 1 fills the cap, then times out — its calls keep running.
+                await wave(2, 0.1)
+                # Wave 2 arrives while wave 1's calls are still in flight. This is
+                # the leak: a released permit lets these start a *third* and
+                # *fourth* real call.
+                await wave(2, 0.15)
+                await asyncio.sleep(1.0)  # let every orphan finish before measuring
+
+        asyncio.run(main())
+        self.assertGreater(peak, 0, "no call ran — the probe never exercised the cap")
+        self.assertLessEqual(peak, 2, f"cap leaked under cancellation: {peak} calls ran with a cap of 2")
+
+    def test_cancelling_before_dispatch_never_calls_the_provider(self) -> None:
+        """Queued work cancelled on timeout must not reach the provider at all.
+
+        Guards a risk specific to the pool design rather than a past bug: work is
+        now submitted to the executor immediately instead of waiting on a permit,
+        so a cancelled caller whose call has not been dequeued must have that
+        call withdrawn, not run anyway.
+        """
+        calls = 0
+        lock = threading.Lock()
+        release = threading.Event()
+
+        def occupy() -> None:
+            release.wait(timeout=5)
+
+        def should_not_run() -> None:
+            nonlocal calls
+            with lock:
+                calls += 1
+
+        async def main():
+            with _Env(MAX_CONCURRENT_LLM="1"):
+                blocker = asyncio.create_task(concurrency.run_llm_sync(occupy))
+                await asyncio.sleep(0.05)  # let the blocker take the only worker
+                queued = asyncio.create_task(concurrency.run_llm_sync(should_not_run))
+                await asyncio.sleep(0.05)  # queued, not started
+                queued.cancel()
+                await asyncio.gather(queued, return_exceptions=True)
+                release.set()
+                await blocker
+
+        asyncio.run(main())
+        self.assertEqual(calls, 0, "a cancelled, still-queued call reached the provider")
 
 
 # ── SSE streaming ──────────────────────────────────────────────────────

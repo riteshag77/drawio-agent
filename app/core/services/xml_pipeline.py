@@ -754,6 +754,10 @@ def _build_response(
     generation_path: str = "direct_xml",
 ) -> dict[str, Any]:
     """Build the standard API response dict."""
+    # Terminal for every pipeline outcome (success, degraded, error), so the
+    # stage breakdown is emitted here once rather than at each return site.
+    if logger is not None and hasattr(logger, "log_timings_summary"):
+        logger.log_timings_summary()
     return {
         "status": status,
         "xml": xml,

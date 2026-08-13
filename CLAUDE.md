@@ -97,6 +97,10 @@ Rules of thumb:
 
 `core/logging.StepLogger` accumulates structured step entries (`step`, `message`, `level`, `details`) surfaced both in the JSON response (`logs`) and via SSE progress events on `/chat/stream`. LLM token usage/cost is logged as `step="usage"` entries and summarized separately from the diagram's own estimated cloud cost.
 
+Time a stage with `with logger.span("step", "message", **details):` (also works as `async with`) — it logs one entry carrying `duration_ms` and accumulates a per-step total. `xml_pipeline._build_response` emits the breakdown as a final `step="timings"` entry, so every response carries a stage profile without any call site threading a new field through. Every provider call is already timed inside `llm_client.call_llm` (`step="llm_call"`), covering the corrective re-ask and each backoff retry.
+
+LLM calls run on a bounded private thread pool (`llm/concurrency.py`, sized by `MAX_CONCURRENT_LLM`), never on the default executor. This is deliberate: a semaphore around `asyncio.to_thread` releases its permit when a timed-out request is cancelled while the provider call keeps running, so the cap leaks (measured: 4 concurrent calls at a cap of 2). Keep LLM work on that pool — the store/document `asyncio.to_thread` calls rely on the default executor staying free.
+
 ## Cursor skills (not part of the FastAPI runtime)
 
 `.cursor/skills/` contains standalone Cursor agent skills (`aws-architecture-diagram`, `azure-diagrams`, `drawio-skill`) for producing publish-quality `.drawio` files directly in Cursor chat, independent of this app's MCP config (`.cursor/mcp.json` is separate from `DRAWIO_MCP_URL`). See `docs/CLOUD_DIAGRAM_SKILLS.md`.

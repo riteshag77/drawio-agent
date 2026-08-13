@@ -231,7 +231,19 @@ def call_llm(
     raw_result: dict[str, Any] = {}
 
     def _invoke(msgs: list) -> dict[str, Any]:
-        return structured_llm.invoke(msgs, config={"callbacks": [usage_handler]})
+        # Timed here rather than at the pipeline stage: this is the one place
+        # every provider call in the app funnels through, including the
+        # corrective re-ask and each backoff retry, so the recorded total is
+        # the real provider cost of the stage rather than just its first try.
+        if logger is None:
+            return structured_llm.invoke(msgs, config={"callbacks": [usage_handler]})
+        with logger.span(
+            "llm_call",
+            f"{provider_key} {spec.default_model} -> {output_type.__name__}",
+            provider=provider_key,
+            model=spec.default_model,
+        ):
+            return structured_llm.invoke(msgs, config={"callbacks": [usage_handler]})
 
     try:
         try:
