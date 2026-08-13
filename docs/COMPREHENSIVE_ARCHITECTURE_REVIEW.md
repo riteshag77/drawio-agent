@@ -2,8 +2,35 @@
 ## Full Audit with Implementation Roadmap
 
 **Date:** 2026-08-12  
-**Status:** Current architecture assessment + 3-phase uplift plan  
+**Status:** Superseded in part — read the outcome table below before implementing anything here.  
 **Scope:** Backend (FastAPI, IR, LLM pipeline, stores), frontend (SPA), testing, deployment readiness
+
+---
+
+## ⚠️ Outcome of this review (2026-08-13)
+
+The roadmap below was implemented in `bf163dc` as 19 new files that **nothing
+imported** and that **did not run** against the real codebase. That commit was
+reverted in `a6aac95`. The code samples in this document are the source those
+files were written from, so several of them are wrong in the same ways —
+notably the `async_client.py` sketch, which reads a `provider_spec.endpoint`
+field that does not exist and sends `Authorization: Bearer` to every provider
+(Anthropic needs `x-api-key` + `anthropic-version`).
+
+**Treat the code in this document as illustrative, never as copy-ready.**
+Verify every attribute against the real `ProviderSpec`, `ChatRequest` and
+pipeline signatures before writing anything.
+
+| Item | Outcome | Where it landed |
+| --- | --- | --- |
+| A1 Async LLM transport | **Rejected as framed; real defect fixed instead** | `llm/concurrency.py` — the cap leaked under cancellation, not thread starvation. Native async was rejected: the functions behind `run_llm_sync` interleave provider calls with CPU-bound IR compile/ELK/XML work, so awaiting only the LLM would move that onto the event loop. |
+| A3 Middleware consolidation | **Not done** | `main.py`'s existing stack works; the replacement duplicated it. |
+| A4 Decouple routes/use-cases | **Not done** | Refactors working, tested code with no user-visible change. Open. |
+| A5 Frontend state manager | **Not done** | Would require migrating all 26 scripts to ES modules. Open. |
+| A6 Unified config | **Done** | `a6aac95` — `EnvConfigAdapter` is the single source; `core/config.py` reduced to bootstrap + static paths. The A6 sketch added a *third* config system rather than removing one. |
+| A7 DI container | **Not done** | Only two roots exist and neither duplicated meaningful bootstrap. |
+| A8 Observability | **Done, smaller** | `0113dd8` — `StepLogger.span()` + a `step="timings"` breakdown. The gap was per-stage durations, not missing infrastructure; `StepLogger` already did structured entries, token/cost accounting and file output. |
+| A9 Unified data layer | **Rejected; hardening done instead** | `a6aac95` — WAL + busy timeout via `sqlite_util.connect()`. The proposed single shared connection with `check_same_thread=False` and no lock was a data race, worse than the five stores it replaced. |
 
 ---
 

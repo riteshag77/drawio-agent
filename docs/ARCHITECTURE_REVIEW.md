@@ -4,6 +4,15 @@ Assessment of the current application architecture, its strengths, the highest-
 value findings, and a phased uplift plan. Complements `docs/PROMPT_BATTLE_TEST.md`
 (prompt-layer audit) and `docs/UX_REVIEW.md` (frontend/product).
 
+> **Status (2026-08-13):** partly superseded. This plan was implemented in
+> `bf163dc` as code that nothing imported and that did not run; it was reverted
+> in `a6aac95`. Config consolidation and observability landed in a different
+> shape, SQLite was hardened rather than rewritten, and the concurrency work
+> turned out to be a leaking cap rather than a transport problem. See the
+> outcome table at the top of `docs/COMPREHENSIVE_ARCHITECTURE_REVIEW.md` for
+> what is done, what was rejected and why, and what is still open. Verify any
+> code sketch here against the real signatures before acting on it.
+
 ## 1. What this application is, structurally
 
 A single-process **FastAPI + draw.io iframe** monolith, unusually well-dialed-in
