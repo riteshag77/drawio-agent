@@ -59,6 +59,22 @@ def _get_pool() -> ThreadPoolExecutor:
         return _llm_pool
 
 
+def shutdown_llm_pool(*, wait: bool = True) -> None:
+    """Drain and drop the LLM pool. Call once on application shutdown.
+
+    ``wait=True`` lets in-flight provider calls finish — by the time this runs
+    the server has stopped accepting requests, so the only work left is calls
+    already paid for. The pool is cleared rather than kept, so a later call
+    rebuilds it instead of submitting to a dead executor.
+    """
+    global _llm_pool, _llm_pool_limit
+    with _pool_lock:
+        pool, _llm_pool, _llm_pool_limit = _llm_pool, None, None
+    if pool is not None:
+        logger.debug("Draining LLM pool on shutdown (wait=%s)", wait)
+        pool.shutdown(wait=wait)
+
+
 async def run_llm_sync(fn, /, *args, **kwargs) -> T:
     """Run a sync LLM callable on the LLM pool, capped by MAX_CONCURRENT_LLM."""
     future = _get_pool().submit(fn, *args, **kwargs)

@@ -16,11 +16,14 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from contextlib import asynccontextmanager
+
 from app.adapters.inbound.web.admin_routes import router as admin_router
 from app.adapters.inbound.web.rate_limit import RateLimitMiddleware
 from app.adapters.inbound.web.routes import router
 from app.adapters.outbound.config.env_config import get_config
 from app.adapters.outbound.llm import providers as providers_module
+from app.adapters.outbound.llm.concurrency import shutdown_llm_pool
 from app.core.config import STATIC_DIR, init_config
 
 # Initialize configuration before any other imports.
@@ -84,9 +87,53 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+def _warn_on_exposed_defaults() -> None:
+    """Warn when the app is reachable off-host with development defaults.
+
+    Every one of these is the right default for local work and the wrong one
+    for anything reachable: CORS ``*``, no API key, no rate limit, and the
+    stock admin password. The mechanisms all exist — they are simply off — so
+    the failure mode is silent rather than loud. Say it once at startup.
+    """
+    config = get_config()
+    host = (config.host or "").strip()
+    if host in ("127.0.0.1", "localhost", ""):
+        return  # loopback only: development defaults are correct here
+
+    exposed = []
+    if "*" in config.cors_origins:
+        exposed.append("CORS allows any origin")
+    if not config.api_key:
+        exposed.append("no API_KEY set (endpoints are unauthenticated)")
+    if config.rate_limit_per_minute == 0:
+        exposed.append("rate limiting disabled")
+    if config.admin_password in ("admin", "admin123", "password", "changeme"):
+        exposed.append("ADMIN_PASSWORD is a well-known default")
+
+    if exposed:
+        logging.getLogger("drawio-agent").warning(
+            "Bound to %s with development defaults — %s. "
+            "See docs/ENV_AND_MCP.md for the production checklist.",
+            host,
+            "; ".join(exposed),
+        )
+
+
+@asynccontextmanager
+async def _lifespan(application: FastAPI):
+    """Start-up warnings, and an orderly drain of the LLM pool on shutdown."""
+    _warn_on_exposed_defaults()
+    yield
+    # LLM calls run on a private bounded pool (llm/concurrency.py). Without
+    # this, a stop mid-request abandons in-flight provider calls instead of
+    # letting them finish; wait=True lets the current calls complete while the
+    # server has already stopped accepting new work.
+    shutdown_llm_pool(wait=True)
+
+
 def create_app() -> FastAPI:
     """Construct the FastAPI application with routes and static assets mounted."""
-    application = FastAPI(title=cfg.app_title)
+    application = FastAPI(title=cfg.app_title, lifespan=_lifespan)
 
     origins = cfg.cors_origins
     application.add_middleware(
