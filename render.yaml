@@ -1,0 +1,44 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+#
+# Deploys the existing Dockerfile as-is (EXPOSE 8000, non-root, one worker —
+# see Dockerfile's own comments for why). Render builds and runs the image
+# directly; nothing here duplicates what's already in the Dockerfile.
+#
+# Secrets (sync: false) are NOT set here — Blueprint files are meant to be
+# committed, and these values must not be. Set them once in the Render
+# dashboard after the first deploy (Environment tab). See the README section
+# this file's PR/commit message points at for the exact list and why each
+# one matters before the service is publicly reachable.
+
+services:
+  - type: web
+    name: drawio-agent
+    runtime: docker
+    plan: free
+    region: oregon # pick the region closest to you; free plan ignores most others anyway
+    healthCheckPath: /health
+    envVars:
+      # --- required: at least one of these ---
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+
+      # --- required before the service is genuinely public ---
+      # The app logs a startup warning if any of these three are left at their
+      # permissive local-dev default while bound off-loopback (which Render
+      # always is). Set all three.
+      - key: CORS_ORIGINS
+        sync: false # your frontend's origin, e.g. https://your-app.onrender.com — never "*" in production
+      - key: API_KEY
+        sync: false # any long random string; gates every non-static route behind X-API-Key
+      - key: RATE_LIMIT_PER_MINUTE
+        value: "30" # 0 (the code default) disables rate limiting entirely
+
+      # --- recommended ---
+      - key: ADMIN_PASSWORD
+        sync: false # gates /admin; leave unset entirely to disable the panel
+      - key: PROVIDER_DEFAULT
+        value: "claude" # or gemini/openai — must match a key you actually set above
