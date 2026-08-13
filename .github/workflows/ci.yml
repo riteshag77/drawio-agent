@@ -55,3 +55,34 @@ jobs:
         env:
           DRAWIO_STYLE_CACHE_RESET: "false"
         run: pytest
+
+  docker:
+    # Separate job: the image is slow to build and its failure mode is
+    # unrelated to a test failure, so keep the signals distinct.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t drawio-agent:ci .
+
+      - name: Boot the container and check /health
+        # Building proves it compiles; this proves it actually serves. Both
+        # runtimes have to be present for the app to answer at all.
+        run: |
+          docker run -d --name drawio-ci -p 8000:8000 drawio-agent:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/health; then
+              echo "healthy after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::container never became healthy"
+          docker logs drawio-ci
+          exit 1
+
+      - name: Container logs
+        if: always()
+        run: docker logs drawio-ci || true

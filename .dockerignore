@@ -1,0 +1,25 @@
+# Secrets — never bake credentials into an image layer.
+.env
+.env.*
+!.env.example
+
+# Local state and build artefacts
+data/
+logs/
+*.log
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Repo/tooling noise that has no business in the image
+.git/
+.github/
+.idea/
+.claude/
+.cursor/
+tests/
+docs/
+*.md
+!README.md
