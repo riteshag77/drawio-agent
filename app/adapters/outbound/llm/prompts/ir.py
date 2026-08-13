@@ -27,7 +27,6 @@ from app.adapters.outbound.llm.prompts.system import (
     _get_reference_files,
     _load_prompt,
     _load_reference,
-    _resolve_model_name,
     _warn_if_over_budget,
 )
 
@@ -60,7 +59,6 @@ def _assemble_ir_prompt(
     custom_system_message: str,
     user_hint: str,
 ) -> str:
-    model_name = _resolve_model_name(model_id, provider)
     platform_key = (platform or "aws").strip().lower()
     if platform_key not in _ICON_PLATFORMS:
         platform_key = "aws"
@@ -94,8 +92,8 @@ def _assemble_ir_prompt(
     if custom:
         volatile.append(f"## Custom Instructions\n{custom[:MAX_CUSTOM_SYSTEM_MESSAGE_LEN]}")
 
-    stable_text = "\n\n".join(p for p in stable if p).replace("{{MODEL_NAME}}", model_name)
-    volatile_text = "\n\n".join(p for p in volatile if p).replace("{{MODEL_NAME}}", model_name)
+    stable_text = "\n\n".join(p for p in stable if p)
+    volatile_text = "\n\n".join(p for p in volatile if p)
     _warn_if_over_budget(f"{stable_text}\n\n{volatile_text}")
     return f"{stable_text}\n\n{CACHE_BREAKPOINT}{volatile_text}"
 

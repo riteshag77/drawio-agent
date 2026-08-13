@@ -124,6 +124,29 @@ class ProviderTests(unittest.TestCase):
         self.assertIn("max_tokens", kwargs)
         self.assertGreater(kwargs["max_tokens"], 0)
 
+    def test_kimi_max_output_tokens_stays_under_its_context_window(self) -> None:
+        """Regression: default_model moonshot-v1-8k has an 8192-token TOTAL
+        context window (prompt + completion combined). Before this override,
+        kimi silently inherited the blanket 32000-token default every other
+        provider uses, which alone exceeds moonshot-v1-8k's whole window
+        before the system prompt is even counted — see docs/PROMPT_BATTLE_TEST.md.
+        """
+        from dataclasses import replace
+
+        from app.adapters.outbound.llm.providers import build_langchain_client
+
+        spec = get_provider("kimi")
+        self.assertEqual(
+            spec.max_output_tokens, 4096,
+            "providers.json's kimi entry should override max_output_tokens explicitly",
+        )
+        mock_cls = MagicMock(return_value=MagicMock())
+        patched = replace(spec, client_class=mock_cls)
+        with patch.dict("os.environ", {"MOONSHOT_API_KEY": "test-key"}, clear=False):
+            build_langchain_client(patched, timeout=30)
+        kwargs = mock_cls.call_args.kwargs
+        self.assertEqual(kwargs["max_tokens"], 4096)
+
     def test_max_output_tokens_kwarg_name_per_client_library(self) -> None:
         """google clients get max_output_tokens; anthropic/openai clients get max_tokens."""
         from dataclasses import replace

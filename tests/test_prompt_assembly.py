@@ -191,3 +191,67 @@ def test_data_flow_ir_requires_saas_resilience_companions():
     prompt = get_corridor_ir_system_prompt("data_flow", platform="aws")
     assert "Dead-letter" in prompt or "DLQ" in prompt
     assert "Failed API Retries" in prompt
+
+
+# ── A2 residual: classify packs' gateway placement (docs/PROMPT_BATTLE_TEST.md) ──
+
+CLASSIFY_PACKS = [
+    "config/xml_gen/classify/aws.txt",
+    "config/xml_gen/classify/azure.txt",
+    "config/xml_gen/classify/gcp.txt",
+]
+
+
+@pytest.mark.parametrize("path", CLASSIFY_PACKS)
+def test_classify_packs_describe_the_real_gateway_field(path):
+    """'Virtual Network (sibling of Zones)' named no real NetworkIR concept —
+    Vpc has no 'Virtual Network' field; the thing being described is
+    Vpc.gateway. Regression: the A2 cleanup removed parent="1" from these
+    files but missed this line."""
+    text = pathlib.Path(path).read_text(encoding="utf-8")
+    assert "Virtual Network (sibling of Zones)" not in text
+    assert "gateway" in text.lower()
+
+
+# ── B2/B3: corridor_core's flow-label baseline and orphan-check disclosure ──
+
+
+def test_corridor_core_no_longer_says_labels_are_optional():
+    """logical.txt, network.txt and data_flow.txt all say '(every flow
+    labeled)' or equivalent — corridor_core.txt was the one outlier saying
+    'label is optional', which three of four corridor-family packs
+    contradicted."""
+    text = pathlib.Path("config/xml_gen/ir/corridor_core.txt").read_text(encoding="utf-8")
+    assert "`label` is optional" not in text
+    assert "label every flow" in text.lower()
+
+
+@pytest.mark.parametrize("view", ["logical", "security", "data_flow"])
+def test_corridor_prompts_disclose_orphan_check_is_logical_only(view):
+    """corridor_core.txt's 'flows must be non-empty' rule applies to all
+    three corridor views (corridor.py enforces it for all of them), but the
+    *stricter* per-leaf orphan check (every leaf/actor must touch a flow) is
+    wired only from LogicalIR.semantic_errors — Security/Data-flow leave a
+    passive leaf (CloudWatch sitting in Detect with no drawn edge) legitimate.
+    The shared pack must say so, or a model reading corridor_core on a
+    data-flow request has no way to know that distinction exists."""
+    prompt = get_corridor_ir_system_prompt(view, platform="aws")
+    assert "Logical" in prompt and "Security and Data-flow" in prompt
+
+
+def test_gateway_xml_prompts_reject_unknown_primary_view_kwarg():
+    """D2: primary_view was declared on both 3D prompt functions and never
+    read in either body — dead API surface specific to the 3D-only path
+    (which has no multi-view concept at all). Removed rather than left as a
+    silently-ignored parameter."""
+    with pytest.raises(TypeError):
+        get_xml_gen_system_prompt(platform="aws", three_d=True, primary_view="network")
+
+
+@pytest.mark.parametrize("name", sorted(IR_ASSEMBLIES))
+def test_no_ir_prompt_contains_the_dead_model_name_token(name):
+    """D1: {{MODEL_NAME}} substitution was dead — zero pack files ever
+    contained the token, so .replace() was a permanent no-op. Now that both
+    the substitution and the token are gone, this guards against either ever
+    reappearing without the other."""
+    assert "{{MODEL_NAME}}" not in IR_ASSEMBLIES[name]()

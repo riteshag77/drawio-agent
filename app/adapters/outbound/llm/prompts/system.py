@@ -43,14 +43,6 @@ def _load_reference(filename: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def _resolve_model_name(model_id: str | None, provider: str | None) -> str:
-    if model_id:
-        return model_id
-    if provider:
-        return provider
-    return "AI"
-
-
 ESTIMATE_PROMPT_TOKENS = lambda text: max(1, len(text) // 4)  # noqa: E731
 
 
@@ -175,7 +167,6 @@ def _assemble_3d_prompt_parts(
     user_hint: str,
 ) -> tuple[str, str]:
     """Return ``(stable_prefix, volatile_suffix)`` for the isometric 3D path only."""
-    model_name = _resolve_model_name(model_id, provider)
     stable = [_load_prompt("prompt_3d.txt")]
     volatile: list[str] = []
     for ref in _get_reference_files("aws", three_d=True):
@@ -185,8 +176,8 @@ def _assemble_3d_prompt_parts(
     custom = (custom_system_message or "").strip()
     if custom:
         volatile.append(f"## Custom Instructions\n{custom[:MAX_CUSTOM_SYSTEM_MESSAGE_LEN]}")
-    stable_text = "\n\n".join(p for p in stable if p).replace("{{MODEL_NAME}}", model_name)
-    volatile_text = "\n\n".join(p for p in volatile if p).replace("{{MODEL_NAME}}", model_name)
+    stable_text = "\n\n".join(p for p in stable if p)
+    volatile_text = "\n\n".join(p for p in volatile if p)
     return stable_text, volatile_text
 
 
@@ -198,7 +189,6 @@ def get_xml_gen_system_prompt(
     custom_system_message: str = "",
     three_d: bool = False,
     user_hint: str = "",
-    primary_view: str = "network",
 ) -> str:
     """Assemble the 3D isometric system prompt (only remaining direct-XML pack)."""
     if not three_d:
@@ -223,7 +213,6 @@ def get_xml_gen_system_prompt_marked(
     custom_system_message: str = "",
     three_d: bool = False,
     user_hint: str = "",
-    primary_view: str = "network",
 ) -> str:
     """3D prompt with ``CACHE_BREAKPOINT`` between stable and volatile parts."""
     if not three_d:

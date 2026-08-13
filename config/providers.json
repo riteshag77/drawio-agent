@@ -68,7 +68,8 @@
     "base_url_env": "MOONSHOT_BASE_URL",
     "base_url_default": "https://api.moonshot.ai/v1",
     "structured_output": "json_mode",
-    "omit_temperature": true
+    "omit_temperature": true,
+    "max_output_tokens": 4096
   },
   
     {

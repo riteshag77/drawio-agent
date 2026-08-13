@@ -102,14 +102,23 @@ cross.
 
 **`flows` is REQUIRED whenever 2+ leaves or any external actor exist — never
 leave it empty.** A diagram with no relationships between components is not
-a valid answer and will be rejected. Write `flows` last, after every corridor,
-leaf and actor is declared — each `source`/`target` must reference one of those
-already-declared ids. Prefer a **readable** sparse story over a complete mesh —
-fewer labeled edges beat an illegible diagram. `primary: false` for
-secondary/async paths (rendered dashed). Use `primary: false` plus a label
-prefix `Failure:` / `DR:` / `Fallback:` **only** for explicit error or disaster-
-recovery paths — never for a normal async edge. `label` is optional; when used,
-1–6 words. Every flow's `source`/`target` must be a real leaf or external-actor
+a valid answer and will be rejected. This is a diagram-wide check only: on
+Security and Data-flow a leaf that legitimately has no edge (CloudWatch
+sitting in the Detect zone, a backup archive that's pure inventory) is fine
+as long as *something* in the view connects — those two views have real
+zone/phase boxes to place a passive leaf in. Logical is flatter and has no
+such box, so it additionally requires *every* leaf/actor to touch a flow —
+its own view pack says so.
+
+Write `flows` last, after every corridor, leaf and actor is declared — each
+`source`/`target` must reference one of those already-declared ids. Prefer a
+**readable** sparse story over a complete mesh — fewer labeled edges beat an
+illegible diagram. `primary: false` for secondary/async paths (rendered
+dashed). Use `primary: false` plus a label prefix `Failure:` / `DR:` /
+`Fallback:` **only** for explicit error or disaster-recovery paths — never
+for a normal async edge. **Label every flow** (1–6 words) — this view's own
+pack may tighten that further (e.g. requiring it specifically on the primary
+path). Every flow's `source`/`target` must be a real leaf or external-actor
 id you already declared.
 
 Two more optional fields per flow, both default to `"none"` — set them only

@@ -13,7 +13,7 @@ Classify using this decision order — stop at the first match:
 | 5 | Operational, management | Deployment Manager, Operations Suite | Management Group (NO edges) |
 | 6 | Stateless compute, app-tier | Compute Engine, GKE, Cloud Run | Zone → Private App Subnet |
 | 7 | Stateful data-tier | Cloud SQL, Spanner, Memorystore, Firestore | Zone → Private Data Subnet |
-| 8 | Network LB / routing | Cloud Load Balancing, API Gateway | Virtual Network (sibling of Zones) |
+| 8 | Network LB / routing | Cloud Load Balancing, API Gateway | VPC gateway (the `gateway` field on the VPC — one LB/API Gateway centred above every zone it fronts, never inside a subnet) |
 | 9 | Zone internet-facing infra | Cloud NAT, IAP | That Zone's Public Subnet |
 
 Cross-cutting groups (rows 2–5): icons only — **never** draw edges to or from them.

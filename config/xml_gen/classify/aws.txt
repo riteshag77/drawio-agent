@@ -13,7 +13,7 @@ Classify using this decision order — stop at the first match:
 | 5 | Operational, management | Systems Manager, AWS Backup | Management Group (NO edges) |
 | 6 | Stateless compute, app-tier | EC2, ECS, Lambda (app) | Zone → Private App Subnet |
 | 7 | Stateful data-tier | RDS, Aurora, ElastiCache, DynamoDB | Zone → Private Data Subnet |
-| 8 | Network LB / routing | ALB, NLB, API Gateway | Virtual Network (sibling of Zones) |
+| 8 | Network LB / routing | ALB, NLB, API Gateway | VPC gateway (the `gateway` field on the VPC — one LB/API Gateway centred above every zone it fronts, never inside a subnet) |
 | 9 | Zone internet-facing infra | NAT Gateway, Bastion | That Zone's Public Subnet |
 
 Cross-cutting groups (rows 2–5): place icons only — **never** draw edges to or from them.

@@ -48,6 +48,13 @@ MOONSHOT_API_KEY=
 # Optional overrides for Kimi K3 (provider key: kimi)
 # MOONSHOT_BASE_URL=https://api.moonshot.ai/v1
 # KIMI_MODEL=kimi-k3
+# providers.json pins this provider's max_output_tokens to 4096, well under
+# every other provider's blanket 32000 default (providers.py's
+# _DEFAULT_MAX_OUTPUT_TOKENS) — the default model, moonshot-v1-8k, has an
+# 8192-token TOTAL context window (prompt + completion combined), so
+# requesting 32000 completion tokens alone would exceed it before the system
+# prompt is even counted. If you override MOONSHOT_MODEL to a larger-context
+# Moonshot model, raise max_output_tokens in providers.json to match.
 NVIDIA_API_KEY=
 # Optional overrides for the NVIDIA NIM provider (provider key: nvidia) — https://build.nvidia.com
 # NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1

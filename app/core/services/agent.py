@@ -27,7 +27,7 @@ from app.adapters.outbound.llm.prompts.system import get_xml_gen_system_prompt_m
 from app.adapters.outbound.llm.prompts.vlm_qa import VLM_QA_SYSTEM_PROMPT
 from app.adapters.outbound.governance_store import list_rules as list_governance_rules
 from app.adapters.outbound.llm.providers import get_provider, normalize_provider_key
-from app.adapters.outbound.llm.response_parse import extract_mermaid
+from app.adapters.outbound.llm.response_parse import estimate_mermaid_node_count, extract_mermaid
 from app.core.ports.llm import LlmPort, get_llm
 from app.core.services.governance import evaluate_governance_rules, findings_to_warnings
 from app.domain.entities import DiagramEditPlan, MermaidDiagram, VisualQaResult, XmlDiagram
@@ -352,7 +352,6 @@ def generate_xml_diagram(
         custom_system_message=custom_system_message,
         three_d=True,
         user_hint=hint,
-        primary_view=primary_view,
     )
     human_content = _build_human_parts(
         user_request=user_request,
@@ -1285,6 +1284,11 @@ def generate_xml_diagram_from_ir(
     )
 
 
+# Mirrors config/xml_gen/simple.py's own stated cap ("Max 8 nodes/shapes
+# unless the user explicitly asks for more") — update both together.
+_MERMAID_SOFT_NODE_CAP = 8
+
+
 def generate_mermaid_diagram(
     user_request: str,
     provider: str = "claude",
@@ -1292,9 +1296,12 @@ def generate_mermaid_diagram(
     messages: list[dict[str, str]] | None = None,
     applied_suggestions: list[str] | None = None,
     include_suggestions: bool = False,
+    *,
+    llm: LlmPort | None = None,
 ) -> MermaidDiagram:
     provider_key = normalize_provider_key(provider)
     chat_messages = messages or [{"role": "user", "content": user_request}]
+    _llm = llm or get_llm()
 
     if logger:
         logger.log(
@@ -1308,7 +1315,7 @@ def generate_mermaid_diagram(
         applied_suggestions=applied_suggestions,
         include_suggestions=include_suggestions,
     )
-    parsed = get_llm()(MERMAID_SYSTEM_PROMPT, human_content, provider_key, MermaidDiagram, logger, None)
+    parsed = _llm(MERMAID_SYSTEM_PROMPT, human_content, provider_key, MermaidDiagram, logger, None)
     parsed.mermaid = extract_mermaid(parsed.mermaid)
     if not parsed.assistant_message:
         parsed.assistant_message = "Generated Mermaid diagram."
@@ -1317,6 +1324,7 @@ def generate_mermaid_diagram(
     elif parsed.suggestions is None:
         parsed.suggestions = []
 
+    node_count = estimate_mermaid_node_count(parsed.mermaid)
     if logger:
         logger.log(
             "mermaid",
@@ -1324,6 +1332,22 @@ def generate_mermaid_diagram(
             level="success",
             details={"chars": len(parsed.mermaid), "lines": parsed.mermaid.count(chr(10)) + 1},
         )
+        # simple.py's own cap ("Max 8 nodes/shapes unless the user explicitly
+        # asks for more") had no server-side counterpart at all — the fast
+        # path is otherwise the only generator whose stated limits are pure
+        # prompt text with nothing checking them. A logged warning, not a
+        # validation error: unlike the IR views this has no schema or
+        # correction loop to retry through, and "explicitly asks for more" is
+        # a legitimate, common reason to be over it.
+        if node_count > _MERMAID_SOFT_NODE_CAP:
+            logger.log(
+                "mermaid",
+                f"~{node_count} nodes (heuristic count) exceeds the pack's soft cap of "
+                f"{_MERMAID_SOFT_NODE_CAP} — fine if the request asked for more, otherwise "
+                "the fast path may be drawing more than a glanceable diagram should.",
+                level="warning",
+                details={"estimated_node_count": node_count, "soft_cap": _MERMAID_SOFT_NODE_CAP},
+            )
     return parsed
 
 
