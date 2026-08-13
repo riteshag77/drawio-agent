@@ -19,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           # Matches the container (Debian bookworm's python3) and the lock's
           # resolution target, so CI exercises the version that actually
