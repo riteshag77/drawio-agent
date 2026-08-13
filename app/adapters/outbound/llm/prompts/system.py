@@ -67,7 +67,22 @@ def _get_reference_files(platform: str, three_d: bool) -> list[str]:
 
 
 def _filter_catalog(catalog: str, user_hint: str, *, max_lines: int = 48) -> str:
-    """Keep header lines + catalog lines that match tokens in the user request."""
+    """Keep the preamble, plus each section that still has a matching row.
+
+    Section-aware rather than "leading header block, then body". The previous
+    version latched a single ``in_header`` flag off on the first ordinary line
+    and never re-armed it, so any heading *below* that point was treated as a
+    data row and survived only if it happened to match a hint token. With a
+    catalog written as several ``##`` sections that meant the filtered slice
+    arrived as bare rows: no preamble telling the model to copy keys verbatim,
+    no column headers, and — worst — rows from the "never use these keys"
+    table stripped of the heading that made them prohibitions, so they read as
+    ordinary catalog entries.
+
+    A section is dropped whole when nothing in it matches, which keeps the
+    slice short without ever separating a row from the heading that gives it
+    meaning.
+    """
     if not catalog.strip():
         return ""
     hint = (user_hint or "").lower()
@@ -79,26 +94,66 @@ def _filter_catalog(catalog: str, user_hint: str, *, max_lines: int = 48) -> str
         "the", "and", "with", "for", "from", "that", "this", "into", "using",
         "draw", "diagram", "architecture", "cloud", "please", "create", "show",
     }}
-    header: list[str] = []
-    body: list[str] = []
-    in_header = True
-    for line in lines:
-        stripped = line.strip()
-        if in_header and (not stripped or stripped.startswith("━") or stripped.startswith("Service")
-                          or stripped.startswith("Product") or stripped.startswith("Standalone")
-                          or stripped.startswith("##") or stripped.startswith("BROKEN")):
-            header.append(line)
-            continue
-        in_header = False
-        low = line.lower()
-        if not tokens or any(tok in low for tok in tokens):
-            body.append(line)
-
-    if not body:
+    if not tokens:
         return catalog
-    selected = header + body
-    if len(selected) > max_lines:
-        selected = header + body[: max(0, max_lines - len(header))]
+
+    def _is_heading(line: str) -> bool:
+        # Level 2+ only. A lone `#` is the document title, which belongs to the
+        # preamble along with the instructions that follow it.
+        return line.lstrip().startswith("##")
+
+    def _is_separator(line: str) -> bool:
+        stripped = line.strip()
+        return stripped.startswith("|") and set(stripped) <= set("|-: ")
+
+    # Preamble is everything before the first section; it carries the title and
+    # the "copy the key verbatim" instruction, so it always survives.
+    first_heading = next((i for i, ln in enumerate(lines) if _is_heading(ln)), len(lines))
+    preamble = lines[:first_heading]
+
+    kept: list[list[str]] = []
+    section: list[str] = []
+    section_has_match = False
+
+    def _flush() -> None:
+        nonlocal section, section_has_match
+        if section and section_has_match:
+            kept.append(section)
+        section, section_has_match = [], False
+
+    body_lines = lines[first_heading:]
+    for index, line in enumerate(body_lines):
+        if _is_heading(line):
+            _flush()
+            section = [line]
+            continue
+        if not section:
+            continue
+        # A table's column header is the row immediately above its `|---|`
+        # separator. Keeping both means a surviving data row never arrives
+        # without the columns that say what it means.
+        next_line = body_lines[index + 1] if index + 1 < len(body_lines) else ""
+        if _is_separator(line) or _is_separator(next_line) or not line.strip():
+            section.append(line)
+            continue
+        if any(tok in line.lower() for tok in tokens):
+            section.append(line)
+            section_has_match = True
+    _flush()
+
+    # Nothing matched anywhere — a filtered catalog with no services is worse
+    # than a long one, so fall back to the whole file.
+    if not kept:
+        return catalog
+
+    # Trim by dropping whole sections, never by slicing lines: a cut mid-section
+    # is how a heading ends up with no rows under it, or — for the "never emit
+    # these" table — how a prohibition loses the rows it was prohibiting.
+    selected: list[str] = list(preamble)
+    for block in kept:
+        if len(selected) + len(block) > max_lines and len(selected) > len(preamble):
+            break
+        selected.extend(block)
     return "\n".join(selected)
 
 

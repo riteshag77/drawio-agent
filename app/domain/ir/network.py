@@ -18,7 +18,7 @@ mechanical.
 from __future__ import annotations
 
 from collections import Counter
-from typing import Literal
+from typing import ClassVar, Literal
 
 from pydantic import Field, field_validator, model_validator
 
@@ -462,6 +462,7 @@ class NetworkIR(DiagramIR):
                 "actors into the network; actors with no connections are not useful"
             )
         errors.extend(self._external_actor_orphan_errors())
+        errors.extend(self._density_errors(leaf_n))
 
         for flow in self.flows:
             if flow.source in forbidden or flow.target in forbidden:
@@ -500,6 +501,34 @@ class NetworkIR(DiagramIR):
                     "public/app/data (e.g. public edge + app, or app + data)"
                 )
         return errors
+
+    #: Leaf ceiling for a Network page. Network nests deeper than any other view
+    #: (region → vpc → zone → subnet → leaf, plus edge_layer, groups and
+    #: connectivity hubs), so its fan-out is the widest available and it was the
+    #: only view with no cap in either the pack or the schema — Logical enforces
+    #: ≤14, and Security/Data-flow/ArchiMate at least ask in prose.
+    #: Higher than Logical's 14 on purpose: a real multi-AZ network legitimately
+    #: mirrors app and data tiers across zones, so the same architecture carries
+    #: more leaves here than on a journey-shaped view.
+    MAX_LEAVES: ClassVar[int] = 26
+
+    def _density_errors(self, leaf_n: int) -> list[str]:
+        """Cap total leaves so a Network page stays readable.
+
+        Deliberately a single global ceiling rather than a per-subnet rule: the
+        compiler already sizes every subnet to the widest one, so 26 leaves
+        spread thinly is fine while 26 in one subnet is a layout problem the
+        cap cannot express. The pack carries the shaping advice; this stops the
+        runaway case.
+        """
+        if leaf_n <= self.MAX_LEAVES:
+            return []
+        return [
+            f"Network has {leaf_n} leaves — keep ≤{self.MAX_LEAVES}. Merge duplicate "
+            "per-AZ replicas into one leaf where the second adds no information, drop "
+            "inventory that is not on the request path, and prefer the cross-cutting "
+            "groups over listing every supporting service in a subnet"
+        ]
 
     def _external_actor_orphan_errors(self) -> list[str]:
         """Every external actor must touch at least one flow.

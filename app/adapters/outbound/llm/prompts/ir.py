@@ -65,23 +65,23 @@ def _assemble_ir_prompt(
     if platform_key not in _ICON_PLATFORMS:
         platform_key = "aws"
 
+    # A missing pack is a packaging/config error, not a runtime condition, so it
+    # fails loudly and identically for every pack. Previously the view packs
+    # raised while classify and SaaS were swallowed by `except FileNotFoundError`
+    # — meaning a typo in a view name 500'd the request while a missing classify
+    # pack silently produced a degraded prompt nobody could see from the outside.
+    # Both are deployment mistakes; neither should be invisible.
     stable: list[str] = [_load_prompt(name) for name in view_prompt_files]
     if include_cloud_classify:
         # Classification guidance (which service is "app tier" vs "data tier" vs a
         # cross-cutting concern) is genuinely a judgement call, so the platform
         # classify pack still earns its tokens. The *icons* pack does not — stencil
         # selection moved to MCP, and geometry moved to the compiler.
-        try:
-            stable.append(_load_prompt(f"classify/{platform_key}.txt"))
-        except FileNotFoundError:
-            pass
+        stable.append(_load_prompt(f"classify/{platform_key}.txt"))
     if include_saas_icons:
-        try:
-            saas_icons = _load_prompt("icons/saas.txt")
-            if saas_icons:
-                stable.append(saas_icons)
-        except FileNotFoundError:
-            pass
+        saas_icons = _load_prompt("icons/saas.txt")
+        if saas_icons:
+            stable.append(saas_icons)
 
     volatile: list[str] = []
     if include_cloud_icon_catalog:
