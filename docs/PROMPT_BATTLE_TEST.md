@@ -5,12 +5,22 @@ correction loop that consume it. Focus: internal contradictions, prompt rules
 without a code backstop, legacy vocabulary leaking into active packs, and
 coverage gaps.
 
-> **Re-verified 2026-08-13 against HEAD.** This merges the original report with
-> the second-pass follow-ups (previously `PROMPT_BATTLE_TEST_FOLLOWUPS.md`, now
-> removed) into one severity-ordered list, grouped by root cause rather than by
-> which pass found them. **Every finding below was re-checked against the
-> current tree and all 16 still hold** — none has been silently fixed, and none
-> describes code that no longer exists.
+> **Status 2026-08-14: every finding below is fixed.** Two more turned up in a
+> fresh third pass — kimi/moonshot-v1-8k's `max_output_tokens` (undersized
+> against its own 8K context window) and a residual "Virtual Network (sibling
+> of Zones)" line the A2 cleanup missed in the classify packs — both closed in
+> the same commit. All 18 are covered by regression tests; see
+> `tests/test_prompt_assembly.py`, `tests/test_mermaid_generation.py`,
+> `tests/test_response_parse.py`, `tests/test_providers.py`.
+>
+> The findings below are kept as a record of what was wrong and why, not as an
+> open list — re-verify against current code before trusting a claim here, the
+> same way this document itself was re-verified twice before being trusted.
+
+> **Re-verified 2026-08-13 against HEAD** (superseded by the note above). This
+> merged the original report with the second-pass follow-ups (previously
+> `PROMPT_BATTLE_TEST_FOLLOWUPS.md`, now removed) into one severity-ordered
+> list, grouped by root cause rather than by which pass found them.
 
 ## Scope & method
 
@@ -188,8 +198,10 @@ are never budget-tested.
 
 ## Remediation order
 
-Ordered by value per unit of risk. The first two are the only ones that change
-what the model sees on every cloud request.
+**All steps below are done** (commits `e7c48a9`, `6d68c39`) — kept as the
+original plan, not a to-do list. Ordered by value per unit of risk; the first
+two were the only ones that changed what the model sees on every cloud
+request.
 
 1. **Fix the AWS catalog (A1).** Replace `references/aws_stencils.txt` with a
    semantic-key catalog matching the GCP/Azure form (`shape_type | Display Name`)
