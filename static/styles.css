@@ -4244,3 +4244,104 @@
         min-height: calc(100vh - 56px);
     }
 }
+
+/* ── API key prompt (static/js/api-key.js) ───────────────────────────────
+   Only ever shown when a deployment's API_KEY rejects an unauthenticated
+   request — never on a local/dev instance with no key configured. */
+.api-key-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+}
+
+.api-key-dialog {
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-panel);
+    padding: var(--space-6);
+    width: min(380px, calc(100vw - var(--space-6)));
+    font-family: var(--font-sans);
+}
+
+.api-key-dialog h2 {
+    font: var(--text-h2);
+    color: var(--text-primary);
+    margin: 0 0 var(--space-3);
+}
+
+.api-key-dialog p {
+    font: var(--text-body);
+    color: var(--text-secondary);
+    margin: 0 0 var(--space-4);
+}
+
+.api-key-dialog code {
+    font: var(--text-mono);
+    background: var(--surface-well);
+    padding: 0 var(--space-1);
+    border-radius: var(--radius-xs);
+}
+
+#api-key-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: var(--space-3);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-md);
+    background: var(--surface-well);
+    color: var(--text-primary);
+    font: var(--text-body);
+    margin-bottom: var(--space-2);
+}
+
+#api-key-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: var(--shadow-focus);
+}
+
+.api-key-error {
+    font: var(--text-caption);
+    color: var(--error);
+    margin: 0 0 var(--space-3) !important;
+}
+
+.api-key-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+}
+
+.api-key-cancel,
+.api-key-save {
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius-md);
+    font: var(--text-label);
+    cursor: pointer;
+    border: 1px solid var(--btn-border);
+}
+
+.api-key-cancel {
+    background: var(--btn-bg);
+    color: var(--btn-text);
+}
+
+.api-key-cancel:hover {
+    background: var(--btn-hover-bg);
+    border-color: var(--btn-hover-border);
+}
+
+.api-key-save {
+    background: var(--btn-primary-bg);
+    color: var(--btn-primary-text);
+    border-color: var(--btn-primary-bg);
+}
+
+.api-key-save:hover {
+    background: var(--btn-primary-hover-bg);
+}
