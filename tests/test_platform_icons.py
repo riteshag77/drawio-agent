@@ -21,14 +21,21 @@ class PlatformPromptTests(unittest.TestCase):
     def test_gcp_prompt_uses_gcp_classify(self) -> None:
         prompt = get_network_ir_system_prompt(platform="gcp", user_hint="cloud run")
         self.assertIn("Service Classification — GCP", prompt)
-        self.assertIn("NEVER use mxgraph.aws4", prompt)
         self.assertIn("shape_type", prompt)
+        # Was asserted via "NEVER use mxgraph.aws4" — itself XML-era vocabulary
+        # that no longer belongs in an IR prompt (docs/PROMPT_BATTLE_TEST.md A2).
+        # Isolation is better checked on the keys each catalog actually offers.
+        self.assertIn("gcp_cloud_run", prompt)
+        self.assertNotIn("Service Classification — AWS", prompt)
+        self.assertNotIn("aws_storage_gateway", prompt)  # AWS-catalog-only key
 
     def test_azure_prompt_uses_azure_classify(self) -> None:
         prompt = get_network_ir_system_prompt(platform="azure", user_hint="app service")
         self.assertIn("Service Classification — Azure", prompt)
-        self.assertIn("NEVER use mxgraph.aws4", prompt)
         self.assertIn("shape_type", prompt)
+        self.assertIn("azure_app_service", prompt)
+        self.assertNotIn("Service Classification — AWS", prompt)
+        self.assertNotIn("aws_storage_gateway", prompt)  # AWS-catalog-only key
 
     def test_aws_prompt_keeps_aws_classify_and_catalog(self) -> None:
         prompt = get_network_ir_system_prompt(platform="aws", user_hint="lambda")

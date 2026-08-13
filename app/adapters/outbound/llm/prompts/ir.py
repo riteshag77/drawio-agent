@@ -33,13 +33,18 @@ from app.adapters.outbound.llm.prompts.system import (
 
 _ICON_PLATFORMS = frozenset({"aws", "gcp", "azure", "multi"})
 
+# The catalogs now list ready-to-use keys in the `<platform>_<service>` form, so
+# this no longer asks the model to derive one. The old wording taught a
+# conversion ("'RDS' on AWS -> aws_rds") against an AWS catalog that contained
+# neither 'RDS' nor a key column — it was a stencil table — so the guide and the
+# file it introduced disagreed. See docs/PROMPT_BATTLE_TEST.md finding A1.
 _SHAPE_TYPE_GUIDE = (
     "## shape_type vocabulary\n"
-    "Use the catalog below to pick accurate `shape_type` keys. Convert a catalog "
-    "entry to a semantic key by lowercasing and replacing spaces with underscores "
-    "(prefixed by platform), e.g. 'RDS' on AWS -> `aws_rds`. If a service is not in "
-    "the catalog, still emit your best semantic guess — an unresolved key renders as "
-    "a labelled grey placeholder, which is strictly better than a wrong icon."
+    "Pick each leaf's `shape_type` from the catalog below and copy the key "
+    "verbatim — the keys are already in the form the IR expects. If a service is "
+    "not listed, emit your best semantic guess in the same `<platform>_<service>` "
+    "form; an unresolved key renders as a labelled grey placeholder, which is "
+    "strictly better than a confidently wrong icon."
 )
 
 

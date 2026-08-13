@@ -1,6 +1,7 @@
-# GCP Icons: common mxgraph.gcp2 stencils
+# GCP services — `shape_type` vocabulary
 
-Use shape=mxgraph.gcp2.<suffix> (NEVER gcp2020).
+Copy a `shape_type` key verbatim. Icon artwork is resolved server-side from
+the key — never emit a draw.io style or stencil path.
 
 ## Compute & Containers
 | shape suffix | Display Name | shape_type |
