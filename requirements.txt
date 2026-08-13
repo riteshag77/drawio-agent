@@ -1,5 +1,10 @@
 fastapi>=0.115.0,<1.0.0
 uvicorn>=0.32.0,<1.0.0
+# Required for run.py's reload_includes=["*.txt", "*.json"] to do anything.
+# uvicorn falls back to StatReload without it, which watches *.py only and
+# silently ignores reload_includes — so prompt-pack edits would not take
+# effect until a manual restart, the exact thing that setting exists to avoid.
+watchfiles>=0.24.0,<2.0.0
 pydantic>=2.9.0,<3.0.0
 langchain-core>=0.3.0,<2.0.0
 langchain-openai>=0.2.0,<2.0.0
