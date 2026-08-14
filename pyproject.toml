@@ -124,6 +124,7 @@ ignore_imports = [
     "app.core.services.agent -> app.adapters.outbound.llm.prompts.vlm_qa",
     "app.core.services.agent -> app.adapters.outbound.llm.providers",
     "app.core.services.agent -> app.adapters.outbound.llm.response_parse",
+    "app.core.services.agent -> app.adapters.outbound.saas_catalog",
     "app.core.services.agent -> app.adapters.outbound.utils.chat",
     "app.core.services.xml_pipeline -> app.adapters.outbound.compliance",
     "app.core.services.xml_pipeline -> app.adapters.outbound.config.env_config",

@@ -27,6 +27,7 @@ from app.adapters.outbound.llm.prompts.system import get_xml_gen_system_prompt_m
 from app.adapters.outbound.llm.prompts.vlm_qa import VLM_QA_SYSTEM_PROMPT
 from app.adapters.outbound.governance_store import list_rules as list_governance_rules
 from app.adapters.outbound.llm.providers import get_provider, normalize_provider_key
+from app.adapters.outbound.saas_catalog import find_saas_vendor_mismatches
 from app.adapters.outbound.llm.response_parse import estimate_mermaid_node_count, extract_mermaid
 from app.core.ports.llm import LlmPort, get_llm
 from app.core.services.governance import evaluate_governance_rules, findings_to_warnings
@@ -557,6 +558,10 @@ def _generate_ir_with_corrections(
                     governance_warnings = findings_to_warnings(evaluate_governance_rules(ir, rules))
             except Exception:
                 pass  # governance is best-effort — never a reason a diagram fails to generate
+        try:
+            governance_warnings += find_saas_vendor_mismatches(ir)
+        except Exception:
+            pass  # same best-effort contract — a bad catalog file never breaks generation
         ir = _apply_semantic_warning_pass(
             ir, ir_type=ir_type, system_prompt=system_prompt, human_content=human_content,
             provider_key=provider_key, logger=logger, attachment_documents=attachment_documents,
