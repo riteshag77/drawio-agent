@@ -158,7 +158,7 @@
                     <div class="admin-field-row-2">
                         <div class="admin-field-group">
                             <label for="gov-view">Applies to view</label>
-                            <select id="gov-view">
+                            <select id="gov-view" onchange="adminGovernanceViewChanged()">
                                 <option value="any">Any view</option>
                                 <option value="network">Network</option>
                                 <option value="logical">Logical</option>
@@ -193,24 +193,25 @@
                     <div id="gov-param-overview" class="admin-field-group gov-param">
                         <label for="gov-overview-field">Field</label>
                         <select id="gov-overview-field">
-                            <option value="business_notes">Business notes</option>
-                            <option value="design_tradeoffs">Design tradeoffs</option>
-                            <option value="purpose">Purpose (Security)</option>
-                            <option value="scope_included">Scope included (Security)</option>
-                            <option value="scope_excluded">Scope excluded (Security)</option>
-                            <option value="threat_model_reference">Threat model reference (Security)</option>
-                            <option value="data_classification">Data classification (Security/Data flow)</option>
-                            <option value="compliance_frameworks">Compliance frameworks (Security/Data flow)</option>
-                            <option value="control_types">Control types (Security)</option>
-                            <option value="key_assumptions">Key assumptions (Security/Data flow)</option>
-                            <option value="trust_zones_referenced">Trust zones referenced (Data flow)</option>
-                            <option value="panel_summary">Panel summary (ArchiMate)</option>
-                            <option value="viewpoint_rationale">Viewpoint rationale (ArchiMate)</option>
-                            <option value="layers_excluded_reason">Layers excluded reason (ArchiMate)</option>
-                            <option value="walkthrough">Walkthrough (ArchiMate)</option>
-                            <option value="compliance_notes">Compliance notes (ArchiMate)</option>
-                            <option value="coaching_note">Coaching note (ArchiMate)</option>
+                            <option value="business_notes" data-views="network,logical,security,data_flow">Business notes</option>
+                            <option value="design_tradeoffs" data-views="network,logical,security,data_flow,archimate">Design tradeoffs</option>
+                            <option value="purpose" data-views="security">Purpose (Security)</option>
+                            <option value="scope_included" data-views="security">Scope included (Security)</option>
+                            <option value="scope_excluded" data-views="security">Scope excluded (Security)</option>
+                            <option value="threat_model_reference" data-views="security">Threat model reference (Security)</option>
+                            <option value="data_classification" data-views="security,data_flow">Data classification (Security/Data flow)</option>
+                            <option value="compliance_frameworks" data-views="security,data_flow">Compliance frameworks (Security/Data flow)</option>
+                            <option value="control_types" data-views="security">Control types (Security)</option>
+                            <option value="key_assumptions" data-views="security,data_flow">Key assumptions (Security/Data flow)</option>
+                            <option value="trust_zones_referenced" data-views="data_flow">Trust zones referenced (Data flow)</option>
+                            <option value="panel_summary" data-views="archimate">Panel summary (ArchiMate)</option>
+                            <option value="viewpoint_rationale" data-views="archimate">Viewpoint rationale (ArchiMate)</option>
+                            <option value="layers_excluded_reason" data-views="archimate">Layers excluded reason (ArchiMate)</option>
+                            <option value="walkthrough" data-views="archimate">Walkthrough (ArchiMate)</option>
+                            <option value="compliance_notes" data-views="archimate">Compliance notes (ArchiMate)</option>
+                            <option value="coaching_note" data-views="archimate">Coaching note (ArchiMate)</option>
                         </select>
+                        <small id="gov-overview-field-hint" class="admin-help-text"></small>
                     </div>
 
                     <div id="gov-param-mincount" class="admin-field-group gov-param">
@@ -225,6 +226,7 @@
                             <option value="mtls">mTLS (mutual)</option>
                         </select>
                         <label class="admin-checkbox-label"><input type="checkbox" id="gov-boundary-only" checked> Only check flows crossing a public/partner boundary (in addition to any PII/PCI-classified flow, always checked)</label>
+                        <small class="admin-help-text">Trust-boundary crossing is only meaningful on the Security view — its zone_public/zone_partner vocabulary has no equivalent elsewhere. On any other view, this box is silently ignored and only PII/PCI-classified flows are checked; uncheck it for a Logical/Data-flow/Network/ArchiMate-scoped rule to avoid a confusing always-passing box.</small>
                     </div>
 
                     <div id="gov-param-pattern" class="admin-field-group gov-param">
@@ -254,7 +256,7 @@
 
     <div id="app-toast" class="app-toast" role="status" aria-live="assertive" hidden></div>
     <script src="/static/js/toast.js?v=20260808a"></script>
-    <script src="/static/js/admin.js?v=20260814a"></script>
+    <script src="/static/js/admin.js?v=20260814b"></script>
 </body>
 
 </html>

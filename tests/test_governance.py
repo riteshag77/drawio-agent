@@ -24,6 +24,7 @@ from app.core.services.governance import evaluate_governance_rules, findings_to_
 from app.domain.entities.governance import GovernanceRule
 from app.domain.ir.base import Flow, Leaf
 from app.domain.ir.corridor import Corridor
+from app.domain.ir.data_flow import DataFlowIR
 from app.domain.ir.security import SecurityIR
 from tests.test_ir_pipeline import _IrEnabled, _no_styles, _run
 from tests.test_network_compiler import realistic_ir
@@ -156,6 +157,33 @@ class GovernanceEvaluatorTests(unittest.TestCase):
             ir, [_rule("required_flow_protection", min_protection="mtls", boundary_only=True)]
         )
         self.assertFalse(findings[0].passed)
+
+    def test_required_flow_protection_boundary_only_is_a_documented_noop_off_security(self) -> None:
+        """_BOUNDARY_ZONE_IDS is only defined on SecurityIR — a boundary_only
+        rule scoped to Data-flow (or any other non-Security view) silently
+        loses its boundary-crossing check and falls back to the
+        classification-only check, with no error. Locked in here as
+        documented, accepted behavior (see the matching comment in
+        governance.py) rather than left as an untested assumption: an
+        unclassified, unprotected flow between two Data-flow phases must
+        still pass even though it clearly "crosses" phase_ingest/phase_store,
+        because boundary_only has nothing to check against on this IR."""
+        ir = DataFlowIR(
+            corridors=[
+                Corridor(id="phase_ingest", label="Ingest", leaves=[
+                    Leaf(id="api", shape_type="aws_api_gateway", label="API"),
+                ]),
+                Corridor(id="phase_store", label="Store", leaves=[
+                    Leaf(id="db", shape_type="aws_rds", label="DB"),
+                ]),
+            ],
+            anchored=[],
+            flows=[Flow(source="api", target="db", label="SQL", protection="none", classification="none")],
+        )
+        findings = evaluate_governance_rules(
+            ir, [_rule("required_flow_protection", min_protection="tls", boundary_only=True)]
+        )
+        self.assertTrue(findings[0].passed)
 
     def test_forbidden_label_pattern_fails_on_match(self) -> None:
         ir = _security_ir()

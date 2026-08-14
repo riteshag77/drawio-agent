@@ -155,6 +155,22 @@ def _check_rule(ir, rule: GovernanceRule) -> tuple[bool, str]:
         return ok, "" if ok else f"{field} has {count} bullet(s), policy requires at least {rule.min_count}"
 
     if kind == "required_flow_protection":
+        # rule.boundary_only silently has no effect on any IR type other than
+        # SecurityIR — it's the only one that defines _BOUNDARY_ZONE_IDS (its
+        # trust-tier zone vocabulary has no equivalent on Logical/Data-flow/
+        # Network/ArchiMate). A rule with boundary_only=True scoped to one of
+        # those views still evaluates — it just falls back to the
+        # classification-only check below, with no error and no signal that
+        # half its configuration was ignored. Currently-seeded rules are all
+        # configured correctly (boundary_only=True only on the security-
+        # scoped rule) so this isn't live-firing today, but the admin UI's
+        # checkbox defaults to checked with no view-conditional warning — see
+        # its label in admin.html — so a rule authored for another view
+        # without deliberately unchecking it would hit exactly this. Locked
+        # in as accepted, documented behavior (not a crash, not a silent
+        # false pass) rather than a wider architecture change to give every
+        # IR type a boundary-zone concept it doesn't otherwise need — see
+        # tests/test_governance.py::BoundaryOnlyScopeTests.
         boundary_ids = getattr(ir, "_BOUNDARY_ZONE_IDS", frozenset())
         leaf_zone = _leaf_corridor_ids(ir)
         needed = _PROTECTION_LEVELS.get(rule.min_protection, 1)

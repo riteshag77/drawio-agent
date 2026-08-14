@@ -164,6 +164,7 @@ async function adminLoadMain() {
     document.getElementById('admin-provider-list').innerHTML = data.providers.map(adminProviderCardHtml).join('');
 
     if (typeof adminGovernanceKindChanged === 'function') adminGovernanceKindChanged();
+    if (typeof adminGovernanceViewChanged === 'function') adminGovernanceViewChanged();
     if (typeof adminLoadGovernanceRules === 'function') adminLoadGovernanceRules();
 }
 
@@ -310,6 +311,40 @@ function adminGovernanceKindChanged() {
     });
 }
 
+//: Each overview-field <option> carries data-views (see admin.html) listing
+//: exactly which views that field exists on (e.g. threat_model_reference is
+//: Security-only, panel_summary is ArchiMate-only). Without this, an admin
+//: could pick "Security" as the view and "Panel summary (ArchiMate)" as the
+//: field — a combination that would always fail, silently, since that field
+//: genuinely doesn't exist on SecurityIR (getattr falls back to None, which
+//: reads as "empty" forever). "Any view" shows every field, since an
+//: any-scoped rule is evaluated against whichever IR it happens to run
+//: against and any of them could be the relevant one.
+function adminGovernanceViewChanged() {
+    const view = document.getElementById('gov-view').value;
+    const select = document.getElementById('gov-overview-field');
+    const hint = document.getElementById('gov-overview-field-hint');
+    let anyVisible = false;
+    let selectedStillVisible = false;
+    Array.from(select.options).forEach((opt) => {
+        const views = (opt.dataset.views || '').split(',');
+        const visible = view === 'any' || views.includes(view);
+        opt.hidden = !visible;
+        if (visible) {
+            anyVisible = true;
+            if (opt.value === select.value) selectedStillVisible = true;
+        }
+    });
+    if (!selectedStillVisible) {
+        const firstVisible = Array.from(select.options).find((opt) => !opt.hidden);
+        if (firstVisible) select.value = firstVisible.value;
+    }
+    hint.textContent = view === 'any'
+        ? ''
+        : 'Only fields that exist on this view\'s overview panel are shown.';
+    if (!anyVisible) hint.textContent = 'No overview fields exist on this view.';
+}
+
 function adminGovernanceRuleDetail(r) {
     switch (r.kind) {
         case 'required_corridor': case 'forbidden_corridor': return r.corridor_id || '';
@@ -369,6 +404,7 @@ async function adminLoadGovernanceRules() {
 function adminResetGovernanceForm() {
     document.getElementById('gov-kind').value = 'required_corridor';
     document.getElementById('gov-view').value = 'any';
+    adminGovernanceViewChanged();
     document.getElementById('gov-platform').value = 'any';
     document.getElementById('gov-corridor-id').value = '';
     document.getElementById('gov-shape-type').value = '';
@@ -388,9 +424,14 @@ function adminEditGovernanceRule(id) {
     _adminGovernanceEditId = id;
     document.getElementById('gov-kind').value = r.kind;
     document.getElementById('gov-view').value = r.view;
+    adminGovernanceViewChanged();
     document.getElementById('gov-platform').value = r.platform;
     document.getElementById('gov-corridor-id').value = r.corridor_id || '';
     document.getElementById('gov-shape-type').value = r.shape_type || '';
+    // Set directly (not filtered) so editing a pre-existing rule always shows
+    // its real stored value, even for a view/field combination created
+    // before this filtering existed — never silently substitute a different
+    // field for what the rule actually has configured.
     document.getElementById('gov-overview-field').value = r.overview_field || 'business_notes';
     document.getElementById('gov-min-count').value = r.min_count || 2;
     document.getElementById('gov-min-protection').value = r.min_protection || 'tls';
