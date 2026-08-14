@@ -223,10 +223,20 @@ class SecurityIR(CorridorIR):
         ),
     )
     data_classification: str = Field(
-        default="", description="Sensitivity tiers of data the controls shown protect (PII, PHI, PCI, Financial, Actuarial).",
+        default="",
+        description=(
+            "Sensitivity tiers of data the controls shown protect (PII, PHI, PCI, Financial, "
+            "Actuarial), only when the request genuinely handles regulated data. Leave empty "
+            "if none — never write 'None', 'N/A' or 'Not applicable' as a value."
+        ),
     )
     compliance_frameworks: str = Field(
-        default="", description="Applicable regulations driving these controls (NAIC, HIPAA, SOC2, GDPR, Solvency II).",
+        default="",
+        description=(
+            "Applicable regulations driving these controls (NAIC, HIPAA, SOC2, GDPR, Solvency "
+            "II), only when one genuinely applies. Leave empty if none — never write 'None', "
+            "'N/A' or 'Not applicable' as a value."
+        ),
     )
     control_types: str = Field(
         default="",

@@ -87,10 +87,20 @@ class DataFlowIR(CorridorIR):
     # compiler from these named fields in a fixed order (see
     # compiler/corridor.py) rather than a flat LLM-authored list.
     data_classification: str = Field(
-        default="", description="Types of sensitive data flowing through (PII, PHI, PCI, Financial, Actuarial).",
+        default="",
+        description=(
+            "Types of sensitive data flowing through (PII, PHI, PCI, Financial, Actuarial), "
+            "only when the pipeline genuinely carries regulated data. Leave empty if none — "
+            "never write 'None', 'N/A' or 'Not applicable' as a value."
+        ),
     )
     compliance_frameworks: str = Field(
-        default="", description="Applicable regulations (NAIC, HIPAA, SOC2, GDPR, Solvency II).",
+        default="",
+        description=(
+            "Applicable regulations (NAIC, HIPAA, SOC2, GDPR, Solvency II), only when one "
+            "genuinely applies. Leave empty if none — never write 'None', 'N/A' or 'Not "
+            "applicable' as a value."
+        ),
     )
     trust_zones_referenced: str = Field(
         default="",

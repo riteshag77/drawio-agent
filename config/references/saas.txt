@@ -13,6 +13,16 @@ wrong company's logo, a worse mistake than an unresolved placeholder. If the
 actual vendor genuinely is not one of these, invent a new `saas_<name>` key
 instead — it safely renders as a generic labelled placeholder.
 
+This applies leaf-by-leaf, not just once: "three external clearinghouses"
+with no real names given is three *different* unresolved vendors, so it's
+three *different* invented keys (`saas_clearinghouse_a`, `saas_clearinghouse_b`,
+`saas_clearinghouse_c`, or similar per-instance names) — never three copies of
+the same real vendor's key (all three as `saas_stripe`) and never three
+different but equally wrong real vendors borrowed to fill the slots (`saas_fis`,
+`saas_fiserv`, `saas_temenos`). None of those are the clearinghouses the brief
+described; a generic placeholder per leaf is honest, a borrowed real brand
+per leaf is not.
+
 shape_type              | Common labels / needles
 ------------------------|------------------------------------------
 ## Identity

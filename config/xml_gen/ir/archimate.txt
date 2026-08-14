@@ -375,6 +375,48 @@ confidence tally.
 
 Note `r3`: the process reaches `Policy` with `access`, not `serving`.
 
+**`layered` + Motivation** — the brief states *why*, not only *what*:
+
+```json
+{
+  "viewpoint": "layered",
+  "elements": [
+    {"id": "mifid_driver", "archimate_type": "driver",
+     "name": "MiFID II Compliance", "source_confidence": "explicit"},
+    {"id": "audit_goal", "archimate_type": "goal",
+     "name": "Auditable Trade Settlement", "source_confidence": "inferred",
+     "notes": "Not named directly; a regulatory driver like MiFID II conventionally implies an auditability goal."},
+    {"id": "retention_req", "archimate_type": "requirement",
+     "name": "Retain Trade Records 7 Years", "source_confidence": "assumed",
+     "notes": "Exact retention period not stated — see open_questions."},
+    {"id": "settle_process", "archimate_type": "business-process",
+     "name": "Trade Settlement", "source_confidence": "explicit"},
+    {"id": "compliance_svc", "archimate_type": "application-component",
+     "name": "Compliance Reporting Service", "source_confidence": "explicit"}
+  ],
+  "relationships": [
+    {"id": "r1", "type": "influence", "source": "mifid_driver", "target": "audit_goal"},
+    {"id": "r2", "type": "realization", "source": "retention_req", "target": "audit_goal"},
+    {"id": "r3", "type": "realization", "source": "compliance_svc", "target": "retention_req"},
+    {"id": "r4", "type": "serving", "source": "compliance_svc", "target": "settle_process"}
+  ],
+  "open_questions": [
+    {"id": "q1", "question": "What is the exact mandated retention period?",
+     "blocks": ["retention_req"]}
+  ]
+}
+```
+
+The chain is the point: `driver -[influence]-> goal`, `requirement -[realization]-> goal`,
+`application-component -[realization]-> requirement` — that's how a named
+regulation in the brief becomes a traceable thread instead of a fact that
+only appears in `compliance_notes`. A brief that names a regulation,
+a hard numeric target (uptime, latency, cycle time), or an explicit business
+driver should produce this shape, not just the business/application/
+technology core — leaving the driver/goal out of `elements` when the brief
+states one this explicitly is the same class of miss as an absent business
+layer.
+
 **`application_cooperation`** — components only, no layer story:
 
 ```json
