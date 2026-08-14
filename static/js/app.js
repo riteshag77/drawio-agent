@@ -169,6 +169,11 @@ async function sendMessage(options = {}) {
         hideValidationBanner();
         vlmAutoRetryCount = 0;
     }
+    // Captured before the mic is silenced below — a voice-started turn should
+    // hand control back to the mic once it finishes, or every voice edit
+    // needs a manual Space-press to continue the conversation, defeating the
+    // point of doing this hands-free.
+    const wasVoiceListening = isVoiceTurn && isListening;
     if (isListening) {
         voiceManuallyStopping = true;
         try { speechRecognition.stop(); } catch (_) {}
@@ -365,6 +370,10 @@ async function sendMessage(options = {}) {
                 outcome: 'success',
                 message: 'Answer the interview questions in chat, then send again.',
             });
+            if (isVoiceTurn && typeof speakVoiceReply === 'function') {
+                await speakVoiceReply(assistantText);
+            }
+            if (wasVoiceListening && typeof resumeVoiceListening === 'function') resumeVoiceListening();
             return { outcome: 'success' };
         }
 
@@ -518,8 +527,9 @@ async function sendMessage(options = {}) {
             message: 'Done — diagram updated. Pan and zoom in the preview.',
         });
         if (isVoiceTurn && typeof speakVoiceReply === 'function') {
-            speakVoiceReply(summarizeAssistantMessage(assistantText));
+            await speakVoiceReply(summarizeAssistantMessage(assistantText));
         }
+        if (wasVoiceListening && typeof resumeVoiceListening === 'function') resumeVoiceListening();
         appendVerboseLog('client', 'Chat turn complete', 'success');
         return { outcome: 'success' };
     } catch (err) {
@@ -533,6 +543,7 @@ async function sendMessage(options = {}) {
                 outcome: 'stopped',
                 message: 'Stopped — edit your message and send again when ready.',
             });
+            if (wasVoiceListening && typeof resumeVoiceListening === 'function') resumeVoiceListening();
             return { outcome: 'stopped' };
         } else {
             if (!options.skipInput || !options.platformConvert) chatMessages.pop();
@@ -543,8 +554,9 @@ async function sendMessage(options = {}) {
                 message: err.message || 'Request failed. Check the server logs.',
             });
             if (isVoiceTurn && typeof speakVoiceReply === 'function') {
-                speakVoiceReply('Edit failed. ' + (err.message || 'Check the log panel for details.'));
+                await speakVoiceReply('Edit failed. ' + (err.message || 'Check the log panel for details.'));
             }
+            if (wasVoiceListening && typeof resumeVoiceListening === 'function') resumeVoiceListening();
             return { outcome: 'error' };
         }
     } finally {

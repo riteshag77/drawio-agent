@@ -29,17 +29,44 @@ function consumeVoiceInitiatedTurn() {
     return was;
 }
 
+let lastSpokenReply = '';
+
+/** Resolves once the utterance actually finishes (or immediately if replies
+ *  are off/unsupported) — callers that want to resume the mic afterward
+ *  (see resumeVoiceListening) must wait for real audio playback to end
+ *  first, or the mic hears its own TTS output and misreads it as a command. */
 function speakVoiceReply(text) {
-    if (!voiceRepliesEnabled || !text) return;
-    if (!('speechSynthesis' in window)) return;
-    try {
-        window.speechSynthesis.cancel(); // don't queue behind a stale utterance
-        const utter = new SpeechSynthesisUtterance(text);
-        utter.rate = 1.05;
-        window.speechSynthesis.speak(utter);
-    } catch (_) {
-        // best-effort only — a TTS failure must never break the actual turn
-    }
+    if (!text) return Promise.resolve();
+    if (!voiceRepliesEnabled) return Promise.resolve();
+    if (!('speechSynthesis' in window)) return Promise.resolve();
+    lastSpokenReply = text;
+    return new Promise((resolve) => {
+        try {
+            window.speechSynthesis.cancel(); // don't queue behind a stale utterance
+            const utter = new SpeechSynthesisUtterance(text);
+            utter.rate = 1.05;
+            utter.onend = () => resolve();
+            utter.onerror = () => resolve();
+            window.speechSynthesis.speak(utter);
+        } catch (_) {
+            // best-effort only — a TTS failure must never break the actual turn
+            resolve();
+        }
+    });
+}
+
+/** Resumes listening after a voice-started turn finishes — the mic is
+ *  explicitly silenced for the duration of every sendMessage() call (see
+ *  app.js) so it doesn't pick up ambient noise or its own TTS output while
+ *  a request is in flight. Only called for turns sendMessage() itself
+ *  confirms were voice-initiated AND actually listening beforehand, so this
+ *  never surprises a user who was typing or who already turned the mic off. */
+function resumeVoiceListening() {
+    if (isListening) return;
+    if (typeof toggleVoiceInput !== 'function') return;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR || !isVoiceSecureContext()) return;
+    toggleVoiceInput();
 }
 
 function isVoiceSecureContext() {

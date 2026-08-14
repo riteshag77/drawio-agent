@@ -467,6 +467,29 @@ function initVoiceCommands() {
     });
 
     registerVoiceCommand({
+        id: 'repeat-reply',
+        label: 'Repeat last reply',
+        phrases: ['repeat', 'repeat that', 'say that again', 'say again', 'what did you say'],
+        when: () => (typeof lastSpokenReply !== 'undefined' && lastSpokenReply
+            ? null
+            : 'Nothing to repeat yet — no voice-started change has finished.'),
+        run: () => {
+            // Explicit ad-hoc request — speaks even if voice replies are
+            // currently off, since a user turned them off after this reply
+            // was recorded shouldn't lose the ability to hear it once more.
+            if ('speechSynthesis' in window) {
+                try {
+                    window.speechSynthesis.cancel();
+                    window.speechSynthesis.speak(new SpeechSynthesisUtterance(lastSpokenReply));
+                } catch (_) {
+                    return { error: 'Could not replay that.' };
+                }
+            }
+            return 'Repeating';
+        },
+    });
+
+    registerVoiceCommand({
         id: 'clear-chat',
         label: 'Clear chat',
         phrases: ['clear chat', 'new chat', 'reset chat'],
@@ -833,7 +856,7 @@ function initVoiceCommands() {
     registerVoiceCommand({
         id: 'previous-version',
         label: 'Previous version',
-        phrases: ['previous version', 'restore previous version', 'undo version'],
+        phrases: ['previous version', 'restore previous version', 'undo version', 'undo', 'undo that', 'undo last edit'],
         when: () => (typeof sessionVersions !== 'undefined' && sessionVersions.length
             ? null
             : 'No diagram versions saved yet.'),
