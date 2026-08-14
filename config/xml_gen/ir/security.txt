@@ -281,8 +281,11 @@ inside `zone_private`, partner leaves inside `zone_private` or
 without passing through `zone_partner`'s Partner API Gateway, putting any leaf
 in `external_actors` that is not actually outside the trust boundary, a
 `zone_external_saas` leaf using an `aws_*`/`gcp_*`/`azure_*` shape_type
-instead of `saas_<vendor>` (it is never your infrastructure to name, no
-matter how confidently you could guess its host).
+instead of `saas_<vendor>` — e.g. a fraud-detection or KYC vendor in
+`zone_external_saas` taking `azure_app_service`/`aws_ecs`/`gcp_cloud_run`
+just because that's the same key a private-app leaf nearby is using; it is
+never your infrastructure to name, no matter how confidently you could guess
+its host.
 
 ## Density
 
