@@ -53,7 +53,11 @@ those zones.
 
 External IdP/enterprise SaaS (Okta, Salesforce, Workday, Guidewire, …):
 `shape_type=saas_<vendor>` — place in `zone_external_saas`, `zone_public`, or
-`zone_identity` as a trust peer, **never** as a private-app child.
+`zone_identity` as a trust peer, **never** as a private-app child. This
+applies regardless of what shape_type the private-app leaves nearby are
+using — a leaf in `zone_external_saas` never takes a cloud-platform
+`aws_*`/`gcp_*`/`azure_*` key, even one that happens to be a correct guess
+for how the vendor is hosted; it isn't your infrastructure to name.
 
 Business partners (brokers, agencies, resellers, distributors, suppliers,
 reinsurers, marketplace counterparties): use `shape_type=security_partner_org`
@@ -231,3 +235,13 @@ genuine judgment call.
 
 8–12 when supported; 5–7 when thin — never invent fake controls except the
 required companions above when their trigger conditions are met.
+
+## Before you emit
+
+Three checks, in order: (1) if a private app + enterprise SaaS both appear,
+confirm the Secrets Manager/Key Vault leaf and the `zone_detect` corridor are
+both present; (2) if business partners are in inventory, confirm a Partner API
+Gateway sits inside `zone_partner` and no partner flow reaches `zone_private`
+directly; (3) confirm `design_tradeoffs` has 2-4 entries once the diagram has
+4+ leaves. All three are easy to decide the diagram and then forget to write
+down or wire up.

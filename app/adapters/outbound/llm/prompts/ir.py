@@ -20,6 +20,7 @@ Reuses the same cache-breakpoint and hint-filtered icon catalog machinery as
 
 from __future__ import annotations
 
+from app.adapters.outbound.governance_store import list_rules as _list_governance_rules
 from app.adapters.outbound.llm.prompts.system import (
     CACHE_BREAKPOINT,
     MAX_CUSTOM_SYSTEM_MESSAGE_LEN,
@@ -47,6 +48,41 @@ _SHAPE_TYPE_GUIDE = (
 )
 
 
+def _governance_rules_block(governance_view: str, platform_key: str) -> str:
+    """Enabled house-style rules for this view/platform, worded exactly as the
+    post-generation corrective pass would word them (``governance.py``'s
+    ``findings_to_warnings``) — so a first pass that reads this can satisfy the
+    same rule the corrective pass would otherwise have to catch.
+
+    Deliberately placed in the *stable* prefix by the caller: enabled rules
+    rarely change request-to-request, so this is a fixed cost on a cache miss
+    and near-free on a cache hit, rather than a per-request tax. Best-effort —
+    matches every other governance call site in this codebase (see
+    ``core/services/agent.py``): a store error means one diagram doesn't get
+    the extra context, never a broken request. The deterministic post-hoc
+    check in ``core/services/governance.py`` stays the source of truth either
+    way — this can only help the first pass, never replace the check.
+    """
+    if not governance_view:
+        return ""
+    try:
+        rules = _list_governance_rules(governance_view, enabled_only=True)
+    except Exception:
+        return ""
+    messages = [
+        r.message.strip() for r in rules
+        if r.message.strip() and r.platform in ("any", platform_key)
+    ]
+    if not messages:
+        return ""
+    bullets = "\n".join(f"- {m}" for m in messages)
+    return (
+        "## House-style rules (org policy — satisfy these on this first pass;\n"
+        "they are checked afterward and a miss costs an extra corrective call)\n"
+        f"{bullets}"
+    )
+
+
 def _assemble_ir_prompt(
     *,
     view_prompt_files: list[str],
@@ -58,6 +94,7 @@ def _assemble_ir_prompt(
     platform: str,
     custom_system_message: str,
     user_hint: str,
+    governance_view: str = "",
 ) -> str:
     platform_key = (platform or "aws").strip().lower()
     if platform_key not in _ICON_PLATFORMS:
@@ -80,6 +117,9 @@ def _assemble_ir_prompt(
         saas_icons = _load_prompt("icons/saas.txt")
         if saas_icons:
             stable.append(saas_icons)
+    governance_block = _governance_rules_block(governance_view, platform_key)
+    if governance_block:
+        stable.append(governance_block)
 
     volatile: list[str] = []
     if include_cloud_icon_catalog:
@@ -114,6 +154,7 @@ def get_network_ir_system_prompt(
         include_saas_icons=True,
         model_id=model_id, provider=provider, platform=platform,
         custom_system_message=custom_system_message, user_hint=user_hint,
+        governance_view="network",
     )
 
 
@@ -158,6 +199,7 @@ def get_archimate_ir_system_prompt(
         include_saas_icons=False,
         model_id=model_id, provider=provider, platform=platform,
         custom_system_message=custom_system_message, user_hint=user_hint,
+        governance_view="archimate",
     )
 
 
@@ -202,4 +244,5 @@ def get_corridor_ir_system_prompt(
         include_saas_icons=True,
         model_id=model_id, provider=provider, platform=platform,
         custom_system_message=custom_system_message, user_hint=user_hint,
+        governance_view=view_key,
     )

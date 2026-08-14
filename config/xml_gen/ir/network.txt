@@ -293,3 +293,9 @@ have.
 - Partner clinical exchange: HL7/FHIR gateway (or similar) as its own egress
   path when the brief mentions partners/FHIR — distinct from Stripe/Twilio.
 - Backup/DR inventory in `management` when Multi-AZ / backup is implied.
+
+## Before you emit
+
+Confirm `design_tradeoffs` has 2-4 entries once the diagram has 4+ leaves —
+leave it empty only for a genuinely single-option design. It's easy to decide
+the topology and forget to write down why you chose it over the alternative.

@@ -58,6 +58,23 @@ def _get_reference_files(platform: str, three_d: bool) -> list[str]:
     return ["aws_stencils.txt"]
 
 
+# Section headings kept regardless of hint-token match. Cross-cutting
+# security/observability services (IAM, KMS, CloudWatch, Key Vault, Monitor...)
+# are structurally required on every Security view and routinely on Network,
+# but a business brief almost never names them — hint filtering was dropping
+# the whole section, so the model had no correct key to reach for and reused
+# an unrelated one instead (confirmed live: IAM/KMS/CloudWatch all resolving
+# to aws_directory_service in one generation, because that was simply the
+# nearest surviving key). These sections are always small, so keeping them
+# unconditionally costs a fixed, bounded number of tokens per catalog.
+_ALWAYS_KEEP_HEADING_KEYWORDS = ("security", "observability", "compliance", "identity")
+
+
+def _is_always_keep_heading(line: str) -> bool:
+    low = line.lower()
+    return any(kw in low for kw in _ALWAYS_KEEP_HEADING_KEYWORDS)
+
+
 def _filter_catalog(catalog: str, user_hint: str, *, max_lines: int = 48) -> str:
     """Keep the preamble, plus each section that still has a matching row.
 
@@ -106,18 +123,22 @@ def _filter_catalog(catalog: str, user_hint: str, *, max_lines: int = 48) -> str
     kept: list[list[str]] = []
     section: list[str] = []
     section_has_match = False
+    section_always_keep = False
 
     def _flush() -> None:
-        nonlocal section, section_has_match
+        nonlocal section, section_has_match, section_always_keep
         if section and section_has_match:
             kept.append(section)
-        section, section_has_match = [], False
+        section, section_has_match, section_always_keep = [], False, False
 
     body_lines = lines[first_heading:]
     for index, line in enumerate(body_lines):
         if _is_heading(line):
             _flush()
             section = [line]
+            if _is_always_keep_heading(line):
+                section_has_match = True
+                section_always_keep = True
             continue
         if not section:
             continue
@@ -128,7 +149,7 @@ def _filter_catalog(catalog: str, user_hint: str, *, max_lines: int = 48) -> str
         if _is_separator(line) or _is_separator(next_line) or not line.strip():
             section.append(line)
             continue
-        if any(tok in line.lower() for tok in tokens):
+        if section_always_keep or any(tok in line.lower() for tok in tokens):
             section.append(line)
             section_has_match = True
     _flush()
@@ -141,9 +162,17 @@ def _filter_catalog(catalog: str, user_hint: str, *, max_lines: int = 48) -> str
     # Trim by dropping whole sections, never by slicing lines: a cut mid-section
     # is how a heading ends up with no rows under it, or — for the "never emit
     # these" table — how a prohibition loses the rows it was prohibiting.
+    # Always-keep sections (security/observability/...) go in first and are
+    # exempt from the cap itself — only the hint-matched remainder trims to fit.
     selected: list[str] = list(preamble)
     for block in kept:
-        if len(selected) + len(block) > max_lines and len(selected) > len(preamble):
+        if _is_always_keep_heading(block[0]):
+            selected.extend(block)
+    floor = len(selected)
+    for block in kept:
+        if _is_always_keep_heading(block[0]):
+            continue
+        if len(selected) + len(block) > max_lines and len(selected) > floor:
             break
         selected.extend(block)
     return "\n".join(selected)

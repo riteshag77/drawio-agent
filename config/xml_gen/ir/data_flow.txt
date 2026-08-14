@@ -131,6 +131,52 @@ itself, not only on edges).
 ]
 ```
 
+### Mini example — required companions triggered
+
+The trigger above (external SaaS + a primary store, both present) is common,
+not an edge case — most real briefs hit it. This is what all four companions
+look like filled in together, not just named in prose:
+
+```json
+"corridors": [
+  {"id": "phase_ingest", "label": "Ingest", "leaves": [
+    {"id": "claims_api", "shape_type": "aws_api_gateway", "label": "Claims API"}
+  ]},
+  {"id": "phase_process", "label": "Process", "leaves": [
+    {"id": "underwriting", "shape_type": "aws_ecs", "label": "Underwriting Engine"},
+    {"id": "dlq", "shape_type": "aws_sqs", "label": "Dead Letter Queue"}
+  ]},
+  {"id": "phase_store", "label": "Store", "leaves": [
+    {"id": "policy_db", "shape_type": "aws_rds", "label": "Policy DB", "annotation": "PII"},
+    {"id": "archive", "shape_type": "aws_s3", "label": "Automated Backup Archive"},
+    {"id": "replica", "shape_type": "aws_rds", "label": "Policy DB (Read Replica)"}
+  ]},
+  {"id": "phase_control", "label": "Control", "leaves": [
+    {"id": "schema_reg", "shape_type": "aws_glue", "label": "Schema Registry"}
+  ]}
+],
+"anchored": [
+  {"id": "phase_saas_consumer", "label": "SaaS", "anchor_id": "phase_store", "leaves": [
+    {"id": "fraud_svc", "shape_type": "saas_frauddetection", "label": "Fraud Detection"}
+  ]}
+],
+"flows": [
+  {"source": "claims_api", "target": "underwriting", "label": "JSON: Submit Claim"},
+  {"source": "underwriting", "target": "dlq", "label": "JSON: Failed API Retries", "primary": false},
+  {"source": "underwriting", "target": "policy_db", "label": "SQL: write [PII]", "classification": "pii"},
+  {"source": "policy_db", "target": "archive", "label": "Automated Snapshots / Archive"},
+  {"source": "policy_db", "target": "replica", "label": "CDC / Replication"},
+  {"source": "underwriting", "target": "schema_reg", "label": "Validates Payload Schema"},
+  {"source": "underwriting", "target": "fraud_svc", "label": "JSON: Screen Claim"}
+]
+```
+
+Four companions, four leaves: `dlq` in `phase_process`, `archive` and `replica`
+in `phase_store`, `schema_reg` in `phase_control` — each with its own flow, in
+the exact shape the Required companions rule above describes. Skipping any one
+of the four when a SaaS leaf and a primary store both appear is the single
+most common miss on this view.
+
 **Forbidden:** UI wireframes, WAF/Shield/auth sequences, VPC/AZ wallpaper
 (Network's lens), security-control essays (Security's lens), capability org
 charts (Logical's lens). Never invent brokers when SaaS+store are absent
@@ -187,3 +233,11 @@ pipeline.
 
 8–12 when supported; 5–7 when thin — never invent brokers to pad except the
 required SaaS+store companions above.
+
+## Before you emit
+
+Two checks, in order: (1) if SaaS + a primary store are both in inventory,
+confirm all four required companions are present — DLQ, backup/archive, read
+replica, schema registry; (2) confirm `design_tradeoffs` has 2-4 entries once
+4+ leaves are on the page — leave it empty only for a genuinely single-option
+pipeline. Both are easy to decide the diagram and then forget to write down.

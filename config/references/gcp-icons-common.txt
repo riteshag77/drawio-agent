@@ -1,7 +1,17 @@
 # GCP services — `shape_type` vocabulary
 
 Copy a `shape_type` key verbatim. Icon artwork is resolved server-side from
-the key — never emit a draw.io style or stencil path.
+the key — never emit a draw.io style or stencil path. A service that is not
+listed still takes your best semantic guess in the same `gcp_<service>` shape
+— an unresolved key renders as a labelled grey placeholder, which is strictly
+better than a confidently wrong icon.
+
+Never reuse another leaf's key for a different service just because it's
+already in front of you — e.g. IAM, Cloud KMS and Cloud Logging are three
+different services and must not all resolve to the same key (such as
+`gcp_identity_platform`, which is a fourth, unrelated service). Two different
+leaves sharing one icon reads as a worse mistake than either one showing an
+unresolved placeholder.
 
 ## Compute & Containers
 | shape suffix | Display Name | shape_type |

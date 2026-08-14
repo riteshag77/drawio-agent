@@ -6,6 +6,12 @@ listed still takes your best semantic guess in the same `aws_<service>` shape �
 an unresolved key renders as a labelled grey placeholder, which is strictly
 better than a confidently wrong icon.
 
+Never reuse another leaf's key for a different service just because it's
+already in front of you — e.g. IAM, KMS and CloudWatch are three different
+services and must not all resolve to the same key (such as `aws_directory_service`,
+which is a fourth, unrelated service). Two different leaves sharing one icon
+reads as a worse mistake than either one showing an unresolved placeholder.
+
 Icon artwork is resolved server-side from this key — never emit a draw.io style
 or stencil path.
 

@@ -115,11 +115,11 @@ Users send short briefs across many domains. Map them to **JSON IR**:
 
 | Brief | Emit as ArchiMate JSON |
 |-------|------------------------|
-| "Ecommerce storefront with catalog, cart, checkout" | `layered`: business `Customer` (business-actor), `Order Fulfilment` (business-process); application `Catalog`, `Cart`, `Checkout` (application-component) realizing `Ordering` (application-service); technology `Order Store` (technology-service). Cross-layer `serving`/`realization` |
-| "Multi-tenant SaaS subscription platform" | `layered`: business `Subscriber` (business-actor), `Manage Subscription` (business-process); application `Tenant API`, `Billing` (application-component), `Subscription` (data-object) reached via `access`; technology `Managed Postgres` (technology-service) |
-| "Fintech wallet with KYC and ledger" | `layered`: business `Onboard Customer` (business-process); application `KYC Service`, `Ledger` (application-component) realizing `Identity Verification` (application-service); `Ledger Entry` (data-object) via `access`; KYC vendor as `business-actor` if third-party, else an `open_questions` entry |
-| "Healthcare patient portal with EHR sync" | `layered`: business `Patient` (business-actor), `Book Appointment` (business-process); application `Scheduling`, `Records API`; `Clinical Record` (data-object); technology `EHR Platform` (technology-service). `compliance_notes` names HIPAA |
-| "Insurance claims intake with broker submissions" | `layered`: business `Broker` (business-actor), `Claims Intake` (business-process); application `Claims API`, `Underwriting`; `Policy` (business-object); technology `Policy Admin System` (technology-node) |
+| "Ecommerce storefront with catalog, cart, checkout" | `layered`: business `Customer` (business-actor), `Order Fulfilment` (business-process); application `Catalog`, `Cart`, `Checkout` (application-component) realizing `Ordering` (application-service); technology `Order Store` (technology-service), `App Cluster` (technology-node). Cross-layer `serving`/`realization` |
+| "Multi-tenant SaaS subscription platform" | `layered`: business `Subscriber` (business-actor), `Manage Subscription` (business-process); application `Tenant API`, `Billing` (application-component), `Subscription` (data-object) reached via `access`; technology `Managed Postgres` (technology-service), `Container Platform` (technology-node) |
+| "Fintech wallet with KYC and ledger" | `layered`: business `Onboard Customer` (business-process); application `KYC Service`, `Ledger` (application-component) realizing `Identity Verification` (application-service); `Ledger Entry` (data-object) via `access`; technology `Ledger Store` (technology-service), `App Runtime` (technology-node); KYC vendor as `business-actor` if third-party, else an `open_questions` entry |
+| "Healthcare patient portal with EHR sync" | `layered`: business `Patient` (business-actor), `Book Appointment` (business-process); application `Scheduling`, `Records API`; `Clinical Record` (data-object); technology `EHR Platform` (technology-service), `Hosting Node` (technology-node). `compliance_notes` names HIPAA |
+| "Insurance claims intake with broker submissions" | `layered`: business `Broker` (business-actor), `Claims Intake` (business-process); application `Claims API`, `Underwriting`; `Policy` (business-object); technology `Policy Admin System` (technology-node), `Claims Database` (technology-service) |
 
 Note the last-column pattern: name the business capability even when the brief
 only lists systems, and reach for `open_questions` rather than inventing a
@@ -347,12 +347,16 @@ confidence tally.
      "name": "Policy", "source_confidence": "explicit"},
     {"id": "rating_db", "archimate_type": "technology-service",
      "name": "Rating Engine", "source_confidence": "assumed",
-     "notes": "Hosting model is not stated — see open_questions."}
+     "notes": "Hosting model is not stated — see open_questions."},
+    {"id": "rating_host", "archimate_type": "technology-node",
+     "name": "Rating Engine Host", "source_confidence": "inferred",
+     "notes": "Not named in the brief; a technology-service needs a node that runs it — one token technology element reads as an absent layer."}
   ],
   "relationships": [
     {"id": "r1", "type": "realization", "source": "rating_svc", "target": "quote_bind"},
     {"id": "r2", "type": "serving", "source": "rating_db", "target": "rating_svc"},
-    {"id": "r3", "type": "access", "source": "quote_bind", "target": "policy"}
+    {"id": "r3", "type": "access", "source": "quote_bind", "target": "policy"},
+    {"id": "r4", "type": "assignment", "source": "rating_host", "target": "rating_db"}
   ],
   "open_questions": [
     {"id": "q1", "question": "Is the rating engine in-house or a third-party API?",
@@ -426,6 +430,15 @@ layer band** — elements wrap 4 per row, and a band past 8 starts drawing
 grouping boxes, so a crowded band needs real groupings rather than more
 elements. Never invent an element to fill a layer. Prefer the sparse diagram a
 reader finishes in seconds.
+
+## Before you emit — for `layered` only
+
+Count the elements in each of business/application/technology. Any layer with
+exactly one (or zero) reads as absent, not present — a single token element is
+the most common mistake on this view. If technology has only one element,
+add a second real one before finishing: the node/runtime that carries whatever
+service is already there (see the Mini examples' `rating_host` element) is
+almost always inferable even when the brief never names infrastructure.
 
 ## Output discipline
 

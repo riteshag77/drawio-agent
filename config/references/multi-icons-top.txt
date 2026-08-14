@@ -8,6 +8,12 @@ same `<platform>_<service>` shape.
 Mixing platforms in one diagram is the point of this view: use the key for the
 platform each service actually belongs to.
 
+Never reuse another leaf's key for a different service just because it's
+already in front of you — e.g. IAM, KMS and CloudWatch are three different
+services and must not all resolve to the same key. Two different leaves
+sharing one icon reads as a worse mistake than either one showing an
+unresolved placeholder.
+
 ## AWS
 | shape_type | Service |
 |---|---|
@@ -49,3 +55,17 @@ platform each service actually belongs to.
 | azure_service_bus | Service Bus |
 | azure_key_vault | Key Vault |
 | azure_api_management | API Management |
+
+## Security & Ops
+| shape_type | Service |
+|---|---|
+| aws_iam | IAM |
+| aws_kms | KMS |
+| aws_cloudwatch | CloudWatch |
+| aws_secrets_manager | Secrets Manager |
+| gcp_iam | IAM |
+| gcp_cloud_kms | Cloud KMS |
+| gcp_cloud_logging | Cloud Logging |
+| gcp_secret_manager | Secret Manager |
+| azure_entra_id | Microsoft Entra ID |
+| azure_monitor | Azure Monitor |
