@@ -51,6 +51,16 @@ FORBIDDEN_IN_IR_PROMPTS = (
     'style="shape=',
     "mxgraph.",
     'parent="1"',
+    # Found live, not by inspection: a battle-test run surfaced a model
+    # substituting the wrong *existing* shape_type for KMS/CloudWatch
+    # (aws_directory_service, aws_api_gateway) rather than a correct novel
+    # guess — traced to azure-icons-common.txt's header still teaching
+    # "Use image=img/lib/azure2/<Category>/<Icon>.svg", a different flavor of
+    # the same A1 problem (draw.io image-path syntax, not mxgraph/resIcon)
+    # that this token list never covered. Fixed the file; these two close
+    # the gap in the *list* so the same class can't reappear unnoticed.
+    "image=",
+    ".svg",
 )
 
 

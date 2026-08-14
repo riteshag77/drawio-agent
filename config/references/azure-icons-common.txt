@@ -1,50 +1,57 @@
-# Azure Icons: common img/lib/azure2 SVG paths
+# Azure services — `shape_type` vocabulary
 
-Use image=img/lib/azure2/<Category>/<Icon>.svg — NEVER azure2.resourceIcon.
+Copy a key verbatim into a leaf's `shape_type`. These are already in the form
+the IR expects; do not derive, prefix or reformat them. A service that is not
+listed still takes your best semantic guess in the same `azure_<service>`
+shape — an unresolved key renders as a labelled grey placeholder, which is
+strictly better than a confidently wrong icon.
+
+Icon artwork is resolved server-side from this key — never emit a draw.io
+style, image path, or stencil path.
 
 ## Compute
-| image path | Display Name | shape_type |
-|-----------|-------------|------------|
-| App Services/AppService.svg | App Service | azure_app_service |
-| Compute/FunctionApps.svg | Function App | azure_functions |
-| Compute/AKS.svg | AKS | azure_aks |
-| Compute/VM.svg | Virtual Machine | azure_vm |
-| Containers/ContainerInstances.svg | Container Instances | azure_container_instances |
+| shape_type | Service |
+|---|---|
+| azure_app_service | App Service |
+| azure_functions | Function App |
+| azure_aks | AKS |
+| azure_vm | Virtual Machine |
+| azure_container_instances | Container Instances |
 
 ## Networking
-| image path | Display Name | shape_type |
-|-----------|-------------|------------|
-| Networking/LoadBalancers.svg | Load Balancer | azure_load_balancer |
-| Networking/ApplicationGateways.svg | Application Gateway | azure_application_gateway |
-| Networking/FrontDoors.svg | Front Door | azure_front_door |
-| Networking/DNSZones.svg | DNS | azure_dns |
-| Networking/VirtualNetworks.svg | Virtual Network | azure_virtual_network |
-| Networking/VirtualNetworkPeerings.svg | VNet Peering | azure_vnet_peering |
-| Networking/PublicIPAddresses.svg | Public IP | azure_public_ip |
-| Security/Firewall.svg | Azure Firewall | azure_firewall |
+| shape_type | Service |
+|---|---|
+| azure_load_balancer | Load Balancer |
+| azure_application_gateway | Application Gateway |
+| azure_front_door | Front Door |
+| azure_dns | DNS |
+| azure_virtual_network | Virtual Network |
+| azure_vnet_peering | VNet Peering |
+| azure_public_ip | Public IP |
+| azure_firewall | Azure Firewall |
 
-## Data & Storage
-| image path | Display Name | shape_type |
-|-----------|-------------|------------|
-| Storage/StorageAccounts.svg | Storage Account | azure_storage_account |
-| Databases/SQLDatabases.svg | SQL Database | azure_sql_database |
-| Databases/CosmosDB.svg | Cosmos DB | azure_cosmos_db |
-| Databases/CacheRedis.svg | Azure Cache for Redis | azure_redis |
-| Databases/DatabasePostgreSQL.svg | Azure Database for PostgreSQL | azure_postgresql |
+## Data & storage
+| shape_type | Service |
+|---|---|
+| azure_storage_account | Storage Account |
+| azure_sql_database | SQL Database |
+| azure_cosmos_db | Cosmos DB |
+| azure_redis | Azure Cache for Redis |
+| azure_postgresql | Azure Database for PostgreSQL |
 
-## Integration & Messaging
-| image path | Display Name | shape_type |
-|-----------|-------------|------------|
-| Integration/ServiceBus.svg | Service Bus | azure_service_bus |
-| Integration/EventGridTopics.svg | Event Grid | azure_event_grid |
-| Integration/LogicApps.svg | Logic Apps | azure_logic_apps |
-| Analytics/EventHubs.svg | Event Hubs | azure_event_hubs |
-| Web/APIManagementServices.svg | API Management | azure_api_management |
+## Integration & messaging
+| shape_type | Service |
+|---|---|
+| azure_service_bus | Service Bus |
+| azure_event_grid | Event Grid |
+| azure_logic_apps | Logic Apps |
+| azure_event_hubs | Event Hubs |
+| azure_api_management | API Management |
 
-## Security & Ops
-| image path | Display Name | shape_type |
-|-----------|-------------|------------|
-| Security/KeyVaults.svg | Key Vault | azure_key_vault |
-| Identity/AzureActiveDirectory.svg | Microsoft Entra ID | azure_entra_id |
-| Monitor/Monitor.svg | Azure Monitor | azure_monitor |
-| General/Users.svg | Users | azure_users |
+## Security & ops
+| shape_type | Service |
+|---|---|
+| azure_key_vault | Key Vault |
+| azure_entra_id | Microsoft Entra ID |
+| azure_monitor | Azure Monitor |
+| azure_users | Users |
