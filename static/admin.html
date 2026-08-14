@@ -16,7 +16,7 @@
     <link rel="stylesheet" href="/static/themes/midnight-slate.css?v=20260810e">
     <link rel="stylesheet" href="/static/themes/daylight.css?v=20260810e">
     <link rel="stylesheet" href="/static/themes/aurora-contrast.css?v=20260810g">
-    <link rel="stylesheet" href="/static/admin.css?v=20260810e">
+    <link rel="stylesheet" href="/static/admin.css?v=20260814a">
     <script>
         (function () {
             var known = ['midnight-slate', 'daylight', 'aurora-contrast'];
@@ -204,6 +204,12 @@
                             <option value="control_types">Control types (Security)</option>
                             <option value="key_assumptions">Key assumptions (Security/Data flow)</option>
                             <option value="trust_zones_referenced">Trust zones referenced (Data flow)</option>
+                            <option value="panel_summary">Panel summary (ArchiMate)</option>
+                            <option value="viewpoint_rationale">Viewpoint rationale (ArchiMate)</option>
+                            <option value="layers_excluded_reason">Layers excluded reason (ArchiMate)</option>
+                            <option value="walkthrough">Walkthrough (ArchiMate)</option>
+                            <option value="compliance_notes">Compliance notes (ArchiMate)</option>
+                            <option value="coaching_note">Coaching note (ArchiMate)</option>
                         </select>
                     </div>
 
@@ -228,13 +234,17 @@
 
                     <div class="admin-field-group">
                         <label for="gov-message">Message shown to the user when this rule fails</label>
-                        <textarea id="gov-message" rows="2" placeholder="Be specific — e.g. &quot;Every Security diagram must include a detection/monitoring zone (zone_detect) per our SOC2 control mapping.&quot;"></textarea>
+                        <textarea id="gov-message" rows="2" maxlength="300" oninput="adminGovernanceMessageInput()" placeholder="Be specific — e.g. &quot;Every Security diagram must include a detection/monitoring zone (zone_detect) per our SOC2 control mapping.&quot;"></textarea>
+                        <small id="gov-message-count" class="admin-help-text">0 / 300</small>
                     </div>
 
-                    <button type="button" class="admin-add-rule-btn" onclick="adminCreateGovernanceRule()">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                        Add rule
-                    </button>
+                    <div class="admin-governance-form-actions">
+                        <button type="button" class="admin-add-rule-btn" id="admin-add-rule-btn" onclick="adminSubmitGovernanceRule()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                            Add rule
+                        </button>
+                        <button type="button" class="admin-cancel-edit-btn" id="admin-cancel-edit-btn" onclick="adminCancelGovernanceEdit()" hidden>Cancel edit</button>
+                    </div>
                 </div>
 
                 <div id="admin-governance-list" class="admin-governance-list"></div>
@@ -244,7 +254,7 @@
 
     <div id="app-toast" class="app-toast" role="status" aria-live="assertive" hidden></div>
     <script src="/static/js/toast.js?v=20260808a"></script>
-    <script src="/static/js/admin.js?v=20260809c"></script>
+    <script src="/static/js/admin.js?v=20260814a"></script>
 </body>
 
 </html>

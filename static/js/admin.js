@@ -246,6 +246,36 @@ function _escHtml(str) {
     return div.innerHTML;
 }
 
+//: FastAPI's default validation-error body is {"detail": [{"msg": "...", "loc": [...]}]} —
+//: an array of objects, not a string. Passing that straight to showToast (which sets
+//: textContent) renders literal "[object Object]"; this always resolves to plain text.
+function _adminErrorMessage(data, fallback) {
+    const detail = data && data.detail;
+    if (typeof detail === 'string' && detail.trim()) return detail;
+    if (Array.isArray(detail) && detail.length) {
+        return detail.map(e => (e && e.msg) ? e.msg : JSON.stringify(e)).join('; ');
+    }
+    return fallback;
+}
+
+//: Non-null while an existing rule is loaded into the form for editing —
+//: adminSubmitGovernanceRule branches POST (create) vs PATCH (update) on this.
+let _adminGovernanceEditId = null;
+
+function adminGovernanceMessageInput() {
+    const el = document.getElementById('gov-message');
+    document.getElementById('gov-message-count').textContent = `${el.value.length} / 300`;
+}
+
+const _GOV_ADD_ICON = '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>';
+const _GOV_UPDATE_ICON = '<polyline points="20 6 9 17 4 12"/>';
+
+function _adminSetGovernanceSubmitButton(editing) {
+    const btn = document.getElementById('admin-add-rule-btn');
+    btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">${editing ? _GOV_UPDATE_ICON : _GOV_ADD_ICON}</svg>${editing ? 'Update rule' : 'Add rule'}`;
+    document.getElementById('admin-cancel-edit-btn').hidden = !editing;
+}
+
 //: Which param fields each rule kind shows, and a plain-language explanation
 //: of exactly what it checks — shown under the kind picker so an admin never
 //: has to guess what a rule kind means before writing one.
@@ -294,8 +324,9 @@ function adminGovernanceRuleDetail(r) {
 
 function adminGovernanceCardHtml(r) {
     const scope = `${r.view === 'any' ? 'Any view' : r.view} · ${r.platform === 'any' ? 'any platform' : r.platform.toUpperCase()}`;
+    const editing = r.id === _adminGovernanceEditId;
     return `
-        <div class="admin-card admin-governance-card${r.enabled ? '' : ' disabled'}">
+        <div class="admin-card admin-governance-card${r.enabled ? '' : ' disabled'}${editing ? ' editing' : ''}">
             <div class="admin-governance-card-head">
                 <span class="admin-governance-kind-badge">${GOV_KIND_LABELS[r.kind] || r.kind}</span>
                 <span class="admin-governance-scope">${_escHtml(scope)}</span>
@@ -308,24 +339,79 @@ function adminGovernanceCardHtml(r) {
                     <span class="toggle-slider"></span>
                 </label>
                 <span class="admin-help-text">${r.enabled ? 'Enabled' : 'Disabled'}</span>
-                <button type="button" class="admin-icon-btn danger" onclick="adminDeleteGovernanceRule('${r.id}')" title="Delete rule" aria-label="Delete rule" style="margin-left:auto">
+                <button type="button" class="admin-icon-btn" onclick="adminEditGovernanceRule('${r.id}')" title="Edit rule" aria-label="Edit rule" style="margin-left:auto">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                </button>
+                <button type="button" class="admin-icon-btn danger" onclick="adminDeleteGovernanceRule('${r.id}')" title="Delete rule" aria-label="Delete rule">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
                 </button>
             </div>
         </div>`;
 }
 
+//: Populated by every adminLoadGovernanceRules() call — lets Edit look a rule
+//: up by id without re-fetching or inlining rule data into onclick HTML
+//: (rule messages are free text and could contain quote characters that
+//: would break out of an inline attribute).
+let _adminGovernanceRulesCache = [];
+
 async function adminLoadGovernanceRules() {
     const res = await adminFetch('/admin/governance-rules');
     if (!res.ok) return;
     const data = await res.json();
+    _adminGovernanceRulesCache = data.rules || [];
     const list = document.getElementById('admin-governance-list');
-    list.innerHTML = (data.rules || []).length
-        ? data.rules.map(adminGovernanceCardHtml).join('')
+    list.innerHTML = _adminGovernanceRulesCache.length
+        ? _adminGovernanceRulesCache.map(adminGovernanceCardHtml).join('')
         : '<div class="admin-governance-empty">No governance rules yet — add one above to start enforcing house style.</div>';
 }
 
-async function adminCreateGovernanceRule() {
+function adminResetGovernanceForm() {
+    document.getElementById('gov-kind').value = 'required_corridor';
+    document.getElementById('gov-view').value = 'any';
+    document.getElementById('gov-platform').value = 'any';
+    document.getElementById('gov-corridor-id').value = '';
+    document.getElementById('gov-shape-type').value = '';
+    document.getElementById('gov-overview-field').value = 'business_notes';
+    document.getElementById('gov-min-count').value = '2';
+    document.getElementById('gov-min-protection').value = 'tls';
+    document.getElementById('gov-boundary-only').checked = true;
+    document.getElementById('gov-label-pattern').value = '';
+    document.getElementById('gov-message').value = '';
+    adminGovernanceMessageInput();
+    adminGovernanceKindChanged();
+}
+
+function adminEditGovernanceRule(id) {
+    const r = _adminGovernanceRulesCache.find(x => x.id === id);
+    if (!r) return;
+    _adminGovernanceEditId = id;
+    document.getElementById('gov-kind').value = r.kind;
+    document.getElementById('gov-view').value = r.view;
+    document.getElementById('gov-platform').value = r.platform;
+    document.getElementById('gov-corridor-id').value = r.corridor_id || '';
+    document.getElementById('gov-shape-type').value = r.shape_type || '';
+    document.getElementById('gov-overview-field').value = r.overview_field || 'business_notes';
+    document.getElementById('gov-min-count').value = r.min_count || 2;
+    document.getElementById('gov-min-protection').value = r.min_protection || 'tls';
+    document.getElementById('gov-boundary-only').checked = r.boundary_only !== false;
+    document.getElementById('gov-label-pattern').value = r.label_pattern || '';
+    document.getElementById('gov-message').value = r.message || '';
+    adminGovernanceMessageInput();
+    adminGovernanceKindChanged();
+    _adminSetGovernanceSubmitButton(true);
+    adminLoadGovernanceRules(); // re-render so the card being edited gets the .editing highlight
+    document.getElementById('admin-section-governance').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function adminCancelGovernanceEdit() {
+    _adminGovernanceEditId = null;
+    adminResetGovernanceForm();
+    _adminSetGovernanceSubmitButton(false);
+    adminLoadGovernanceRules();
+}
+
+async function adminSubmitGovernanceRule() {
     const message = document.getElementById('gov-message').value.trim();
     if (!message) {
         showToast('A message explaining the rule is required.', 'error');
@@ -344,21 +430,24 @@ async function adminCreateGovernanceRule() {
         boundary_only: document.getElementById('gov-boundary-only').checked,
         label_pattern: document.getElementById('gov-label-pattern').value.trim() || null,
     };
-    const res = await adminFetch('/admin/governance-rules', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-    });
+    const editing = _adminGovernanceEditId;
+    const res = await adminFetch(
+        editing ? `/admin/governance-rules/${editing}` : '/admin/governance-rules',
+        {
+            method: editing ? 'PATCH' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        },
+    );
     if (res.ok) {
-        showToast('Rule added.', 'success');
-        document.getElementById('gov-message').value = '';
-        document.getElementById('gov-corridor-id').value = '';
-        document.getElementById('gov-shape-type').value = '';
-        document.getElementById('gov-label-pattern').value = '';
+        showToast(editing ? 'Rule updated.' : 'Rule added.', 'success');
+        _adminGovernanceEditId = null;
+        adminResetGovernanceForm();
+        _adminSetGovernanceSubmitButton(false);
         adminLoadGovernanceRules();
     } else {
         const data = await res.json().catch(() => ({}));
-        showToast(data.detail || 'Could not add rule.', 'error');
+        showToast(_adminErrorMessage(data, editing ? 'Could not update rule.' : 'Could not add rule.'), 'error');
     }
 }
 
@@ -377,7 +466,8 @@ async function adminDeleteGovernanceRule(id) {
     const res = await adminFetch(`/admin/governance-rules/${id}`, { method: 'DELETE' });
     if (res.ok) {
         showToast('Rule deleted.', 'success');
-        adminLoadGovernanceRules();
+        if (_adminGovernanceEditId === id) adminCancelGovernanceEdit();
+        else adminLoadGovernanceRules();
     }
 }
 

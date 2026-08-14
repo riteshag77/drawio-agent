@@ -492,9 +492,18 @@ body {
 .admin-add-rule-btn:hover { filter: brightness(1.08); }
 .admin-add-rule-btn svg { width: 15px; height: 15px; }
 
+.admin-governance-form-actions { display: flex; align-items: center; gap: 0.7rem; }
+.admin-cancel-edit-btn {
+    border: none; background: transparent; color: var(--text-muted);
+    font-family: inherit; font-size: 0.78rem; font-weight: 600;
+    cursor: pointer; padding: 0.4rem 0.2rem; text-decoration: underline;
+}
+.admin-cancel-edit-btn:hover { color: var(--text-primary); }
+
 .admin-governance-list { display: flex; flex-direction: column; gap: 0.6rem; }
-.admin-governance-card { padding: 0.9rem 1rem; transition: opacity 0.15s; }
+.admin-governance-card { padding: 0.9rem 1rem; transition: opacity 0.15s, border-color 0.15s; }
 .admin-governance-card.disabled { opacity: 0.5; }
+.admin-governance-card.editing { border-color: var(--accent); }
 .admin-governance-card-head { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; flex-wrap: wrap; }
 .admin-governance-kind-badge {
     font-size: 0.63rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
