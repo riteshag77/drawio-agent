@@ -400,7 +400,13 @@ async function rerunSuggestionsCheck() {
         well_architected: false,
         compliance: false,
         suggestions: true,
-        view: views[0] || 'network',
+        // Suggestions, unlike WAF/Compliance, never force-focuses a specific
+        // page — it should follow whatever the user is actually looking at.
+        // views[0] (Settings' checkbox order) has no relationship to that;
+        // it's what's enabled for the *next* generation, not what's on
+        // screen — see currentDrawioViewId's own doc for why this is only a
+        // best-effort answer, not a perfect one.
+        view: typeof currentDrawioViewId === 'function' ? currentDrawioViewId(currentXml, views) : (views[0] || 'network'),
         human_prompt: lastUserMessage,
         applied_suggestions: typeof getAppliedSuggestionsPayload === 'function' ? getAppliedSuggestionsPayload() : [],
     };

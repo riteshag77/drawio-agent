@@ -184,6 +184,48 @@ function drawioPageIndexByName(xml, pageName) {
     return -1;
 }
 
+/** Name of the <diagram name="..."> page at pageIndex, or null — the reverse
+ *  of drawioPageIndexByName, used to work out what the canvas is currently
+ *  showing rather than what the editor was last told to show. */
+function drawioPageNameByIndex(xml, pageIndex) {
+    if (!xml || pageIndex == null || pageIndex < 0) return null;
+    const re = /<diagram\b[^>]*\bname="([^"]*)"/g;
+    let match;
+    let idx = 0;
+    while ((match = re.exec(xml)) !== null) {
+        if (idx === pageIndex) return match[1] || null;
+        idx++;
+    }
+    return null;
+}
+
+/** Mirrors app/adapters/outbound/diagram/architecture_docs.py's VIEW_PAGE_NAMES
+ *  — the page name each view compiles to, so the frontend can go the other
+ *  way (a page name back to the view id the backend expects). */
+const DRAWIO_PAGE_NAME_TO_VIEW = {
+    'logical': 'logical', 'network': 'network', 'security': 'security',
+    'data flow': 'data_flow', 'archimate': 'archimate',
+};
+
+/** Best available guess at which view the user is actually looking at right
+ *  now, for anything (like Suggestions) that should follow the canvas
+ *  rather than force a specific page the way WAF/Compliance deliberately do.
+ *
+ *  draw.io's embed postMessage protocol has no event for "the user clicked a
+ *  different page tab" (see switchToDrawioPage's comment) — currentDrawioPageIndex
+ *  only updates on a fresh load or an app-initiated switch, so this can go
+ *  stale the moment someone clicks a tab by hand. It is still a strictly
+ *  better signal than the Settings view checkboxes (getSelectedDiagramViews),
+ *  which reflect what's enabled for the *next* generation, not what's on
+ *  screen — falls back to that array only when the page name can't be
+ *  resolved at all (e.g. no diagram loaded yet). */
+function currentDrawioViewId(xml, fallbackViews) {
+    const pageName = drawioPageNameByIndex(xml, typeof currentDrawioPageIndex === 'number' ? currentDrawioPageIndex : 0);
+    const viewId = pageName ? DRAWIO_PAGE_NAME_TO_VIEW[pageName.trim().toLowerCase()] : null;
+    if (viewId) return viewId;
+    return (fallbackViews && fallbackViews[0]) || 'network';
+}
+
 /** Arranges for the editor to land on pageName once the next diagram finishes loading. */
 function requestDrawioFocusOnLoad(pageName, xml) {
     const idx = drawioPageIndexByName(xml, pageName);
