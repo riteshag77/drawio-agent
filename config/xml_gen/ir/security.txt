@@ -29,6 +29,7 @@ Users often send short briefs across different business domains. Map them to
 | "Fintech wallet with KYC and ledger" | `zone_public` → `zone_identity` → `zone_private` (KYC service, Ledger API) → `zone_restricted` (Ledger DB, KMS) → `zone_detect`; `zone_external_saas` KYC/AML vendor |
 | "Healthcare patient portal with EHR sync" | `zone_public` → `zone_identity` → `zone_private` (Scheduling, Records API) → `zone_restricted` (Clinical DB, PHI) → `zone_detect`; `zone_external_saas` EHR vendor |
 | "Insurance claims intake with broker submissions" | `zone_public` → `zone_partner` (Partner API Gateway for brokers) → `zone_identity` (federation broker) → `zone_private` (Claims API, Underwriting) → `zone_restricted` (Policy DB) → `zone_detect`; `zone_external_saas` policy admin vendor |
+| "Trading platform settling through external clearinghouses" | `zone_public` (Trading Gateway) → `zone_partner` (Partner API Gateway for the clearinghouses — settlement counterparties, not a subscribed product) → `zone_identity` → `zone_private` (Matching Engine) → `zone_restricted` (Trade Ledger) → `zone_detect`; `zone_external_saas` only for an actual subscribed product like a market-data feed vendor, `shape_type=saas_<name>` invented if it isn't one of the curated vendors |
 
 ## `zone_partner` vs `zone_external_saas` — do not conflate
 
@@ -37,8 +38,13 @@ Users often send short briefs across different business domains. Map them to
   customer.
 - `zone_partner` = **other organisations** integrating over B2B (brokers,
   agencies, resellers, distributors, suppliers, reinsurers, marketplace
-  counterparties) — contractual, often mutual-auth (mTLS/API keys), with its
-  own federation trust distinct from the org's workforce IdP.
+  counterparties, **clearinghouses, exchanges, correspondent banks, other
+  trading counterparties**) — contractual, often mutual-auth (mTLS/API keys),
+  with its own federation trust distinct from the org's workforce IdP. The
+  test isn't the industry, it's the relationship: a clearinghouse the
+  platform settles trades *with* is a counterparty exactly like a broker
+  submitting claims — both are `zone_partner`, never `zone_external_saas`,
+  no matter how much the request's vocabulary sounds like "an integration."
 
 ## Leaf vocabulary
 

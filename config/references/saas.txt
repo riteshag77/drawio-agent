@@ -1,8 +1,17 @@
-━━━ Enterprise SaaS shape_types (XML mode) ━━━
+━━━ Enterprise SaaS shape_types ━━━
 Server resolves saas_* via curated stencil icons under static/saas-icons/ (embedded as data-URI image styles).
-Leaf style is a grey placeholder + shape_type=saas_<vendor>; do NOT invent resIcon / AWS stencils for these.
-Expand this catalog by industry section as needed. Network places vendors ungrouped L→R by journey role
+Leaf style is a grey placeholder + shape_type=saas_<vendor>; never derive a draw.io style or stencil string for these — the key alone is all the IR needs.
+Expand this catalog by industry section as needed. Vendors are ordered L→R by journey role
 (identity → experience → workforce → industry → payments → collab) — never one mega SaaS container.
+
+Every key below has its own distinct, real, branded icon — copy the key that
+actually matches the vendor. Never reuse a listed vendor's key for a
+different, unrelated vendor just because it's a name you recognize (e.g. a
+generic "market data vendor" or "clearinghouse" the brief never names is not
+Salesforce or Stripe just because those are familiar keys) — that renders the
+wrong company's logo, a worse mistake than an unresolved placeholder. If the
+actual vendor genuinely is not one of these, invent a new `saas_<name>` key
+instead — it safely renders as a generic labelled placeholder.
 
 shape_type              | Common labels / needles
 ------------------------|------------------------------------------
@@ -40,4 +49,4 @@ successfactors, success factors, guidewire, temenos, duck creek, servicenow, okt
 
 On Logical: prefer saas_* for known vendors (labels still ``Name (SAAS)``); optional domain_saas when 2+;
 unknown vendor → logical_saas.
-On Network: saas_* ungrouped parent="1" left of Cloud, ordered L→R by journey role (edges OK).
+On Network: saas_* leaves sit ungrouped as external_actors, left of the cloud boundary, ordered L→R by journey role.

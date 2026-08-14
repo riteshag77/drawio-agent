@@ -46,6 +46,9 @@ or stencil path.
 | aws_elasticache | ElastiCache |
 | aws_redshift | Redshift |
 | aws_dms | Database Migration Service |
+| aws_timestream | Timestream (time-series) |
+| aws_documentdb | DocumentDB |
+| aws_neptune | Neptune (graph) |
 
 ## Storage
 | shape_type | Service |

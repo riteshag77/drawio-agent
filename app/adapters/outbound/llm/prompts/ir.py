@@ -117,6 +117,17 @@ def _assemble_ir_prompt(
         saas_icons = _load_prompt("icons/saas.txt")
         if saas_icons:
             stable.append(saas_icons)
+        # The prose guide above only names 3 example vendors inline — the real
+        # curated catalog (19+ vendors, each with a distinct branded icon on
+        # disk) was never wired into any prompt at all. Confirmed live: a
+        # market-data vendor and a clearinghouse both got labelled with the
+        # real Salesforce/Stripe logos — worse than a wrong shape_type key,
+        # since these keys DO resolve to a specific, recognizable, wrong
+        # brand rather than a generic placeholder. Small enough (~40 lines)
+        # to include whole, no hint-filtering needed.
+        saas_catalog = _load_reference("saas.txt")
+        if saas_catalog:
+            stable.append(saas_catalog)
     governance_block = _governance_rules_block(governance_view, platform_key)
     if governance_block:
         stable.append(governance_block)

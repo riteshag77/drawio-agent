@@ -11,4 +11,14 @@ When the request or inventory includes external enterprise apps (Salesforce, Suc
    - **Data flow:** `phase_saas_producer` (SaaS feeding data IN) or `phase_saas_consumer` (pipeline sending data OUT) — both shelves under `phase_store`.
    - **Logical:** `domain_saas` shelf under `domain_data` when useful; `shape_type=saas_*` leaves ordered by journey role.
 
-Unknown vendor not in the catalog → `logical_saas` on Logical (or a generic egress actor on Network); do not invent a new `saas_*` key.
+Unknown vendor not in the catalog → `logical_saas` on Logical (or a generic
+egress actor on Network) — those views have a non-`saas_*` fallback shape, so
+prefer it over guessing a vendor key. **Security and Data-flow have no such
+fallback** — a leaf in `zone_external_saas`/`phase_saas_producer`/
+`phase_saas_consumer` only makes sense as a `saas_*` key, so for those two
+views, an unlisted vendor still gets `shape_type=saas_<name>` (invent the
+`<name>` from the vendor's actual name) rather than reusing a *listed*
+vendor's key. Reusing `saas_salesforce` for a vendor that isn't Salesforce
+renders that vendor's leaf with the Salesforce logo — a specific, wrong,
+recognizable brand shown on the diagram, which is worse than the generic
+placeholder an invented key safely falls back to.
