@@ -1310,7 +1310,8 @@ async def run_xml_pipeline(
     surgical = _was_successful_surgical_edit(logger)
     # Extra IR views regenerate after surgical edits so Logical/Security/Data-flow
     # tabs stay aligned with the edited primary. ADR/RAID stay skipped (docs cost
-    # vs. value on a rename/move).
+    # vs. value on a rename/move) — but pages generated on an earlier turn are
+    # carried forward untouched below, not silently dropped.
     if surgical and (adr_notes or raid_register):
         if logger:
             logger.log(
@@ -1548,13 +1549,50 @@ async def run_xml_pipeline(
             return {}
 
     fanout_jobs: list[tuple[str, Any]] = []
-    if extra_views:
+    views_to_regen = list(extra_views)
+    if extra_views and surgical and current_xml:
+        # A surgical edit only patches the primary page's cells, but regenerating
+        # every OTHER tab is a full LLM call each (plus a corrective retry when
+        # the quality score is low) — measured as the single biggest latency
+        # cost on this path: a primary-only edit lands in ~3-10s, each
+        # regenerated extra view can double that. Carry the pre-edit page
+        # through unchanged instead — same "skip regen, preserve what already
+        # exists" call already made for ADR/RAID above. The tab then silently
+        # drifts out of sync with the edited primary until the next fresh
+        # generation, so this is flagged via degraded_features (existing
+        # quota/soft-fail banner mechanism) telling the user which tabs are
+        # stale and that asking again regenerates them.
+        views_to_regen = []
+        carried_names: list[str] = []
+        for vk in extra_views:
+            page_name = VIEW_PAGE_NAMES.get(vk, vk)
+            old_page = extract_page_by_name(current_xml, page_name)
+            if old_page:
+                extra_by_view[vk] = old_page
+                carried_names.append(page_name)
+            else:
+                views_to_regen.append(vk)  # never generated before — nothing to carry
+        if carried_names and logger:
+            logger.log(
+                "views",
+                f"Kept {', '.join(carried_names)} unchanged after surgical edit (not regenerated)",
+                level="info",
+                details={
+                    "degraded": True,
+                    "feature": "extra views",
+                    "reason": (
+                        f"{', '.join(carried_names)} may now be out of sync with the edited "
+                        "view — ask again (e.g. \"regenerate the other views\") to refresh them"
+                    ),
+                },
+            )
+    if views_to_regen:
         await _emit(
             on_progress,
             "views",
-            f"Generating {len(extra_views)} additional view page(s) in parallel…",
+            f"Generating {len(views_to_regen)} additional view page(s) in parallel…",
         )
-        for vk in extra_views:
+        for vk in views_to_regen:
             fanout_jobs.append(("view", _run_view(vk)))
     if adr_notes and not surgical:
         fanout_jobs.append(("adr", _run_adr()))
@@ -1971,6 +2009,45 @@ async def run_xml_pipeline(
                 # as the suggestions-call swallow this pattern was added for.
                 logger.log(
                     "docs", f"Documentation pages skipped: {exc}", level="warning",
+                    details={"degraded": True, "feature": "ADR/RAID pages", "reason": str(exc)},
+                )
+    elif surgical and (adr_notes or raid_register) and current_xml:
+        # Regeneration is skipped above (cost vs. value on a rename/move), but
+        # ADR Notes / RAID pages already produced on an earlier turn live in
+        # current_xml (the pre-edit multi-page mxfile) and must survive this
+        # edit untouched — same "toggled a feature on, it silently vanished"
+        # bug class the try/except above already guards the fresh-generation
+        # case for. _generate_primary_page only ever sees current_xml scoped
+        # to the primary page (extract_page_by_name), so those pages never
+        # reached the edit at all and are recovered straight from the source.
+        try:
+            carried = [
+                (name, page_xml)
+                for name in ("ADR Notes", "RAID")
+                if (page_xml := extract_page_by_name(current_xml, name))
+            ]
+            if carried:
+                if xml_output.count("<diagram") > 1:
+                    tree = ET.fromstring(ensure_diagram_document(xml_output, primary_page_name))
+                    for _, page_xml in carried:
+                        ftree = ET.fromstring(page_xml)
+                        diag = ftree.find("diagram") if ftree.tag == "mxfile" else None
+                        if diag is not None and tree.tag == "mxfile":
+                            tree.append(diag)
+                    xml_output = ET.tostring(tree, encoding="unicode")
+                else:
+                    xml_output = merge_mxfile_pages([(primary_page_name, xml_output), *carried])
+                if logger:
+                    logger.log(
+                        "docs",
+                        "Carried forward existing ADR/RAID pages (not regenerated)",
+                        level="success",
+                        details={"pages": [name for name, _ in carried]},
+                    )
+        except Exception as exc:
+            if logger:
+                logger.log(
+                    "docs", f"Could not carry forward ADR/RAID pages: {exc}", level="warning",
                     details={"degraded": True, "feature": "ADR/RAID pages", "reason": str(exc)},
                 )
 

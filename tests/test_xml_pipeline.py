@@ -152,6 +152,138 @@ def _page(name: str, cells: str) -> str:
     )
 
 
+def _seed_successful_surgical_edit(logger: StepLogger) -> None:
+    """_was_successful_surgical_edit() reads this back off the logger — the
+    real surgical path logs it from inside generate_xml_diagram, which the
+    tests below mock out, so it must be seeded directly."""
+    logger.log("surgical_edit", "Applied 2 surgical ops", level="success")
+
+
+class SurgicalEditDocPageCarryForwardTests(unittest.TestCase):
+    """Regression: a live capture showed ADR Notes / RAID pages vanish from
+    the response after ANY surgical edit, even with adr_notes/raid_register
+    still on in the request. Root cause: _generate_primary_page scopes
+    current_xml down to just the primary page before the edit (it has no
+    multi-page concept), and doc regeneration is deliberately skipped on a
+    surgical edit (cost vs. value on a rename/move) — so the pages that
+    existed in the pre-edit current_xml were never regenerated *and* never
+    carried through untouched. Fixed by extracting them straight from the
+    original current_xml and re-attaching them after the edit."""
+
+    _CURRENT_XML = (
+        '<mxfile host="app.diagrams.net">'
+        + _page(
+            "Network",
+            '<mxCell id="ec2" value="EC2" style="html=1;" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>',
+        )
+        + _page("ADR Notes", '<mxCell id="adr_table" value="&lt;table&gt;ADR-001&lt;/table&gt;" vertex="1" parent="1"/>')
+        + _page("RAID", '<mxCell id="raid_table" value="&lt;table&gt;R-01&lt;/table&gt;" vertex="1" parent="1"/>')
+        + "</mxfile>"
+    )
+
+    def _run(self, *, adr_notes: bool, raid_register: bool):
+        xml_diagram = XmlDiagram(
+            xml=_page("Network", '<mxCell id="ec2" value="Checkout Fn" style="html=1;" vertex="1" parent="1">'
+                                  '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>'),
+            assistant_message="ok", suggestions=[], step_markers=[],
+        )
+        logger = StepLogger()
+        _seed_successful_surgical_edit(logger)
+        clean = XmlDiagnostics(errors=[], warnings=[])
+        with patch.object(xml_pipeline, "generate_xml_diagram", return_value=xml_diagram), \
+                patch.object(xml_pipeline, "diagnose_xml", return_value=clean), \
+                patch.object(xml_pipeline, "repair_xml", return_value=(xml_diagram.xml, clean)), \
+                patch.object(xml_pipeline, "_generate_adr_list") as adr_mock, \
+                patch.object(xml_pipeline, "_generate_raid_list") as raid_mock:
+            result = asyncio.run(xml_pipeline.run_xml_pipeline(
+                user_prompt="rename EC2 to Checkout Fn",
+                provider="gemini",
+                platform="aws",
+                logger=logger,
+                diagram_renderer="local",
+                current_xml=self._CURRENT_XML,
+                adr_notes=adr_notes,
+                raid_register=raid_register,
+            ))
+        adr_mock.assert_not_called()
+        raid_mock.assert_not_called()
+        return result
+
+    def test_existing_adr_and_raid_pages_survive_a_surgical_edit(self) -> None:
+        result = self._run(adr_notes=True, raid_register=True)
+        self.assertEqual(result["status"], "success")
+        self.assertIsNotNone(extract_page_by_name(result["xml"], "ADR Notes"))
+        self.assertIsNotNone(extract_page_by_name(result["xml"], "RAID"))
+        self.assertIn("Checkout Fn", result["xml"])  # the edit itself still applied
+
+    def test_no_op_when_neither_doc_page_was_requested(self) -> None:
+        result = self._run(adr_notes=False, raid_register=False)
+        self.assertIsNone(extract_page_by_name(result["xml"], "ADR Notes"))
+        self.assertIsNone(extract_page_by_name(result["xml"], "RAID"))
+
+
+class SurgicalEditExtraViewCarryForwardTests(unittest.TestCase):
+    """Regression: every extra tab (Logical/Security/Data-flow) regenerated
+    via a full LLM call — with a corrective retry on a low quality score —
+    on EVERY surgical edit, even a one-cell rename, because the fan-out
+    condition never checked whether the edit was surgical. Measured live:
+    the primary-only edit itself took ~3-10s; each regenerated extra view
+    could add as much again. Fixed by carrying the pre-edit page through
+    unchanged (same call already made for ADR/RAID) and surfacing which tabs
+    are now possibly stale via the existing degraded_features banner."""
+
+    _CURRENT_XML = (
+        '<mxfile host="app.diagrams.net">'
+        + _page(
+            "Logical",
+            '<mxCell id="svc" value="Orders" style="html=1;" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>',
+        )
+        + _page(
+            "Network",
+            '<mxCell id="ec2" value="EC2" style="html=1;" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>',
+        )
+        + "</mxfile>"
+    )
+
+    def test_extra_view_is_carried_forward_not_regenerated(self) -> None:
+        xml_diagram = XmlDiagram(
+            xml=_page("Network", '<mxCell id="ec2" value="Checkout Fn" style="html=1;" vertex="1" parent="1">'
+                                  '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>'),
+            assistant_message="ok", suggestions=[], step_markers=[],
+        )
+        logger = StepLogger()
+        _seed_successful_surgical_edit(logger)
+        clean = XmlDiagnostics(errors=[], warnings=[])
+        # repair_xml runs once per merged page (Logical, then Network) — it
+        # must echo back whichever page it was actually given, not a single
+        # fixed value, or every page in the merge collapses to the same content.
+        with patch.object(xml_pipeline, "generate_xml_diagram", return_value=xml_diagram), \
+                patch.object(xml_pipeline, "diagnose_xml", return_value=clean), \
+                patch.object(xml_pipeline, "repair_xml", side_effect=lambda xml: (xml, clean)), \
+                patch.object(xml_pipeline, "_generate_ir_view_page") as view_mock:
+            result = asyncio.run(xml_pipeline.run_xml_pipeline(
+                user_prompt="rename EC2 to Checkout Fn",
+                provider="gemini",
+                platform="aws",
+                logger=logger,
+                diagram_renderer="local",
+                current_xml=self._CURRENT_XML,
+                diagram_views=["network", "logical"],
+            ))
+        view_mock.assert_not_called()
+        self.assertEqual(result["status"], "success")
+        logical_page = extract_page_by_name(result["xml"], "Logical")
+        self.assertIsNotNone(logical_page)
+        self.assertIn("Orders", logical_page)  # untouched pre-edit content
+        self.assertIn("Checkout Fn", result["xml"])  # the edit itself still applied
+        degraded = {f["feature"]: f for f in result["degraded_features"]}
+        self.assertIn("extra views", degraded)
+        self.assertIn("Logical", degraded["extra views"]["message"])
+
+
 class RefreshOverviewAndLegendPositionsTests(unittest.TestCase):
     """Regression: found via a real live capture where the Overview Panel on
     the Network page stayed stale after a surgical edit grew its container,
