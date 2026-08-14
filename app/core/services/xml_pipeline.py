@@ -796,6 +796,37 @@ async def _emit(
         await result
 
 
+class _NullSpan:
+    """Both sync and async no-op context manager — contextlib.nullcontext
+    only implements the sync protocol, but _maybe_span's call sites mix
+    ``with`` and ``async with``."""
+
+    def __enter__(self) -> "_NullSpan":
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        return None
+
+    async def __aenter__(self) -> "_NullSpan":
+        return self
+
+    async def __aexit__(self, *exc: Any) -> None:
+        return None
+
+
+_NULL_SPAN = _NullSpan()
+
+
+def _maybe_span(logger: Any, step: str, message: str, **details: Any):
+    """``logger.span(...)`` when a logger is present, a no-op otherwise —
+    ``logger`` is ``None``-able throughout this module (every ``.log`` call
+    is guarded with ``if logger:``), but a context manager can't be skipped
+    inline the same way."""
+    if logger is None:
+        return _NULL_SPAN
+    return logger.span(step, message, **details)
+
+
 async def _generate_primary_page(
     *,
     primary_view: str,
@@ -1248,10 +1279,11 @@ async def run_xml_pipeline(
     )
 
     await _emit(on_progress, "validate", "Validating and normalizing XML…")
-    xml_output = ensure_diagram_document(xml_diagram.xml, primary_page_name)
-    check = validate_and_fix_xml(xml_output)
-    xml_output = choose_fixed_xml(xml_output, check)
-    xml_output = normalize_platform_styles(xml_output, platform_key)
+    with _maybe_span(logger, "validate", "Validating and normalizing XML"):
+        xml_output = ensure_diagram_document(xml_diagram.xml, primary_page_name)
+        check = validate_and_fix_xml(xml_output)
+        xml_output = choose_fixed_xml(xml_output, check)
+        xml_output = normalize_platform_styles(xml_output, platform_key)
 
     derived_story_markers: list[Any] = []
     if used_ir_path and not page_has_overview_panel(xml_output):
@@ -1263,8 +1295,9 @@ async def run_xml_pipeline(
         xml_output = ensure_ir_overview_panel(xml_output, primary_page_name, xml_diagram.ir_title)
 
     await _emit(on_progress, "repair", "Checking for overlaps, dangling edges, missing labels…")
-    pre_repair_diagnostics = diagnose_xml(xml_output)
-    xml_output, diagnostics = repair_xml(xml_output)
+    with _maybe_span(logger, "repair", "Deterministic repair pass"):
+        pre_repair_diagnostics = diagnose_xml(xml_output)
+        xml_output, diagnostics = repair_xml(xml_output)
     fixed_count = (
         (len(pre_repair_diagnostics.errors) + len(pre_repair_diagnostics.warnings))
         - (len(diagnostics.errors) + len(diagnostics.warnings))
@@ -1293,7 +1326,8 @@ async def run_xml_pipeline(
     # Informational only (Fix 2e) — container/edge sanity checks distinct from
     # diagnose_xml's errors/warnings, which gate repair behavior. Logged for
     # visibility, never blocks the response.
-    layout_issues = validate_layout(xml_output)
+    with _maybe_span(logger, "layout_validate", "Layout sanity checks"):
+        layout_issues = validate_layout(xml_output)
     if layout_issues and logger:
         logger.log(
             "repair",
@@ -1540,9 +1574,10 @@ async def run_xml_pipeline(
             return {}
         await _emit(on_progress, "mcp", "Resolving official icon styles…")
         try:
-            return await resolve_shape_styles(
-                primary_shape_types, platform=platform_key, logger=logger,
-            )
+            async with _maybe_span(logger, "mcp_resolve", "Resolving official icon styles"):
+                return await resolve_shape_styles(
+                    primary_shape_types, platform=platform_key, logger=logger,
+                )
         except Exception as exc:
             if logger:
                 logger.log("mcp", f"Primary icon resolve skipped: {exc}", level="warning")
@@ -1550,6 +1585,13 @@ async def run_xml_pipeline(
 
     fanout_jobs: list[tuple[str, Any]] = []
     views_to_regen = list(extra_views)
+    # Pages carried forward byte-for-byte from current_xml (below, and the
+    # ADR/RAID carry-forward further down) already have valid routing from
+    # whichever turn actually produced them — re-running libavoid on them on
+    # every subsequent edit is pure waste (measured live: ~1.8-2.9s per page,
+    # the single largest cost after the edit-plan LLM call itself). The
+    # libavoid loop skips any page named here.
+    unchanged_page_names: set[str] = set()
     if extra_views and surgical and current_xml:
         # A surgical edit only patches the primary page's cells, but regenerating
         # every OTHER tab is a full LLM call each (plus a corrective retry when
@@ -1570,6 +1612,7 @@ async def run_xml_pipeline(
             if old_page:
                 extra_by_view[vk] = old_page
                 carried_names.append(page_name)
+                unchanged_page_names.add(page_name)
             else:
                 views_to_regen.append(vk)  # never generated before — nothing to carry
         if carried_names and logger:
@@ -1789,9 +1832,10 @@ async def run_xml_pipeline(
                         routed_xml = None
                     else:
                         try:
-                            preview_url, routed_xml = await create_diagram(
-                                local_xml, routing="libavoid", logger=logger,
-                            )
+                            async with _maybe_span(logger, "libavoid", "Libavoid edge routing"):
+                                preview_url, routed_xml = await create_diagram(
+                                    local_xml, routing="libavoid", logger=logger,
+                                )
                         except DrawioMcpError as exc:
                             if logger:
                                 logger.log("mcp", f"Libavoid skipped: {exc}", level="warning")
@@ -1835,16 +1879,21 @@ async def run_xml_pipeline(
                     )
                     for diag in diagrams:
                         name = diag.get("name") or "Page"
-                        if name in {"ADR Notes", "RAID"} or name in _LOCAL_ROUTED_PAGES:
+                        if (
+                            name in {"ADR Notes", "RAID"}
+                            or name in _LOCAL_ROUTED_PAGES
+                            or name in unchanged_page_names
+                        ):
                             inner = "".join(ET.tostring(c, encoding="unicode") for c in list(diag))
                             routed_pages.append((name, ensure_diagram_document(inner, name)))
                             continue
                         inner = "".join(ET.tostring(c, encoding="unicode") for c in list(diag))
                         page_xml = ensure_diagram_document(inner, name)
                         try:
-                            _preview, routed_one = await create_diagram(
-                                page_xml, routing="libavoid", logger=logger,
-                            )
+                            async with _maybe_span(logger, "libavoid", "Libavoid edge routing"):
+                                _preview, routed_one = await create_diagram(
+                                    page_xml, routing="libavoid", logger=logger,
+                                )
                             if _preview and not preview_url:
                                 preview_url = _preview
                         except DrawioMcpError as exc:

@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import unittest
 import xml.etree.ElementTree as ET
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.adapters.outbound.diagram.xml_diagnostics import XmlDiagnostics
 from app.adapters.outbound.diagram.xml_tools import extract_page_by_name
@@ -282,6 +282,73 @@ class SurgicalEditExtraViewCarryForwardTests(unittest.TestCase):
         degraded = {f["feature"]: f for f in result["degraded_features"]}
         self.assertIn("extra views", degraded)
         self.assertIn("Logical", degraded["extra views"]["message"])
+
+
+class SurgicalEditLibavoidSkipTests(unittest.TestCase):
+    """Regression: a live capture measured libavoid edge routing (a real MCP
+    round-trip) firing once per page, including a page just carried forward
+    byte-for-byte unchanged from current_xml. That page's routing was already
+    valid — re-running it wasted ~1.8-2.9s per untouched tab on every single
+    surgical edit, the largest cost on this path after the edit-plan LLM call
+    itself. Fixed by skipping libavoid for any page name in
+    unchanged_page_names (populated by the extra-view carry-forward above)."""
+
+    _CURRENT_XML = (
+        '<mxfile host="app.diagrams.net">'
+        + _page(
+            "Logical",
+            '<mxCell id="svc" value="Orders" style="html=1;" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>',
+        )
+        + _page(
+            "Network",
+            '<mxCell id="ec2" value="EC2" style="html=1;" vertex="1" parent="1">'
+            '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>',
+        )
+        + "</mxfile>"
+    )
+
+    def test_libavoid_only_routes_the_edited_page(self) -> None:
+        xml_diagram = XmlDiagram(
+            xml=_page("Network", '<mxCell id="ec2" value="Checkout Service" style="html=1;" vertex="1" parent="1">'
+                                  '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>'),
+            assistant_message="ok", suggestions=[], step_markers=[],
+        )
+        logger = StepLogger()
+        _seed_successful_surgical_edit(logger)
+        clean = XmlDiagnostics(errors=[], warnings=[])
+        create_diagram_mock = AsyncMock(side_effect=lambda xml, **kw: ("http://preview", xml))
+        with patch.object(xml_pipeline, "generate_xml_diagram", return_value=xml_diagram), \
+                patch.object(xml_pipeline, "diagnose_xml", return_value=clean), \
+                patch.object(xml_pipeline, "repair_xml", side_effect=lambda xml: (xml, clean)), \
+                patch.object(xml_pipeline, "resolve_shape_styles", AsyncMock(return_value={})), \
+                patch.object(xml_pipeline, "create_diagram", create_diagram_mock), \
+                patch.object(xml_pipeline, "_generate_ir_view_page") as view_mock:
+            result = asyncio.run(xml_pipeline.run_xml_pipeline(
+                user_prompt="rename EC2 to Checkout Service",
+                provider="gemini",
+                platform="aws",
+                logger=logger,
+                diagram_renderer="mcp",
+                libavoid=True,
+                current_xml=self._CURRENT_XML,
+                diagram_views=["network", "logical"],
+            ))
+        view_mock.assert_not_called()
+        self.assertEqual(result["status"], "success")
+
+        def _page_name(page_xml: str) -> str | None:
+            doc = ET.fromstring(xml_pipeline.ensure_diagram_document(page_xml, "?"))
+            diag = doc.find(".//diagram")
+            return diag.get("name") if diag is not None else None
+
+        routed_page_names = {_page_name(call.args[0]) for call in create_diagram_mock.call_args_list}
+        self.assertNotIn(
+            "Logical", routed_page_names,
+            f"libavoid must not re-route the untouched Logical page: {routed_page_names}",
+        )
+        self.assertEqual(create_diagram_mock.call_count, 1, "libavoid should route only the edited Network page")
+        self.assertIn("Checkout Service", result["xml"])
 
 
 class RefreshOverviewAndLegendPositionsTests(unittest.TestCase):
