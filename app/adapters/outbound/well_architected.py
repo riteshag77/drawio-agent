@@ -31,39 +31,53 @@ PILLARS: dict[str, dict[str, Any]] = {
     },
 }
 
+#: Mirrors config/references/{aws_stencils,gcp-icons-common,azure-icons-common}.txt's
+#: current shape_type vocabulary — same drift risk, and the same disease, as
+#: compliance.py's _SERVICE_CATEGORIES and pricing.json's cloud_services:
+#: confirmed live this used aws_alb/aws_elb/aws_nlb/azure_lb/azure_agw/
+#: gcp_lb/azure_blob/azure_aci/gcp_storage, none of which exist in any
+#: current catalog, so a diagram's real load balancer, storage account, or
+#: container-instances leaf silently never counted as "good practice
+#: detected" for any pillar. See tests/test_well_architected.py's
+#: CatalogDriftTests, which fails loudly the next time a catalog changes
+#: without these being updated alongside it.
 SECURITY_SERVICES: set[str] = {
     "aws_waf", "aws_kms", "aws_secrets_manager", "aws_cognito", "aws_cloudtrail",
-    "azure_waf", "azure_key_vault", "azure_front_door",
-    "gcp_cloud_armor",
+    "aws_shield", "aws_guardduty", "aws_iam", "aws_directory_service", "aws_config",
+    "azure_key_vault", "azure_entra_id", "azure_firewall",
+    "azure_application_gateway", "azure_front_door",
+    "gcp_cloud_armor", "gcp_iam", "gcp_secret_manager", "gcp_cloud_kms", "gcp_identity_platform",
 }
 
 RELIABILITY_SERVICES: set[str] = {
-    "aws_elb", "aws_alb", "aws_nlb", "aws_route53", "aws_ec2", "aws_rds", "aws_aurora",
-    "azure_lb", "azure_agw", "azure_dns",
-    "gcp_lb", "gcp_cloud_dns",
+    "aws_application_load_balancer", "aws_network_load_balancer", "aws_route53",
+    "aws_ec2", "aws_rds", "aws_aurora", "aws_backup", "aws_dms",
+    "azure_load_balancer", "azure_application_gateway", "azure_dns",
+    "azure_sql_database", "azure_cosmos_db",
+    "gcp_cloud_load_balancing", "gcp_cloud_dns", "gcp_cloud_sql", "gcp_spanner",
 }
 
 PERFORMANCE_SERVICES: set[str] = {
-    "aws_cloudfront", "aws_elasticache", "aws_ecs", "aws_lambda",
-    "azure_front_door", "azure_redis", "azure_functions",
-    "gcp_cloud_cdn", "gcp_cloud_run", "gcp_cloud_functions",
+    "aws_cloudfront", "aws_elasticache", "aws_ecs", "aws_lambda", "aws_fargate",
+    "azure_front_door", "azure_redis", "azure_functions", "azure_container_instances",
+    "gcp_cloud_cdn", "gcp_cloud_run", "gcp_cloud_functions", "gcp_memorystore",
 }
 
 COST_SERVICES: set[str] = {
-    "aws_lambda", "aws_s3", "aws_ecs", "aws_dynamodb",
-    "azure_functions", "azure_blob",
-    "gcp_cloud_run", "gcp_cloud_functions", "gcp_storage",
+    "aws_lambda", "aws_s3", "aws_ecs", "aws_dynamodb", "aws_fargate",
+    "azure_functions", "azure_storage_account", "azure_container_instances",
+    "gcp_cloud_run", "gcp_cloud_functions", "gcp_cloud_storage",
 }
 
 OPS_SERVICES: set[str] = {
-    "aws_cloudwatch", "aws_cloudtrail",
+    "aws_cloudwatch", "aws_cloudtrail", "aws_xray", "aws_config",
     "azure_monitor",
-    "gcp_cloud_monitoring",
+    "gcp_cloud_monitoring", "gcp_cloud_logging",
 }
 
 SUSTAINABILITY_SERVICES: set[str] = {
-    "aws_lambda", "aws_ecs",
-    "azure_functions", "azure_aci",
+    "aws_lambda", "aws_ecs", "aws_fargate",
+    "azure_functions", "azure_container_instances",
     "gcp_cloud_run", "gcp_cloud_functions",
 }
 
@@ -110,19 +124,26 @@ _MISSING_RECOMMENDATIONS: dict[str, list[dict[str, Any]]] = {
     "security": [
         {
             "severity": "high",
-            "services": ["aws_waf", "azure_waf", "gcp_cloud_armor"],
+            # Azure has no standalone WAF icon — capability lives on
+            # Application Gateway/Front Door (same reasoning as
+            # compliance.py's PCI-DSS network_segmentation control).
+            "services": ["aws_waf", "azure_application_gateway", "azure_front_door", "gcp_cloud_armor"],
             "message": "No WAF or web application firewall detected",
             "recommendation": "Add a WAF to protect against common web exploits",
         },
         {
             "severity": "high",
-            "services": ["aws_kms", "azure_key_vault", "gcp_cloud_armor"],
+            # Was ["aws_kms", "azure_key_vault", "gcp_cloud_armor"] — gcp_cloud_armor
+            # is the WAF finding above, not encryption; copy-paste error meant a
+            # GCP diagram with Cloud Armor but no KMS silently passed this check,
+            # and one with real KMS but no Cloud Armor never could.
+            "services": ["aws_kms", "azure_key_vault", "gcp_cloud_kms"],
             "message": "No key management or encryption service detected",
             "recommendation": "Use KMS/Key Vault for encryption key management",
         },
         {
             "severity": "medium",
-            "services": ["aws_secrets_manager", "azure_key_vault"],
+            "services": ["aws_secrets_manager", "azure_key_vault", "gcp_secret_manager"],
             "message": "No secrets management service detected",
             "recommendation": "Use Secrets Manager or Key Vault for credentials",
         },
@@ -130,7 +151,10 @@ _MISSING_RECOMMENDATIONS: dict[str, list[dict[str, Any]]] = {
     "reliability": [
         {
             "severity": "high",
-            "services": ["aws_elb", "aws_alb", "aws_nlb", "azure_lb", "azure_agw", "gcp_lb"],
+            "services": [
+                "aws_application_load_balancer", "aws_network_load_balancer",
+                "azure_load_balancer", "azure_application_gateway", "gcp_cloud_load_balancing",
+            ],
             "message": "No load balancer detected",
             "recommendation": "Add a load balancer for HA traffic distribution",
         },
@@ -150,7 +174,7 @@ _MISSING_RECOMMENDATIONS: dict[str, list[dict[str, Any]]] = {
         },
         {
             "severity": "medium",
-            "services": ["aws_elasticache", "azure_redis"],
+            "services": ["aws_elasticache", "azure_redis", "gcp_memorystore"],
             "message": "No caching layer detected",
             "recommendation": "Use ElastiCache/Redis to reduce database load",
         },
@@ -164,7 +188,7 @@ _MISSING_RECOMMENDATIONS: dict[str, list[dict[str, Any]]] = {
         },
         {
             "severity": "low",
-            "services": ["aws_s3", "azure_blob", "gcp_storage"],
+            "services": ["aws_s3", "azure_storage_account", "gcp_cloud_storage"],
             "message": "Consider object storage for cost-effective data",
             "recommendation": "Use S3/Blob Storage for archival and static content",
         },

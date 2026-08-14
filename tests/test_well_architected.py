@@ -3,8 +3,25 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 
-from app.adapters.outbound.well_architected import assess_well_architected
+from app.adapters.outbound.well_architected import (
+    COST_SERVICES,
+    OPS_SERVICES,
+    PERFORMANCE_SERVICES,
+    RELIABILITY_SERVICES,
+    SECURITY_SERVICES,
+    SUSTAINABILITY_SERVICES,
+    _MISSING_RECOMMENDATIONS,
+    assess_well_architected,
+)
+
+_REFERENCES_DIR = Path(__file__).resolve().parent.parent / "config" / "references"
+_CATALOG_FILES = {
+    "aws": _REFERENCES_DIR / "aws_stencils.txt",
+    "gcp": _REFERENCES_DIR / "gcp-icons-common.txt",
+    "azure": _REFERENCES_DIR / "azure-icons-common.txt",
+}
 
 
 def _xml_with_services(*shape_types: str) -> str:
@@ -13,6 +30,25 @@ def _xml_with_services(*shape_types: str) -> str:
         for i, st in enumerate(shape_types)
     )
     return f'<mxfile><diagram name="A"><mxGraphModel><root>{cells}</root></mxGraphModel></diagram></mxfile>'
+
+
+def _catalog_shape_types() -> set[str]:
+    """Every real `shape_type` key currently in the icon catalogs — see
+    test_compliance.py's helper of the same name for the parsing logic."""
+    keys: set[str] = set()
+    for platform, path in _CATALOG_FILES.items():
+        in_broken_table = False
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line.startswith("##"):
+                in_broken_table = "no usable icon" in line.lower()
+                continue
+            if in_broken_table or not line.startswith("|") or set(line) <= set("|-: "):
+                continue
+            for cell in (c.strip() for c in line.strip("|").split("|")):
+                if cell.startswith(f"{platform}_") and "," not in cell:
+                    keys.add(cell)
+    return keys
 
 
 class MissingServicesHintTests(unittest.TestCase):
@@ -56,6 +92,59 @@ class MissingServicesHintTests(unittest.TestCase):
         )
         for svc in waf_finding["missing_services"]:
             self.assertTrue(svc.startswith("aws_"), svc)
+
+
+class KmsVsCloudArmorRegressionTests(unittest.TestCase):
+    """Confirmed live: the "encryption key management" recommendation's
+    services list was ["aws_kms", "azure_key_vault", "gcp_cloud_armor"] — a
+    copy-paste of the WAF finding directly above it. Cloud Armor is a WAF/
+    DDoS service, not encryption, so a GCP diagram with Cloud Armor but no
+    KMS silently passed this check, and one with real KMS but no Cloud
+    Armor never could pass it at all."""
+
+    def test_gcp_cloud_armor_alone_does_not_satisfy_the_kms_check(self) -> None:
+        xml = _xml_with_services("gcp_compute_engine", "gcp_cloud_armor")
+        result = assess_well_architected(xml, platform="gcp")
+        security = next(p for p in result["pillars"] if p["name"] == "Security")
+        kms_findings = [f for f in security["findings"] if "key management" in f.get("message", "")]
+        self.assertEqual(len(kms_findings), 1)
+        self.assertNotIn("gcp_cloud_armor", kms_findings[0]["missing_services"])
+
+    def test_gcp_cloud_kms_alone_satisfies_the_kms_check(self) -> None:
+        xml = _xml_with_services("gcp_compute_engine", "gcp_cloud_kms")
+        result = assess_well_architected(xml, platform="gcp")
+        security = next(p for p in result["pillars"] if p["name"] == "Security")
+        kms_findings = [f for f in security["findings"] if "key management" in f.get("message", "")]
+        self.assertEqual(kms_findings, [])
+
+
+class CatalogDriftTests(unittest.TestCase):
+    """The six pillar service sets and _MISSING_RECOMMENDATIONS are a
+    hand-maintained mirror of the icon catalogs — same drift risk as
+    compliance.py's _SERVICE_CATEGORIES and pricing.json's cloud_services
+    (see their own CatalogDriftTests). Confirmed live: this file referenced
+    aws_alb/aws_elb/aws_nlb/azure_lb/azure_agw/gcp_lb/azure_blob/azure_aci/
+    gcp_storage — none of which exist in any current catalog — so a
+    diagram's real load balancer, storage account, or container-instances
+    leaf never counted as "good practice detected" for any pillar."""
+
+    def test_no_pillar_service_references_a_retired_shape_type(self) -> None:
+        catalog_keys = _catalog_shape_types()
+        all_pillar_keys = (
+            SECURITY_SERVICES | RELIABILITY_SERVICES | PERFORMANCE_SERVICES
+            | COST_SERVICES | OPS_SERVICES | SUSTAINABILITY_SERVICES
+        )
+        stale = sorted(all_pillar_keys - catalog_keys)
+        self.assertEqual(stale, [], f"{len(stale)} pillar service key(s) no catalog has")
+
+    def test_no_recommendation_service_references_a_retired_shape_type(self) -> None:
+        catalog_keys = _catalog_shape_types()
+        rec_keys: set[str] = set()
+        for recs in _MISSING_RECOMMENDATIONS.values():
+            for rec in recs:
+                rec_keys |= set(rec["services"])
+        stale = sorted(rec_keys - catalog_keys)
+        self.assertEqual(stale, [], f"{len(stale)} recommendation service key(s) no catalog has")
 
 
 if __name__ == "__main__":
