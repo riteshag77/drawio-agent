@@ -761,34 +761,38 @@ _VENDOR_PREFIXES = ("aws_", "gcp_", "azure_")
 _VENDOR_STENCIL_MAP = {"aws4": "aws_", "gcp2": "gcp_", "azure2": "azure_"}
 _VENDOR_STENCIL_PATTERN = re.compile(r'mxgraph\.(aws4|gcp2|azure2)\.(\w+)')
 
-#: The IR/compiler vocabulary (config/references/aws_stencils.txt) uses the
-#: full descriptive mxgraph stencil name for these two — "application_load_
-#: balancer" / "network_load_balancer" — but cost_estimator.py/
-#: well_architected.py/compliance.py's static service-key configs all use the
-#: short AWS acronym. Once MCP resolves and styles a leaf, its shape_type
-#: attribute is gone and all that's left to detect it by is the stencil path
-#: in its style — which then decodes as the long form, silently failing every
-#: "is a load balancer present" check even though the icon is right there.
-#: Normalize to the short form other configs already standardize on (see
-#: view_conformance.py, which independently has to alias both spellings).
-#: This app targets AWS/GCP/Azure — the mismatch isn't AWS-specific, it's
-#: structural: every platform's icon catalog (config/references/*.txt) names
-#: stencils descriptively (what the icon depicts), while
-#: well_architected.py/compliance.py/cost_estimator.py's static service
-#: configs use each platform's short/official service code. Once MCP resolves
-#: and styles a leaf, its shape_type attribute is gone and all that's left to
-#: detect it by is the stencil path in its style — which decodes as the
-#: descriptive name, silently failing an "is X present" check even though the
-#: icon is right there in the diagram. Confirmed via live captures for AWS;
-#: the Azure/GCP entries below are the same pattern cross-checked directly
-#: against config/references/azure-icons-common.txt and
-#: config/references/gcp-icons-common.txt against the short codes those two
-#: files' own service configs check for — add more here as they surface,
-#: same shape.
+#: Two different, narrower jobs than the name suggests — both scoped away
+#: from find_service_keys' sources 1/2 (the LLM's own ground-truth key,
+#: which must never be rewritten):
+#:
+#: 1. Genuine stencil-decode oddities (route_53, cache_node, alarm,
+#:    data_encryption_key) where draw.io names the icon after what it
+#:    depicts, not the service — find_service_keys' source 3 (the
+#:    stencil-path fallback, only reached when a resolved leaf's
+#:    shape_type attribute is already gone) uses these to normalize onto
+#:    the current shape_type vocabulary.
+#: 2. The load-balancer/gateway pairs below (aws_application_load_balancer
+#:    -> aws_alb, azure_load_balancer -> azure_lb, azure_application_
+#:    gateway -> azure_agw, gcp_cloud_load_balancing -> gcp_lb) are consumed
+#:    almost entirely by drawio_mcp_client.py's _pick_style, which derives
+#:    an acronym-vs-full-name table from this dict to recognize a query
+#:    still using an old short form (a pre-catalog-rewrite diagram, a
+#:    surgical edit touching legacy content) as relevant to a candidate
+#:    stencil described by its full name. Confirmed live: these same four
+#:    keys are ALSO the current, correct shape_type vocabulary
+#:    (config/references/*.txt) — so when this alias step used to apply to
+#:    every source indiscriminately (a separate, now-fixed bug — see
+#:    find_service_keys' body), it took an already-correct
+#:    shape_type="azure_application_gateway" from source 2 and silently
+#:    downgraded it to the retired "azure_agw" on the way out, corrupting
+#:    every downstream compliance/cost/WAF check for that leaf. Scoping the
+#:    alias step to source 3 only (done in find_service_keys itself) is
+#:    what actually fixes that — these four stay here for _pick_style's
+#:    sake, and only affect find_service_keys' rare source-3 fallback
+#:    (an already-resolved leaf with no shape_type left, e.g. an
+#:    externally-uploaded diagram), not this app's own freshly-generated
+#:    diagrams, which almost always have shape_type= present.
 _SERVICE_KEY_ALIASES = {
-    # AWS
-    "aws_application_load_balancer": "aws_alb",
-    "aws_network_load_balancer": "aws_nlb",
     "aws_route_53": "aws_route53",  # Route 53's own stencil name has the underscore
     "aws_cache_node": "aws_elasticache",  # ElastiCache's stencil is named after its node type
     "aws_alarm": "aws_cloudwatch",  # CloudWatch's stencil is literally its Alarm icon
@@ -801,10 +805,11 @@ _SERVICE_KEY_ALIASES = {
     # forever — confirmed via a live capture where the user applied this
     # exact fix twice because compliance kept re-flagging it as missing.
     "aws_data_encryption_key": "aws_kms",
-    # Azure
+    # Load-balancer/gateway acronyms — see the class-2 explanation above.
+    "aws_application_load_balancer": "aws_alb",
+    "aws_network_load_balancer": "aws_nlb",
     "azure_load_balancer": "azure_lb",
     "azure_application_gateway": "azure_agw",
-    # GCP
     "gcp_cloud_load_balancing": "gcp_lb",
 }
 #: Stencil-path wrapper names, not real services — the regex fallback below
@@ -844,6 +849,14 @@ def find_service_keys(xml: str) -> list[str]:
     happens to be present, instead of all of them, silently under-detects
     part of the document.
     """
+    # _SERVICE_KEY_ALIASES only belongs on source 3 (the stencil-path
+    # fallback) — sources 1/2 are the LLM's own ground-truth key and must
+    # never be rewritten. Confirmed live: applying it unconditionally to all
+    # three sources (the previous shape here) took an already-correct
+    # shape_type="azure_application_gateway" and silently rewrote it to the
+    # alias table's *old* short form "azure_agw" on the way out, because
+    # that string happens to also be a key in this dict — corrupting the one
+    # source the function's own docstring calls "never wrong."
     keys: list[str] = []
     for m in re.finditer(r'\bservice\s*=\s*"([^"]+)"', xml):
         st = m.group(1).strip().lower()
@@ -857,8 +870,8 @@ def find_service_keys(xml: str) -> list[str]:
         name = m.group(2).lower()
         if name in _STENCIL_WRAPPER_NAMES:
             continue
-        keys.append(_VENDOR_STENCIL_MAP[m.group(1)] + name)
-    keys = [_SERVICE_KEY_ALIASES.get(k, k) for k in keys]
+        stencil_key = _VENDOR_STENCIL_MAP[m.group(1)] + name
+        keys.append(_SERVICE_KEY_ALIASES.get(stencil_key, stencil_key))
     return list(dict.fromkeys(keys))
 
 

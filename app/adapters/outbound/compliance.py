@@ -91,6 +91,8 @@ _SERVICE_CATEGORIES: dict[str, str] = {
     "azure_front_door": "networking", "azure_dns": "networking",
     "azure_virtual_network": "networking", "azure_vnet_peering": "networking",
     "azure_public_ip": "networking", "azure_firewall": "networking",
+    "azure_nat_gateway": "networking", "azure_vpn_gateway": "networking",
+    "azure_expressroute": "networking",
     # Azure — Data & storage
     "azure_storage_account": "storage", "azure_sql_database": "database",
     "azure_cosmos_db": "database", "azure_redis": "database", "azure_postgresql": "database",

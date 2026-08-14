@@ -36,6 +36,9 @@ unresolved placeholder.
 | azure_vnet_peering | VNet Peering |
 | azure_public_ip | Public IP |
 | azure_firewall | Azure Firewall |
+| azure_nat_gateway | NAT Gateway |
+| azure_vpn_gateway | VPN Gateway |
+| azure_expressroute | ExpressRoute |
 
 ## Data & storage
 | shape_type | Service |

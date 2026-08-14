@@ -4,98 +4,686 @@
   "usd_to_aud": 1.55,
   "notes": "Vendor list prices below are in USD and converted to AUD via usd_to_aud at estimate time. Update usd_to_aud when the FX rate drifts; update model/service rows from each provider's pricing page.",
   "llm_models": {
-    "gpt-4o": { "input_per_million_usd": 2.5, "output_per_million_usd": 10.0 },
-    "gpt-4o-mini": { "input_per_million_usd": 0.15, "output_per_million_usd": 0.6 },
-    "claude-sonnet-4-6": { "input_per_million_usd": 3.0, "output_per_million_usd": 15.0 },
-    "claude-sonnet": { "input_per_million_usd": 3.0, "output_per_million_usd": 15.0 },
-    "gemini-3.1-flash-lite": { "input_per_million_usd": 0.25, "output_per_million_usd": 1.5 },
-    "gemini-3.5-flash": { "input_per_million_usd": 1.5, "output_per_million_usd": 9.0 },
-    "gemini-3-flash": { "input_per_million_usd": 0.5, "output_per_million_usd": 3.0 },
-    "gemini-3.1-pro": { "input_per_million_usd": 2.0, "output_per_million_usd": 12.0 },
-    "gemini-2.5-flash-lite": { "input_per_million_usd": 0.1, "output_per_million_usd": 0.4 },
-    "gemini-2.5-flash": { "input_per_million_usd": 0.3, "output_per_million_usd": 2.5 },
-    "gemini-2.5-pro": { "input_per_million_usd": 1.25, "output_per_million_usd": 10.0 },
-    "gemini-flash-lite": { "input_per_million_usd": 0.25, "output_per_million_usd": 1.5 },
-    "gemini-flash": { "input_per_million_usd": 0.3, "output_per_million_usd": 2.5 },
-    "gemini-pro": { "input_per_million_usd": 1.25, "output_per_million_usd": 10.0 },
-    "kimi-k3": { "input_per_million_usd": 3.0, "output_per_million_usd": 15.0 },
-    "moonshot": { "input_per_million_usd": 3.0, "output_per_million_usd": 15.0 },
-    "kimi": { "input_per_million_usd": 3.0, "output_per_million_usd": 15.0 }
+    "gpt-4o": {
+      "input_per_million_usd": 2.5,
+      "output_per_million_usd": 10.0
+    },
+    "gpt-4o-mini": {
+      "input_per_million_usd": 0.15,
+      "output_per_million_usd": 0.6
+    },
+    "claude-sonnet-4-6": {
+      "input_per_million_usd": 3.0,
+      "output_per_million_usd": 15.0
+    },
+    "claude-sonnet": {
+      "input_per_million_usd": 3.0,
+      "output_per_million_usd": 15.0
+    },
+    "gemini-3.1-flash-lite": {
+      "input_per_million_usd": 0.25,
+      "output_per_million_usd": 1.5
+    },
+    "gemini-3.5-flash": {
+      "input_per_million_usd": 1.5,
+      "output_per_million_usd": 9.0
+    },
+    "gemini-3-flash": {
+      "input_per_million_usd": 0.5,
+      "output_per_million_usd": 3.0
+    },
+    "gemini-3.1-pro": {
+      "input_per_million_usd": 2.0,
+      "output_per_million_usd": 12.0
+    },
+    "gemini-2.5-flash-lite": {
+      "input_per_million_usd": 0.1,
+      "output_per_million_usd": 0.4
+    },
+    "gemini-2.5-flash": {
+      "input_per_million_usd": 0.3,
+      "output_per_million_usd": 2.5
+    },
+    "gemini-2.5-pro": {
+      "input_per_million_usd": 1.25,
+      "output_per_million_usd": 10.0
+    },
+    "gemini-flash-lite": {
+      "input_per_million_usd": 0.25,
+      "output_per_million_usd": 1.5
+    },
+    "gemini-flash": {
+      "input_per_million_usd": 0.3,
+      "output_per_million_usd": 2.5
+    },
+    "gemini-pro": {
+      "input_per_million_usd": 1.25,
+      "output_per_million_usd": 10.0
+    },
+    "kimi-k3": {
+      "input_per_million_usd": 3.0,
+      "output_per_million_usd": 15.0
+    },
+    "moonshot": {
+      "input_per_million_usd": 3.0,
+      "output_per_million_usd": 15.0
+    },
+    "kimi": {
+      "input_per_million_usd": 3.0,
+      "output_per_million_usd": 15.0
+    }
   },
   "cloud_fallback_monthly_usd": 15.0,
   "cloud_services": {
-    "aws_ec2": { "name": "EC2 (t3.medium)", "monthly_usd": 30.0, "category": "Compute" },
-    "aws_ecs": { "name": "ECS (Fargate)", "monthly_usd": 35.0, "category": "Compute" },
-    "aws_eks": { "name": "EKS", "monthly_usd": 73.0, "category": "Compute" },
-    "aws_lambda": { "name": "Lambda", "monthly_usd": 5.0, "category": "Compute" },
-    "aws_ecr": { "name": "ECR", "monthly_usd": 10.0, "category": "Compute" },
-    "aws_elb": { "name": "ELB", "monthly_usd": 18.0, "category": "Networking" },
-    "aws_alb": { "name": "ALB", "monthly_usd": 22.0, "category": "Networking" },
-    "aws_nlb": { "name": "NLB", "monthly_usd": 20.0, "category": "Networking" },
-    "aws_api_gateway": { "name": "API Gateway", "monthly_usd": 15.0, "category": "Networking" },
-    "aws_cloudfront": { "name": "CloudFront", "monthly_usd": 12.0, "category": "Networking" },
-    "aws_route53": { "name": "Route 53", "monthly_usd": 5.0, "category": "Networking" },
-    "aws_waf": { "name": "WAF", "monthly_usd": 20.0, "category": "Security" },
-    "aws_kms": { "name": "KMS", "monthly_usd": 5.0, "category": "Security" },
-    "aws_secrets_manager": { "name": "Secrets Manager", "monthly_usd": 4.0, "category": "Security" },
-    "aws_cognito": { "name": "Cognito", "monthly_usd": 5.0, "category": "Security" },
-    "aws_rds": { "name": "RDS (db.t3.medium)", "monthly_usd": 50.0, "category": "Database" },
-    "aws_aurora": { "name": "Aurora", "monthly_usd": 80.0, "category": "Database" },
-    "aws_dynamodb": { "name": "DynamoDB", "monthly_usd": 25.0, "category": "Database" },
-    "aws_elasticache": { "name": "ElastiCache", "monthly_usd": 35.0, "category": "Database" },
-    "aws_s3": { "name": "S3", "monthly_usd": 10.0, "category": "Storage" },
-    "aws_ebs": { "name": "EBS", "monthly_usd": 15.0, "category": "Storage" },
-    "aws_efs": { "name": "EFS", "monthly_usd": 20.0, "category": "Storage" },
-    "aws_sqs": { "name": "SQS", "monthly_usd": 5.0, "category": "Integration" },
-    "aws_sns": { "name": "SNS", "monthly_usd": 5.0, "category": "Integration" },
-    "aws_eventbridge": { "name": "EventBridge", "monthly_usd": 5.0, "category": "Integration" },
-    "aws_step_functions": { "name": "Step Functions", "monthly_usd": 10.0, "category": "Integration" },
-    "aws_cloudwatch": { "name": "CloudWatch", "monthly_usd": 5.0, "category": "Management" },
-    "aws_cloudtrail": { "name": "CloudTrail", "monthly_usd": 2.0, "category": "Management" },
-    "aws_glue": { "name": "Glue", "monthly_usd": 30.0, "category": "Analytics" },
-    "aws_kinesis": { "name": "Kinesis", "monthly_usd": 25.0, "category": "Analytics" },
-    "aws_athena": { "name": "Athena", "monthly_usd": 5.0, "category": "Analytics" },
-    "aws_redshift": { "name": "Redshift", "monthly_usd": 120.0, "category": "Analytics" },
-    "aws_emr": { "name": "EMR", "monthly_usd": 100.0, "category": "Analytics" },
-    "gcp_compute_engine": { "name": "Compute Engine (n1-standard-2)", "monthly_usd": 48.0, "category": "Compute" },
-    "gcp_gke": { "name": "GKE", "monthly_usd": 73.0, "category": "Compute" },
-    "gcp_cloud_run": { "name": "Cloud Run", "monthly_usd": 10.0, "category": "Compute" },
-    "gcp_cloud_functions": { "name": "Cloud Functions", "monthly_usd": 5.0, "category": "Compute" },
-    "gcp_lb": { "name": "Cloud Load Balancer", "monthly_usd": 20.0, "category": "Networking" },
-    "gcp_cloud_cdn": { "name": "Cloud CDN", "monthly_usd": 10.0, "category": "Networking" },
-    "gcp_cloud_dns": { "name": "Cloud DNS", "monthly_usd": 4.0, "category": "Networking" },
-    "gcp_cloud_armor": { "name": "Cloud Armor", "monthly_usd": 25.0, "category": "Security" },
-    "gcp_cloud_sql": { "name": "Cloud SQL (db-n1-standard-2)", "monthly_usd": 60.0, "category": "Database" },
-    "gcp_spanner": { "name": "Spanner", "monthly_usd": 150.0, "category": "Database" },
-    "gcp_firestore": { "name": "Firestore", "monthly_usd": 15.0, "category": "Database" },
-    "gcp_bigtable": { "name": "Bigtable", "monthly_usd": 100.0, "category": "Database" },
-    "gcp_storage": { "name": "Cloud Storage", "monthly_usd": 8.0, "category": "Storage" },
-    "gcp_filestore": { "name": "Filestore", "monthly_usd": 25.0, "category": "Storage" },
-    "gcp_pubsub": { "name": "Pub/Sub", "monthly_usd": 5.0, "category": "Integration" },
-    "gcp_tasks": { "name": "Cloud Tasks", "monthly_usd": 3.0, "category": "Integration" },
-    "gcp_cloud_monitoring": { "name": "Cloud Monitoring", "monthly_usd": 5.0, "category": "Management" },
-    "gcp_bigquery": { "name": "BigQuery", "monthly_usd": 100.0, "category": "Analytics" },
-    "gcp_dataflow": { "name": "Dataflow", "monthly_usd": 60.0, "category": "Analytics" },
-    "gcp_dataproc": { "name": "Dataproc", "monthly_usd": 80.0, "category": "Analytics" },
-    "azure_vm": { "name": "VM (D2s v3)", "monthly_usd": 45.0, "category": "Compute" },
-    "azure_aks": { "name": "AKS", "monthly_usd": 73.0, "category": "Compute" },
-    "azure_app_service": { "name": "App Service", "monthly_usd": 30.0, "category": "Compute" },
-    "azure_functions": { "name": "Functions", "monthly_usd": 5.0, "category": "Compute" },
-    "azure_aci": { "name": "Container Instances", "monthly_usd": 20.0, "category": "Compute" },
-    "azure_lb": { "name": "Load Balancer", "monthly_usd": 18.0, "category": "Networking" },
-    "azure_agw": { "name": "Application Gateway", "monthly_usd": 25.0, "category": "Networking" },
-    "azure_front_door": { "name": "Front Door", "monthly_usd": 35.0, "category": "Networking" },
-    "azure_dns": { "name": "Azure DNS", "monthly_usd": 4.0, "category": "Networking" },
-    "azure_waf": { "name": "WAF", "monthly_usd": 25.0, "category": "Security" },
-    "azure_key_vault": { "name": "Key Vault", "monthly_usd": 3.0, "category": "Security" },
-    "azure_sql": { "name": "SQL Database (S2)", "monthly_usd": 75.0, "category": "Database" },
-    "azure_cosmos_db": { "name": "Cosmos DB", "monthly_usd": 60.0, "category": "Database" },
-    "azure_redis": { "name": "Redis Cache", "monthly_usd": 30.0, "category": "Database" },
-    "azure_blob": { "name": "Blob Storage", "monthly_usd": 8.0, "category": "Storage" },
-    "azure_disk": { "name": "Managed Disk", "monthly_usd": 12.0, "category": "Storage" },
-    "azure_queue": { "name": "Storage Queue", "monthly_usd": 3.0, "category": "Integration" },
-    "azure_service_bus": { "name": "Service Bus", "monthly_usd": 10.0, "category": "Integration" },
-    "azure_event_grid": { "name": "Event Grid", "monthly_usd": 5.0, "category": "Integration" },
-    "azure_monitor": { "name": "Azure Monitor", "monthly_usd": 5.0, "category": "Management" }
+    "aws_api_gateway": {
+      "name": "API Gateway",
+      "monthly_usd": 15.0,
+      "category": "Networking"
+    },
+    "aws_application_load_balancer": {
+      "name": "ALB",
+      "monthly_usd": 22.0,
+      "category": "Networking"
+    },
+    "aws_athena": {
+      "name": "Athena",
+      "monthly_usd": 5.0,
+      "category": "Analytics"
+    },
+    "aws_aurora": {
+      "name": "Aurora",
+      "monthly_usd": 80.0,
+      "category": "Database"
+    },
+    "aws_backup": {
+      "name": "Backup",
+      "monthly_usd": 10.0,
+      "category": "Storage"
+    },
+    "aws_bedrock": {
+      "name": "Bedrock",
+      "monthly_usd": 50.0,
+      "category": "Analytics"
+    },
+    "aws_cloudfront": {
+      "name": "CloudFront",
+      "monthly_usd": 12.0,
+      "category": "Networking"
+    },
+    "aws_cloudtrail": {
+      "name": "CloudTrail",
+      "monthly_usd": 2.0,
+      "category": "Management"
+    },
+    "aws_cloudwatch": {
+      "name": "CloudWatch",
+      "monthly_usd": 5.0,
+      "category": "Management"
+    },
+    "aws_cognito": {
+      "name": "Cognito",
+      "monthly_usd": 5.0,
+      "category": "Security"
+    },
+    "aws_comprehend": {
+      "name": "Comprehend",
+      "monthly_usd": 10.0,
+      "category": "Analytics"
+    },
+    "aws_config": {
+      "name": "Config",
+      "monthly_usd": 10.0,
+      "category": "Security"
+    },
+    "aws_directory_service": {
+      "name": "Directory Service",
+      "monthly_usd": 73.0,
+      "category": "Security"
+    },
+    "aws_dms": {
+      "name": "Database Migration Service",
+      "monthly_usd": 40.0,
+      "category": "Database"
+    },
+    "aws_documentdb": {
+      "name": "DocumentDB",
+      "monthly_usd": 70.0,
+      "category": "Database"
+    },
+    "aws_dynamodb": {
+      "name": "DynamoDB",
+      "monthly_usd": 25.0,
+      "category": "Database"
+    },
+    "aws_ebs": {
+      "name": "EBS",
+      "monthly_usd": 15.0,
+      "category": "Storage"
+    },
+    "aws_ec2": {
+      "name": "EC2 (t3.medium)",
+      "monthly_usd": 30.0,
+      "category": "Compute"
+    },
+    "aws_ec2_instance": {
+      "name": "EC2 Instance",
+      "monthly_usd": 30.0,
+      "category": "Compute"
+    },
+    "aws_ecs": {
+      "name": "ECS (Fargate)",
+      "monthly_usd": 35.0,
+      "category": "Compute"
+    },
+    "aws_ecs_container": {
+      "name": "ECS Container",
+      "monthly_usd": 35.0,
+      "category": "Compute"
+    },
+    "aws_efs": {
+      "name": "EFS",
+      "monthly_usd": 20.0,
+      "category": "Storage"
+    },
+    "aws_elastic_beanstalk": {
+      "name": "Elastic Beanstalk",
+      "monthly_usd": 30.0,
+      "category": "Compute"
+    },
+    "aws_elasticache": {
+      "name": "ElastiCache",
+      "monthly_usd": 35.0,
+      "category": "Database"
+    },
+    "aws_emr": {
+      "name": "EMR",
+      "monthly_usd": 100.0,
+      "category": "Analytics"
+    },
+    "aws_endpoints": {
+      "name": "VPC Endpoints",
+      "monthly_usd": 8.0,
+      "category": "Networking"
+    },
+    "aws_eventbridge": {
+      "name": "EventBridge",
+      "monthly_usd": 5.0,
+      "category": "Integration"
+    },
+    "aws_fargate": {
+      "name": "Fargate",
+      "monthly_usd": 35.0,
+      "category": "Compute"
+    },
+    "aws_generic_database": {
+      "name": "Non-AWS Database",
+      "monthly_usd": 30.0,
+      "category": "Database"
+    },
+    "aws_generic_firewall": {
+      "name": "Firewall Appliance",
+      "monthly_usd": 20.0,
+      "category": "Security"
+    },
+    "aws_glue": {
+      "name": "Glue",
+      "monthly_usd": 30.0,
+      "category": "Analytics"
+    },
+    "aws_guardduty": {
+      "name": "GuardDuty",
+      "monthly_usd": 30.0,
+      "category": "Security"
+    },
+    "aws_iam": {
+      "name": "IAM",
+      "monthly_usd": 0.0,
+      "category": "Security"
+    },
+    "aws_internet_gateway": {
+      "name": "Internet Gateway",
+      "monthly_usd": 0.0,
+      "category": "Networking"
+    },
+    "aws_kinesis": {
+      "name": "Kinesis",
+      "monthly_usd": 25.0,
+      "category": "Analytics"
+    },
+    "aws_kms": {
+      "name": "KMS",
+      "monthly_usd": 5.0,
+      "category": "Security"
+    },
+    "aws_kubernetes": {
+      "name": "EKS / Kubernetes",
+      "monthly_usd": 73.0,
+      "category": "Compute"
+    },
+    "aws_lambda": {
+      "name": "Lambda",
+      "monthly_usd": 5.0,
+      "category": "Compute"
+    },
+    "aws_managed_streaming_for_kafka": {
+      "name": "MSK (Managed Kafka)",
+      "monthly_usd": 150.0,
+      "category": "Analytics"
+    },
+    "aws_nat_gateway": {
+      "name": "NAT Gateway",
+      "monthly_usd": 35.0,
+      "category": "Networking"
+    },
+    "aws_neptune": {
+      "name": "Neptune",
+      "monthly_usd": 90.0,
+      "category": "Database"
+    },
+    "aws_network_load_balancer": {
+      "name": "NLB",
+      "monthly_usd": 20.0,
+      "category": "Networking"
+    },
+    "aws_peering": {
+      "name": "VPC Peering",
+      "monthly_usd": 2.0,
+      "category": "Networking"
+    },
+    "aws_privatelink": {
+      "name": "PrivateLink",
+      "monthly_usd": 22.0,
+      "category": "Networking"
+    },
+    "aws_rds": {
+      "name": "RDS (db.t3.medium)",
+      "monthly_usd": 50.0,
+      "category": "Database"
+    },
+    "aws_redshift": {
+      "name": "Redshift",
+      "monthly_usd": 120.0,
+      "category": "Analytics"
+    },
+    "aws_rekognition": {
+      "name": "Rekognition",
+      "monthly_usd": 10.0,
+      "category": "Analytics"
+    },
+    "aws_route53": {
+      "name": "Route 53",
+      "monthly_usd": 5.0,
+      "category": "Networking"
+    },
+    "aws_s3": {
+      "name": "S3",
+      "monthly_usd": 10.0,
+      "category": "Storage"
+    },
+    "aws_sagemaker": {
+      "name": "SageMaker",
+      "monthly_usd": 100.0,
+      "category": "Analytics"
+    },
+    "aws_secrets_manager": {
+      "name": "Secrets Manager",
+      "monthly_usd": 4.0,
+      "category": "Security"
+    },
+    "aws_ses": {
+      "name": "SES",
+      "monthly_usd": 3.0,
+      "category": "Integration"
+    },
+    "aws_shield": {
+      "name": "Shield (Standard)",
+      "monthly_usd": 0.0,
+      "category": "Security"
+    },
+    "aws_single_sign_on": {
+      "name": "IAM Identity Center (SSO)",
+      "monthly_usd": 0.0,
+      "category": "Security"
+    },
+    "aws_snowball": {
+      "name": "Snowball",
+      "monthly_usd": 15.0,
+      "category": "Storage"
+    },
+    "aws_sns": {
+      "name": "SNS",
+      "monthly_usd": 5.0,
+      "category": "Integration"
+    },
+    "aws_sqs": {
+      "name": "SQS",
+      "monthly_usd": 5.0,
+      "category": "Integration"
+    },
+    "aws_step_functions": {
+      "name": "Step Functions",
+      "monthly_usd": 10.0,
+      "category": "Integration"
+    },
+    "aws_storage_gateway": {
+      "name": "Storage Gateway",
+      "monthly_usd": 20.0,
+      "category": "Storage"
+    },
+    "aws_timestream": {
+      "name": "Timestream",
+      "monthly_usd": 40.0,
+      "category": "Database"
+    },
+    "aws_translate": {
+      "name": "Translate",
+      "monthly_usd": 10.0,
+      "category": "Analytics"
+    },
+    "aws_vpc": {
+      "name": "VPC",
+      "monthly_usd": 2.0,
+      "category": "Networking"
+    },
+    "aws_vpn_gateway": {
+      "name": "VPN Gateway",
+      "monthly_usd": 36.0,
+      "category": "Networking"
+    },
+    "aws_waf": {
+      "name": "WAF",
+      "monthly_usd": 20.0,
+      "category": "Security"
+    },
+    "aws_xray": {
+      "name": "X-Ray",
+      "monthly_usd": 5.0,
+      "category": "Management"
+    },
+    "azure_aks": {
+      "name": "AKS",
+      "monthly_usd": 73.0,
+      "category": "Compute"
+    },
+    "azure_api_management": {
+      "name": "API Management",
+      "monthly_usd": 50.0,
+      "category": "Networking"
+    },
+    "azure_app_service": {
+      "name": "App Service",
+      "monthly_usd": 30.0,
+      "category": "Compute"
+    },
+    "azure_application_gateway": {
+      "name": "Application Gateway",
+      "monthly_usd": 25.0,
+      "category": "Networking"
+    },
+    "azure_container_instances": {
+      "name": "Container Instances",
+      "monthly_usd": 20.0,
+      "category": "Compute"
+    },
+    "azure_cosmos_db": {
+      "name": "Cosmos DB",
+      "monthly_usd": 60.0,
+      "category": "Database"
+    },
+    "azure_dns": {
+      "name": "Azure DNS",
+      "monthly_usd": 4.0,
+      "category": "Networking"
+    },
+    "azure_entra_id": {
+      "name": "Microsoft Entra ID",
+      "monthly_usd": 0.0,
+      "category": "Security"
+    },
+    "azure_event_grid": {
+      "name": "Event Grid",
+      "monthly_usd": 5.0,
+      "category": "Integration"
+    },
+    "azure_event_hubs": {
+      "name": "Event Hubs",
+      "monthly_usd": 25.0,
+      "category": "Integration"
+    },
+    "azure_expressroute": {
+      "name": "ExpressRoute",
+      "monthly_usd": 300.0,
+      "category": "Networking"
+    },
+    "azure_firewall": {
+      "name": "Azure Firewall",
+      "monthly_usd": 180.0,
+      "category": "Networking"
+    },
+    "azure_front_door": {
+      "name": "Front Door",
+      "monthly_usd": 35.0,
+      "category": "Networking"
+    },
+    "azure_functions": {
+      "name": "Functions",
+      "monthly_usd": 5.0,
+      "category": "Compute"
+    },
+    "azure_key_vault": {
+      "name": "Key Vault",
+      "monthly_usd": 3.0,
+      "category": "Security"
+    },
+    "azure_load_balancer": {
+      "name": "Load Balancer",
+      "monthly_usd": 18.0,
+      "category": "Networking"
+    },
+    "azure_logic_apps": {
+      "name": "Logic Apps",
+      "monthly_usd": 10.0,
+      "category": "Integration"
+    },
+    "azure_monitor": {
+      "name": "Azure Monitor",
+      "monthly_usd": 5.0,
+      "category": "Management"
+    },
+    "azure_nat_gateway": {
+      "name": "NAT Gateway",
+      "monthly_usd": 35.0,
+      "category": "Networking"
+    },
+    "azure_postgresql": {
+      "name": "Azure Database for PostgreSQL",
+      "monthly_usd": 60.0,
+      "category": "Database"
+    },
+    "azure_public_ip": {
+      "name": "Public IP",
+      "monthly_usd": 4.0,
+      "category": "Networking"
+    },
+    "azure_redis": {
+      "name": "Redis Cache",
+      "monthly_usd": 30.0,
+      "category": "Database"
+    },
+    "azure_service_bus": {
+      "name": "Service Bus",
+      "monthly_usd": 10.0,
+      "category": "Integration"
+    },
+    "azure_sql_database": {
+      "name": "SQL Database (S2)",
+      "monthly_usd": 75.0,
+      "category": "Database"
+    },
+    "azure_storage_account": {
+      "name": "Blob Storage",
+      "monthly_usd": 8.0,
+      "category": "Storage"
+    },
+    "azure_virtual_network": {
+      "name": "Virtual Network",
+      "monthly_usd": 0.0,
+      "category": "Networking"
+    },
+    "azure_vm": {
+      "name": "VM (D2s v3)",
+      "monthly_usd": 45.0,
+      "category": "Compute"
+    },
+    "azure_vnet_peering": {
+      "name": "VNet Peering",
+      "monthly_usd": 2.0,
+      "category": "Networking"
+    },
+    "azure_vpn_gateway": {
+      "name": "VPN Gateway",
+      "monthly_usd": 36.0,
+      "category": "Networking"
+    },
+    "gcp_app_engine": {
+      "name": "App Engine",
+      "monthly_usd": 20.0,
+      "category": "Compute"
+    },
+    "gcp_bigquery": {
+      "name": "BigQuery",
+      "monthly_usd": 100.0,
+      "category": "Analytics"
+    },
+    "gcp_bigtable": {
+      "name": "Bigtable",
+      "monthly_usd": 100.0,
+      "category": "Database"
+    },
+    "gcp_cloud_armor": {
+      "name": "Cloud Armor",
+      "monthly_usd": 25.0,
+      "category": "Security"
+    },
+    "gcp_cloud_cdn": {
+      "name": "Cloud CDN",
+      "monthly_usd": 10.0,
+      "category": "Networking"
+    },
+    "gcp_cloud_dns": {
+      "name": "Cloud DNS",
+      "monthly_usd": 4.0,
+      "category": "Networking"
+    },
+    "gcp_cloud_functions": {
+      "name": "Cloud Functions",
+      "monthly_usd": 5.0,
+      "category": "Compute"
+    },
+    "gcp_cloud_kms": {
+      "name": "Cloud KMS",
+      "monthly_usd": 5.0,
+      "category": "Security"
+    },
+    "gcp_cloud_load_balancing": {
+      "name": "Cloud Load Balancer",
+      "monthly_usd": 20.0,
+      "category": "Networking"
+    },
+    "gcp_cloud_logging": {
+      "name": "Cloud Logging",
+      "monthly_usd": 5.0,
+      "category": "Management"
+    },
+    "gcp_cloud_monitoring": {
+      "name": "Cloud Monitoring",
+      "monthly_usd": 5.0,
+      "category": "Management"
+    },
+    "gcp_cloud_nat": {
+      "name": "Cloud NAT",
+      "monthly_usd": 35.0,
+      "category": "Networking"
+    },
+    "gcp_cloud_run": {
+      "name": "Cloud Run",
+      "monthly_usd": 10.0,
+      "category": "Compute"
+    },
+    "gcp_cloud_sql": {
+      "name": "Cloud SQL (db-n1-standard-2)",
+      "monthly_usd": 60.0,
+      "category": "Database"
+    },
+    "gcp_cloud_storage": {
+      "name": "Cloud Storage",
+      "monthly_usd": 8.0,
+      "category": "Storage"
+    },
+    "gcp_compute_engine": {
+      "name": "Compute Engine (n1-standard-2)",
+      "monthly_usd": 48.0,
+      "category": "Compute"
+    },
+    "gcp_dataflow": {
+      "name": "Dataflow",
+      "monthly_usd": 60.0,
+      "category": "Analytics"
+    },
+    "gcp_firestore": {
+      "name": "Firestore",
+      "monthly_usd": 15.0,
+      "category": "Database"
+    },
+    "gcp_gke": {
+      "name": "GKE",
+      "monthly_usd": 73.0,
+      "category": "Compute"
+    },
+    "gcp_iam": {
+      "name": "IAM",
+      "monthly_usd": 0.0,
+      "category": "Security"
+    },
+    "gcp_identity_platform": {
+      "name": "Identity Platform",
+      "monthly_usd": 10.0,
+      "category": "Security"
+    },
+    "gcp_memorystore": {
+      "name": "Memorystore",
+      "monthly_usd": 35.0,
+      "category": "Database"
+    },
+    "gcp_pubsub": {
+      "name": "Pub/Sub",
+      "monthly_usd": 5.0,
+      "category": "Integration"
+    },
+    "gcp_secret_manager": {
+      "name": "Secret Manager",
+      "monthly_usd": 3.0,
+      "category": "Security"
+    },
+    "gcp_spanner": {
+      "name": "Spanner",
+      "monthly_usd": 150.0,
+      "category": "Database"
+    },
+    "gcp_vertex_ai": {
+      "name": "Vertex AI",
+      "monthly_usd": 80.0,
+      "category": "Analytics"
+    },
+    "gcp_vpc": {
+      "name": "VPC",
+      "monthly_usd": 2.0,
+      "category": "Networking"
+    },
+    "gcp_vpc_peering": {
+      "name": "VPC Peering",
+      "monthly_usd": 2.0,
+      "category": "Networking"
+    }
   }
 }

@@ -45,6 +45,28 @@ class FindServiceKeysTests(unittest.TestCase):
         )
         self.assertIn("aws_kms", find_service_keys(xml))
 
+    def test_shape_type_ground_truth_is_never_downgraded_by_the_alias_table(self) -> None:
+        """Confirmed live: shape_type="azure_application_gateway" (source 2,
+        already the correct current shape_type — see azure-icons-common.txt)
+        was getting silently rewritten to the retired "azure_agw" because
+        _SERVICE_KEY_ALIASES used to apply to every source indiscriminately,
+        not just source 3 (the stencil-path fallback it's actually meant
+        for). That corrupted every downstream compliance/cost/WAF check —
+        happened on every one of this app's own diagrams, not just an edge
+        case, since sources 1/2 are the common path and source 3 is the rare
+        one. The four keys below are exactly the ones _SERVICE_KEY_ALIASES
+        still maps (for source 3's/drawio_mcp_client.py's sake) — this
+        confirms none of that leaks into sources 1/2."""
+        for key in (
+            "aws_application_load_balancer", "aws_network_load_balancer",
+            "azure_load_balancer", "azure_application_gateway", "gcp_cloud_load_balancing",
+        ):
+            with self.subTest(key=key):
+                shape_type_xml = f'<mxCell id="a" shape_type="{key}" vertex="1"/>'
+                self.assertEqual(find_service_keys(shape_type_xml), [key])
+                service_xml = f'<mxCell id="a" service="{key}" vertex="1"/>'
+                self.assertEqual(find_service_keys(service_xml), [key])
+
     def test_detects_both_sources_in_the_same_mixed_document(self) -> None:
         """The exact real-world shape after a surgical edit: some leaves still
         carry a raw shape_type (unresolved), others have already been
