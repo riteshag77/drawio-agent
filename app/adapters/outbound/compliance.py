@@ -15,71 +15,91 @@ from app.core.logging import StepLogger
 COMPLIANCE_DIR = Path(__file__).resolve().parent.parent.parent.parent / "config" / "compliance"
 LLM_PROMPT_PATH = COMPLIANCE_DIR.parent / "compliance_llm_prompt.txt"
 
+#: Mirrors the current `shape_type` vocabulary in config/references/
+#: aws_stencils.txt / gcp-icons-common.txt / azure-icons-common.txt — a leaf
+#: whose key isn't in this dict silently drops out of every compliance check
+#: (see _services_in_categories), so this must be kept in sync with those
+#: catalogs, not with whatever the catalogs looked like when this was
+#: written. Confirmed live: 72 of 134 real catalog keys (54%) were missing
+#: and 29 entries referenced key names — aws_alb, azure_ad, gcp_kms among
+#: them — that no longer exist in any catalog at all, silently breaking
+#: entire compliance controls (see config/compliance/*.yaml's own
+#: required_services, migrated in the same fix). "Generic / non-AWS actors"
+#: catalog entries that represent a real component (a non-AWS database, a
+#: firewall appliance) are included; pure actor placeholders (a client
+#: browser, a router) are not — they're not an auditable cloud service.
 _SERVICE_CATEGORIES: dict[str, str] = {
-    # AWS — Storage
-    "aws_s3": "storage", "aws_ebs": "storage", "aws_efs": "storage", "aws_backup": "storage",
-    # AWS — Database
-    "aws_rds": "database", "aws_aurora": "database", "aws_dynamodb": "database",
-    "aws_elasticache": "database", "aws_redshift": "database",
     # AWS — Compute
-    "aws_ec2": "compute", "aws_ecs": "compute", "aws_eks": "compute", "aws_lambda": "compute",
-    "aws_ecr": "compute",
-    # AWS — Security
-    "aws_kms": "security", "aws_waf": "security", "aws_secrets_manager": "security",
-    "aws_cognito": "security", "aws_iam": "security", "aws_guardduty": "security",
-    "aws_inspector": "security",
-    # AWS — Networking
-    "aws_elb": "networking", "aws_alb": "networking", "aws_nlb": "networking",
-    "aws_api_gateway": "networking", "aws_cloudfront": "networking",
-    "aws_route53": "networking", "aws_network_firewall": "networking", "aws_vpn": "networking",
-    # AWS — Management / Logging
-    "aws_cloudtrail": "management", "aws_cloudwatch": "management",
-    # AWS — Integration
-    "aws_sqs": "integration", "aws_sns": "integration",
-    "aws_eventbridge": "integration", "aws_step_functions": "integration",
-    # AWS — Analytics
-    "aws_glue": "analytics", "aws_kinesis": "analytics",
-    "aws_athena": "analytics", "aws_emr": "analytics",
-    # GCP — Storage
-    "gcp_storage": "storage", "gcp_filestore": "storage",
-    # GCP — Database
-    "gcp_cloud_sql": "database", "gcp_spanner": "database",
-    "gcp_firestore": "database", "gcp_bigtable": "database",
-    # GCP — Compute
-    "gcp_compute_engine": "compute", "gcp_gke": "compute",
-    "gcp_cloud_run": "compute", "gcp_cloud_functions": "compute",
-    # GCP — Security
-    "gcp_kms": "security", "gcp_cloud_armor": "security",
-    "gcp_iam": "security", "gcp_security_scanner": "security",
-    "gcp_secret_manager": "security",
+    "aws_lambda": "compute", "aws_ec2": "compute", "aws_ec2_instance": "compute",
+    "aws_ecs": "compute", "aws_ecs_container": "compute", "aws_fargate": "compute",
+    "aws_elastic_beanstalk": "compute", "aws_kubernetes": "compute",
+    # AWS — Application integration
+    "aws_api_gateway": "networking", "aws_eventbridge": "integration",
+    "aws_sns": "integration", "aws_sqs": "integration",
+    "aws_step_functions": "integration", "aws_ses": "integration",
+    # AWS — Database
+    "aws_dynamodb": "database", "aws_rds": "database", "aws_aurora": "database",
+    "aws_elasticache": "database", "aws_redshift": "database", "aws_dms": "database",
+    "aws_timestream": "database", "aws_documentdb": "database", "aws_neptune": "database",
+    # AWS — Storage
+    "aws_s3": "storage", "aws_efs": "storage", "aws_ebs": "storage", "aws_backup": "storage",
+    "aws_storage_gateway": "storage", "aws_snowball": "storage",
+    # AWS — Networking & content delivery
+    "aws_cloudfront": "networking", "aws_route53": "networking",
+    "aws_application_load_balancer": "networking", "aws_network_load_balancer": "networking",
+    "aws_vpc": "networking", "aws_nat_gateway": "networking", "aws_internet_gateway": "networking",
+    "aws_vpn_gateway": "networking", "aws_privatelink": "networking",
+    "aws_endpoints": "networking", "aws_peering": "networking",
+    # AWS — Security, identity & compliance
+    "aws_iam": "security", "aws_cognito": "security", "aws_kms": "security",
+    "aws_secrets_manager": "security", "aws_waf": "security", "aws_shield": "security",
+    "aws_directory_service": "security", "aws_single_sign_on": "security",
+    "aws_guardduty": "security", "aws_config": "security",
+    # AWS — Management & observability
+    "aws_cloudwatch": "management", "aws_cloudtrail": "management", "aws_xray": "management",
+    # AWS — Analytics, streaming & ML
+    "aws_kinesis": "analytics", "aws_managed_streaming_for_kafka": "analytics",
+    "aws_athena": "analytics", "aws_glue": "analytics", "aws_emr": "analytics",
+    "aws_sagemaker": "analytics", "aws_bedrock": "analytics", "aws_comprehend": "analytics",
+    "aws_rekognition": "analytics", "aws_translate": "analytics",
+    # AWS — Generic / non-AWS actors (real components only)
+    "aws_generic_database": "database", "aws_generic_firewall": "security",
+
+    # GCP — Compute & Containers
+    "gcp_compute_engine": "compute", "gcp_cloud_run": "compute", "gcp_gke": "compute",
+    "gcp_app_engine": "compute", "gcp_cloud_functions": "compute",
     # GCP — Networking
-    "gcp_lb": "networking", "gcp_cloud_cdn": "networking",
-    "gcp_cloud_dns": "networking", "gcp_vpn": "networking",
-    # GCP — Management
+    "gcp_cloud_load_balancing": "networking", "gcp_cloud_cdn": "networking",
+    "gcp_cloud_dns": "networking", "gcp_cloud_armor": "security", "gcp_vpc": "networking",
+    "gcp_cloud_nat": "networking", "gcp_vpc_peering": "networking",
+    # GCP — Data & Storage
+    "gcp_cloud_storage": "storage", "gcp_cloud_sql": "database", "gcp_spanner": "database",
+    "gcp_bigtable": "database", "gcp_firestore": "database", "gcp_memorystore": "database",
+    "gcp_bigquery": "analytics", "gcp_pubsub": "integration", "gcp_dataflow": "analytics",
+    # GCP — Security & Ops
+    "gcp_iam": "security", "gcp_identity_platform": "security",
+    "gcp_secret_manager": "security", "gcp_cloud_kms": "security",
     "gcp_cloud_monitoring": "management", "gcp_cloud_logging": "management",
-    # GCP — Integration
-    "gcp_pubsub": "integration", "gcp_tasks": "integration",
-    # GCP — Analytics
-    "gcp_bigquery": "analytics", "gcp_dataflow": "analytics", "gcp_dataproc": "analytics",
-    # Azure — Storage
-    "azure_blob": "storage", "azure_disk": "storage", "azure_backup": "storage",
-    # Azure — Database
-    "azure_sql": "database", "azure_cosmos_db": "database", "azure_redis": "database",
+    # GCP — AI / Other
+    "gcp_vertex_ai": "analytics",
+
     # Azure — Compute
-    "azure_vm": "compute", "azure_aks": "compute",
-    "azure_app_service": "compute", "azure_functions": "compute", "azure_aci": "compute",
-    # Azure — Security
-    "azure_key_vault": "security", "azure_waf": "security", "azure_ad": "security",
-    "azure_defender": "security", "azure_sentinel": "security",
+    "azure_app_service": "compute", "azure_functions": "compute", "azure_aks": "compute",
+    "azure_vm": "compute", "azure_container_instances": "compute",
     # Azure — Networking
-    "azure_lb": "networking", "azure_agw": "networking",
+    "azure_load_balancer": "networking", "azure_application_gateway": "networking",
     "azure_front_door": "networking", "azure_dns": "networking",
-    "azure_firewall": "networking", "azure_vpn": "networking",
-    # Azure — Management
-    "azure_monitor": "management",
-    # Azure — Integration
-    "azure_queue": "integration", "azure_service_bus": "integration",
-    "azure_event_grid": "integration",
+    "azure_virtual_network": "networking", "azure_vnet_peering": "networking",
+    "azure_public_ip": "networking", "azure_firewall": "networking",
+    # Azure — Data & storage
+    "azure_storage_account": "storage", "azure_sql_database": "database",
+    "azure_cosmos_db": "database", "azure_redis": "database", "azure_postgresql": "database",
+    # Azure — Integration & messaging
+    "azure_service_bus": "integration", "azure_event_grid": "integration",
+    "azure_logic_apps": "integration", "azure_event_hubs": "integration",
+    "azure_api_management": "networking",
+    # Azure — Security & ops
+    "azure_key_vault": "security", "azure_entra_id": "security", "azure_monitor": "management",
 }
 
 _CATEGORY_SERVICES: dict[str, list[str]] = {}

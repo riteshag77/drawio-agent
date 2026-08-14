@@ -19,7 +19,7 @@ controls:
       - database
     required_services:
       aws: ["aws_kms"]
-      gcp: ["gcp_kms"]
+      gcp: ["gcp_cloud_kms"]
       azure: ["azure_key_vault"]
 
   encryption_in_transit:
@@ -30,9 +30,9 @@ controls:
     affected_categories:
       - networking
     required_services:
-      aws: ["aws_alb", "aws_api_gateway", "aws_cloudfront"]
-      gcp: ["gcp_lb", "gcp_cloud_cdn"]
-      azure: ["azure_agw", "azure_front_door"]
+      aws: ["aws_application_load_balancer", "aws_api_gateway", "aws_cloudfront"]
+      gcp: ["gcp_cloud_load_balancing", "gcp_cloud_cdn"]
+      azure: ["azure_application_gateway", "azure_front_door"]
 
   access_control:
     name: "Access Control"
@@ -43,7 +43,7 @@ controls:
     required_services:
       aws: ["aws_iam", "aws_cognito"]
       gcp: ["gcp_iam"]
-      azure: ["azure_ad"]
+      azure: ["azure_entra_id"]
 
   audit_logging:
     name: "Audit Logging"
@@ -64,9 +64,9 @@ controls:
     affected_categories:
       - networking
     required_services:
-      aws: ["aws_waf", "aws_network_firewall"]
+      aws: ["aws_waf"]
       gcp: ["gcp_cloud_armor"]
-      azure: ["azure_waf", "azure_firewall"]
+      azure: ["azure_application_gateway", "azure_firewall"]
 
   vulnerability_management:
     name: "Vulnerability Management"
@@ -75,6 +75,6 @@ controls:
     recommendation: "Implement vulnerability scanning and patch management for all CDE resources"
     affected_categories: []
     required_services:
-      aws: ["aws_waf", "aws_guardduty", "aws_inspector"]
-      gcp: ["gcp_cloud_armor", "gcp_security_scanner"]
-      azure: ["azure_waf", "azure_defender", "azure_sentinel"]
+      aws: ["aws_waf", "aws_guardduty"]
+      gcp: ["gcp_cloud_armor"]
+      azure: ["azure_application_gateway"]

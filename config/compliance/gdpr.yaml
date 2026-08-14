@@ -20,7 +20,7 @@ controls:
       - database
     required_services:
       aws: ["aws_kms"]
-      gcp: ["gcp_kms"]
+      gcp: ["gcp_cloud_kms"]
       azure: ["azure_key_vault"]
 
   encryption_in_transit:
@@ -31,9 +31,9 @@ controls:
     affected_categories:
       - networking
     required_services:
-      aws: ["aws_alb", "aws_api_gateway", "aws_cloudfront"]
-      gcp: ["gcp_lb", "gcp_cloud_cdn"]
-      azure: ["azure_agw", "azure_front_door"]
+      aws: ["aws_application_load_balancer", "aws_api_gateway", "aws_cloudfront"]
+      gcp: ["gcp_cloud_load_balancing", "gcp_cloud_cdn"]
+      azure: ["azure_application_gateway", "azure_front_door"]
 
   access_control:
     name: "Access Control"
@@ -44,7 +44,7 @@ controls:
     required_services:
       aws: ["aws_iam", "aws_cognito"]
       gcp: ["gcp_iam"]
-      azure: ["azure_ad"]
+      azure: ["azure_entra_id"]
 
   audit_logging:
     name: "Audit Logging"
@@ -67,8 +67,8 @@ controls:
       - database
     required_services:
       aws: ["aws_s3", "aws_rds", "aws_aurora"]
-      gcp: ["gcp_storage", "gcp_cloud_sql", "gcp_spanner"]
-      azure: ["azure_blob", "azure_sql", "azure_cosmos_db"]
+      gcp: ["gcp_cloud_storage", "gcp_cloud_sql", "gcp_spanner"]
+      azure: ["azure_storage_account", "azure_sql_database", "azure_cosmos_db"]
 
   breach_notification:
     name: "Breach Notification"
@@ -79,4 +79,4 @@ controls:
     required_services:
       aws: ["aws_cloudwatch", "aws_sns", "aws_guardduty"]
       gcp: ["gcp_cloud_monitoring", "gcp_pubsub"]
-      azure: ["azure_monitor", "azure_sentinel"]
+      azure: ["azure_monitor"]

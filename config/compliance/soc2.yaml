@@ -19,7 +19,7 @@ controls:
       - database
     required_services:
       aws: ["aws_kms"]
-      gcp: ["gcp_kms"]
+      gcp: ["gcp_cloud_kms"]
       azure: ["azure_key_vault"]
 
   encryption_in_transit:
@@ -30,9 +30,9 @@ controls:
     affected_categories:
       - networking
     required_services:
-      aws: ["aws_alb", "aws_api_gateway", "aws_cloudfront"]
-      gcp: ["gcp_lb", "gcp_cloud_cdn"]
-      azure: ["azure_agw", "azure_front_door"]
+      aws: ["aws_application_load_balancer", "aws_api_gateway", "aws_cloudfront"]
+      gcp: ["gcp_cloud_load_balancing", "gcp_cloud_cdn"]
+      azure: ["azure_application_gateway", "azure_front_door"]
 
   access_control:
     name: "Access Control"
@@ -43,7 +43,7 @@ controls:
     required_services:
       aws: ["aws_iam", "aws_cognito"]
       gcp: ["gcp_iam"]
-      azure: ["azure_ad"]
+      azure: ["azure_entra_id"]
 
   audit_logging:
     name: "Audit Logging"
@@ -66,9 +66,9 @@ controls:
       - database
       - networking
     required_services:
-      aws: ["aws_elb", "aws_alb", "aws_rds", "aws_ecs", "aws_eks"]
-      gcp: ["gcp_lb", "gcp_cloud_sql", "gcp_gke"]
-      azure: ["azure_lb", "azure_agw", "azure_sql", "azure_aks"]
+      aws: ["aws_network_load_balancer", "aws_application_load_balancer", "aws_rds", "aws_ecs", "aws_kubernetes"]
+      gcp: ["gcp_cloud_load_balancing", "gcp_cloud_sql", "gcp_gke"]
+      azure: ["azure_load_balancer", "azure_application_gateway", "azure_sql_database", "azure_aks"]
 
   confidentiality:
     name: "Confidentiality"
@@ -78,5 +78,5 @@ controls:
     affected_categories: []
     required_services:
       aws: ["aws_secrets_manager", "aws_kms"]
-      gcp: ["gcp_kms", "gcp_secret_manager"]
+      gcp: ["gcp_cloud_kms", "gcp_secret_manager"]
       azure: ["azure_key_vault"]
