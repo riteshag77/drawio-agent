@@ -391,6 +391,7 @@ function initVoiceCommands() {
             return null;
         },
         run: () => {
+            if (typeof markVoiceInitiatedTurn === 'function') markVoiceInitiatedTurn();
             sendMessage();
             return 'Sending message';
         },
@@ -418,6 +419,7 @@ function initVoiceCommands() {
                 input.value = edit;
                 if (typeof autoResizeChatInput === 'function') autoResizeChatInput();
             }
+            if (typeof markVoiceInitiatedTurn === 'function') markVoiceInitiatedTurn();
             sendMessage();
             return 'Applying edit: ' + edit;
         },
@@ -441,6 +443,26 @@ function initVoiceCommands() {
         run: () => {
             voiceStopListening();
             return 'Microphone off';
+        },
+    });
+
+    registerVoiceCommand({
+        id: 'voice-replies-on',
+        label: 'Enable voice replies',
+        phrases: ['enable voice replies', 'turn on voice replies', 'speak replies', 'read replies aloud'],
+        run: () => {
+            setVoiceRepliesEnabled(true);
+            return 'Voice replies on — I’ll read back what happened after each voice-started change';
+        },
+    });
+    registerVoiceCommand({
+        id: 'voice-replies-off',
+        label: 'Disable voice replies',
+        phrases: ['disable voice replies', 'turn off voice replies', 'stop speaking replies'],
+        run: () => {
+            setVoiceRepliesEnabled(false);
+            if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+            return 'Voice replies off';
         },
     });
 

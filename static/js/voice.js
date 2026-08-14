@@ -4,6 +4,44 @@ let voiceBaseText = '';
 let voiceManuallyStopping = false;
 let voiceStatusBeforeListen = '';
 
+// ── Spoken confirmation (text-to-speech) ───────────────────────────────────
+// Opt-in and off by default — narrating every turn is intrusive for anyone
+// typing normally. Only turns actually started by a voice command (quick
+// edit / send) get spoken back, so this stays useful for hands-free use
+// without talking over a user who's just clicking around.
+let voiceRepliesEnabled = localStorage.getItem('voiceRepliesEnabled') === '1';
+let voiceInitiatedTurn = false;
+
+function setVoiceRepliesEnabled(on) {
+    voiceRepliesEnabled = !!on;
+    localStorage.setItem('voiceRepliesEnabled', voiceRepliesEnabled ? '1' : '0');
+}
+
+function markVoiceInitiatedTurn() {
+    voiceInitiatedTurn = true;
+}
+
+/** Read-and-clear so exactly one sendMessage() call is attributed to voice,
+ *  never leaking into a later typed turn. */
+function consumeVoiceInitiatedTurn() {
+    const was = voiceInitiatedTurn;
+    voiceInitiatedTurn = false;
+    return was;
+}
+
+function speakVoiceReply(text) {
+    if (!voiceRepliesEnabled || !text) return;
+    if (!('speechSynthesis' in window)) return;
+    try {
+        window.speechSynthesis.cancel(); // don't queue behind a stale utterance
+        const utter = new SpeechSynthesisUtterance(text);
+        utter.rate = 1.05;
+        window.speechSynthesis.speak(utter);
+    } catch (_) {
+        // best-effort only — a TTS failure must never break the actual turn
+    }
+}
+
 function isVoiceSecureContext() {
     if (window.isSecureContext) return true;
     const h = location.hostname;

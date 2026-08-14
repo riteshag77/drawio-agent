@@ -160,6 +160,11 @@ async function sendMessage(options = {}) {
         return;
     }
 
+    // Captured once per call so every exit path below (success/stopped/error/
+    // interview) attributes correctly to *this* turn, not whatever the flag
+    // happens to be by the time a later branch runs.
+    const isVoiceTurn = (typeof consumeVoiceInitiatedTurn === 'function') ? consumeVoiceInitiatedTurn() : false;
+
     if (!options.isValidationRetry) {
         hideValidationBanner();
         vlmAutoRetryCount = 0;
@@ -512,6 +517,9 @@ async function sendMessage(options = {}) {
             outcome: 'success',
             message: 'Done — diagram updated. Pan and zoom in the preview.',
         });
+        if (isVoiceTurn && typeof speakVoiceReply === 'function') {
+            speakVoiceReply(summarizeAssistantMessage(assistantText));
+        }
         appendVerboseLog('client', 'Chat turn complete', 'success');
         return { outcome: 'success' };
     } catch (err) {
@@ -534,6 +542,9 @@ async function sendMessage(options = {}) {
                 outcome: 'error',
                 message: err.message || 'Request failed. Check the server logs.',
             });
+            if (isVoiceTurn && typeof speakVoiceReply === 'function') {
+                speakVoiceReply('Edit failed. ' + (err.message || 'Check the log panel for details.'));
+            }
             return { outcome: 'error' };
         }
     } finally {
