@@ -107,7 +107,11 @@ to match the same call: `pii`/`pci` for a `[PII]`/`[PCI]`-tagged flow,
 expressed as the typed field the compiler colours the edge and the panel's
 facts by. When a **store** holds personal/payment data, also set that store
 leaf's `annotation` to `PII` / `PCI` (classification belongs on the store
-itself, not only on edges).
+itself, not only on edges). Any `pii`/`pci`-classified flow also needs
+`protection` set to `tls` or `mtls` — PCI-DSS requires encryption in transit
+for this data, not just correct labeling of it. `classification` says what's
+in the pipe; `protection` says it's actually locked. See the required-
+companions mini example below for both fields set together on the same flow.
 
 ### Mini example
 
@@ -163,7 +167,7 @@ look like filled in together, not just named in prose:
 "flows": [
   {"source": "claims_api", "target": "underwriting", "label": "JSON: Submit Claim"},
   {"source": "underwriting", "target": "dlq", "label": "JSON: Failed API Retries", "primary": false},
-  {"source": "underwriting", "target": "policy_db", "label": "SQL: write [PII]", "classification": "pii"},
+  {"source": "underwriting", "target": "policy_db", "label": "SQL: write [PII]", "classification": "pii", "protection": "tls"},
   {"source": "policy_db", "target": "archive", "label": "Automated Snapshots / Archive"},
   {"source": "policy_db", "target": "replica", "label": "CDC / Replication"},
   {"source": "underwriting", "target": "schema_reg", "label": "Validates Payload Schema"},

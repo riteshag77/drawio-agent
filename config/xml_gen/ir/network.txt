@@ -163,7 +163,9 @@ stopping at the gateway or CDN is incomplete.
   Network diagrams unreadable for platform reviews.
 - Set `protection` (`tls`/`mtls`) and `classification` (`pii`/`pci`/
   `confidential`) when the request implies them (PHI/PII clinical paths,
-  payment to Stripe, etc.).
+  payment to Stripe, etc.) — see the `orders_db` flow below for the shape:
+  a data-tier write carrying customer data sets both fields together, not
+  just one.
 - Reach the data tier **through** the app tier, not directly from outside.
 
 ### Mini example (ids illustrative)
@@ -174,7 +176,7 @@ stopping at the gateway or CDN is incomplete.
   {"source": "users", "target": "cdn", "label": "HTTPS", "primary": true},
   {"source": "cdn", "target": "alb", "label": "Routes", "primary": true},
   {"source": "alb", "target": "orders_api", "label": "Forwards", "primary": true},
-  {"source": "orders_api", "target": "orders_db", "label": "SQL", "primary": true}
+  {"source": "orders_api", "target": "orders_db", "label": "SQL", "primary": true, "protection": "tls", "classification": "pii"}
 ],
 "business_notes": [
   "The load balancer (ALB) spreads incoming orders across multiple app servers, so a big sale doesn't take checkout down for everyone at once.",
