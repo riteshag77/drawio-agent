@@ -397,6 +397,33 @@ function initVoiceCommands() {
     });
 
     registerVoiceCommand({
+        id: 'quick-edit',
+        label: 'Quick edit (dictate + send in one)',
+        // "quick edit"/"quick change" is a deliberately uncommon opener — a
+        // plain "edit"/"change"/"update" prefix would collide with normal
+        // dictation (e.g. a user narrating "update the RDS instance to use
+        // PostgreSQL, then add a cache layer" mid-sentence) and fire an
+        // instant, premature send. This still needs an existing diagram —
+        // a fresh build has no current_xml for the backend to patch against.
+        pattern: /^quick (?:edit|change)[:,]?\s+(.+)$/,
+        when: () => {
+            if (typeof isSending !== 'undefined' && isSending) return 'Already generating — say “stop” to cancel.';
+            if (!voiceHasDiagram()) return 'No diagram loaded yet — dictate a new architecture and say “send” first.';
+            return null;
+        },
+        run: (m) => {
+            const edit = m[1].trim();
+            const input = document.getElementById('chat-input');
+            if (input) {
+                input.value = edit;
+                if (typeof autoResizeChatInput === 'function') autoResizeChatInput();
+            }
+            sendMessage();
+            return 'Applying edit: ' + edit;
+        },
+    });
+
+    registerVoiceCommand({
         id: 'stop-generation',
         label: 'Stop generation',
         phrases: ['stop', 'cancel', 'stop generation', 'cancel generation'],
