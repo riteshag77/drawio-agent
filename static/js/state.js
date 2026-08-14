@@ -1,7 +1,7 @@
 const DRAWIO_ORIGIN = 'https://embed.diagrams.net';
 const DRAWIO_THEMES = ['kennedy', 'atlas', 'dark', 'min', 'sketch', 'simple'];
 const THEME_STORAGE_KEY = 'drawio-agent-drawio-theme';
-const APP_THEMES = ['midnight-slate', 'daylight', 'aurora-contrast'];
+const APP_THEMES = ['daylight', 'midnight-slate', 'aurora-contrast'];
 const APP_THEME_KEY = 'drawio-agent-app-theme';
 const APP_THEME_TO_DRAWIO_THEME = {
     'midnight-slate': 'kennedy',

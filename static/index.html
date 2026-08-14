@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cloud Architect AI</title>
     <meta name="description" content="AI-powered cloud architecture diagram generator with live Draw.io preview.">
-    <meta name="theme-color" content="#14161D">
+    <meta name="theme-color" content="#ffffff">
     <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
     <link rel="icon" href="/static/favicon.png" type="image/png" sizes="32x32">
     <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
@@ -19,9 +19,9 @@
     <link rel="stylesheet" href="/static/themes/aurora-contrast.css?v=20260810g">
     <script>
         (function () {
-            var known = ['midnight-slate', 'daylight', 'aurora-contrast'];
+            var known = ['daylight', 'midnight-slate', 'aurora-contrast'];
             var stored = localStorage.getItem('drawio-agent-app-theme');
-            document.documentElement.setAttribute('data-theme', known.indexOf(stored) !== -1 ? stored : 'midnight-slate');
+            document.documentElement.setAttribute('data-theme', known.indexOf(stored) !== -1 ? stored : 'daylight');
         })();
     </script>
     <!-- Access gate (static/js/api-key.js): hides the entire app — not just
@@ -51,11 +51,14 @@
             <div class="sidebar-header">
                 <div class="brand-row">
                     <div class="brand-mark">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <rect x="3" y="3" width="7" height="7" rx="1.5"/>
-                            <rect x="14" y="3" width="7" height="7" rx="1.5"/>
-                            <rect x="8.5" y="14" width="7" height="7" rx="1.5"/>
-                            <path d="M6.5 10v2a2 2 0 0 0 2 2h0M17.5 10v2a2 2 0 0 1-2 2h0"/>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none"/>
+                            <circle cx="12" cy="4.5" r="1.8"/>
+                            <circle cx="19" cy="16" r="1.8"/>
+                            <circle cx="5" cy="16" r="1.8"/>
+                            <line x1="12" y1="9.4" x2="12" y2="6.6"/>
+                            <line x1="13.9" y1="13.4" x2="17.4" y2="15"/>
+                            <line x1="10.1" y1="13.4" x2="6.6" y2="15"/>
                         </svg>
                     </div>
                     <div class="brand-text">
@@ -427,87 +430,97 @@
                         </div>
                     </div>
 
-                    <div class="drawer-group" data-group="custom-providers">
+                    <div class="drawer-group" data-group="advanced">
                         <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
-                            <span class="drawer-group-title">Custom providers</span>
+                            <span class="drawer-group-title">Advanced</span>
                             <span class="drawer-group-chevron" aria-hidden="true"></span>
                         </button>
                         <div class="drawer-group-body" hidden>
-                        <small style="color:var(--text-muted)">Bring your own API key/endpoint — OpenAI/Anthropic/Google-compatible. Stored only in your browser; sent per-request, never saved on the server. A local endpoint (e.g. Ollama at http://localhost:11434/v1) works fine here.</small>
-                        <div id="custom-provider-summary-list" class="provider-card-list"></div>
-                        <button type="button" class="btn-soft" onclick="openProviderConfigDialog()">Manage providers…</button>
-                        </div>
-                    </div>
 
-                    <div class="drawer-group" data-group="app-diagnostics">
-                        <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
-                            <span class="drawer-group-title">App &amp; diagnostics</span>
-                            <span class="drawer-group-chevron" aria-hidden="true"></span>
-                        </button>
-                        <div class="drawer-group-body" hidden>
-                        <label for="app-theme-select">App theme</label>
-                        <select id="app-theme-select" aria-label="Application theme" onchange="changeAppTheme()">
-                            <option value="midnight-slate">Midnight Slate (default)</option>
-                            <option value="daylight">Daylight</option>
-                            <option value="aurora-contrast">Aurora Contrast</option>
-                        </select>
-                        <div class="verbose-toggle-row">
-                            <div>
-                                <span>Show AI reasoning</span>
-                                <small>Surface pipeline thinking steps in chat</small>
+                        <div class="drawer-group drawer-subgroup" data-group="custom-providers">
+                            <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
+                                <span class="drawer-group-title">Custom providers</span>
+                                <span class="drawer-group-chevron" aria-hidden="true"></span>
+                            </button>
+                            <div class="drawer-group-body" hidden>
+                            <small style="color:var(--text-muted)">Bring your own API key/endpoint — OpenAI/Anthropic/Google-compatible. Stored only in your browser; sent per-request, never saved on the server. A local endpoint (e.g. Ollama at http://localhost:11434/v1) works fine here.</small>
+                            <div id="custom-provider-summary-list" class="provider-card-list"></div>
+                            <button type="button" class="btn-soft" onclick="openProviderConfigDialog()">Manage providers…</button>
                             </div>
-                            <label class="toggle-switch" title="Toggle AI reasoning display">
-                                <input type="checkbox" id="show-reasoning-toggle" onchange="savePromptSettings()">
-                                <span class="toggle-slider"></span>
-                            </label>
                         </div>
-                        <div class="verbose-toggle-row">
-                            <div>
-                                <span>Pipeline logs</span>
-                                <small>Show the right-side build log panel</small>
-                            </div>
-                            <label class="toggle-switch" title="Toggle pipeline log panel">
-                                <input type="checkbox" id="verbose-toggle" onchange="toggleVerbosePanel()">
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-                        <div class="verbose-toggle-row">
-                            <div>
-                                <span>Save new runs</span>
-                                <small>Persist each /chat response under data/captures (large files)</small>
-                            </div>
-                            <label class="toggle-switch" title="Toggle saving captured runs">
-                                <input type="checkbox" id="save-captures-toggle" onchange="savePromptSettings()">
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-                        <label for="captures-select">Past responses (view only — no LLM/MCP call)</label>
-                        <select id="captures-select" aria-label="Captured runs"></select>
-                        <div class="btn-group">
-                            <button type="button" class="btn-soft" onclick="loadCapturesList()">Refresh</button>
-                            <button type="button" class="btn-soft" onclick="playbackSelectedCapture()">Load into preview</button>
-                        </div>
-                        </div>
-                    </div>
 
-                    <div class="drawer-group" data-group="voice">
-                        <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
-                            <span class="drawer-group-title">Voice commands</span>
-                            <span class="drawer-group-chevron" aria-hidden="true"></span>
-                        </button>
-                        <div class="drawer-group-body" hidden>
-                        <p class="voice-help-lead">Press <strong>Space</strong> (or the mic button) to start/stop listening. Dictate a diagram prompt or say a command. Say <strong>help</strong> for the full list in chat. While typing in the composer, Space inserts a normal space — press Space outside the field, or again while listening, to toggle the mic.</p>
-                        <ul class="voice-help-list">
-                            <li><span>Send / stop</span> “send message”, “stop”, “stop listening”</li>
-                            <li><span>Chat</span> “clear chat”, “attach file”, “clear attachments”</li>
-                            <li><span>Platform</span> “switch to aws / gcp / azure / multi”</li>
-                            <li><span>Settings</span> “open settings”, “theme daylight”, “enable cost”</li>
-                            <li><span>Diagram</span> “download diagram”, “export png”, “open in drawio”</li>
-                            <li><span>Insights</span> “apply waf”, “apply compliance”, “apply all insights”</li>
-                            <li><span>Patterns</span> “list patterns”, “use pattern 1”, “pattern serverless”</li>
-                        </ul>
-                        <p class="voice-help-limits">Limits: attach only opens the file picker; editing inside the draw.io canvas is mouse/keyboard only; Chrome or Edge on localhost/https. Captures save only when <strong>Save new runs</strong> is on.</p>
-                        <button type="button" class="btn-soft" onclick="showVoiceCommandHelp()">Show full command list</button>
+                        <div class="drawer-group drawer-subgroup" data-group="app-diagnostics">
+                            <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
+                                <span class="drawer-group-title">App &amp; diagnostics</span>
+                                <span class="drawer-group-chevron" aria-hidden="true"></span>
+                            </button>
+                            <div class="drawer-group-body" hidden>
+                            <label for="app-theme-select">App theme</label>
+                            <select id="app-theme-select" aria-label="Application theme" onchange="changeAppTheme()">
+                                <option value="daylight">Daylight (default)</option>
+                                <option value="midnight-slate">Midnight Slate</option>
+                                <option value="aurora-contrast">Aurora Contrast</option>
+                            </select>
+                            <div class="verbose-toggle-row">
+                                <div>
+                                    <span>Show AI reasoning</span>
+                                    <small>Surface pipeline thinking steps in chat</small>
+                                </div>
+                                <label class="toggle-switch" title="Toggle AI reasoning display">
+                                    <input type="checkbox" id="show-reasoning-toggle" onchange="savePromptSettings()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="verbose-toggle-row">
+                                <div>
+                                    <span>Pipeline logs</span>
+                                    <small>Show the right-side build log panel</small>
+                                </div>
+                                <label class="toggle-switch" title="Toggle pipeline log panel">
+                                    <input type="checkbox" id="verbose-toggle" onchange="toggleVerbosePanel()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="verbose-toggle-row">
+                                <div>
+                                    <span>Save new runs</span>
+                                    <small>Persist each /chat response under data/captures (large files)</small>
+                                </div>
+                                <label class="toggle-switch" title="Toggle saving captured runs">
+                                    <input type="checkbox" id="save-captures-toggle" onchange="savePromptSettings()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <label for="captures-select">Past responses (view only — no LLM/MCP call)</label>
+                            <select id="captures-select" aria-label="Captured runs"></select>
+                            <div class="btn-group">
+                                <button type="button" class="btn-soft" onclick="loadCapturesList()">Refresh</button>
+                                <button type="button" class="btn-soft" onclick="playbackSelectedCapture()">Load into preview</button>
+                            </div>
+                            </div>
+                        </div>
+
+                        <div class="drawer-group drawer-subgroup" data-group="voice">
+                            <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
+                                <span class="drawer-group-title">Voice commands</span>
+                                <span class="drawer-group-chevron" aria-hidden="true"></span>
+                            </button>
+                            <div class="drawer-group-body" hidden>
+                            <p class="voice-help-lead">Press <strong>Space</strong> (or the mic button) to start/stop listening. Dictate a diagram prompt or say a command. Say <strong>help</strong> for the full list in chat. While typing in the composer, Space inserts a normal space — press Space outside the field, or again while listening, to toggle the mic.</p>
+                            <ul class="voice-help-list">
+                                <li><span>Send / stop</span> “send message”, “stop”, “stop listening”</li>
+                                <li><span>Chat</span> “clear chat”, “attach file”, “clear attachments”</li>
+                                <li><span>Platform</span> “switch to aws / gcp / azure / multi”</li>
+                                <li><span>Settings</span> “open settings”, “theme daylight”, “enable cost”</li>
+                                <li><span>Diagram</span> “download diagram”, “export png”, “open in drawio”</li>
+                                <li><span>Insights</span> “apply waf”, “apply compliance”, “apply all insights”</li>
+                                <li><span>Patterns</span> “list patterns”, “use pattern 1”, “pattern serverless”</li>
+                            </ul>
+                            <p class="voice-help-limits">Limits: attach only opens the file picker; editing inside the draw.io canvas is mouse/keyboard only; Chrome or Edge on localhost/https. Captures save only when <strong>Save new runs</strong> is on.</p>
+                            <button type="button" class="btn-soft" onclick="showVoiceCommandHelp()">Show full command list</button>
+                            </div>
+                        </div>
+
                         </div>
                     </div>
                 </div>

@@ -79,6 +79,13 @@
             min-height: 0;
             position: relative;
             overflow: hidden;
+            /* The canvas area to the right stays light-neutral in every theme
+               (matches the embedded draw.io iframe's own white canvas — see
+               the .collapsed-rail comment below). Against a dark sidebar that
+               reads as an abrupt two-tone stitch without this: the shadow
+               reframes it as a dark control rail floating in front of a lit
+               canvas, not a seam. */
+            box-shadow: var(--shadow-panel);
             transition: width 0.18s ease, min-width 0.18s ease;
         }
 
@@ -2222,17 +2229,22 @@
         .suggestion-text {
             line-height: 1.35;
         }
-        .network-insights-sub {
+        .network-insights-sub,
+        .drawer-subgroup {
             margin-top: 0.75rem;
             padding: 0.35rem 0.55rem 0.55rem;
             border: 1px solid var(--border, rgba(127, 127, 127, 0.35));
             border-radius: var(--radius-md);
             background: rgba(127, 127, 127, 0.06);
         }
-        .network-insights-sub > .drawer-group-toggle {
+        .network-insights-sub > .drawer-group-toggle,
+        .drawer-subgroup > .drawer-group-toggle {
             width: 100%;
             margin: 0;
             padding: 0.4rem 0;
+        }
+        .drawer-subgroup + .drawer-subgroup {
+            margin-top: 0.55rem;
         }
         .network-insights-hint {
             display: block;
@@ -3230,8 +3242,11 @@
             position: relative;
             min-height: 0;
             background-color: var(--canvas-surface);
+            /* --canvas-border alone is too light to read as a grid at 1px —
+               mixed toward --canvas-text-muted so the empty canvas reads as
+               textured/waiting rather than blank before a diagram loads. */
             background-image:
-                radial-gradient(circle, var(--canvas-border) 1px, transparent 1px),
+                radial-gradient(circle, color-mix(in srgb, var(--canvas-border) 55%, var(--canvas-text-muted)) 1px, transparent 1px),
                 radial-gradient(600px 400px at 12% 8%, rgba(99, 102, 241, 0.09), transparent 65%),
                 radial-gradient(560px 380px at 88% 92%, rgba(244, 114, 182, 0.08), transparent 65%);
             background-size: 22px 22px, auto, auto;
@@ -4130,7 +4145,6 @@
 }
 .insights-tab[data-tab="cost"] .insights-tab-icon { color: var(--cost-accent); }
 .insights-tab[data-tab="waf"] .insights-tab-icon { color: var(--success-soft); }
-.insights-tab[data-tab="suggestions"] .insights-tab-icon { color: var(--accent); }
 .insights-tab[data-tab="logs"] .insights-tab-icon { color: var(--info); }
 .insights-tab.active .insights-tab-icon {
     opacity: 1;
