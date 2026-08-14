@@ -193,18 +193,30 @@ async function sendMessage(options = {}) {
         }
     }
 
+    // A diagram already on screen means this is very likely a surgical edit
+    // (rename/add-one-service/etc.), not a fresh build — those two paths now
+    // have very different real latency (an edit lands in ~5-15s; a fresh
+    // multi-view generation can take 30s+). Saying "Analyzing architecture…"
+    // for a one-word rename sets the wrong expectation right when it matters
+    // most: a voice command should read back something that matches how
+    // fast the change actually lands, not a generic message.
+    const hasExistingDiagram = !!(currentXml || currentArchitecture) && !options.platformConvert;
     setProgress(10);
     setTyping(true);
     setComposerRunStatus(
         options.platformConvert
             ? `Regenerating for ${selectedPlatform.toUpperCase()}…`
-            : 'Generating diagram…',
+            : hasExistingDiagram
+                ? 'Applying your edit…'
+                : 'Generating diagram…',
         'running'
     );
     setDiagramStatus(
         options.platformConvert
             ? `Regenerating for ${selectedPlatform.toUpperCase()}…`
-            : 'Analyzing architecture...'
+            : hasExistingDiagram
+                ? 'Applying edit — small changes are usually quick…'
+                : 'Analyzing architecture...'
     );
     document.getElementById('diagram-loading').classList.add('active');
 
