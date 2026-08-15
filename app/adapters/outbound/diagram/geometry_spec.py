@@ -164,6 +164,20 @@ SEQ_PARTICIPANT_GAP_X = 90.0
 #: ``sequence_theme.header_label``). Actors take the same box as systems — a
 #: uniform header row is the point; role is carried by colour, not by shape.
 SEQ_HEADER_H = 58.0
+#: A flowchart step's box, used only by the *fresh* non-cloud path (see
+#: ``compiler/simple.py``). Not LEAF_W×LEAF_H: that square is sized for a
+#: cloud leaf, which is an icon with a caption, whereas a flow node is words
+#: in a box — at 78 wide "Adjuster review" wrapped onto two cramped lines and
+#: a parallelogram clipped its own label. The width stays under
+#: ``DATA_CANONICAL_PITCH`` so the existing column pitch still leaves a gap,
+#: and the height stays at LEAF_H so ROW_PITCH_Y/LABEL_BAND_H arithmetic is
+#: untouched. The image-tracing path keeps LEAF_W/H, where a traced box's
+#: proportions are the thing being reproduced.
+FLOW_NODE_W = 160.0
+FLOW_NODE_H = LEAF_H
+#: Leading-emoji size in a flow node. Smaller than the sequence header's: it
+#: shares a 78px box with a wrapping label rather than heading a column.
+FLOW_ICON_PT = 16
 #: Point size of the leading emoji in a participant header. Large enough to
 #: read as an icon rather than as punctuation in front of the name — at the
 #: label's own 12pt it was a speck, which is what "no nice representation"

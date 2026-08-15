@@ -40,21 +40,32 @@ _SIZE_SCALE: dict[str, float] = {"small": 0.72, "normal": 1.0, "large": 1.35}
 _MAX_CANVAS_PITCHES = 4.0
 
 
-def compile_generic_ir(ir: GenericDiagramIR, *, page_name: str = "Diagram") -> str:
+def compile_generic_ir(
+    ir: GenericDiagramIR,
+    *,
+    page_name: str = "Diagram",
+    node_size: tuple[float, float] | None = None,
+) -> str:
     """Render ``ir`` to a complete draw.io document.
 
     The IR is expected to have passed ``semantic_errors()`` already; this
     raises rather than silently compiling something invalid.
+
+    ``node_size`` overrides the base box every node is sized from. It exists
+    for the fresh non-cloud path (``compiler/simple.py``), whose nodes hold
+    words rather than an icon and need a landscape box — see
+    ``geometry_spec.FLOW_NODE_W``. Left unset, the image-tracing path keeps the
+    square leaf it has always used, where the traced proportions are the point.
     """
     errors = ir.semantic_errors()
     if errors:
         raise CompilerError(f"cannot compile an invalid IR: {'; '.join(errors[:3])}")
-    return _GenericCompiler(ir, page_name).run()
+    return _GenericCompiler(ir, page_name, node_size or (geo.LEAF_W, geo.LEAF_H)).run()
 
 
-def _node_size(node: GenericNode) -> tuple[float, float]:
+def _node_size(node: GenericNode, base: tuple[float, float]) -> tuple[float, float]:
     scale = _SIZE_SCALE.get(node.size_hint, 1.0)
-    return geo.LEAF_W * scale, geo.LEAF_H * scale
+    return base[0] * scale, base[1] * scale
 
 
 def _overlaps(ax: float, ay: float, aw: float, ah: float, bx: float, by: float, bw: float, bh: float) -> bool:
@@ -298,14 +309,14 @@ def _place_topological(
 
 
 def _place_nodes(
-    nodes: list[GenericNode], edges: list[GenericEdge],
+    nodes: list[GenericNode], edges: list[GenericEdge], base: tuple[float, float],
 ) -> tuple[dict[str, tuple[float, float]], float, float]:
     """Return ``{node_id: (x, y)}`` relative to a (0, 0) content origin, plus
     the content box's ``(width, height)``.
     """
     if not nodes:
         return {}, 0.0, 0.0
-    sizes = {n.id: _node_size(n) for n in nodes}
+    sizes = {n.id: _node_size(n, base) for n in nodes}
     hinted = any(n.x is not None or n.y is not None for n in nodes)
     positions = _place_proportional(nodes, sizes) if hinted else _place_topological(nodes, edges)
 
@@ -342,9 +353,12 @@ def _resolvable_icon_hint(node: GenericNode) -> str:
 
 
 class _GenericCompiler:
-    def __init__(self, ir: GenericDiagramIR, page_name: str) -> None:
+    def __init__(
+        self, ir: GenericDiagramIR, page_name: str, node_size: tuple[float, float],
+    ) -> None:
         self.ir = ir
         self.w = CellWriter(page_name)
+        self.node_size = node_size
 
     def run(self) -> str:
         by_group: dict[str, list[GenericNode]] = {}
@@ -359,10 +373,10 @@ class _GenericCompiler:
         max_bottom = _ORIGIN_Y
 
         if ungrouped:
-            positions, content_w, content_h = _place_nodes(ungrouped, self.ir.edges)
+            positions, content_w, content_h = _place_nodes(ungrouped, self.ir.edges, self.node_size)
             for node in ungrouped:
                 rel_x, rel_y = positions[node.id]
-                w, h = _node_size(node)
+                w, h = _node_size(node, self.node_size)
                 self.w.vertex(
                     id=node.id, label=node.label,
                     style=theme.node_style(node.shape, fill_color=node.fill_color, stroke_color=node.stroke_color),
@@ -380,7 +394,7 @@ class _GenericCompiler:
         boxes: list[tuple[GenericGroup, list[GenericNode], dict, float, float]] = []
         for group in self.ir.groups:
             nodes = by_group.get(group.id, [])
-            positions, content_w, content_h = _place_nodes(nodes, self.ir.edges)
+            positions, content_w, content_h = _place_nodes(nodes, self.ir.edges, self.node_size)
             boxes.append((
                 group, nodes, positions,
                 max(content_w + geo.PAD * 2, 160.0),
@@ -422,7 +436,7 @@ class _GenericCompiler:
             )
             for node in nodes:
                 rel_x, rel_y = positions[node.id]
-                w, h = _node_size(node)
+                w, h = _node_size(node, self.node_size)
                 self.w.vertex(
                     id=node.id, label=node.label,
                     style=theme.node_style(node.shape, fill_color=node.fill_color, stroke_color=node.stroke_color),

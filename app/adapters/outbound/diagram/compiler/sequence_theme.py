@@ -57,7 +57,7 @@ view where a message's vertical position *is* its meaning.
 from __future__ import annotations
 
 from app.adapters.outbound.diagram import geometry_spec as geo
-from app.adapters.outbound.diagram.compiler import palette
+from app.adapters.outbound.diagram.compiler import labels, palette
 
 #: Ink. A warm slate, not black — see the module docstring.
 _INK = "#3B4652"
@@ -86,53 +86,17 @@ def _role_color(kind: str) -> str:
 
 
 def header_label(label: str) -> str:
-    """The participant header's HTML label: icon over name.
+    """The participant header's label: icon over name, always bold.
 
-    ``label`` arrives from the model as ``"👤 Claimant"`` — the prompt pack asks
-    for a leading emoji precisely because a label is rendered as-is, so the
-    emoji *is* the icon. Splitting it onto its own line at ``SEQ_ICON_PT`` is
-    what turns it into one; left inline it renders at the label's 12pt and
-    reads as punctuation.
-
-    Returns HTML because ``html=1`` labels are the only way to give one cell two
-    type sizes. A label with no leading emoji simply comes back bold, and keeps
-    the same box — a header row of uniform height is worth more than the ~20px
-    those diagrams would save.
+    A header is a header on every column, so unlike a flow node this one takes
+    bold and keeps its full-height box even when the model gave no emoji — a
+    header row of uniform height is worth more than the ~20px those diagrams
+    would save.
     """
-    icon, name = _split_icon(label)
-    name_html = _escape(name) or "&nbsp;"
+    icon, name = labels.split_icon(label)
     if not icon:
-        return f"<b>{name_html}</b>"
-    return (
-        f'<span style="font-size:{geo.SEQ_ICON_PT}px;line-height:{geo.SEQ_ICON_PT + 5}px">'
-        f"{_escape(icon)}</span><br><b>{name_html}</b>"
-    )
-
-
-def _split_icon(label: str) -> tuple[str, str]:
-    """Split a leading emoji off ``label``.
-
-    Keyed on "first whitespace-delimited token that contains no letter or
-    digit" rather than on Unicode emoji ranges. Emoji are a moving target —
-    ``🕵️`` is three code points, ``🧑‍💼`` is five, and a range check that
-    misses one silently leaves it inline at 12pt. What the prompt pack actually
-    asks for is one symbol, a space, then words; anything alphanumeric is a
-    name, not an icon.
-    """
-    head, _, rest = label.strip().partition(" ")
-    if head and rest.strip() and not any(c.isalnum() for c in head):
-        return head, rest.strip()
-    return "", label.strip()
-
-
-def _escape(text: str) -> str:
-    """Escape for an HTML label.
-
-    The cell's ``value`` attribute is XML-escaped by ``emit.CellWriter``, so
-    this is the *second* level: without it a participant called "Billing & Ops"
-    reaches the browser as ``&`` inside an HTML fragment.
-    """
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        return f"<b>{labels.escape_html(name) or '&nbsp;'}</b>"
+    return labels.icon_over_name(label, icon_pt=geo.SEQ_ICON_PT, bold=True)
 
 
 def lifeline_style(kind: str, *, header_h: float) -> str:

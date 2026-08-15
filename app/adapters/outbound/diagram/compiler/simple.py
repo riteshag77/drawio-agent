@@ -24,12 +24,13 @@ compiler boundary keeps that separation while sharing the rendering.
 
 from __future__ import annotations
 
+from app.adapters.outbound.diagram import geometry_spec as geo
+from app.adapters.outbound.diagram.compiler import labels, palette
 from app.adapters.outbound.diagram.compiler.chart import compile_chart_ir
-from app.adapters.outbound.diagram.compiler import palette
 from app.adapters.outbound.diagram.compiler.generic import compile_generic_ir
 from app.adapters.outbound.diagram.compiler.sequence import compile_sequence_ir
 from app.domain.ir.generic import GenericDiagramIR, GenericEdge, GenericGroup, GenericNode
-from app.domain.ir.simple import SimpleDiagramIR
+from app.domain.ir.simple import SimpleDiagramIR, SimpleNode
 
 
 #: Which palette slot each shape role takes. Roles, not identities: two
@@ -67,6 +68,39 @@ def _shape_colors(shape: str) -> dict[str, str]:
     return {"fill_color": fill, "stroke_color": border}
 
 
+def _drawn_shape(shape: str) -> str:
+    """The shape actually emitted for a node's declared ``shape``.
+
+    Only ``actor`` differs, and for the same reason the sequence view stopped
+    drawing one: draw.io's ``umlActor`` stick figure is scaled to its cell, so
+    beside a row of boxes the person comes out as the largest thing on the
+    page drawn in hairlines, with its name on the background below rather than
+    inside a box. A person here is a box like every other node, in the actor
+    hue, carrying a person icon (see ``_node_label``) — the role is still
+    stated twice, just in colour and icon rather than in a glyph.
+
+    The image-tracing path keeps the stick figure: there, a shape is a report
+    of what was in the picture, not a design decision.
+    """
+    return "rectangle" if shape == "actor" else shape
+
+
+def _node_label(node: SimpleNode) -> str:
+    """A flow node's drawn label — leading emoji lifted to icon size above the
+    words (see ``compiler/labels``). A ``text`` node is left completely alone:
+    it is a bare caption with no box, and giving it a stacked icon would turn a
+    piece of annotation into something that looks like a node."""
+    if node.shape == "text":
+        return node.label
+    return labels.icon_over_name(
+        node.label,
+        icon_pt=geo.FLOW_ICON_PT,
+        # The shape said "person" and _drawn_shape just took that glyph away,
+        # so a person with no emoji of its own still gets one.
+        fallback_icon="👤" if node.shape == "actor" else "",
+    )
+
+
 def _to_generic_ir(ir: SimpleDiagramIR) -> GenericDiagramIR:
     """Project a ``kind="flow"`` IR onto the generic compiler's schema.
 
@@ -89,7 +123,9 @@ def _to_generic_ir(ir: SimpleDiagramIR) -> GenericDiagramIR:
         ],
         nodes=[
             GenericNode(
-                id=n.id, shape=n.shape, label=n.label, group=n.group,
+                id=n.id, shape=_drawn_shape(n.shape), label=_node_label(n), group=n.group,
+                # Keyed on the *declared* shape, not the drawn one: an actor
+                # rendered as a rectangle must still take the actor's hue.
                 **_shape_colors(n.shape),
             )
             for n in ir.nodes
@@ -110,4 +146,7 @@ def compile_simple_ir(ir: SimpleDiagramIR, *, page_name: str = "Diagram") -> str
         return compile_chart_ir(ir, page_name=page_name)
     if ir.is_sequence():
         return compile_sequence_ir(ir, page_name=page_name)
-    return compile_generic_ir(_to_generic_ir(ir), page_name=page_name)
+    return compile_generic_ir(
+        _to_generic_ir(ir), page_name=page_name,
+        node_size=(geo.FLOW_NODE_W, geo.FLOW_NODE_H),
+    )

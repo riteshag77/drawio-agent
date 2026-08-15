@@ -302,6 +302,60 @@ class CompilerOutputTests(unittest.TestCase):
         edges = [c for c in _cells(xml) if c.get("edge") == "1"]
         self.assertEqual(len(edges), 2)
 
+    def test_flow_nodes_get_a_landscape_box(self) -> None:
+        """A flow node holds words, not an icon with a caption, so it does not
+        take the square cloud leaf — at LEAF_W a two-word label wrapped."""
+        cells = _cells(compile_simple_ir(SimpleDiagramIR(**_flow())))
+        boxes = [c for c in cells if c.get("vertex") == "1"]
+        widths = {float(c.find("mxGeometry").get("width")) for c in boxes}
+        self.assertEqual(widths, {geo.FLOW_NODE_W})
+        # Still inside the column pitch the placement code lays out on.
+        self.assertLess(geo.FLOW_NODE_W, geo.DATA_CANONICAL_PITCH)
+
+    def test_flow_icon_is_lifted_above_the_label(self) -> None:
+        ir = SimpleDiagramIR(**_flow(nodes=[
+            {"id": "a", "shape": "rectangle", "label": "📞 Report loss"},
+            {"id": "b", "shape": "rectangle", "label": "Plain step"},
+        ], edges=[{"source": "a", "target": "b"}]))
+        values = [c.get("value") for c in _cells(compile_simple_ir(ir)) if c.get("vertex") == "1"]
+        self.assertIn(f'<span style="font-size:{geo.FLOW_ICON_PT}px', "".join(values))
+        # A label with no emoji is left exactly as the model wrote it — a
+        # diagram that never used icons produces the markup it always did.
+        self.assertIn("Plain step", values)
+
+    def test_actor_is_drawn_as_a_box_with_a_person_icon(self) -> None:
+        """draw.io's umlActor is scaled to its cell, so beside a row of boxes
+        the person was the largest thing on the page, in hairlines, with its
+        name on the background below it."""
+        ir = SimpleDiagramIR(**_flow(nodes=[
+            {"id": "a", "shape": "actor", "label": "Claimant"},
+            {"id": "b", "shape": "rectangle", "label": "Intake"},
+        ], edges=[{"source": "a", "target": "b"}]))
+        cells = {c.get("id"): c for c in _cells(compile_simple_ir(ir))}
+        actor = cells["a"]
+        self.assertNotIn("umlActor", actor.get("style"))
+        self.assertIn("👤", actor.get("value"))
+        # It keeps the actor hue even though it is drawn as a rectangle.
+        self.assertNotEqual(
+            re.search(r"fillColor=(#\w+)", actor.get("style")).group(1),
+            re.search(r"fillColor=(#\w+)", cells["b"].get("style")).group(1),
+        )
+
+    def test_traced_images_keep_the_stick_figure_and_the_square_leaf(self) -> None:
+        """The icon/box/actor treatment above is the *fresh* path's design
+        choice. On the image-tracing path a shape is a report of what was in
+        the picture, so nothing there may be restyled."""
+        from app.adapters.outbound.diagram.compiler.generic import compile_generic_ir
+        from app.domain.ir.generic import GenericDiagramIR, GenericNode
+
+        traced = GenericDiagramIR(
+            title="Traced", nodes=[GenericNode(id="a", shape="actor", label="👤 Person")],
+        )
+        cell = next(c for c in _cells(compile_generic_ir(traced)) if c.get("id") == "a")
+        self.assertIn("umlActor", cell.get("style"))
+        self.assertEqual(cell.get("value"), "👤 Person")
+        self.assertEqual(float(cell.find("mxGeometry").get("width")), geo.LEAF_W)
+
     def test_flow_layout_is_marked_authoritative(self) -> None:
         """Without this the repair pass would re-flow geometry the compiler
         already decided."""

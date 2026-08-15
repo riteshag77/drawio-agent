@@ -93,8 +93,9 @@ two can't disagree unless you make them.
 Every label is rendered as-is, so a leading emoji **is** the icon. Use one on
 participants, on flow nodes, and on message labels — it is the cheapest way to
 make a diagram scannable, and it costs nothing to render. On a sequence
-diagram's participants the leading emoji is lifted out of the label and drawn
-at icon size above the name, so a column without one is a column with no icon:
+diagram's participants **and on flow nodes**, the leading emoji is lifted out
+of the label and drawn at icon size above the name — so a participant or node
+without one is one with no icon at all:
 
 - People and roles: 👤 🧑‍💼 👥 🕵️
 - Systems and services: ⚙️ 🖥️ 📱 ☁️ 🔌
@@ -126,7 +127,7 @@ Shapes — pick the closest, never invent a key:
 | Input / output | `parallelogram` |
 | A datastore, database or table | `cylinder` |
 | Preparation / predefined process | `hexagon` |
-| A person, role or actor | `actor` |
+| A person, role or actor | `actor` (drawn as a box in the person colour, with a 👤 icon) |
 | An external system or network | `cloud` |
 | An alternate node or connector dot | `ellipse` |
 | A bare caption with no box | `text` |
