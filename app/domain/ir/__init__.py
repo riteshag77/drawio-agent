@@ -74,6 +74,7 @@ from app.domain.ir.simple import (
     SimpleGroup,
     SimpleNode,
 )
+from app.domain.ir.simple import SequenceMessage, SequenceParticipant  # noqa: E402
 
 __all__ = [
     "ARCHIMATE_ELEMENT_TABLE",
@@ -115,6 +116,8 @@ __all__ = [
     "OpenQuestion",
     "Region",
     "SecurityIR",
+    "SequenceMessage",
+    "SequenceParticipant",
     "SimpleDiagramIR",
     "SimpleDiagramKind",
     "SimpleEdge",

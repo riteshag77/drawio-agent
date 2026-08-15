@@ -150,6 +150,37 @@ CHART_GANTT_BAR_INSET = 6.0
 #: the plot frame grows beyond CHART_PLOT_W rather than compressing past these.
 CHART_MIN_COLUMN_W = 54.0
 
+# ── Sequence diagrams (compiler/sequence.py) ───────────────────────────
+#: Unlike every other view, the vertical axis here is *time*: a message's y is
+#: its position in the ordering, and nothing may reflow it. Horizontal pitch is
+#: per-participant, vertical pitch is per-message.
+SEQ_ORIGIN_X = 40.0
+SEQ_ORIGIN_Y = 40.0
+SEQ_PARTICIPANT_W = 130.0
+SEQ_PARTICIPANT_GAP_X = 90.0
+#: An actor's box is much narrower than a system's, because draw.io scales
+#: the umlActor stick figure to its cell width — at the full participant
+#: width the figure comes out stretched, with arms spanning the column.
+#: Its lifeline still sits on the same column centre, so spacing is uniform.
+SEQ_ACTOR_W = 40.0
+#: Header box height — passed to draw.io's umlLifeline as its `size=`, which is
+#: where the header ends and the dashed stem begins.
+SEQ_HEADER_H = 44.0
+#: Clear space between the header and the first message, and below the last.
+SEQ_FIRST_MESSAGE_GAP = 36.0
+SEQ_TAIL_GAP = 40.0
+#: Vertical distance between consecutive messages.
+SEQ_MESSAGE_PITCH_Y = 54.0
+#: A self-message loops out and back, so it needs more room than a straight one.
+SEQ_SELF_DROP = 30.0
+SEQ_SELF_WIDTH = 46.0
+#: Activation bar: width of the block drawn on a lifeline while it is busy.
+SEQ_ACTIVATION_W = 12.0
+#: Arrowhead size, and the shaft's own thickness.
+SEQ_ARROW_H = 12.0
+SEQ_ARROW_W = 10.0
+SEQ_SHAFT_H = 16.0
+
 # ── Defaults for malformed input (used by diagnostics' repair fixers) ──
 DEFAULT_LEAF_SIZE = (LEAF_W, LEAF_H)
 DEFAULT_CONTAINER_SIZE = (160.0, 120.0)

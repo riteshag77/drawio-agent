@@ -51,7 +51,8 @@ app/
     llm/                  # provider registry, langchain client wrapper, prompt builders, fallback.py
     diagram/              # draw.io XML validation/repair/MCP client
       compiler/           # IR → draw.io XML (deterministic; owns geometry + styles)
-                          # chart.py plots bar/line/pie/gantt; simple.py dispatches non-cloud kinds
+                          # chart.py plots bar/line/pie/gantt; sequence.py draws lifelines;
+                          # simple.py dispatches the non-cloud kinds
       geometry_spec.py    # canonical spacing constants — shared by compiler AND diagnostics
       elk_bridge.py       # ELK layout: long-lived sidecar (tools/elk_layout/serve.js),
                           # falling back to a per-call layout.js spawn
@@ -62,7 +63,7 @@ app/
 
 ### Request flow (`POST /chat`, `/chat/stream`)
 
-1. `routes._run_chat` classifies intent via `core/services/intent.classify_intent` — `"simple"` (non-cloud: flowchart/org chart/state machine/ER/mindmap, or a bar/line/pie/gantt chart) routes to `xml_pipeline.run_simple_pipeline`; anything else ("cloud") goes to the full pipeline. **Only the cloud/full path forwards `attachment_documents`/`context_text` to the LLM** — if attachments are present, intent is forced away from `"simple"` regardless of the classifier's answer, since the simple path can't use them.
+1. `routes._run_chat` classifies intent via `core/services/intent.classify_intent` — `"simple"` (non-cloud: flowchart/org chart/state machine/ER/mindmap, a sequence diagram, or a bar/line/pie/gantt chart) routes to `xml_pipeline.run_simple_pipeline`; anything else ("cloud") goes to the full pipeline. **Only the cloud/full path forwards `attachment_documents`/`context_text` to the LLM** — if attachments are present, intent is forced away from `"simple"` regardless of the classifier's answer, since the simple path can't use them.
 2. `xml_pipeline.run_xml_pipeline` orchestrates the full path:
    - Fresh cloud → `agent.generate_xml_diagram_from_ir` (Pydantic IR → compiler XML).
    - Edit → surgical `DiagramEditPlan` when small; otherwise IR regenerate.
@@ -90,15 +91,21 @@ response shape that assumes otherwise.
   deliberate exception: it sizes/positions leaves from the LLM's `size_hint`/
   `x`/`y` hints instead, since its purpose is source-image fidelity, not
   cloud design-system consistency.
-- **Simple (non-cloud)**: `SimpleDiagramIR` — one discriminated schema, five
+- **Simple (non-cloud)**: `SimpleDiagramIR` — one discriminated schema, six
   `kind`s. `"flow"` (flowchart, org chart, state machine, ER, mindmap) reuses
   `compiler/generic.py`, whose `_place_topological` already lays out an
   unpositioned node graph from its edges; `"bar"`/`"line"`/`"pie"`/`"gantt"`
-  go to `compiler/chart.py`, which plots rather than lays out. Charts emit **no
+  go to `compiler/chart.py`, which plots rather than lays out. `"sequence"` goes
+  to `compiler/sequence.py`: its vertical axis is *time*, so message order is
+  meaning and nothing may reflow it, and its activation bars are **derived**
+  from sync/reply pairing rather than declared. Charts and sequences emit **no
   edges at all** — gridlines, axes and even sloped line segments are
-  rectangles (the last via `rotation=`), because `remove_dangling_edges`
-  would delete a gridline and `fix_edge_anchors_from_geometry` would rewrite
-  the rest. Chart cell ids are sequence-first and zero-padded so
+  rectangles (the last via `rotation=`), and a sequence message is a
+  `shape=line` shaft plus a `triangle` head — because `remove_dangling_edges`
+  would delete a gridline and `fix_edge_anchors_from_geometry` would re-anchor
+  every message to its lifeline's face midpoint. Chart and sequence cell ids
+  (lifelines included, never the model's participant id) are sequence-first
+  and zero-padded so
   `validate_and_fix_xml`'s id-ordered cell sort cannot re-layer the page
   (it once restacked gridlines on top of the bars).
   A follow-up turn on a simple diagram **regenerates the IR**, never a surgical

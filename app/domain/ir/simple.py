@@ -6,6 +6,9 @@ Two families live behind one schema, discriminated by ``kind``:
   state machines, ER diagrams, mindmaps, swimlaned processes. These compile
   through the existing generic compiler, which already lays out an unpositioned
   node graph (``compiler/generic._place_topological``).
+- ``"sequence"`` — who calls whom, in what order. Not a node graph: the vertical
+  axis is time, so message *order* carries meaning that a flow layout cannot
+  express. Own compiler (``compiler/sequence.py``).
 - ``"bar"`` / ``"line"`` / ``"pie"`` / ``"gantt"`` — charts plotted from *numbers* rather than
   drawn from a topology. These need axes, scales and proportional geometry, so
   they get their own compiler (``compiler/chart.py``).
@@ -38,7 +41,7 @@ from pydantic import Field, field_validator
 from app.domain.ir.base import Identified, IRModel
 from app.domain.ir.generic import GenericNodeShape
 
-SimpleDiagramKind = Literal["flow", "bar", "line", "pie", "gantt"]
+SimpleDiagramKind = Literal["flow", "sequence", "bar", "line", "pie", "gantt"]
 
 #: Soft ceilings, enforced here rather than left to prose in the prompt pack.
 #: A chart with more categories than this stops being readable at any page size
@@ -116,6 +119,40 @@ class ChartSeries(IRModel):
     )
 
 
+class SequenceParticipant(Identified):
+    """One column of a sequence diagram — a lifeline."""
+
+    label: str = Field(description="Name shown in the participant's header box, 1-3 words.")
+    kind: Literal["participant", "actor"] = Field(
+        default="participant",
+        description="'actor' for a human/external role, 'participant' for a system or service.",
+    )
+
+
+class SequenceMessage(IRModel):
+    """One arrow between lifelines, at a point in time.
+
+    Order in the list *is* the order in time — there is no timestamp field,
+    because a sequence diagram's whole content is the ordering.
+    """
+
+    source: str = Field(description="id of the participant the arrow leaves")
+    target: str = Field(description="id of the participant it arrives at")
+    label: str = Field(
+        default="",
+        description="What is being sent — a call, event or return value. 1-5 words.",
+    )
+    kind: Literal["sync", "async", "reply"] = Field(
+        default="sync",
+        description=(
+            "'sync' for a call that waits for a response (solid arrow, and it starts "
+            "an activation bar on the target). 'reply' for the return of an earlier "
+            "call (dashed arrow, ends that activation). 'async' for fire-and-forget "
+            "— an event or a queued message that nothing waits on."
+        ),
+    )
+
+
 class GanttTask(IRModel):
     """One bar on a timeline, positioned in abstract column units."""
 
@@ -149,7 +186,9 @@ class SimpleDiagramIR(IRModel):
         description=(
             "Which representation this request needs. 'flow' for anything made of "
             "shapes joined by arrows (flowchart, org chart, state machine, ER diagram, "
-            "mindmap, process/swimlane). 'bar' for comparing quantities across "
+            "mindmap, process/swimlane). 'sequence' when the point is who calls whom "
+            "in what order over time (API calls, message passing, a protocol "
+            "handshake). 'bar' for comparing quantities across "
             "categories, 'line' for a trend across an ordered sequence (months, "
             "versions, steps), 'pie' for parts of a whole, 'gantt' for tasks over "
             "time. Populate only the fields belonging to the kind you choose."
@@ -187,6 +226,19 @@ class SimpleDiagramIR(IRModel):
     )
     tasks: list[GanttTask] = Field(
         default_factory=list, description="gantt only. The timeline bars, top to bottom.",
+    )
+
+    # --- kind="sequence" -----------------------------------------------------
+    participants: list[SequenceParticipant] = Field(
+        default_factory=list,
+        description="sequence only. The lifelines, left to right in the order they appear.",
+    )
+    messages: list[SequenceMessage] = Field(
+        default_factory=list,
+        description=(
+            "sequence only. The arrows, in the order they happen — first in the list "
+            "is first in time, drawn at the top."
+        ),
     )
     value_label: str = Field(
         default="",
@@ -234,6 +286,9 @@ class SimpleDiagramIR(IRModel):
 
     def is_chart(self) -> bool:
         return self.kind in ("bar", "line", "pie", "gantt")
+
+    def is_sequence(self) -> bool:
+        return self.kind == "sequence"
 
     def leaf_ids(self) -> set[str]:
         return {n.id for n in self.nodes}
@@ -294,19 +349,53 @@ class SimpleDiagramIR(IRModel):
                 )
         return errors
 
+    def _sequence_errors(self) -> list[str]:
+        """A sequence diagram is participants plus an ordered message list; the
+        endpoints must resolve or an arrow has nowhere to land."""
+        errors: list[str] = []
+        if not self.participants:
+            errors.append("kind='sequence' needs at least one entry in `participants`")
+        if not self.messages:
+            errors.append("kind='sequence' needs at least one entry in `messages`")
+        seen: set[str] = set()
+        for participant in self.participants:
+            if participant.id in seen:
+                errors.append(f"duplicate participant id {participant.id!r}")
+            seen.add(participant.id)
+        for index, message in enumerate(self.messages):
+            if message.source not in seen:
+                errors.append(
+                    f"messages[{index}] source {message.source!r} is not a declared participant"
+                )
+            if message.target not in seen:
+                errors.append(
+                    f"messages[{index}] target {message.target!r} is not a declared participant"
+                )
+        # A self-message (source == target) is deliberately allowed — an object
+        # calling its own method is ordinary sequence-diagram content, and the
+        # compiler draws it as a loop back into the same lifeline.
+        return errors
+
     def semantic_errors(self) -> list[str]:
         errors: list[str] = []
 
         if self.kind == "flow":
             errors.extend(self._flow_errors())
         else:
-            # Populating flow fields on a chart is the one cross-kind mistake
-            # that silently produces a wrong *and* plausible page, so it is an
-            # error rather than something the compiler quietly ignores.
+            # Populating flow fields on another kind is the one cross-kind
+            # mistake that silently produces a wrong *and* plausible page, so it
+            # is an error rather than something the compiler quietly ignores.
             if self.nodes or self.edges or self.groups:
                 errors.append(
-                    f"kind={self.kind!r} is a chart — leave `nodes`, `edges` and `groups` empty"
+                    f"kind={self.kind!r} does not use `nodes`, `edges` or `groups` — leave them empty"
                 )
+
+        if self.kind == "sequence":
+            errors.extend(self._sequence_errors())
+        elif self.participants or self.messages:
+            errors.append(
+                f"kind={self.kind!r} does not use `participants` or `messages` — leave them empty"
+            )
 
         if self.kind in ("bar", "line", "pie"):
             errors.extend(self._series_errors())
@@ -332,10 +421,10 @@ class SimpleDiagramIR(IRModel):
         elif self.tasks:
             errors.append(f"kind={self.kind!r} does not use `tasks` — leave it empty")
 
-        if self.kind in ("flow", "gantt") and self.series:
+        if self.kind in ("flow", "sequence", "gantt") and self.series:
             errors.append(f"kind={self.kind!r} does not use `series` — leave it empty")
-        if self.kind == "flow" and self.categories:
-            errors.append("kind='flow' does not use `categories` — leave it empty")
+        if self.kind in ("flow", "sequence") and self.categories:
+            errors.append(f"kind={self.kind!r} does not use `categories` — leave it empty")
 
         return errors
 

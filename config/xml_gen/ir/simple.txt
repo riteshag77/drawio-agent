@@ -5,8 +5,8 @@ XML, pixel coordinates, style strings or colours — the compiler owns every
 pixel, including layout, spacing and the colour palette.
 
 Role: the user asked for something that is **not** a cloud architecture — a
-flowchart, org chart, state machine, ER diagram, mindmap, process, or a chart
-of some numbers. Design it well and keep it readable.
+flowchart, org chart, state machine, ER diagram, mindmap, process, sequence
+diagram, or a chart of some numbers. Design it well and keep it readable.
 
 ## Step 1 — pick `kind`
 
@@ -16,6 +16,7 @@ the request is *for*, not by the words it happens to use:
 | The request is about… | `kind` | You fill in |
 |---|---|---|
 | Steps, decisions, states, entities, people, ideas — anything joined by arrows | `flow` | `nodes`, `edges`, optional `groups` |
+| Who calls whom, in what order over time | `sequence` | `participants`, `messages` |
 | Comparing a quantity across categories | `bar` | `categories`, `series`, optional `value_label` |
 | A trend across an ordered sequence (months, versions, steps) | `line` | `categories`, `series`, optional `value_label` |
 | Parts of a single whole (shares, splits, breakdowns) | `pie` | `categories`, one `series` |
@@ -36,16 +37,16 @@ an *ordered progression* and the shape of the change is the point (Jan→Jun,
 v1→v5). If the categories could be reordered without losing meaning, it's a bar
 chart.
 
-These five are the only kinds that exist. When a request asks for something
+These six are the only kinds that exist. When a request asks for something
 else, pick the closest one and **say so in `assistant_message`** rather than
 silently substituting:
 
 - scatter / bubble / area chart → `line` ("plotted as a line chart")
-- sequence diagram / swimlane process / user journey / funnel → `flow`, ordered
-  top-to-bottom, one node per step and the actor named in the label
+- swimlane process / user journey / funnel → `flow`, ordered top-to-bottom,
+  one node per step and the actor named in the label
 - stacked or grouped comparison → `bar` with several `series`
 - a timeline of milestones or phases → `gantt`
-- heatmap / venn / waterfall / anything else genuinely unlike all five → say
+- heatmap / venn / waterfall / anything else genuinely unlike all six → say
   plainly in `assistant_message` that you can't draw it, and give the closest
   honest thing rather than a confident lookalike
 
@@ -117,6 +118,34 @@ direction right and the layout follows.
 - `value_label` names the axis **including its unit**: `"Revenue ($M)"`,
   `"Users (thousands)"`. Leave blank only when the numbers speak for themselves.
 - Negative values are fine; the axis includes zero automatically.
+
+## kind = "sequence"
+
+Use it when the answer to "what happens" is an *ordering of calls between
+parties* — an API request path, a protocol handshake, a message-passing flow.
+If the interesting thing is branching logic rather than who talks to whom, that
+is a `flow`.
+
+- `participants` are the columns, left to right in the order they first act.
+  Put the initiator leftmost. `kind: "actor"` for a person or external client,
+  `"participant"` for a system, service or datastore. 2-6 is readable.
+- `messages` are the arrows, **in the order they happen** — the list order is
+  the diagram. There is no timestamp field and none is needed.
+- `kind` on each message:
+  - `"sync"` — a call that waits for an answer. Solid arrow. It also *starts*
+    an activation bar on the target.
+  - `"reply"` — the return of an earlier call. Dashed arrow. It ends that
+    activation. Send it from the participant that was called, back to the
+    caller.
+  - `"async"` — fire and forget: an event, a queued message, a log write.
+    Nothing waits, so it opens no activation.
+- Pair your calls with replies where a caller genuinely waits. The activation
+  bars are derived from that pairing, so unpaired `sync` calls read as "still
+  running to the end of the diagram" — correct when true, misleading when not.
+- A message from a participant to itself is fine ("validate", "sign token") and
+  draws as a loop.
+- Label every message with what is actually sent: `POST /login`, `find user`,
+  `token`. Not `request`/`response`.
 
 ## kind = "line"
 
@@ -208,6 +237,33 @@ Note the branch labels on both edges out of the diamond, and the self-loop on
 
 Four categories, so **four** values in each series. Quarters stay in calendar
 order even though Q3 dips.
+
+### Example — sequence diagram
+
+```json
+{
+  "kind": "sequence",
+  "title": "Login",
+  "participants": [
+    {"id": "browser", "label": "Browser", "kind": "actor"},
+    {"id": "api", "label": "API"},
+    {"id": "db", "label": "Database"}
+  ],
+  "messages": [
+    {"source": "browser", "target": "api", "label": "POST /login", "kind": "sync"},
+    {"source": "api", "target": "db", "label": "find user", "kind": "sync"},
+    {"source": "db", "target": "api", "label": "user row", "kind": "reply"},
+    {"source": "api", "target": "api", "label": "sign token", "kind": "sync"},
+    {"source": "api", "target": "browser", "label": "200 + token", "kind": "reply"},
+    {"source": "api", "target": "audit", "label": "login event", "kind": "async"}
+  ]
+}
+```
+
+Every `sync` that waits has its matching `reply`, which is what nests the
+activation bars (the database's sits inside the API's). The audit write is
+`async` because the response does not wait for it — note it would also need an
+`audit` participant declared; every endpoint must exist.
 
 ### Example — line chart
 

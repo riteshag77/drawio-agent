@@ -64,7 +64,7 @@ class KindDiscriminationTests(unittest.TestCase):
 
     def test_chart_with_flow_fields_is_rejected(self) -> None:
         ir = SimpleDiagramIR(**_bar(nodes=[{"id": "a", "shape": "rectangle", "label": "x"}]))
-        self.assertTrue(any("leave `nodes`" in e for e in ir.semantic_errors()))
+        self.assertTrue(any("does not use `nodes`" in e for e in ir.semantic_errors()))
 
     def test_flow_with_chart_fields_is_rejected(self) -> None:
         ir = SimpleDiagramIR(**_flow(categories=["Q1"]))
@@ -82,6 +82,103 @@ class KindDiscriminationTests(unittest.TestCase):
 
         with self.assertRaises(ValidationError):
             SimpleDiagramIR(**_flow(kind="sankey"))
+
+
+def _sequence(**overrides) -> dict:
+    payload = {
+        "kind": "sequence",
+        "title": "Login",
+        "participants": [
+            {"id": "user", "label": "Browser", "kind": "actor"},
+            {"id": "api", "label": "API"},
+            {"id": "db", "label": "Database"},
+        ],
+        "messages": [
+            {"source": "user", "target": "api", "label": "POST /login", "kind": "sync"},
+            {"source": "api", "target": "db", "label": "find user", "kind": "sync"},
+            {"source": "db", "target": "api", "label": "user row", "kind": "reply"},
+            {"source": "api", "target": "user", "label": "token", "kind": "reply"},
+        ],
+    }
+    payload.update(overrides)
+    return payload
+
+
+class SequenceTests(unittest.TestCase):
+    def test_valid_sequence(self) -> None:
+        self.assertEqual(SimpleDiagramIR(**_sequence()).semantic_errors(), [])
+
+    def test_message_endpoints_must_be_declared(self) -> None:
+        ir = SimpleDiagramIR(**_sequence(messages=[
+            {"source": "user", "target": "ghost", "label": "x"},
+        ]))
+        self.assertTrue(any("not a declared participant" in e for e in ir.semantic_errors()))
+
+    def test_other_kinds_reject_sequence_fields(self) -> None:
+        ir = SimpleDiagramIR(**_bar(participants=[{"id": "a", "label": "A"}]))
+        self.assertTrue(any("`participants`" in e for e in ir.semantic_errors()))
+
+    def test_sequence_emits_no_edges(self) -> None:
+        """Messages are a shape=line shaft plus a triangle head — both vertices.
+        As edges they would be re-anchored by fix_edge_anchors_from_geometry to
+        their lifeline's face midpoint, collapsing the conversation onto one
+        line, on the one view where vertical position is the meaning."""
+        xml = compile_simple_ir(SimpleDiagramIR(**_sequence()))
+        self.assertEqual([c for c in _cells(xml) if c.get("edge") == "1"], [])
+
+    def test_messages_descend_in_declared_order(self) -> None:
+        ir = SimpleDiagramIR(**_sequence())
+        cells = _cells(compile_simple_ir(ir))
+        shafts = [c for c in cells if "_shaft" in (c.get("id") or "")]
+        ys = [float(c.find("mxGeometry").get("y")) for c in shafts]
+        self.assertEqual(ys, sorted(ys), "message order is the diagram's content")
+        self.assertEqual(len(shafts), len(ir.messages))
+
+    def test_activations_nest_from_sync_reply_pairing(self) -> None:
+        """A->B then B->C, C-->B, B-->A must give C's bar inside B's, derived
+        from the messages rather than declared."""
+        from app.adapters.outbound.diagram.compiler.sequence import _activations, _message_slots
+
+        ir = SimpleDiagramIR(**_sequence())
+        offsets = _message_slots(ir.messages)
+        spans = dict((pid, (s, e)) for pid, s, e in _activations(ir.messages, offsets, offsets[-1]))
+        api_start, api_end = spans["api"]
+        db_start, db_end = spans["db"]
+        self.assertLess(api_start, db_start)
+        self.assertGreater(api_end, db_end)
+
+    def test_unreturned_call_still_draws_a_bar(self) -> None:
+        ir = SimpleDiagramIR(**_sequence(messages=[
+            {"source": "user", "target": "api", "label": "fire", "kind": "sync"},
+        ]))
+        xml = compile_simple_ir(ir)
+        self.assertTrue([c for c in _cells(xml) if "_act" in (c.get("id") or "")])
+
+    def test_async_message_opens_no_activation(self) -> None:
+        ir = SimpleDiagramIR(**_sequence(messages=[
+            {"source": "api", "target": "db", "label": "log", "kind": "async"},
+        ]))
+        xml = compile_simple_ir(ir)
+        self.assertEqual([c for c in _cells(xml) if "_act" in (c.get("id") or "")], [])
+
+    def test_self_message_draws_a_loop(self) -> None:
+        ir = SimpleDiagramIR(**_sequence(messages=[
+            {"source": "api", "target": "api", "label": "sign token", "kind": "sync"},
+        ]))
+        cells = _cells(compile_simple_ir(ir))
+        # Three legs: out, down, back.
+        self.assertEqual(len([c for c in cells if "_shaft" in (c.get("id") or "")]), 3)
+
+    def test_lifeline_ids_are_minted_not_model_authored(self) -> None:
+        """Cell z-order is keyed on id by validate_and_fix_xml, so a participant
+        called "zebra" must not be able to sort its lifeline above the arrows."""
+        ir = SimpleDiagramIR(**_sequence(
+            participants=[{"id": "zebra", "label": "Z"}, {"id": "api", "label": "API"}],
+            messages=[{"source": "zebra", "target": "api", "label": "go"}],
+        ))
+        ids = [c.get("id") for c in _cells(compile_simple_ir(ir))]
+        self.assertNotIn("zebra", ids)
+        self.assertTrue(any("_life" in (i or "") for i in ids))
 
 
 class SeriesAlignmentTests(unittest.TestCase):

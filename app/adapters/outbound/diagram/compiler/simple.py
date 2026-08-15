@@ -9,8 +9,11 @@ Dispatches on ``kind``:
   nodes that carry no coordinates. Nothing about it is specific to tracing an
   uploaded image once the position hints are absent, so a second near-identical
   compiler would be pure duplication.
-- ``"bar"``/``"pie"``/``"gantt"`` go to ``compile_chart_ir``, which plots rather
-  than lays out.
+- ``"sequence"`` goes to ``compile_sequence_ir``. It is neither a node graph
+  nor a plot: its vertical axis is time, so message order is meaning and no
+  layout engine may reorder it.
+- ``"bar"``/``"line"``/``"pie"``/``"gantt"`` go to ``compile_chart_ir``, which
+  plots rather than lays out.
 
 The flow conversion drops to ``GenericDiagramIR`` rather than the two IRs
 sharing a base class. They describe different *acts* — one reports what was in
@@ -23,6 +26,7 @@ from __future__ import annotations
 
 from app.adapters.outbound.diagram.compiler.chart import compile_chart_ir
 from app.adapters.outbound.diagram.compiler.generic import compile_generic_ir
+from app.adapters.outbound.diagram.compiler.sequence import compile_sequence_ir
 from app.domain.ir.generic import GenericDiagramIR, GenericEdge, GenericGroup, GenericNode
 from app.domain.ir.simple import SimpleDiagramIR
 
@@ -60,4 +64,6 @@ def compile_simple_ir(ir: SimpleDiagramIR, *, page_name: str = "Diagram") -> str
     """Render ``ir`` to a complete draw.io document."""
     if ir.is_chart():
         return compile_chart_ir(ir, page_name=page_name)
+    if ir.is_sequence():
+        return compile_sequence_ir(ir, page_name=page_name)
     return compile_generic_ir(_to_generic_ir(ir), page_name=page_name)
