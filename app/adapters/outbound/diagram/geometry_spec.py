@@ -104,6 +104,52 @@ ACTOR_GAP_X = 80.0
 #: Vertical spacing between stacked external actors.
 ACTOR_GAP_Y = 40.0
 
+# ── Charts (bar / pie / gantt — compiler/chart.py) ─────────────────────
+#: Charts are plotted, not laid out: every dimension below describes a plot
+#: frame the compiler fills proportionally, so none of the icon-grid pitches
+#: above apply. Kept here anyway because this file is the single place any
+#: spacing number in this app is allowed to live (see CLAUDE.md).
+CHART_ORIGIN_X = 40.0
+CHART_ORIGIN_Y = 40.0
+#: Plot area — the framed region the data is drawn inside, excluding axis
+#: labels, title and legend, all of which are placed around it.
+CHART_PLOT_W = 620.0
+CHART_PLOT_H = 340.0
+#: Gutter left of the plot frame for value-axis tick labels, and below it for
+#: category labels.
+CHART_AXIS_GUTTER_X = 76.0
+CHART_AXIS_GUTTER_Y = 44.0
+#: Height of the title band above the plot frame.
+CHART_TITLE_H = 34.0
+#: Fraction of each category slot occupied by its bar (or bar cluster); the
+#: remainder becomes the gap between neighbouring categories.
+CHART_BAR_FILL = 0.62
+#: Gap between the bars of different series inside one category cluster.
+CHART_BAR_SERIES_GAP = 4.0
+#: Number of horizontal gridlines/value ticks drawn across the plot frame.
+CHART_VALUE_TICKS = 5
+#: Line series: stroke thickness, and the diameter of a point marker. The
+#: marker stays comfortably above the 8px minimum a hit-/read-target wants,
+#: and well clear of the 2px line so a point reads as a point.
+CHART_LINE_W = 2.0
+CHART_LINE_MARKER = 9.0
+#: Pie diameter, and the gap between the pie and its legend column.
+CHART_PIE_D = 300.0
+CHART_PIE_LEGEND_GAP = 56.0
+#: One legend row: swatch box, gap to its text, and the row's vertical pitch.
+CHART_LEGEND_SWATCH = 14.0
+CHART_LEGEND_TEXT_GAP = 8.0
+CHART_LEGEND_ROW_H = 24.0
+CHART_LEGEND_TEXT_W = 190.0
+#: Gantt: width of the task-name column, height of one task row, and the bar's
+#: inset inside its row (so consecutive bars don't touch).
+CHART_GANTT_LABEL_W = 190.0
+CHART_GANTT_ROW_H = 34.0
+CHART_GANTT_BAR_INSET = 6.0
+#: Minimum width of one gantt time column, and of one bar chart category slot —
+#: the plot frame grows beyond CHART_PLOT_W rather than compressing past these.
+CHART_MIN_COLUMN_W = 54.0
+
 # ── Defaults for malformed input (used by diagnostics' repair fixers) ──
 DEFAULT_LEAF_SIZE = (LEAF_W, LEAF_H)
 DEFAULT_CONTAINER_SIZE = (160.0, 120.0)

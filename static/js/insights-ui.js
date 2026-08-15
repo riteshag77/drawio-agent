@@ -114,24 +114,30 @@ async function restoreDiagramVersion(versionId) {
     }
     const v = await res.json();
     activeVersionId = versionId;
-    const isMermaid = v.meta && v.meta.diagram_type === 'mermaid';
-    if (isMermaid) {
-        currentMermaid = v.xml;
-        currentXml = '';
+    const versionType = (v.meta && v.meta.diagram_type) || 'cloud';
+    if (versionType === 'mermaid') {
+        // Versions saved before the simple path emitted draw.io XML hold Mermaid
+        // source in the `xml` column. draw.io cannot load it — that was the bug
+        // that path always had — so say so instead of handing it over and
+        // letting the canvas sit empty. The text is still shown, which is all
+        // the original version ever really had.
         document.getElementById('xml-output').textContent = v.xml;
-        if (typeof loadMermaidIntoEditor === 'function') loadMermaidIntoEditor(v.xml);
-    } else {
-        currentXml = v.xml;
-        currentMermaid = '';
-        document.getElementById('xml-output').textContent = v.xml;
-        if (typeof loadDiagramIntoEditor === 'function') loadDiagramIntoEditor(v.xml);
+        showToast('That version predates draw.io rendering — showing its source only.', 'info');
+        renderVersionStrip();
+        return;
     }
+    currentXml = v.xml;
+    isSimpleDiagram = versionType === 'simple';
+    document.getElementById('xml-output').textContent = v.xml;
+    if (typeof loadDiagramIntoEditor === 'function') loadDiagramIntoEditor(v.xml);
     if (Array.isArray(v.messages) && v.messages.length && typeof _restoreChatTranscript === 'function') {
         _restoreChatTranscript(v.messages);
     }
     renderVersionStrip();
     showToast(`Restored v${v.version}`, 'success');
-    if (!isMermaid) reanalyzeRestoredVersion(v.xml);
+    // Cost/WAF/compliance re-analysis is cloud-only — a flowchart or a bar
+    // chart has nothing for those panels to say.
+    if (!isSimpleDiagram) reanalyzeRestoredVersion(v.xml);
 }
 
 /** Restoring a version only swaps the canvas XML — without this, cost/WAF/

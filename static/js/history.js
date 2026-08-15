@@ -46,7 +46,7 @@ function historyCardHtml(v) {
     const title = (v.title || v.prompt || 'Untitled').replace(/</g, '&lt;');
     return `
         <div class="history-card">
-            <span class="history-card-version">v${v.version}${v.diagram_type === 'mermaid' ? ' · mermaid' : ''}</span>
+            <span class="history-card-version">v${v.version}${v.diagram_type && v.diagram_type !== 'cloud' ? ` · ${v.diagram_type}` : ''}</span>
             <span class="history-card-title" title="${title}">${title}</span>
             <span class="history-card-time">${historyRelativeTime(v.created_at)}</span>
             <div class="history-card-actions">

@@ -1,5 +1,5 @@
-"""POST /chat history recording — including the mermaid ("simple" intent)
-path, which has no `xml` field and previously never got a version saved."""
+"""POST /chat history recording — including the "simple" (non-cloud) intent
+path, which previously stored Mermaid source in the `xml` column."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from app.adapters.outbound import history_store
 from app.adapters.outbound.config import env_config
-from app.domain.entities.mermaid import MermaidDiagram
+from app.domain.entities import XmlDiagram
 
 
 class _TempHistory:
@@ -41,7 +41,7 @@ class _TempHistory:
         return False
 
 
-class MermaidHistoryRouteTests(unittest.TestCase):
+class SimpleHistoryRouteTests(unittest.TestCase):
     def _client(self):
         from fastapi.testclient import TestClient
 
@@ -49,25 +49,44 @@ class MermaidHistoryRouteTests(unittest.TestCase):
 
         return TestClient(app)
 
-    def test_mermaid_turn_is_versioned(self) -> None:
+    def test_simple_turn_is_versioned_as_xml(self) -> None:
+        """The simple path stores draw.io XML like every other path.
+
+        It used to store Mermaid source in this same column, tagged
+        ``diagram_type: "mermaid"``, because the client was expected to import
+        it into draw.io — an import the embed has no action for, so the diagram
+        never rendered. Asserting on ``vertex="1"`` is what pins the fix: what
+        lands in history is now something draw.io can actually load.
+        """
         with _TempHistory():
             client = self._client()
-            fake = MermaidDiagram(mermaid="flowchart TD\nA-->B", assistant_message="Generated Mermaid diagram.")
-            with patch("app.adapters.inbound.web.routes.generate_mermaid_diagram", return_value=fake):
+            xml = (
+                '<mxfile><diagram name="Diagram"><mxGraphModel><root>'
+                '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+                '<mxCell id="a" value="Start" style="rounded=1;" vertex="1" parent="1">'
+                '<mxGeometry x="0" y="0" width="78" height="78" as="geometry"/></mxCell>'
+                "</root></mxGraphModel></diagram></mxfile>"
+            )
+            fake = XmlDiagram(xml=xml, assistant_message="Generated a coffee brewing flowchart.")
+            with patch(
+                "app.core.services.xml_pipeline.generate_simple_diagram_from_ir", return_value=fake,
+            ):
                 res = client.post("/chat", json={
                     "messages": [{"role": "user", "content": "flowchart of a coffee brewing process"}],
-                    "session_id": "mermaid-session",
+                    "session_id": "simple-session",
                     "diagram_mode": "simple",
                 })
             self.assertEqual(res.status_code, 200)
             body = res.json()
-            self.assertEqual(body["diagram_type"], "mermaid")
+            self.assertEqual(body["generation_path"], "simple_ir")
+            self.assertIn('vertex="1"', body["xml"])
+            self.assertNotIn("mermaid", body)
 
-            versions = history_store.list_versions("mermaid-session")
+            versions = history_store.list_versions("simple-session")
             self.assertEqual(len(versions), 1)
-            self.assertEqual(versions[0].xml, "flowchart TD\nA-->B")
-            self.assertEqual(versions[0].meta.get("diagram_type"), "mermaid")
-            self.assertEqual(versions[0].summary()["diagram_type"], "mermaid")
+            self.assertIn('vertex="1"', versions[0].xml)
+            self.assertEqual(versions[0].meta.get("diagram_type"), "simple")
+            self.assertEqual(versions[0].summary()["diagram_type"], "simple")
 
 
 if __name__ == "__main__":

@@ -234,6 +234,35 @@ def get_generic_ir_system_prompt(
     )
 
 
+def get_simple_ir_system_prompt(
+    model_id: str | None = None,
+    *,
+    provider: str | None = None,
+    custom_system_message: str = "",
+    user_hint: str = "",
+) -> str:
+    """Assemble the SimpleDiagramIR system prompt — the non-cloud path.
+
+    Same three exclusions as Generic and ArchiMate (no cloud classify pack, no
+    cloud icon catalog, no SaaS icons): this path exists precisely for requests
+    that are *not* cloud architecture, so a catalog of AWS/GCP/Azure service
+    keys would only invite the model to reach for vocabulary the schema has no
+    field to hold.
+
+    No ``governance_view`` either. House-style rules are written about cloud
+    architecture (naming, tiering, boundary placement) and are stored per cloud
+    view; there is no rule set that means anything about a bar chart.
+    """
+    return _assemble_ir_prompt(
+        view_prompt_files=["ir/simple.txt"],
+        include_cloud_classify=False,
+        include_cloud_icon_catalog=False,
+        include_saas_icons=False,
+        model_id=model_id, provider=provider, platform="generic",
+        custom_system_message=custom_system_message, user_hint=user_hint,
+    )
+
+
 def get_corridor_ir_system_prompt(
     view: str,
     model_id: str | None = None,

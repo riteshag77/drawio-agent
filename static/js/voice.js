@@ -236,9 +236,9 @@ function stopVoiceInput() {
     setVoiceStatus(false);
     if (!isSending) {
         setComposerRunStatus('Ready — type, dictate (Space), or say a voice command', 'info');
-        if (voiceStatusBeforeListen && (currentXml || currentMermaid)) {
+        if (voiceStatusBeforeListen && currentXml) {
             setDiagramStatus(voiceStatusBeforeListen);
-        } else if (currentXml || currentMermaid) {
+        } else if (currentXml) {
             setDiagramStatus('Diagram loaded — pan and zoom to explore');
         } else {
             setDiagramStatus('Waiting for generation');

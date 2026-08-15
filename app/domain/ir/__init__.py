@@ -65,6 +65,15 @@ from app.domain.ir.network import (
     Vpc,
 )
 from app.domain.ir.security import SecurityIR
+from app.domain.ir.simple import (
+    ChartSeries,
+    GanttTask,
+    SimpleDiagramIR,
+    SimpleDiagramKind,
+    SimpleEdge,
+    SimpleGroup,
+    SimpleNode,
+)
 
 __all__ = [
     "ARCHIMATE_ELEMENT_TABLE",
@@ -81,6 +90,7 @@ __all__ = [
     "ArchimateTypeSpec",
     "ArchimateViewpoint",
     "AvailabilityZone",
+    "ChartSeries",
     "CloudBoundary",
     "Corridor",
     "CorridorIR",
@@ -92,6 +102,7 @@ __all__ = [
     "Flow",
     "FlowClassification",
     "FlowProtection",
+    "GanttTask",
     "GenericDiagramIR",
     "GenericEdge",
     "GenericGroup",
@@ -104,6 +115,11 @@ __all__ = [
     "OpenQuestion",
     "Region",
     "SecurityIR",
+    "SimpleDiagramIR",
+    "SimpleDiagramKind",
+    "SimpleEdge",
+    "SimpleGroup",
+    "SimpleNode",
     "SourceConfidence",
     "Subnet",
     "SubnetTier",

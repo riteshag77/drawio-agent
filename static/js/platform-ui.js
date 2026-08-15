@@ -24,9 +24,9 @@ function applyPlatformUi(platform) {
 
 function shouldRegenerateOnPlatformSwitch() {
     if (isSending) return false;
-    if (currentMermaid && !currentArchitecture) return false;
+    if (isSimpleDiagram && !currentArchitecture) return false;
     if (currentArchitecture?.nodes?.length > 0) return true;
-    if (currentXml && currentXml.length > 300 && !currentMermaid) return true;
+    if (currentXml && currentXml.length > 300 && !isSimpleDiagram) return true;
     return false;
 }
 
@@ -60,7 +60,7 @@ function selectPlatform(platform) {
 
     if (shouldRegenerateOnPlatformSwitch()) {
         regenerateForPlatform(previousPlatform);
-    } else if (currentMermaid && !currentArchitecture) {
+    } else if (isSimpleDiagram && !currentArchitecture) {
         setDiagramStatus('Platform applies to new cloud diagrams');
     }
 }

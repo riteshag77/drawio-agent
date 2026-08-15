@@ -86,6 +86,16 @@ class ChatRequest(BaseModel):
     context_text: str | None = Field(default=None, max_length=20_000)
     attachment_documents: list[AttachmentDocument] | None = Field(default=None, max_length=3)
     current_xml: str | None = Field(default=None, max_length=1_500_000)
+    current_diagram_type: Literal["simple", "cloud"] | None = Field(
+        default=None,
+        description=(
+            "What kind of diagram `current_xml` holds, echoed back from the previous "
+            "response's `diagram_type`. Without it a follow-up like 'change Q3 to 200' "
+            "scores as neither cloud nor simple and takes the cloud tie-break, sending "
+            "an edit of a chart down the cloud surgical-edit path — which relabels a "
+            "bar without re-plotting it. Omit only on the first turn."
+        ),
+    )
     libavoid: bool | None = None
     image_replicate: bool = False
     image_mode: Literal["as_is", "cloud"] = Field(

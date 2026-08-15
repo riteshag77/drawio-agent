@@ -1,0 +1,333 @@
+"""The non-cloud path: ``SimpleDiagramIR`` validation and its two compilers.
+
+Replaces the Mermaid fast-path tests. Those exercised a generator whose output
+could never reach the canvas — it produced Mermaid source for a draw.io embed
+``import`` action that does not exist, so the embed answered
+``{error: 'unknownMessage'}`` and drew nothing. The assertions here are
+therefore weighted toward the property that was missing before: what comes out
+is draw.io XML that renders.
+"""
+
+from __future__ import annotations
+
+import math
+import unittest
+import xml.etree.ElementTree as ET
+
+from app.adapters.outbound.diagram.compiler.chart_theme import PALETTE_SLOTS, SERIES
+from app.adapters.outbound.diagram.compiler.simple import compile_simple_ir
+from app.core.logging import StepLogger
+from app.core.services.agent import generate_simple_diagram_from_ir
+from app.domain.ir.simple import MAX_PIE_SLICES, MAX_SERIES, SimpleDiagramIR
+
+
+def _flow(**overrides) -> dict:
+    payload = {
+        "kind": "flow",
+        "title": "Claim Flow",
+        "nodes": [
+            {"id": "start", "shape": "rounded_rectangle", "label": "Start"},
+            {"id": "check", "shape": "diamond", "label": "Valid?"},
+            {"id": "done", "shape": "rounded_rectangle", "label": "End"},
+        ],
+        "edges": [
+            {"source": "start", "target": "check"},
+            {"source": "check", "target": "done", "label": "Yes"},
+        ],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _bar(**overrides) -> dict:
+    payload = {
+        "kind": "bar",
+        "title": "Revenue",
+        "categories": ["Q1", "Q2"],
+        "series": [{"label": "2026", "values": [10.0, 20.0]}],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _cells(xml: str) -> list[ET.Element]:
+    return list(ET.fromstring(xml).iter("mxCell"))
+
+
+class KindDiscriminationTests(unittest.TestCase):
+    """The schema is a discriminated union, so the cross-kind mistakes are the
+    ones worth catching — a model that picks a chart and then fills in nodes
+    would otherwise compile to a plausible-looking but wrong page."""
+
+    def test_flow_is_valid(self) -> None:
+        self.assertEqual(SimpleDiagramIR(**_flow()).semantic_errors(), [])
+
+    def test_chart_with_flow_fields_is_rejected(self) -> None:
+        ir = SimpleDiagramIR(**_bar(nodes=[{"id": "a", "shape": "rectangle", "label": "x"}]))
+        self.assertTrue(any("leave `nodes`" in e for e in ir.semantic_errors()))
+
+    def test_flow_with_chart_fields_is_rejected(self) -> None:
+        ir = SimpleDiagramIR(**_flow(categories=["Q1"]))
+        self.assertTrue(any("categories" in e for e in ir.semantic_errors()))
+
+    def test_kind_synonyms_are_normalized(self) -> None:
+        """Models reach for the user's word ("flowchart", "piechart") over the
+        schema's token often enough to absorb rather than round-trip."""
+        self.assertEqual(SimpleDiagramIR(**_flow(kind="flowchart")).kind, "flow")
+        self.assertEqual(SimpleDiagramIR(**_bar(kind="bar chart")).kind, "bar")
+        self.assertEqual(SimpleDiagramIR(**_bar(kind="line graph")).kind, "line")
+
+    def test_unknown_kind_still_fails(self) -> None:
+        from pydantic import ValidationError
+
+        with self.assertRaises(ValidationError):
+            SimpleDiagramIR(**_flow(kind="sankey"))
+
+
+class SeriesAlignmentTests(unittest.TestCase):
+    def test_series_must_match_category_count(self) -> None:
+        ir = SimpleDiagramIR(**_bar(series=[{"label": "2026", "values": [1.0]}]))
+        self.assertTrue(any("one-to-one" in e for e in ir.semantic_errors()))
+
+    def test_pie_takes_one_series(self) -> None:
+        ir = SimpleDiagramIR(
+            kind="pie", categories=["A", "B"],
+            series=[{"values": [1.0, 2.0]}, {"values": [3.0, 4.0]}],
+        )
+        self.assertTrue(any("exactly one series" in e for e in ir.semantic_errors()))
+
+    def test_pie_rejects_all_zero(self) -> None:
+        ir = SimpleDiagramIR(kind="pie", categories=["A"], series=[{"values": [0.0]}])
+        self.assertTrue(any("greater than 0" in e for e in ir.semantic_errors()))
+
+    def test_pie_slices_capped_to_palette(self) -> None:
+        """A 7th slice could only reuse a hue already on the chart, so it is
+        rejected rather than drawn in a duplicate colour."""
+        count = MAX_PIE_SLICES + 1
+        ir = SimpleDiagramIR(
+            kind="pie",
+            categories=[f"C{i}" for i in range(count)],
+            series=[{"values": [1.0] * count}],
+        )
+        self.assertTrue(any("Other" in e for e in ir.semantic_errors()))
+
+    def test_palette_covers_every_allowed_series(self) -> None:
+        self.assertGreaterEqual(PALETTE_SLOTS, MAX_SERIES)
+        self.assertGreaterEqual(PALETTE_SLOTS, MAX_PIE_SLICES)
+        self.assertEqual(len(set(SERIES)), len(SERIES), "palette hues must be distinct")
+
+
+class CompilerOutputTests(unittest.TestCase):
+    def test_flow_compiles_to_loadable_xml(self) -> None:
+        xml = compile_simple_ir(SimpleDiagramIR(**_flow()))
+        root = ET.fromstring(xml)
+        self.assertEqual(root.tag, "mxfile")
+        labels = {c.get("value") for c in _cells(xml) if c.get("vertex") == "1"}
+        self.assertIn("Start", labels)
+        self.assertIn("Valid?", labels)
+        edges = [c for c in _cells(xml) if c.get("edge") == "1"]
+        self.assertEqual(len(edges), 2)
+
+    def test_flow_layout_is_marked_authoritative(self) -> None:
+        """Without this the repair pass would re-flow geometry the compiler
+        already decided."""
+        xml = compile_simple_ir(SimpleDiagramIR(**_flow()))
+        root_cell = [c for c in _cells(xml) if c.get("id") == "1"][0]
+        self.assertEqual(root_cell.get("layout"), "ir")
+
+    def test_charts_contain_no_edges(self) -> None:
+        """Gridlines, axes and line segments are all rectangles, never edges:
+        ``repair_xml`` deletes edges with no resolvable endpoints and rewrites
+        the anchors of the rest, either of which would wreck a plotted chart.
+        A sloped line segment is the one mark that isn't naturally
+        axis-aligned, and it stays a vertex via ``rotation=``.
+        """
+        for payload in (
+            _bar(),
+            _bar(kind="line"),
+            {"kind": "pie", "categories": ["A", "B"], "series": [{"values": [3.0, 1.0]}]},
+            {"kind": "gantt", "tasks": [{"label": "Build", "start": 0, "duration": 2}]},
+        ):
+            with self.subTest(kind=payload["kind"]):
+                xml = compile_simple_ir(SimpleDiagramIR(**payload))
+                self.assertEqual([c for c in _cells(xml) if c.get("edge") == "1"], [])
+
+    def test_no_mark_is_degenerate(self) -> None:
+        """A zero-height bar would be clamped back to a full 78x78 leaf box by
+        ``ensure_valid_vertex_geometry``, which rejects non-positive sizes."""
+        xml = compile_simple_ir(SimpleDiagramIR(**_bar(series=[{"values": [0.0, 5.0]}])))
+        for cell in _cells(xml):
+            geom = cell.find("mxGeometry")
+            if geom is None or cell.get("vertex") != "1":
+                continue
+            self.assertGreater(float(geom.get("width")), 0)
+            self.assertGreater(float(geom.get("height")), 0)
+
+    def test_bar_series_get_distinct_colours(self) -> None:
+        ir = SimpleDiagramIR(**_bar(series=[
+            {"label": "2025", "values": [1.0, 2.0]},
+            {"label": "2026", "values": [3.0, 4.0]},
+        ]))
+        xml = compile_simple_ir(ir)
+        fills = {
+            part.split("=", 1)[1]
+            for cell in _cells(xml)
+            for part in (cell.get("style") or "").split(";")
+            if part.startswith("fillColor=") and part.split("=", 1)[1] in SERIES
+        }
+        self.assertEqual(fills, {SERIES[0], SERIES[1]})
+
+    def test_line_connects_every_point(self) -> None:
+        """N points make N-1 segments and N markers — a missing segment reads
+        as a break in the data that isn't there."""
+        ir = SimpleDiagramIR(
+            kind="line", title="Trend", categories=["a", "b", "c", "d"],
+            series=[{"label": "one", "values": [1.0, 4.0, 2.0, 5.0]}],
+        )
+        cells = _cells(compile_simple_ir(ir))
+        segments = [c for c in cells if "_seg" in (c.get("id") or "")]
+        markers = [c for c in cells if "_dot" in (c.get("id") or "")]
+        self.assertEqual(len(segments), 3)
+        self.assertEqual(len(markers), 4)
+
+    def test_line_segments_are_rotated_rectangles(self) -> None:
+        """The geometry each segment is rotated about must be its own centre,
+        so a segment's length is its point-to-point distance."""
+        ir = SimpleDiagramIR(
+            kind="line", categories=["a", "b"], series=[{"values": [0.0, 10.0]}],
+        )
+        cells = _cells(compile_simple_ir(ir))
+        segment = next(c for c in cells if "_seg" in (c.get("id") or ""))
+        self.assertIn("rotation=", segment.get("style"))
+        self.assertEqual(segment.get("edge"), None)
+        geom = segment.find("mxGeometry")
+        markers = [c.find("mxGeometry") for c in cells if "_dot" in (c.get("id") or "")]
+        centres = [(float(g.get("x")) + float(g.get("width")) / 2.0,
+                    float(g.get("y")) + float(g.get("height")) / 2.0) for g in markers]
+        expected = math.hypot(centres[1][0] - centres[0][0], centres[1][1] - centres[0][1])
+        # delta, not places: the emitter rounds every coordinate to 2dp.
+        self.assertAlmostEqual(float(geom.get("width")), expected, delta=0.02)
+
+    def test_line_series_get_distinct_colours(self) -> None:
+        ir = SimpleDiagramIR(**_bar(kind="line", series=[
+            {"label": "API", "values": [1.0, 2.0]},
+            {"label": "Worker", "values": [3.0, 4.0]},
+        ]))
+        xml = compile_simple_ir(ir)
+        fills = {
+            part.split("=", 1)[1]
+            for cell in _cells(xml)
+            for part in (cell.get("style") or "").split(";")
+            if part.startswith("fillColor=") and part.split("=", 1)[1] in SERIES
+        }
+        self.assertEqual(fills, {SERIES[0], SERIES[1]})
+
+    def test_pie_slices_close_on_a_full_turn(self) -> None:
+        """Accumulated float error at the 12 o'clock seam shows as a hairline
+        gap, so the last slice is pinned to exactly 1.0."""
+        ir = SimpleDiagramIR(kind="pie", categories=["A", "B", "C"], series=[{"values": [1.0, 1.0, 1.0]}])
+        xml = compile_simple_ir(ir)
+        ends = [
+            float(part.split("=", 1)[1])
+            for cell in _cells(xml)
+            for part in (cell.get("style") or "").split(";")
+            if part.startswith("endAngle=")
+        ]
+        self.assertEqual(max(ends), 1.0)
+
+    def test_paint_order_survives_the_cell_reorder_pass(self) -> None:
+        """Chart cells are emitted back-to-front and must stay that way.
+
+        ``validate_and_fix_xml`` re-sorts every cell by ``(z_rank, depth, id)``
+        to guarantee parents precede children, and the id tiebreak is a string
+        compare — which, with ids like ``bar_13``/``rule_2``, restacked the
+        gridlines on top of the bars (visible as lines striping across each
+        bar in the rendered chart). Padded sequence-first ids keep that pass a
+        no-op here.
+        """
+        from app.adapters.outbound.diagram.xml_tools import (
+            choose_fixed_xml,
+            ensure_diagram_document,
+            validate_and_fix_xml,
+        )
+
+        xml = ensure_diagram_document(compile_simple_ir(SimpleDiagramIR(**_bar())), "Diagram")
+        before = [c.get("id") for c in _cells(xml)]
+        after = [c.get("id") for c in _cells(choose_fixed_xml(xml, validate_and_fix_xml(xml)))]
+        self.assertEqual(before, after)
+
+    def test_gantt_bar_spans_its_duration(self) -> None:
+        ir = SimpleDiagramIR(kind="gantt", categories=["Jan", "Feb", "Mar", "Apr"], tasks=[
+            {"label": "Short", "start": 0, "duration": 1},
+            {"label": "Long", "start": 1, "duration": 3},
+        ])
+        xml = compile_simple_ir(ir)
+        widths = sorted(
+            float(cell.find("mxGeometry").get("width"))
+            for cell in _cells(xml)
+            if "_task" in (cell.get("id") or "")
+        )
+        self.assertEqual(len(widths), 2)
+        self.assertAlmostEqual(widths[1] / widths[0], 3.0, places=5)
+
+    def test_invalid_ir_is_refused_rather_than_half_drawn(self) -> None:
+        from app.adapters.outbound.diagram.compiler.shared import CompilerError
+
+        ir = SimpleDiagramIR(**_bar(series=[{"values": [1.0]}]))
+        with self.assertRaises(CompilerError):
+            compile_simple_ir(ir)
+
+
+class GeneratorTests(unittest.TestCase):
+    def _llm(self, payload: dict):
+        def fake(system, human, provider, schema, logger=None, attachments=None):
+            self.seen_system = system
+            self.seen_human = human
+            return SimpleDiagramIR(**payload)
+        return fake
+
+    def test_generates_xml_not_mermaid(self) -> None:
+        result = generate_simple_diagram_from_ir("draw a claim flow", llm=self._llm(_flow()))
+        self.assertIn('vertex="1"', result.xml)
+        self.assertFalse(hasattr(result, "mermaid"))
+
+    def test_model_authored_message_wins(self) -> None:
+        payload = _bar(assistant_message="Shown as a bar chart — line charts aren't supported here.")
+        result = generate_simple_diagram_from_ir("line chart of signups", llm=self._llm(payload))
+        self.assertIn("bar chart", result.assistant_message)
+
+    def test_revision_feeds_the_current_diagram_back_in(self) -> None:
+        """A revision regenerates the whole IR, so it needs to see what it is
+        revising — the conversation alone is lossy once a diagram has been
+        built over several turns."""
+        existing = compile_simple_ir(SimpleDiagramIR(**_bar(
+            categories=["Q1", "Q2"], series=[{"label": "2026", "values": [120.0, 90.0]}],
+        )))
+        generate_simple_diagram_from_ir(
+            "change Q2 to 200", llm=self._llm(_bar()), current_xml=existing,
+        )
+        self.assertIn("revising a diagram that already exists", self.seen_human)
+        # The plotted numbers ride along in the value labels the compiler draws.
+        self.assertIn("120", self.seen_human)
+        self.assertIn("90", self.seen_human)
+
+    def test_fresh_generation_carries_no_revision_block(self) -> None:
+        generate_simple_diagram_from_ir("draw a claim flow", llm=self._llm(_flow()))
+        self.assertNotIn("revising a diagram", self.seen_human)
+
+    def test_soft_node_cap_warns_without_failing(self) -> None:
+        """Over the pack's cap is a judgement call ("unless the user explicitly
+        asks for more"), so it logs rather than rejecting."""
+        big = _flow(
+            nodes=[{"id": f"n{i}", "shape": "rectangle", "label": f"Step {i}"} for i in range(12)],
+            edges=[{"source": f"n{i}", "target": f"n{i + 1}"} for i in range(11)],
+        )
+        logger = StepLogger()
+        result = generate_simple_diagram_from_ir("big flow", llm=self._llm(big), logger=logger)
+        self.assertIn('vertex="1"', result.xml)
+        warnings = [e for e in logger.to_list() if e.get("level") == "warning"]
+        self.assertTrue(any("soft cap" in (e.get("message") or "") for e in warnings))
+
+
+if __name__ == "__main__":
+    unittest.main()

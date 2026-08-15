@@ -107,13 +107,24 @@ function bindDrawioMessages(iframe) {
         if (msg.event === 'init') {
             drawioReady = true;
             appendVerboseLog('drawio', 'Editor initialized', 'success');
-            if (pendingMermaid) {
-                loadMermaidIntoEditor(pendingMermaid);
-                pendingMermaid = null;
-            } else if (pendingXml) {
+            if (pendingXml) {
                 loadDiagramIntoEditor(pendingXml);
                 pendingXml = null;
             }
+        }
+
+        // draw.io rejects an action it doesn't recognise with {error: '...'} and
+        // NO `event` key, so the `msg.event === 'error'` branch below never saw
+        // it. That silence is what made the old Mermaid bug so hard to place:
+        // the embed was refusing the message every single time, and the only
+        // symptom was a spinner that ran for 15s before blaming the diagram's
+        // syntax. Anything we send that draw.io won't accept is a bug on our
+        // side — surface it loudly rather than letting it time out.
+        if (msg.error) {
+            clearDrawioLoadTimer();
+            appendVerboseLog('drawio', 'Draw.io rejected a message: ' + msg.error, 'error', msg);
+            setComposerRunStatus('Draw.io rejected the request (' + msg.error + ')', 'error');
+            document.getElementById('diagram-loading').classList.remove('active');
         }
 
         if (msg.event === 'load') {
@@ -247,56 +258,15 @@ function switchToDrawioPage(targetIndex) {
     currentDrawioPageIndex = targetIndex;
 }
 
-function loadMermaidIntoEditor(mermaid) {
-    const iframe = ensureDrawioFrame();
-    const payload = {
-        action: 'import',
-        format: 'mermaid',
-        data: mermaid,
-        fit: 1,
-        maxFitScale: 1.25,
-        border: 20
-    };
-
-    if (!drawioReady) {
-        pendingMermaid = mermaid;
-        pendingXml = null;
-        appendVerboseLog('drawio', 'Waiting for editor init before Mermaid import', 'info', {
-            mermaid_chars: mermaid.length
-        });
-        return;
-    }
-
-    appendVerboseLog('drawio', 'Importing Mermaid diagram into editor', 'info', {
-        mermaid_chars: mermaid.length
-    });
-    iframe.contentWindow.postMessage(JSON.stringify(payload), DRAWIO_ORIGIN);
-
-    // Unlike loadDiagramIntoEditor's XML 'load' action, a Mermaid import that
-    // the embed silently ignores or fails to parse never emits a 'load' or
-    // 'error' postMessage back — the loading spinner would otherwise spin
-    // forever with zero feedback, indistinguishable from "nothing happened".
-    clearDrawioLoadTimer();
-    drawioLoadTimer = setTimeout(() => {
-        drawioLoadTimer = null;
-        appendVerboseLog('drawio', 'Mermaid import timed out — the diagram may have invalid syntax', 'error', { mermaid_chars: mermaid.length });
-        setComposerRunStatus('Mermaid import timed out — try rephrasing the request', 'error');
-        document.getElementById('diagram-loading').classList.remove('active');
-    }, 15000);
-}
-
 function loadDiagramFromResponse(data) {
-    if (data.diagram_type === 'mermaid' && data.mermaid) {
-        currentMermaid = data.mermaid;
-        currentXml = '';
-        document.getElementById('xml-output').textContent = data.mermaid;
-        loadMermaidIntoEditor(data.mermaid);
-        document.getElementById('diagram-loading').classList.add('active');
-        setDiagramStatus('Loading Mermaid into Draw.io…');
-        if (typeof refreshVersionStrip === 'function') refreshVersionStrip();
-        return;
-    }
-    currentMermaid = '';
+    // Every path returns draw.io XML now, including the "simple" (non-cloud)
+    // one. It used to return Mermaid source instead, which this function handed
+    // to the embed as {action: 'import', format: 'mermaid'} — an action draw.io
+    // does not have. The embed answered {error: 'unknownMessage'} and drew
+    // nothing, so no simple diagram this app generated ever appeared on screen.
+    // diagram_type is now a label ('simple' | 'cloud') for the features that
+    // only make sense on a cloud architecture, not a choice of loader.
+    isSimpleDiagram = data.diagram_type === 'simple';
     if (data.xml) {
         document.getElementById('xml-output').textContent = data.xml;
         loadDiagramIntoEditor(data.xml);
@@ -325,7 +295,6 @@ function loadDiagramIntoEditor(xml) {
     };
     if (!drawioReady) {
         pendingXml = xml;
-        pendingMermaid = null;
         appendVerboseLog('drawio', 'Waiting for editor init before load', 'info', {
             xml_chars: xml.length,
             layout: payload.layout || null

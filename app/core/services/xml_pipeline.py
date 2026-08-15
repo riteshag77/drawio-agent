@@ -78,6 +78,7 @@ from app.core.ports.llm import get_llm
 from app.core.services.agent import (
     NonSurgicalEditError,
     generate_generic_diagram_from_ir,
+    generate_simple_diagram_from_ir,
     generate_xml_diagram,
     generate_xml_diagram_from_ir,
 )
@@ -761,7 +762,13 @@ def _build_response(
     return {
         "status": status,
         "xml": xml,
-        "mermaid": None,
+        # "simple" (non-cloud) vs "cloud" — the flag every cloud-only feature
+        # keys off: platform conversion, VLM validation, cost/WAF/compliance
+        # re-analysis on restore. Derived from generation_path rather than
+        # passed separately so the two can never disagree. It used to say
+        # "mermaid" and also told the client which *loader* to use; that second
+        # job is gone now that every path returns draw.io XML.
+        "diagram_type": "simple" if generation_path == "simple_ir" else "cloud",
         "suggestions": suggestions or [],
         "design_tradeoffs": design_tradeoffs or [],
         "governance_findings": [
@@ -977,6 +984,104 @@ async def _generate_primary_page(
             return await _ir_primary(context_override=seeded), True
 
     return await _ir_primary(), True
+
+
+async def run_simple_pipeline(
+    *,
+    user_prompt: str | None = None,
+    messages: list[dict[str, Any]] | None = None,
+    provider: str = "claude",
+    logger: Any = None,
+    custom_system_message: str = "",
+    applied_suggestions: list[Any] | None = None,
+    include_suggestions: bool = False,
+    current_xml: str | None = None,
+    on_progress: ProgressCallback | None = None,
+) -> dict[str, Any]:
+    """Non-cloud generation: Simple IR -> compiler -> structural hygiene.
+
+    The thinnest pipeline in the app, and deliberately so. Everything the cloud
+    pipeline does after compiling — platform styling, overview panel, SaaS
+    stamping, multi-view fan-out, cost, Well-Architected, compliance, ADR/RAID,
+    libavoid routing, VLM QA — describes a *cloud architecture*, and none of it
+    has anything to say about a flowchart or a bar chart. Even MCP icon
+    resolution is skipped (unlike the generic image path, which resolves an
+    explicit ``icon_hint``): this path's whole premise is generic shapes, so
+    there is no stencil to look up. That leaves validation and repair, which
+    are about the XML being *loadable* rather than about clouds.
+
+    ``view="generic"`` on the repair pass is load-bearing for the same two
+    reasons the image-replication path passes it (see ``repair_xml``): a chart
+    is full of deliberately unlabelled cells (gridlines, axis rules, bars) that
+    ``ensure_leaf_labels`` would stamp with "Service", and a flowchart lane
+    called "Management" is content that ``remove_cross_cutting_edges`` would
+    strip the arrows from.
+    """
+    page_name = "Diagram"
+    # A revision regenerates the whole IR rather than patching cells — see
+    # agent._simple_revision_block for why a chart can never be edited surgically.
+    await _emit(
+        on_progress, "ir",
+        "Updating diagram…" if current_xml else "Designing diagram…",
+    )
+    chat_messages = messages or ([{"role": "user", "content": user_prompt or ""}])
+    diagram = await run_llm_sync(
+        generate_simple_diagram_from_ir,
+        user_prompt or (chat_messages[-1].get("content") if chat_messages else "") or "",
+        provider,
+        logger,
+        messages,
+        applied_suggestions,
+        include_suggestions,
+        custom_system_message,
+        current_xml or "",
+    )
+    await _emit(on_progress, "ir", "Diagram compiled")
+
+    if 'vertex="1"' not in (diagram.xml or ""):
+        if logger:
+            logger.log("error", "Simple IR compiler returned no diagram content", level="error")
+        raise ValueError("Simple IR compiler returned no diagram content — nothing to validate.")
+
+    await _emit(on_progress, "validate", "Validating and normalizing XML…")
+    xml_output = ensure_diagram_document(diagram.xml, page_name)
+    check = validate_and_fix_xml(xml_output)
+    xml_output = choose_fixed_xml(xml_output, check)
+
+    await _emit(on_progress, "repair", "Checking structural hygiene…")
+    xml_output, diagnostics = repair_xml(xml_output, view="generic")
+    if (diagnostics.errors or diagnostics.warnings) and logger:
+        logger.log(
+            "ir_residual",
+            "Deterministic repair left residual issues (no LLM repair on this path)",
+            level="warning",
+            details={"errors": diagnostics.errors, "warnings": diagnostics.warnings},
+        )
+
+    xml_output, xml_ok, xml_failure = guarantee_loadable_xml(xml_output, page_name)
+    if not xml_ok and logger:
+        logger.log(
+            "error",
+            "Diagram XML failed to parse after every repair pass — served an "
+            "empty canvas instead of a broken diagram file",
+            level="error",
+            details=xml_failure,
+        )
+
+    if logger:
+        logger.log("request", "Simple diagram complete", level="success", details={
+            "xml_chars": len(xml_output),
+        })
+
+    return _build_response(
+        status="success",
+        xml=xml_output,
+        assistant_message=diagram.assistant_message or "Generated diagram.",
+        suggestions=filter_applied_suggestions(diagram.suggestions, applied_suggestions),
+        renderer_used="local",
+        generation_path="simple_ir",
+        logger=logger,
+    )
 
 
 async def _run_generic_image_pipeline(

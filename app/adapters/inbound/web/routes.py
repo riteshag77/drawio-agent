@@ -30,7 +30,6 @@ from app.adapters.outbound.history_store import (
     list_versions,
     save_version,
 )
-from app.adapters.outbound.llm.concurrency import run_llm_sync
 from app.adapters.outbound.llm.providers import default_provider_key
 from app.adapters.outbound.template_store import (
     bump_run_count,
@@ -42,9 +41,9 @@ from app.adapters.outbound.template_store import (
 from app.adapters.outbound.utils.documents import MAX_ATTACHMENT_BYTES, extract_document
 from app.adapters.outbound.utils.web import fetch_url_content
 from app.core.logging import StepLogger
-from app.core.services.agent import generate_followup_suggestions_for_xml, generate_mermaid_diagram, run_visual_qa_llm
+from app.core.services.agent import generate_followup_suggestions_for_xml, run_visual_qa_llm
 from app.core.services.intent import classify_intent, wants_three_d
-from app.core.services.xml_pipeline import _summarize_llm_usage, run_xml_pipeline
+from app.core.services.xml_pipeline import run_simple_pipeline, run_xml_pipeline
 from app.adapters.outbound.llm import providers as providers_module
 
 router = APIRouter()
@@ -81,21 +80,6 @@ def _logger_from_request(request: Request) -> StepLogger:
 
 def _sanitize_custom_msg(text: str) -> str:
     return (text or "")[:get_config().max_custom_message_len]
-
-
-def _mermaid_response(result: Any, logger: StepLogger) -> dict[str, Any]:
-    return {
-        "status": "success",
-        "diagram_type": "mermaid",
-        "mermaid": result.mermaid,
-        "suggestions": result.suggestions or [],
-        "assistant_message": result.assistant_message or "Generated Mermaid diagram.",
-        "xml": None,
-        "renderer_used": None,
-        "mcp_preview_url": None,
-        "llm_usage": _summarize_llm_usage(logger),
-        "logs": logger.to_list() if logger else [],
-    }
 
 
 def _sse(payload: dict[str, Any]) -> str:
@@ -188,10 +172,10 @@ async def generate_diagram(body: PromptRequest, request: Request):
     try:
         intent = classify_intent(body.user_prompt, diagram_mode=body.diagram_mode, platform=body.platform)
         if intent == "simple":
-            result = await _with_request_timeout(run_llm_sync(
-                generate_mermaid_diagram, body.user_prompt, body.provider, logger, None,
+            return await _with_request_timeout(run_simple_pipeline(
+                user_prompt=body.user_prompt, provider=body.provider, logger=logger,
+                custom_system_message=_sanitize_custom_msg(body.custom_system_message),
             ))
-            return _mermaid_response(result, logger)
         return await _with_request_timeout(run_xml_pipeline(
             user_prompt=body.user_prompt, messages=None,
             provider=body.provider, platform=body.platform,
@@ -248,29 +232,41 @@ async def _run_chat(body: ChatRequest, logger: StepLogger, *, on_progress=None) 
         last_user = messages[-1]["content"] if messages else ""
         applied_suggestions = body.applied_suggestions or []
 
-        intent = classify_intent(last_user, diagram_mode=body.diagram_mode, platform=platform)
+        intent = classify_intent(
+            last_user, diagram_mode=body.diagram_mode, platform=platform,
+            current_diagram_type=body.current_diagram_type or "",
+        )
         three_d = body.three_d or wants_three_d(last_user)
         has_attachments = bool(body.attachment_documents) or bool(body.context_text)
         if intent == "simple" and has_attachments:
-            # The mermaid/"simple" path never forwards attachments to the LLM — only
+            # The "simple" path never forwards attachments to the LLM — only
             # run_xml_pipeline does, so an attached file must not be routed away from it.
             intent = "cloud"
         if intent == "simple" and three_d:
             # 3D/isometric rendering only exists on the cloud/XML pipeline
-            # (prompt_3d.txt) — the Mermaid path has no concept of it.
+            # (prompt_3d.txt) — the simple path has no concept of it.
             intent = "cloud"
         if intent == "simple" and (body.cost_estimate or body.well_architected or body.compliance):
-            # Cost/Well-Architected/Compliance are cloud-only insights — _mermaid_response
-            # never populates them. Routing to Mermaid here would silently return a
-            # response with none of the requested data (worse: on the very first
+            # Cost/Well-Architected/Compliance are cloud-only insights — run_simple_pipeline
+            # never populates them. Routing to the simple path here would silently return
+            # a response with none of the requested data (worse: on the very first
             # message, before any current_xml exists for a later surgical edit to fix),
             # making the toggle look broken/reset on the frontend for no reason.
             intent = "cloud"
-        if intent == "simple" and body.current_xml and len(body.current_xml) > 200:
+        if (
+            intent == "simple"
+            and body.current_xml
+            and len(body.current_xml) > 200
+            and body.current_diagram_type != "simple"
+        ):
             # A stale "simple" diagram_mode setting must never derail an in-progress
             # cloud-diagram edit (e.g. applying a WAF/Compliance suggestion) onto the
-            # Mermaid path — that path returns xml=None and would replace the existing
-            # cloud diagram with an unrelated flowchart.
+            # simple path, which would replace the cloud architecture with an unrelated
+            # flowchart. Scoped to a *cloud* canvas: when the diagram on screen is
+            # itself a simple one, staying on the simple path is the whole point —
+            # that path regenerates its IR (see agent._simple_revision_block), which
+            # is the only way to edit a chart correctly, since a bar's height is
+            # derived from its value rather than stored alongside it.
             intent = "cloud"
         if on_progress:
             await on_progress("intent", f"Classified as {intent}", {"intent": intent})
@@ -300,18 +296,25 @@ async def _run_chat(body: ChatRequest, logger: StepLogger, *, on_progress=None) 
                 "interview_questions": questions,
                 "assistant_message": msg,
                 "xml": None,
-                "mermaid": None,
                 "diagram_type": None,
                 "suggestions": [],
                 "logs": logger.to_list(),
             }
 
         if intent == "simple":
-            result = await _with_request_timeout(run_llm_sync(
-                generate_mermaid_diagram, last_user, provider, logger, messages, applied_suggestions,
+            if body.current_diagram_type == "simple" and body.current_xml:
+                # Same pre-edit snapshot the cloud edit path takes, so a
+                # regenerate that goes somewhere the user didn't want is still
+                # one "restore previous version" away.
+                await _snapshot_pre_edit(body)
+            response = await _with_request_timeout(run_simple_pipeline(
+                messages=messages, provider=provider, logger=logger,
+                custom_system_message=_sanitize_custom_msg(body.custom_system_message),
+                applied_suggestions=applied_suggestions,
                 include_suggestions=body.suggestions,
+                current_xml=body.current_xml if body.current_diagram_type == "simple" else None,
+                on_progress=on_progress,
             ))
-            response = _mermaid_response(result, logger)
         else:
             await _snapshot_pre_edit(body)
             response = await _with_request_timeout(run_xml_pipeline(
@@ -370,14 +373,19 @@ async def _record_history(body: ChatRequest, response: dict[str, Any], prompt: s
 
     Best-effort by design — the store swallows its own errors and we ignore the
     result. A history write must never turn a delivered diagram into a failure.
-    Mermaid diagrams have no ``xml`` field (see ``_mermaid_response``) but still
-    get versioned — the ``xml`` column just holds mermaid text in that case,
-    tagged via ``meta.diagram_type`` so the client knows which loader to use.
+
+    Every path now stores draw.io XML in the ``xml`` column. ``meta.diagram_type``
+    survives as a display label only (history badges it), no longer as a signal
+    about which client-side loader to use — that distinction existed for the
+    Mermaid path, which stored Mermaid source in the same column and needed a
+    different import call. Rows written before that path was removed still carry
+    ``diagram_type: "mermaid"`` and Mermaid text in ``xml``; they cannot be
+    restored, and ``insights-ui.js`` says so rather than feeding the text to
+    draw.io as if it were XML.
     """
     if not body.session_id or response.get("status") != "success":
         return
-    is_mermaid = response.get("diagram_type") == "mermaid"
-    payload = response.get("mermaid") if is_mermaid else response.get("xml")
+    payload = response.get("xml")
     if not payload:
         return
     # Snapshot the full transcript as of this turn (the request already carries
@@ -399,7 +407,7 @@ async def _record_history(body: ChatRequest, response: dict[str, Any], prompt: s
         meta={
             "diagram_views": body.diagram_views or [],
             "llm_usage": response.get("llm_usage"),
-            "diagram_type": "mermaid" if is_mermaid else "cloud",
+            "diagram_type": response.get("diagram_type") or "cloud",
         },
         messages=transcript,
     )

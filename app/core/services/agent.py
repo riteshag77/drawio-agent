@@ -1,4 +1,4 @@
-"""Public LLM orchestration API — XML + Mermaid diagram generation."""
+"""Public LLM orchestration API — cloud, generic and simple diagram generation."""
 
 from __future__ import annotations
 
@@ -9,9 +9,9 @@ from app.adapters.outbound.diagram.compiler import (
     compile_corridor_ir,
     compile_generic_ir,
     compile_network_ir,
+    compile_simple_ir,
 )
 from app.adapters.outbound.diagram.diagram_edits import apply_diagram_edits
-from app.adapters.outbound.llm.prompt_builders import build_chat_prompt
 from app.adapters.outbound.utils.chat import (
     build_applied_suggestions_block,
     build_suggestions_instruction_block,
@@ -21,19 +21,24 @@ from app.adapters.outbound.llm.prompts.ir import (
     get_corridor_ir_system_prompt,
     get_generic_ir_system_prompt,
     get_network_ir_system_prompt,
+    get_simple_ir_system_prompt,
 )
-from app.adapters.outbound.llm.prompts.simple import MERMAID_SYSTEM_PROMPT
 from app.adapters.outbound.llm.prompts.system import get_xml_gen_system_prompt_marked
 from app.adapters.outbound.llm.prompts.vlm_qa import VLM_QA_SYSTEM_PROMPT
 from app.adapters.outbound.governance_store import list_rules as list_governance_rules
 from app.adapters.outbound.llm.providers import get_provider, normalize_provider_key
 from app.adapters.outbound.saas_catalog import find_saas_vendor_mismatches
-from app.adapters.outbound.llm.response_parse import estimate_mermaid_node_count, extract_mermaid
 from app.core.ports.llm import LlmPort, get_llm
 from app.core.services.governance import evaluate_governance_rules, findings_to_warnings
-from app.domain.entities import DiagramEditPlan, MermaidDiagram, VisualQaResult, XmlDiagram
+from app.domain.entities import DiagramEditPlan, VisualQaResult, XmlDiagram
 from app.domain.entities.xml_diagram import DiagramSuggestion
-from app.domain.ir import IR_TYPES_BY_VIEW, ArchimateIR, GenericDiagramIR, NetworkIR
+from app.domain.ir import (
+    IR_TYPES_BY_VIEW,
+    ArchimateIR,
+    GenericDiagramIR,
+    NetworkIR,
+    SimpleDiagramIR,
+)
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
@@ -680,17 +685,18 @@ def _drop_invalid_flows(ir, residual_errors: list[str], logger: "StepLogger | No
         )
 
 
-def _build_generic_ir_human_content(
+def _build_plain_ir_human_content(
     *,
     chat_messages: list[dict[str, str]],
     applied_suggestions: list[str] | None,
 ) -> str:
-    """Human message for the generic (as-is) image-replication IR generator.
+    """Human message for the two non-cloud IR generators — generic (as-is image
+    replication) and simple (fresh flowcharts/charts).
 
-    No platform/image_replicate hint needed — unlike the cloud IR generators,
-    this path only ever runs for as-is image replication, so ``generic.txt``
-    already carries the full fidelity instruction; there is no cloud-vs-as-is
-    branch to hint at here.
+    No platform or image_replicate hint, unlike the cloud IR generators: each of
+    these paths does exactly one thing, and its own pack (``generic.txt`` /
+    ``simple.txt``) already carries the whole instruction, so there is no
+    cloud-vs-as-is branch left to disambiguate here.
     """
     parts: list[str] = []
     applied_block = build_applied_suggestions_block(applied_suggestions)
@@ -811,7 +817,7 @@ def generate_generic_diagram_from_ir(
         model_id=provider_spec.default_model, provider=provider_key,
         custom_system_message=custom_system_message, user_hint=hint,
     )
-    human_content = _build_generic_ir_human_content(
+    human_content = _build_plain_ir_human_content(
         chat_messages=chat_messages, applied_suggestions=applied_suggestions,
     )
     if logger:
@@ -1004,6 +1010,25 @@ def _ir_inventory_lines(ir: object, *, limit: int = 40) -> list[str]:
             lab = getattr(leaf, "label", "") or getattr(leaf, "id", "")
             if lab:
                 lines.append(lab)
+    # Flat node graphs (Simple/Generic) — a plain list, not a hierarchy.
+    for node in getattr(ir, "nodes", None) or []:
+        lab = getattr(node, "label", "") or getattr(node, "id", "")
+        if lab:
+            lines.append(lab)
+    # Chart kinds have no nodes at all; their content is the axis vocabulary,
+    # which is what a follow-up suggestion would actually talk about ("split
+    # Q4 by region", "add a 2027 series").
+    for category in getattr(ir, "categories", None) or []:
+        if category:
+            lines.append(f"Category: {category}")
+    for series in getattr(ir, "series", None) or []:
+        lab = getattr(series, "label", "")
+        if lab:
+            lines.append(f"Series: {lab}")
+    for task in getattr(ir, "tasks", None) or []:
+        lab = getattr(task, "label", "")
+        if lab:
+            lines.append(f"Task: {lab}")
     # Network hierarchy — prefer the typed iterator when present.
     iter_leaves = getattr(ir, "iter_leaves", None)
     if callable(iter_leaves):
@@ -1302,71 +1327,210 @@ def generate_xml_diagram_from_ir(
     )
 
 
-# Mirrors config/xml_gen/simple.py's own stated cap ("Max 8 nodes/shapes
-# unless the user explicitly asks for more") — update both together.
-_MERMAID_SOFT_NODE_CAP = 8
+#: Mirrors ``config/xml_gen/ir/simple.txt``'s own stated cap ("8 nodes or fewer
+#: unless the user explicitly asks for more") — update both together. A logged
+#: warning rather than a semantic error: "explicitly asks for more" is a
+#: legitimate and common reason to exceed it, so it must not fail a generation.
+_SIMPLE_SOFT_NODE_CAP = 8
 
 
-def generate_mermaid_diagram(
+def _drop_invalid_simple_edges(
+    ir: SimpleDiagramIR, residual_errors: list[str], logger: "StepLogger | None",
+) -> None:
+    """Last-resort residual cleanup, mirroring ``_drop_invalid_generic_edges``:
+    a diagram missing one arrow beats a diagram that doesn't render."""
+    known = ir.all_ids()
+    kept = [e for e in ir.edges if e.source in known and e.target in known]
+    dropped = len(ir.edges) - len(kept)
+    ir.edges = kept
+    if dropped and logger:
+        logger.log(
+            "ir", f"Dropped {dropped} invalid edge(s) from Simple diagram after correction passes",
+            level="warning", details={"errors": residual_errors},
+        )
+
+
+def _generate_simple_ir_with_corrections(
+    *,
+    system_prompt: str,
+    human_content: str,
+    provider_key: str,
+    logger: "StepLogger | None",
+    llm: LlmPort,
+) -> SimpleDiagramIR:
+    """One corrective retry against ``semantic_errors()``, then a last-resort
+    edge drop — the same slim loop ``_generate_generic_ir_with_corrections``
+    runs, and for the same reason: this path has no flow-spine or
+    semantic-warning machinery, since those encode cloud-architecture story
+    rules that mean nothing to a flowchart or a bar chart.
+
+    The corrective pass earns its place here more than on most views: the
+    schema is a discriminated union, so the one mistake worth catching is a
+    model that picks ``kind="bar"`` and then fills in ``nodes``, which
+    ``semantic_errors`` reports in exactly the words needed to fix it.
+    """
+    ir = llm(system_prompt, human_content, provider_key, SimpleDiagramIR, logger, None)
+
+    for _attempt in range(IR_MAX_CORRECTIVE_PASSES):
+        errors = ir.semantic_errors()
+        if not errors:
+            break
+        if logger:
+            logger.log(
+                "ir", f"Simple IR broke {len(errors)} rule(s) — asking for a correction",
+                level="warning", details={"errors": errors},
+            )
+        correction = (
+            "Your previous SimpleDiagramIR was structurally valid but broke these rules:\n"
+            + "\n".join(f"- {e}" for e in errors)
+            + f"\n\nYour previous SimpleDiagramIR was:\n{ir.model_dump_json()}"
+            + "\n\nReturn a corrected SimpleDiagramIR. Keep everything else identical — "
+            "change only what is needed to fix the listed problems."
+        )
+        ir = llm(system_prompt, human_content + "\n\n" + correction, provider_key, SimpleDiagramIR, logger, None)
+
+    residual = ir.semantic_errors()
+    if residual and ir.kind == "flow":
+        # Only flows have a salvageable failure mode. A chart whose series
+        # don't line up with its categories has no equivalent "drop the bad
+        # part" move — silently truncating data is worse than not drawing it.
+        _drop_invalid_simple_edges(ir, residual, logger)
+        residual = ir.semantic_errors()
+
+    if logger:
+        if residual:
+            logger.log(
+                "ir", f"Simple IR still breaks {len(residual)} rule(s) after correction — "
+                "compiler will reject this diagram (IR-only; no direct-XML fallback)",
+                level="warning", details={"errors": residual},
+            )
+        else:
+            logger.log("ir", "Simple IR generated", level="success", details={
+                "kind": ir.kind, "nodes": len(ir.nodes), "edges": len(ir.edges),
+                "categories": len(ir.categories), "series": len(ir.series), "tasks": len(ir.tasks),
+            })
+        if ir.kind == "flow" and len(ir.nodes) > _SIMPLE_SOFT_NODE_CAP:
+            logger.log(
+                "ir",
+                f"{len(ir.nodes)} nodes exceeds the pack's soft cap of {_SIMPLE_SOFT_NODE_CAP} — "
+                "fine if the request asked for more, otherwise the diagram may be denser "
+                "than a glanceable one should be.",
+                level="warning",
+                details={"node_count": len(ir.nodes), "soft_cap": _SIMPLE_SOFT_NODE_CAP},
+            )
+    return ir
+
+
+def _simple_revision_block(current_xml: str) -> str:
+    """Context for revising a diagram that is already on screen.
+
+    The non-cloud path has no surgical-edit mode and should not get one: on a
+    chart, every mark's geometry is *derived* from the data (a bar's height is
+    its value), so patching cells individually can only produce a drawing that
+    disagrees with its own labels — which is exactly what the cloud edit path
+    did to a bar chart before this existed. Regenerating the whole IR is both
+    correct and cheap at these sizes.
+
+    What regeneration needs is the current content, since the conversation
+    alone is lossy: a diagram built over several turns is not reconstructable
+    from the user's first message. The label inventory carries it — including,
+    for charts, the plotted numbers, because the compiler writes a direct value
+    label on every bar and slice.
+    """
+    labels = _xml_labels_inventory(current_xml)
+    if not labels:
+        return ""
+    return (
+        "You are revising a diagram that already exists. Its current contents are:\n"
+        + "\n".join(f"- {label}" for label in labels)
+        + "\n\nApply only the change the user asked for and carry everything else "
+        "over unchanged, including the diagram kind, the labels you were not asked "
+        "to touch, and any numbers you were not asked to touch."
+    )
+
+
+def generate_simple_diagram_from_ir(
     user_request: str,
     provider: str = "claude",
     logger: StepLogger | None = None,
     messages: list[dict[str, str]] | None = None,
     applied_suggestions: list[str] | None = None,
     include_suggestions: bool = False,
+    custom_system_message: str = "",
+    current_xml: str = "",
     *,
     llm: LlmPort | None = None,
-) -> MermaidDiagram:
-    provider_key = normalize_provider_key(provider)
-    chat_messages = messages or [{"role": "user", "content": user_request}]
-    _llm = llm or get_llm()
+) -> XmlDiagram:
+    """Non-cloud generation: ask for a ``SimpleDiagramIR``, compile it to draw.io XML.
 
-    if logger:
-        logger.log(
-            "prompt",
-            "Prepared Mermaid request",
-            details={"provider": provider_key, "turns": len(chat_messages)},
-        )
+    Replaces the old Mermaid fast path, which could never work: it handed the
+    draw.io embed ``{action: "import", format: "mermaid"}``, and the embed has
+    no ``import`` action — it answered ``{error: "unknownMessage"}`` and drew
+    nothing, for every simple diagram this app ever generated. The embed
+    accepts mxGraph XML and nothing else, so the non-cloud path now produces
+    XML the same way every other path does: LLM emits IR, compiler renders it.
 
-    human_content = build_chat_prompt(
-        chat_messages, "Generic (Mermaid)", None, None, None,
-        applied_suggestions=applied_suggestions,
-        include_suggestions=include_suggestions,
+    Returns the same ``XmlDiagram`` as the cloud and generic paths so callers
+    need no special case, but the *pipeline* around it stays deliberately thin
+    (see ``xml_pipeline._run_simple_pipeline``) — cost, Well-Architected,
+    compliance, multi-view fan-out and MCP icon resolution are all cloud
+    concepts with nothing to say about a flowchart or a pie chart.
+    """
+    provider_key, chat_messages, hint, _llm, provider_spec = _prepare_ir_call(
+        user_request=user_request, provider=provider, messages=messages, llm=llm,
     )
-    parsed = _llm(MERMAID_SYSTEM_PROMPT, human_content, provider_key, MermaidDiagram, logger, None)
-    parsed.mermaid = extract_mermaid(parsed.mermaid)
-    if not parsed.assistant_message:
-        parsed.assistant_message = "Generated Mermaid diagram."
-    if not include_suggestions:
-        parsed.suggestions = []
-    elif parsed.suggestions is None:
-        parsed.suggestions = []
-
-    node_count = estimate_mermaid_node_count(parsed.mermaid)
+    system_prompt = get_simple_ir_system_prompt(
+        model_id=provider_spec.default_model, provider=provider_key,
+        custom_system_message=custom_system_message, user_hint=hint,
+    )
+    human_content = _build_plain_ir_human_content(
+        chat_messages=chat_messages, applied_suggestions=applied_suggestions,
+    )
+    revision = _simple_revision_block(current_xml)
+    if revision:
+        human_content = f"{revision}\n\n{human_content}"
     if logger:
         logger.log(
-            "mermaid",
-            "Mermaid diagram generated",
-            level="success",
-            details={"chars": len(parsed.mermaid), "lines": parsed.mermaid.count(chr(10)) + 1},
+            "prompt", "Prepared Simple IR request",
+            details={
+                "provider": provider_key,
+                "turns": len(chat_messages),
+                "revising": bool(revision),
+            },
         )
-        # simple.py's own cap ("Max 8 nodes/shapes unless the user explicitly
-        # asks for more") had no server-side counterpart at all — the fast
-        # path is otherwise the only generator whose stated limits are pure
-        # prompt text with nothing checking them. A logged warning, not a
-        # validation error: unlike the IR views this has no schema or
-        # correction loop to retry through, and "explicitly asks for more" is
-        # a legitimate, common reason to be over it.
-        if node_count > _MERMAID_SOFT_NODE_CAP:
-            logger.log(
-                "mermaid",
-                f"~{node_count} nodes (heuristic count) exceeds the pack's soft cap of "
-                f"{_MERMAID_SOFT_NODE_CAP} — fine if the request asked for more, otherwise "
-                "the fast path may be drawing more than a glanceable diagram should.",
-                level="warning",
-                details={"estimated_node_count": node_count, "soft_cap": _MERMAID_SOFT_NODE_CAP},
-            )
-    return parsed
+    ir = _generate_simple_ir_with_corrections(
+        system_prompt=system_prompt, human_content=human_content,
+        provider_key=provider_key, logger=logger, llm=_llm,
+    )
+    xml = compile_simple_ir(ir)
+
+    sugg: list[DiagramSuggestion] = []
+    if include_suggestions:
+        sugg = _generate_followup_suggestions(
+            inventory=_ir_inventory_lines(ir),
+            # "logical" is the closest of the suggestion prompt's view
+            # vocabularies to a plain diagram — none of them describes a chart,
+            # and inventing a sixth view id here would mean teaching the
+            # suggestion pack a view that no other caller ever passes.
+            view="logical",
+            user_request=hint,
+            provider_key=provider_key,
+            llm=_llm,
+            logger=logger,
+            applied_suggestions=applied_suggestions,
+        )
+
+    if logger:
+        logger.log("ir_compile", "Compiled Simple IR to draw.io XML", level="success", details={
+            "kind": ir.kind, "xml_chars": len(xml), "xml": xml,
+        })
+    return XmlDiagram(
+        xml=xml,
+        assistant_message=ir.assistant_message or f"Generated {ir.title or 'diagram'}.",
+        suggestions=sugg,
+        step_markers=[],
+        ir_title=ir.title or "",
+    )
 
 
 def run_visual_qa_llm(

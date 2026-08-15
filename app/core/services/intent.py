@@ -1,4 +1,9 @@
-"""Classify user prompts as cloud architecture vs simple (Mermaid) diagrams."""
+"""Classify user prompts as cloud architecture vs simple (non-cloud) diagrams.
+
+``"simple"`` covers both families the non-cloud path can draw: node-and-arrow
+diagrams (flowchart, org chart, state machine, ER, mindmap) and charts (bar,
+pie, gantt). Both compile to draw.io XML via ``SimpleDiagramIR``.
+"""
 
 from __future__ import annotations
 
@@ -72,9 +77,69 @@ _SIMPLE_TERMS: tuple[tuple[str, int], ...] = (
     ("swimlane", 2),
     ("erd", 2),
     ("entity relationship", 3),
+    # Charts. Missing entirely until the simple path could draw them, which
+    # meant a chart request scored 0-0 and fell through to the cloud default
+    # below: "draw a bar graph of monthly sales" returned an AWS architecture
+    # diagram. Weighted 4 because these phrases are unambiguous — nobody says
+    # "pie chart" about a cloud architecture.
+    ("bar chart", 4),
+    ("bar graph", 4),
+    ("column chart", 4),
+    ("pie chart", 4),
+    ("donut chart", 4),
+    ("gantt chart", 4),
+    ("gantt", 3),
+    ("line chart", 4),
+    ("line graph", 4),
+    ("histogram", 3),
+    # Forms the chart compiler has no renderer for, but which the simple path
+    # still handles far better than the cloud one: the prompt pack maps each to
+    # its nearest supported kind and says so in the reply. Untriaged, they
+    # scored 0-0 and took the cloud tie-break — "scatter plot of response time
+    # against request volume" came back as a "Performance Observability
+    # Dashboard" architecture diagram.
+    ("scatter plot", 4),
+    ("scatter", 3),
+    ("bubble chart", 4),
+    ("area chart", 4),
+    ("plot", 2),
+    # Phrasings for kinds that *are* supported but that no term reached:
+    # "stacked bar" never matched "bar chart"/"bar graph", and a timeline is a
+    # gantt. A user journey/funnel is an ordered set of stages — a flow.
+    ("stacked bar", 4),
+    ("timeline", 3),
+    ("user journey", 4),
+    ("journey map", 4),
+    ("funnel", 3),
+    ("project plan", 3),
+    ("roadmap", 2),
+    # Bare "chart" is a whole-token match, so it does not fire on "flowchart"
+    # (which scores on its own entry anyway). Low weight: it is the one term
+    # here that a cloud prompt could plausibly contain.
+    ("chart", 2),
+    # Node-and-arrow diagrams the simple path has always been able to draw, but
+    # which no term routed to it. "erd" above is a whole-token match, so it
+    # never fired on the far more common spelling "ER diagram".
+    ("er diagram", 4),
+    ("class diagram", 3),
+    ("mind map", 4),
+    ("mindmap", 4),
+    ("use case diagram", 3),
+    ("decision tree", 3),
 )
 
 _CLOUD_PLATFORMS = frozenset({"aws", "gcp", "azure", "multi"})
+
+#: How much cloud vocabulary a follow-up needs before it may switch a non-cloud
+#: diagram to the cloud pipeline. Set above the weight of any *single* weak term
+#: (``s3``, ``rds``, ``ecs`` = 1; ``aws``, ``lambda`` = 2) on purpose: with a
+#: flowchart on screen, "rename that box to S3 upload" or "add a Lambda step"
+#: is a request about the flowchart, not a request to redraw it as an
+#: architecture. Phrases that genuinely mean "start over as cloud" clear it
+#: comfortably ("cloud architecture" = 4, "aws vpc" = 4, "api gateway" = 3).
+#: A user who really does want the switch on weaker wording still has the
+#: deterministic escape hatch: the diagram-mode picker wins over all of this.
+_CLOUD_SWITCH_THRESHOLD = 3
 
 _THREE_D_PATTERN = re.compile(r"(?<![a-z0-9])(3d|three-dimensional|isometric)(?![a-z0-9])", re.IGNORECASE)
 
@@ -92,12 +157,28 @@ def _score_terms(text: str, terms: tuple[tuple[str, int], ...]) -> int:
     return score
 
 
-def classify_intent(prompt: str, *, diagram_mode: str = "auto", platform: str = "aws") -> str:
+def classify_intent(
+    prompt: str,
+    *,
+    diagram_mode: str = "auto",
+    platform: str = "aws",
+    current_diagram_type: str = "",
+) -> str:
     """Return ``cloud`` or ``simple``.
 
     Explicit ``diagram_mode`` wins. Otherwise score cloud vs simple keywords;
     ambiguous prompts default to cloud (this product's primary path), especially
     when the UI platform picker is a cloud vendor.
+
+    ``current_diagram_type`` is what is already on the canvas ("simple" |
+    "cloud" | ""), and it exists because scoring the *follow-up text alone* gets
+    continuations badly wrong. "change Q3 to 200" carries no vocabulary either
+    way, so it scored 0-0 and took the tie-break to cloud — which sent an edit
+    of a bar chart down the cloud surgical-edit path. That path relabelled the
+    bar's text to 200 and left the bar itself drawn at its old height of 90,
+    then reported success: a chart that states one number and draws another.
+    Once a non-cloud diagram exists, a follow-up stays with it unless the user
+    actually asks for cloud architecture.
     """
     mode = (diagram_mode or "auto").strip().lower()
     if mode in ("cloud", "simple"):
@@ -106,6 +187,9 @@ def classify_intent(prompt: str, *, diagram_mode: str = "auto", platform: str = 
     text = (prompt or "").lower()
     cloud_score = _score_terms(text, _CLOUD_TERMS)
     simple_score = _score_terms(text, _SIMPLE_TERMS)
+
+    if (current_diagram_type or "").strip().lower() == "simple":
+        return "cloud" if cloud_score >= _CLOUD_SWITCH_THRESHOLD else "simple"
 
     platform_key = (platform or "aws").strip().lower()
     if platform_key in _CLOUD_PLATFORMS and cloud_score == 0 and simple_score == 0:

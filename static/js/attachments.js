@@ -190,7 +190,7 @@ async function handleFileSelect(event) {
                 entry.kind = 'diagram';
                 attachmentDiagramXml = data.content;
                 currentXml = data.content;
-                currentMermaid = '';
+                isSimpleDiagram = false;
                 currentArchitecture = null;
                 const xmlOut = document.getElementById('xml-output');
                 if (xmlOut) xmlOut.textContent = data.content;

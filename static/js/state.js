@@ -58,8 +58,13 @@ let runStoppedByUser = false;
 let selectedPlatform = 'aws';
 let drawioReady = false;
 let pendingXml = null;
-let pendingMermaid = null;
-let currentMermaid = '';
+// True while the canvas holds a non-cloud diagram (flowchart, org chart,
+// bar/pie/gantt chart) from the "simple" path. Everything cloud-specific —
+// platform conversion, WAF/compliance re-analysis, VLM validation — keys off
+// this. Replaces the old `currentMermaid` string, which carried the same
+// meaning as a side effect of holding Mermaid source; the diagram itself is
+// now ordinary draw.io XML in `currentXml`, like every other path.
+let isSimpleDiagram = false;
 let messageHandler = null;
 let currentDrawioPageIndex = 0; // reset to 0 on every full 'load' — draw.io always opens page 1
 let pendingFocusPageIndex = null; // set before a load whose response should land on a specific tab (e.g. Network for WAF/compliance)

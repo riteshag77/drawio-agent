@@ -57,7 +57,7 @@ function finishChatRun({ outcome = 'idle', message = '', diagramMessage = '' } =
     } else if (outcome === 'success' && !diagramMessage) {
         setDiagramStatus('Rendering diagram…');
     } else if (outcome === 'idle' && !isSending) {
-        if (currentXml || currentMermaid) {
+        if (currentXml) {
             setDiagramStatus('Diagram loaded — pan and zoom to explore');
         } else {
             setDiagramStatus('Waiting for generation');

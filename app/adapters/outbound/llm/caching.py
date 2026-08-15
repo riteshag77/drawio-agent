@@ -30,7 +30,7 @@ def build_system_message(spec: "ProviderSpec", system_prompt: str) -> SystemMess
     """Build a ``SystemMessage`` honoring the provider's prompt-cache strategy."""
     stable, sep, volatile = system_prompt.partition(CACHE_BREAKPOINT)
     if not sep:
-        # No breakpoint marker (e.g. the Mermaid path) — single plain block.
+        # No breakpoint marker (e.g. a prompt assembled without one) — single plain block.
         return SystemMessage(content=system_prompt)
 
     mode = getattr(spec, "prompt_cache", "none")

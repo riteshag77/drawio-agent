@@ -42,14 +42,16 @@ Hexagonal/ports-and-adapters layout:
 
 ```
 app/
-  domain/entities/        # plain dataclasses/pydantic models (XmlDiagram, Mermaid) — no I/O
-  domain/ir/              # diagram IR — NetworkIR + shared CorridorIR (Logical/Security/Data flow), pure, self-validating
+  domain/entities/        # plain dataclasses/pydantic models (XmlDiagram, DiagramEditPlan) — no I/O
+  domain/ir/              # diagram IR — NetworkIR + shared CorridorIR (Logical/Security/Data flow),
+                          # GenericDiagramIR (as-is image trace), SimpleDiagramIR (non-cloud), self-validating
   core/services/          # use cases: agent.py (LLM calls), xml_pipeline.py (orchestration), intent.py
   adapters/inbound/web/   # FastAPI routes.py + schemas.py + rate_limit.py
   adapters/outbound/      # everything that talks to the outside world:
     llm/                  # provider registry, langchain client wrapper, prompt builders, fallback.py
     diagram/              # draw.io XML validation/repair/MCP client
       compiler/           # IR → draw.io XML (deterministic; owns geometry + styles)
+                          # chart.py plots bar/line/pie/gantt; simple.py dispatches non-cloud kinds
       geometry_spec.py    # canonical spacing constants — shared by compiler AND diagnostics
       elk_bridge.py       # ELK layout: long-lived sidecar (tools/elk_layout/serve.js),
                           # falling back to a per-call layout.js spawn
@@ -60,7 +62,7 @@ app/
 
 ### Request flow (`POST /chat`, `/chat/stream`)
 
-1. `routes._run_chat` classifies intent via `core/services/intent.classify_intent` — `"simple"` (generic diagram, no cloud vocabulary) routes to the lightweight Mermaid path (`agent.generate_mermaid_diagram`); anything else ("cloud") goes to the full pipeline. **Only the cloud/full path forwards `attachment_documents`/`context_text` to the LLM** — if attachments are present, intent is forced away from `"simple"` regardless of the classifier's answer, since the Mermaid path can't use them.
+1. `routes._run_chat` classifies intent via `core/services/intent.classify_intent` — `"simple"` (non-cloud: flowchart/org chart/state machine/ER/mindmap, or a bar/line/pie/gantt chart) routes to `xml_pipeline.run_simple_pipeline`; anything else ("cloud") goes to the full pipeline. **Only the cloud/full path forwards `attachment_documents`/`context_text` to the LLM** — if attachments are present, intent is forced away from `"simple"` regardless of the classifier's answer, since the simple path can't use them.
 2. `xml_pipeline.run_xml_pipeline` orchestrates the full path:
    - Fresh cloud → `agent.generate_xml_diagram_from_ir` (Pydantic IR → compiler XML).
    - Edit → surgical `DiagramEditPlan` when small; otherwise IR regenerate.
@@ -69,7 +71,14 @@ app/
      ports/overview only (**no LLM repair**, no geometry re-layout on `layout="ir"`).
    - Optional `DIAGRAM_VLM_QA` → fail-open visual checklist + one edge re-anchor.
    - In parallel: cost, Well-Architected, compliance, MCP icon resolution.
-3. Response includes `xml`, `renderer_used` (`mcp` or `local`), `generation_path` (`ir` | `direct_xml`), `llm_usage`, and `logs`.
+3. Response includes `xml`, `renderer_used` (`mcp` or `local`), `generation_path` (`ir` | `direct_xml` | `generic_ir` | `simple_ir`), `llm_usage`, and `logs`.
+
+**Every path returns draw.io XML.** The `"simple"` path used to return Mermaid
+source instead, for the frontend to hand the embed as `{action: "import",
+format: "mermaid"}` — draw.io has no `import` action, so it replied
+`{error: "unknownMessage"}` and drew nothing, for every simple diagram this app
+ever produced. The embed accepts mxGraph XML and nothing else; do not add a
+response shape that assumes otherwise.
 
 ### Generation paths (`DIAGRAM_IR_ENABLED`)
 
@@ -81,15 +90,39 @@ app/
   deliberate exception: it sizes/positions leaves from the LLM's `size_hint`/
   `x`/`y` hints instead, since its purpose is source-image fidelity, not
   cloud design-system consistency.
+- **Simple (non-cloud)**: `SimpleDiagramIR` — one discriminated schema, five
+  `kind`s. `"flow"` (flowchart, org chart, state machine, ER, mindmap) reuses
+  `compiler/generic.py`, whose `_place_topological` already lays out an
+  unpositioned node graph from its edges; `"bar"`/`"line"`/`"pie"`/`"gantt"`
+  go to `compiler/chart.py`, which plots rather than lays out. Charts emit **no
+  edges at all** — gridlines, axes and even sloped line segments are
+  rectangles (the last via `rotation=`), because `remove_dangling_edges`
+  would delete a gridline and `fix_edge_anchors_from_geometry` would rewrite
+  the rest. Chart cell ids are sequence-first and zero-padded so
+  `validate_and_fix_xml`'s id-ordered cell sort cannot re-layer the page
+  (it once restacked gridlines on top of the bars).
+  A follow-up turn on a simple diagram **regenerates the IR**, never a surgical
+  edit: a bar's height is *derived* from its value, so patching cells relabels
+  the bar without re-plotting it (measured: label read 200, bar stayed drawn at
+  90, and the reply claimed success). The client echoes `current_diagram_type`
+  back so `classify_intent` keeps the turn on this path — a follow-up like
+  "change Q3 to 200" has no vocabulary of its own and otherwise took the cloud
+  tie-break. `agent._simple_revision_block` feeds the current label inventory
+  back in so a regenerate keeps whatever it wasn't asked to change.
 - **Surgical edit** / **3D**: only remaining direct-XML paths (no `core.txt` /
-  `views/` packs). Mermaid stays for `"simple"` intent.
+  `views/` packs).
 
 Rules of thumb:
 - Layout/spacing → `geometry_spec.py` + `logical_layout.layout_corridor_ir`.
   Structural invariants → IR types / `semantic_errors()` / `corridor.py`.
   Do not resize leaves after compile.
-- Prompts live in `config/xml_gen/ir/` (+ `classify/`, `icons/saas.txt`,
-  `prompt_3d.txt`, `docs/`, `gap_analysis.txt`).
+- Prompts live in `config/xml_gen/ir/` (incl. `simple.txt` for the non-cloud
+  path) (+ `classify/`, `icons/saas.txt`, `prompt_3d.txt`, `docs/`,
+  `gap_analysis.txt`).
+- Chart colour is a validated categorical palette in
+  `compiler/chart_theme.py` — assigned in fixed slot order, never cycled,
+  which is why `SimpleDiagramIR` caps series and pie slices at 6. Re-run the
+  `dataviz` skill's `validate_palette.js` before changing a hue.
 - `generation_path=direct_xml` means surgical edit or 3D, not a failed IR.
 
 ### LLM/MCP/prompt ownership split

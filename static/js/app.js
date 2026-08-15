@@ -298,6 +298,12 @@ async function sendMessage(options = {}) {
             current_architecture: currentArchitecture,
             previous_architecture: previousArchitecture,
             current_xml: xmlForRequest,
+            // Tells the backend which kind of diagram it is about to edit. A
+            // follow-up like "change Q3 to 200" has no vocabulary of its own,
+            // so without this the classifier's tie-break sent chart edits down
+            // the cloud surgical-edit path, which relabels a bar without
+            // re-plotting it. Only meaningful alongside current_xml.
+            current_diagram_type: xmlForRequest ? (isSimpleDiagram ? 'simple' : 'cloud') : null,
             previous_xml: previousXml,
             custom_system_message: promptSettings.custom_system_message,
             cost_estimate: promptSettings.cost_estimate,
@@ -400,7 +406,6 @@ async function sendMessage(options = {}) {
             suggestions: (data.suggestions || []).length,
             diagram_type: data.diagram_type || 'cloud',
             xml_chars: (data.xml || '').length,
-            mermaid_chars: (data.mermaid || '').length,
             edit_mode: !!data.edit_mode,
         });
 
@@ -430,7 +435,7 @@ async function sendMessage(options = {}) {
 
         // NOTE: a response missing cost_estimate/well_architected/compliance means
         // *this turn* didn't compute it (e.g. a surgical edit, a non-"network" view
-        // this request, or a simple/Mermaid diagram) — it does NOT mean the user
+        // this request, or a simple/non-cloud diagram) — it does NOT mean the user
         // wants the setting off. Only the explicit hide*Panel()/voice "hide X panel"
         // path may uncheck the toggle and persist that to localStorage; a response
         // handler must re-sync the panel to whatever the toggle already says
@@ -517,7 +522,7 @@ async function sendMessage(options = {}) {
         setProgress(75);
         setDiagramStatus('Loading into Draw.io...');
         loadDiagramFromResponse(data);
-        if (promptSettings.vlm_validation && data.diagram_type !== 'mermaid' && data.xml) {
+        if (promptSettings.vlm_validation && data.diagram_type !== 'simple' && data.xml) {
             runVisualValidation(data.xml, !!options.isValidationRetry);
         }
         setActionButtonsEnabled(true);

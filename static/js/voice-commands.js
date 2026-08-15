@@ -25,8 +25,7 @@ function registerVoiceCommand(cmd) {
 }
 
 function voiceHasDiagram() {
-    return !!(typeof currentXml !== 'undefined' && currentXml)
-        || !!(typeof currentMermaid !== 'undefined' && currentMermaid);
+    return !!(typeof currentXml !== 'undefined' && currentXml);
 }
 
 function voiceRequireDiagram() {
@@ -561,7 +560,7 @@ function initVoiceCommands() {
     [
         ['auto', ['diagram type auto', 'set diagram auto', 'auto diagram']],
         ['cloud', ['diagram type cloud', 'set diagram cloud', 'cloud diagram', 'cloud architecture']],
-        ['simple', ['diagram type simple', 'set diagram simple', 'simple diagram', 'mermaid diagram']],
+        ['simple', ['diagram type simple', 'set diagram simple', 'simple diagram', 'flowchart mode']],
     ].forEach(([value, phrases]) => {
         registerVoiceCommand({
             id: 'diagram-mode-' + value,
