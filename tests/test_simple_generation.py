@@ -408,6 +408,22 @@ class GeneratorTests(unittest.TestCase):
         self.assertIn("120", self.seen_human)
         self.assertIn("90", self.seen_human)
 
+    def test_sequence_revision_carries_its_messages_back(self) -> None:
+        """A sequence diagram's content is its *ordered* messages, and the
+        revision block reaches the model as a flat label inventory. Verified by
+        hand that a mid-order insert works ("MFA challenge" landed between
+        "Authenticate" and "Redirect with Code" with nothing dropped) — what
+        this pins is the mechanism that made it possible: the message labels
+        must actually be in the inventory. They are only there because each one
+        is its own text vertex.
+        """
+        existing = compile_simple_ir(SimpleDiagramIR(**_sequence()))
+        generate_simple_diagram_from_ir(
+            "add an MFA step", llm=self._llm(_sequence()), current_xml=existing,
+        )
+        for expected in ("Browser", "API", "POST /login", "find user", "user row"):
+            self.assertIn(expected, self.seen_human)
+
     def test_fresh_generation_carries_no_revision_block(self) -> None:
         generate_simple_diagram_from_ir("draw a claim flow", llm=self._llm(_flow()))
         self.assertNotIn("revising a diagram", self.seen_human)
