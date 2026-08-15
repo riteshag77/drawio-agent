@@ -140,8 +140,9 @@ class LogicalIR(CorridorIR):
         for shelf in self.anchored:
             if shelf.id != _SHELF_ID:
                 raise ValueError(f"anchored corridor id {shelf.id!r} must be {_SHELF_ID!r} in Logical")
-            if shelf.anchor_id != "domain_data":
-                raise ValueError(f"{_SHELF_ID!r} must anchor under 'domain_data' (got {shelf.anchor_id!r})")
+            problem = self.shelf_anchor_error(shelf, "domain_data")
+            if problem:
+                raise ValueError(problem)
         return self
 
     #: Substrings in a leaf's label that mark it as a replica/standby copy of

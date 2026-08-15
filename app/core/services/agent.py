@@ -1327,11 +1327,13 @@ def generate_xml_diagram_from_ir(
     )
 
 
-#: Mirrors ``config/xml_gen/ir/simple.txt``'s own stated cap ("8 nodes or fewer
-#: unless the user explicitly asks for more") — update both together. A logged
-#: warning rather than a semantic error: "explicitly asks for more" is a
-#: legitimate and common reason to exceed it, so it must not fail a generation.
-_SIMPLE_SOFT_NODE_CAP = 8
+#: Mirrors the upper end of ``config/xml_gen/ir/simple.txt``'s depth table —
+#: update both together. Raised from 8 when that table replaced a flat cap:
+#: the old figure was suppressing detail on exactly the requests ("end to end",
+#: "detailed") that want it, and warning about the intended result is noise.
+#: A logged warning rather than a semantic error, since a genuinely large
+#: process is a legitimate answer, not a failure.
+_SIMPLE_SOFT_NODE_CAP = 20
 
 
 def _drop_invalid_simple_edges(
@@ -1409,6 +1411,8 @@ def _generate_simple_ir_with_corrections(
                 "kind": ir.kind, "nodes": len(ir.nodes), "edges": len(ir.edges),
                 "categories": len(ir.categories), "series": len(ir.series), "tasks": len(ir.tasks),
             })
+        for warning in ir.semantic_warnings():
+            logger.log("ir", warning, level="warning")
         if ir.kind == "flow" and len(ir.nodes) > _SIMPLE_SOFT_NODE_CAP:
             logger.log(
                 "ir",

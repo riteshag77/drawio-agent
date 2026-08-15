@@ -39,23 +39,13 @@ white, so there is no dark surface for a second set of steps to target.
 
 from __future__ import annotations
 
-#: Categorical series colours, in fixed assignment order. Slot N is always the
-#: Nth series declared — never re-assigned when a series is added or removed,
-#: so a chart regenerated with one fewer series keeps every survivor's colour.
-SERIES: tuple[str, ...] = (
-    "#2A78D6",  # blue
-    "#EB6834",  # orange
-    "#1BAF7A",  # aqua
-    "#EDA100",  # yellow
-    "#E87BA4",  # magenta
-    "#008300",  # green
-)
+from app.adapters.outbound.diagram.compiler import palette
 
-#: Must stay >= ``domain.ir.simple.MAX_PIE_SLICES`` and ``MAX_SERIES``: those
-#: caps exist precisely so every series/slice gets its own slot without the
-#: palette ever wrapping. Shrinking this tuple without shrinking them would
-#: silently hand two series the same colour (``series_color`` clamps).
-PALETTE_SLOTS = len(SERIES)
+#: Re-exported from ``palette`` so existing call sites and tests keep one
+#: import, while the hues themselves live in one place for every view.
+SERIES = palette.SERIES
+PALETTE_SLOTS = palette.PALETTE_SLOTS
+series_color = palette.series_color
 
 # Ink and furniture. Text never wears a series colour (the mark beside it
 # carries identity); grid and axis stay recessive so the data reads first.
@@ -63,19 +53,6 @@ TEXT_PRIMARY = "#0B0B0B"
 TEXT_SECONDARY = "#52514E"
 AXIS = "#B3B3B3"
 GRID = "#E6E6E6"
-
-
-def series_color(index: int) -> str:
-    """Colour for series/slice ``index``.
-
-    Clamps rather than wrapping. Wrapping would hand two different series the
-    same hue, which is the one failure a categorical palette must never
-    produce; the IR's own caps mean a clamp is unreachable in practice, and a
-    duplicated last colour is at least visibly wrong rather than subtly so.
-    """
-    if index < 0:
-        index = 0
-    return SERIES[min(index, len(SERIES) - 1)]
 
 
 def title_style() -> str:

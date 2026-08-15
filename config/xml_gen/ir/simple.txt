@@ -28,6 +28,22 @@ empty. A `bar` with `nodes` in it, or a `flow` with `categories`, is rejected.
 `flow` is the default when the request could go either way. "Show me our sales
 process" is a flow (steps); "show me our sales" is a bar chart (numbers).
 
+## Depth — read what the request is asking for
+
+The single most common complaint about this output is that it is too thin. Size
+the diagram to the ask, not to a default:
+
+| The request says | Give it |
+|---|---|
+| "quick", "simple", "high level", "overview" | 5-8 nodes / 4-8 messages, happy path only |
+| no qualifier at all | 8-12 nodes / 8-14 messages, main branches included |
+| "end to end", "detailed", "comprehensive", "full", "complete" | 12-20 nodes / 15-25 messages, phases, error and exception branches, async side-effects |
+| a list of named systems, teams or stages | **every one of them**, plus the steps connecting them |
+
+Depth means *more of the real process* — the checks, the rejections, the
+retries, the notifications, the audit writes — never the same step restated in
+more words, and never invented components that don't belong to the domain.
+
 If the user asks for a chart but gives no numbers, use realistic illustrative
 values rather than refusing — but never invent numbers when they supplied some.
 
@@ -65,6 +81,24 @@ Change a number by changing it in `values` — never by editing a label to say
 something the number doesn't. Labels are generated *from* the values, so the
 two can't disagree unless you make them.
 
+## Icons — put an emoji at the front of a label
+
+Every label is rendered as-is, so a leading emoji **is** the icon. Use one on
+participants, on flow nodes, and on message labels — it is the cheapest way to
+make a diagram scannable, and it costs nothing to render:
+
+- People and roles: 👤 🧑‍💼 👥 🕵️
+- Systems and services: ⚙️ 🖥️ 📱 ☁️ 🔌
+- Data: 🗄️ 📊 📁 🔍
+- Money and payments: 💳 💰 🏦
+- Signals: 📞 📧 📤 ✅ ❌ ⚠️ 🚩 🔒
+
+One emoji, at the start, then a space, then the words: `👤 Claimant`,
+`💳 Authorize payment`, `✅ Coverage confirmed`. Never two in a row, never in
+the middle of a phrase, and never one whose meaning you'd have to explain —
+a decorative emoji on every node is noise, not signal. Skip them entirely when
+the user asks for something plain or formal.
+
 ## Last field — `assistant_message`
 
 One short sentence for the chat reply, written **after** the diagram, saying
@@ -90,8 +124,11 @@ Shapes — pick the closest, never invent a key:
 
 Rules:
 
-- **8 nodes or fewer** unless the user explicitly asks for more. A dense
-  diagram nobody can read is a worse answer than a clear summary.
+- **Match the depth to the request** (see §Depth). Roughly 5-8 nodes for a
+  quick sketch; 12-20 for anything described as end-to-end, detailed, or with
+  named stages — including the rejection, retry and exception branches that
+  make a real process real. Never pad with filler steps, but never drop a step
+  the user actually named.
 - Labels are 1-4 words. Not sentences.
 - Every decision (`diamond`) needs its outgoing edges labelled — `"Yes"`/`"No"`,
   or the actual branch condition. An unlabelled branch is unreadable.
@@ -113,8 +150,9 @@ direction right and the layout follows.
 - Each entry in `series` is one run of numbers with a `label` for the legend and
   a `values` list that is **exactly as long as `categories`**, in the same
   order. This is the single most common mistake — count them before you answer.
-- One series is normal. Use several only for a real comparison (years, regions),
-  and never more than 6.
+- One series is normal. Use several for a real comparison (years, regions);
+  **6 is a hard maximum** — the palette has 6 distinct colours and never
+  repeats one, so a 7th series could only be drawn in a colour already used.
 - `value_label` names the axis **including its unit**: `"Revenue ($M)"`,
   `"Users (thousands)"`. Leave blank only when the numbers speak for themselves.
 - Negative values are fine; the axis includes zero automatically.
@@ -128,7 +166,9 @@ is a `flow`.
 
 - `participants` are the columns, left to right in the order they first act.
   Put the initiator leftmost. `kind: "actor"` for a person or external client,
-  `"participant"` for a system, service or datastore. 2-6 is readable.
+  `"participant"` for a system, service or datastore. Include **every** system
+  the request names — an end-to-end flow across 8 systems needs 8 columns, and
+  silently dropping one misrepresents the architecture. 3-5 for a quick sketch.
 - `messages` are the arrows, **in the order they happen** — the list order is
   the diagram. There is no timestamp field and none is needed.
 - `kind` on each message:
@@ -146,6 +186,19 @@ is a `flow`.
   draws as a loop.
 - Label every message with what is actually sent: `POST /login`, `find user`,
   `token`. Not `request`/`response`.
+- **`phase`** groups a long conversation into stages. Give every message in a
+  stage the *same* phase string and they are drawn inside one shaded, labelled
+  band — `"1 — First Notice of Loss"`, `"2 — Fraud Screening"`. Phases must be
+  contiguous: finish one before starting the next, never interleave. Use them
+  once a diagram passes roughly 6 messages; below that they add ceremony
+  without adding clarity. Leave blank for a short exchange.
+- Draw the **whole** exchange when asked for one: not just the happy path, but
+  the validation call, the failure reply, the retry, the async audit/event
+  write. A real protocol has 12-25 messages; a 6-message sketch of it is a
+  summary, not a diagram.
+
+Messages are numbered automatically in the order you list them, so don't put
+"1.", "2." in the labels yourself.
 
 ## kind = "line"
 
@@ -160,7 +213,8 @@ Same fields as `bar`, same one-to-one rule between each series' `values` and
 ## kind = "pie"
 
 - One `series` only, with one value per slice, aligned to `categories`.
-- **6 slices maximum.** Group the small remainder into an `"Other"` slice.
+- **6 slices maximum** — one per palette colour, and the palette never repeats
+  a hue. Group the small remainder into an `"Other"` slice.
 - Values may be percentages or raw amounts — the compiler computes each slice's
   share either way, so don't pre-normalize to 100.
 - No negative values.
@@ -176,7 +230,8 @@ Same fields as `bar`, same one-to-one rule between each series' `values` and
   `["Week 1","Week 2"]`). Supply them whenever the timeline has real names;
   columns are numbered if you leave them out.
 - `duration` must be greater than 0 — there are no zero-length bars.
-- 30 tasks maximum; summarize beyond that.
+- Past ~30 rows a gantt gets hard to read, so prefer summarizing — but draw
+  what the user asked for; the number is advice, not a limit.
 
 ## Ids (flow only)
 
@@ -256,6 +311,26 @@ order even though Q3 dips.
     {"source": "api", "target": "api", "label": "sign token", "kind": "sync"},
     {"source": "api", "target": "browser", "label": "200 + token", "kind": "reply"},
     {"source": "api", "target": "audit", "label": "login event", "kind": "async"}
+  ]
+}
+```
+
+With phases and emoji, for a longer flow:
+
+```json
+{
+  "kind": "sequence",
+  "title": "Insurance Claim",
+  "participants": [
+    {"id": "cl", "label": "👤 Claimant", "kind": "actor"},
+    {"id": "fnol", "label": "📋 FNOL Intake"},
+    {"id": "siu", "label": "🚨 Fraud Engine"}
+  ],
+  "messages": [
+    {"source": "cl", "target": "fnol", "label": "📞 Report loss", "kind": "sync", "phase": "1 — First Notice of Loss"},
+    {"source": "fnol", "target": "cl", "label": "✅ Claim number", "kind": "reply", "phase": "1 — First Notice of Loss"},
+    {"source": "fnol", "target": "siu", "label": "🔎 Score for fraud", "kind": "sync", "phase": "2 — Triage"},
+    {"source": "siu", "target": "fnol", "label": "🚩 Risk score", "kind": "reply", "phase": "2 — Triage"}
   ]
 }
 ```

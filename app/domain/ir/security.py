@@ -288,8 +288,9 @@ class SecurityIR(CorridorIR):
         for shelf in self.anchored:
             if shelf.id != _SHELF_ID:
                 raise ValueError(f"anchored corridor id {shelf.id!r} must be {_SHELF_ID!r} in Security")
-            if shelf.anchor_id != "zone_restricted":
-                raise ValueError(f"{_SHELF_ID!r} must anchor under 'zone_restricted' (got {shelf.anchor_id!r})")
+            problem = self.shelf_anchor_error(shelf, "zone_restricted")
+            if problem:
+                raise ValueError(problem)
         return self
 
     #: Boundary zones a flow can cross from/to the outside world — a flow

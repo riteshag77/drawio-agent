@@ -56,19 +56,65 @@ def compile_sequence_ir(ir: SimpleDiagramIR, *, page_name: str = "Diagram") -> s
 def _message_slots(messages: list[SequenceMessage]) -> list[float]:
     """Vertical offset of each message from the first message's baseline.
 
-    Not a flat multiple of the pitch: a self-message loops out and back down
-    its own lifeline, so it occupies more vertical space than a straight arrow
-    and everything after it has to move down. Returning offsets (rather than
-    letting the caller multiply) keeps that adjustment in one place.
+    Not a flat multiple of the pitch, for two reasons. A self-message loops out
+    and back down its own lifeline, so it occupies more vertical space than a
+    straight arrow. And entering a new phase reserves a title strip for the
+    band's label, while leaving one opens a gap so consecutive bands read as
+    separate stages rather than one striped block. Returning offsets (rather
+    than letting the caller multiply) keeps all of that in one place.
     """
     offsets: list[float] = []
     cursor = 0.0
+    previous_phase = ""
     for message in messages:
+        phase = message.phase.strip()
+        if phase != previous_phase:
+            if previous_phase:
+                cursor += geo.SEQ_BAND_GAP_Y
+            if phase:
+                cursor += geo.SEQ_BAND_TITLE_H
         offsets.append(cursor)
         cursor += geo.SEQ_MESSAGE_PITCH_Y
         if message.source == message.target:
             cursor += geo.SEQ_SELF_DROP
+        previous_phase = phase
     return offsets
+
+
+def _bands(
+    messages: list[SequenceMessage], offsets: list[float],
+) -> list[tuple[str, float, float]]:
+    """Group consecutive messages sharing a phase into ``(label, top, bottom)``.
+
+    Keyed on the phase *name* repeated across messages rather than on index
+    ranges. Index ranges would be the obvious schema ("messages 3 to 7"), but
+    they ask a model to do arithmetic that stays correct while it edits the
+    list around them — and a revision that inserts one message silently shifts
+    every band. A repeated string cannot drift out of alignment with the
+    messages it labels.
+    """
+    bands: list[tuple[str, float, float]] = []
+    start_index: int | None = None
+    for index, message in enumerate(messages):
+        phase = message.phase.strip()
+        previous = messages[index - 1].phase.strip() if index else ""
+        if phase != previous and start_index is not None:
+            bands.append((previous, start_index, index - 1))
+            start_index = None
+        if phase and start_index is None:
+            start_index = index
+    if start_index is not None:
+        bands.append((messages[start_index].phase.strip(), start_index, len(messages) - 1))
+
+    spans: list[tuple[str, float, float]] = []
+    for label, first, last in bands:
+        tail = geo.SEQ_SELF_DROP if messages[last].source == messages[last].target else 0.0
+        spans.append((
+            label,
+            offsets[first] - geo.SEQ_BAND_TITLE_H,
+            offsets[last] + tail + geo.SEQ_BAND_TAIL_Y,
+        ))
+    return spans
 
 
 def _activations(
@@ -148,7 +194,23 @@ class _SequenceCompiler:
             max(len(participants) * pitch - geo.SEQ_PARTICIPANT_GAP_X, 200.0), _TITLE_H,
         )
 
-        # Lifelines first: everything else is drawn over them, and draw.io
+        # Phase bands go down before the lifelines so the dashed stems, the
+        # activation blocks and every arrow all render *over* their band —
+        # a band is a backdrop for a stage, not a box drawn on top of it.
+        band_left = geo.SEQ_ORIGIN_X - geo.SEQ_BAND_PAD_X
+        band_right = (
+            geo.SEQ_ORIGIN_X + (len(participants) - 1) * pitch
+            + geo.SEQ_PARTICIPANT_W + geo.SEQ_BAND_PAD_X
+        )
+        for band_index, (label, top, bottom) in enumerate(_bands(messages, offsets)):
+            self.w.vertex(
+                id=self._id("band"), label=label, style=theme.band_style(band_index),
+                x=band_left, y=first_message_y + top,
+                w=max(band_right - band_left, _MIN_MARK),
+                h=max(bottom - top, geo.SEQ_MESSAGE_PITCH_Y), parent="1",
+            )
+
+        # Lifelines next: everything else is drawn over them, and draw.io
         # z-orders by document order.
         for participant in participants:
             # Minted, not `participant.id`. Nothing in the document refers to a
@@ -178,12 +240,22 @@ class _SequenceCompiler:
                 w=geo.SEQ_ACTIVATION_W, h=height, parent="1",
             )
 
-        for message, offset in zip(messages, offsets):
+        for number, (message, offset) in enumerate(zip(messages, offsets), start=1):
             y = first_message_y + offset
             if message.source == message.target:
                 self._self_message(message, column_x[message.source], y)
             else:
                 self._message(message, column_x[message.source], column_x[message.target], y)
+            # Autonumber badge at the tail, so a long conversation can be talked
+            # about by step number the way the reference diagrams do.
+            tail_x = column_x[message.source]
+            forward = column_x[message.target] >= tail_x
+            self.w.vertex(
+                id=self._id("num"), label=str(number), style=theme.sequence_number_style(),
+                x=tail_x + (2.0 if forward else -geo.SEQ_NUMBER_D - 2.0),
+                y=y - geo.SEQ_SHAFT_H / 2.0 - geo.SEQ_NUMBER_D - 1.0,
+                w=geo.SEQ_NUMBER_D, h=geo.SEQ_NUMBER_D, parent="1",
+            )
 
         self.w.mark_layout_authoritative()
         width = geo.SEQ_ORIGIN_X + len(participants) * pitch

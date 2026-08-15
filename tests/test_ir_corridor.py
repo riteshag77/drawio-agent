@@ -103,6 +103,98 @@ class LogicalVocabularyTests(unittest.TestCase):
             )
 
 
+class ShelfAnchorFallbackTests(unittest.TestCase):
+    """A shelf must stay constructible when its preferred anchor isn't there.
+
+    The preferred corridor (domain_data / zone_restricted / phase_store) is
+    optional, and the two halves of the old check disagreed about that:
+    `_relocate_vocabulary` only forces the anchor when the corridor is present,
+    while the after-validator demanded it unconditionally. Any view built
+    without that corridor but with a shelf therefore had no legal anchor at
+    all — and because it fails in a Pydantic validator, the object never builds,
+    so semantic_errors() and its corrective pass never run and the request
+    404s... 400s. Measured live on "show me the message flow when an order is
+    placed", which returned HTTP 400 with no diagram.
+    """
+
+    def test_raw_output_with_no_data_domain_is_relocated_below_the_row(self) -> None:
+        """The exact live failure, as the model actually emits it (raw dicts,
+        so the pre-parse relocation runs). Previously HTTP 400."""
+        ir = LogicalIR.model_validate({
+            "view": "logical", "platform": "aws", "title": "Order Processing",
+            "corridors": [
+                {"id": "domain_experience", "label": "Experience",
+                 "leaves": [{"id": "web", "shape_type": "logical_portal", "label": "Web App"}]},
+                {"id": "domain_commerce", "label": "Commerce",
+                 "leaves": [{"id": "orders", "shape_type": "aws_lambda", "label": "Order Service"}]},
+            ],
+            "anchored": [{"id": "domain_saas", "label": "External SaaS", "anchor_id": "domain_commerce",
+                          "leaves": [{"id": "pay", "shape_type": "saas_stripe", "label": "Payment Gateway"}]}],
+            "external_actors": [{"id": "customer", "kind": "users", "label": "Customer"}],
+            "flows": [
+                {"source": "customer", "target": "web"},
+                {"source": "web", "target": "orders"},
+                {"source": "orders", "target": "pay"},
+            ],
+        })
+        self.assertIsNone(ir.anchored[0].anchor_id, "shelf hangs below the whole row")
+        self.assertEqual(ir.semantic_errors(), [])
+
+    def test_shelf_under_an_unrelated_corridor_is_still_invalid(self) -> None:
+        """The semantic rule is untouched — only the dead end is gone. Model
+        instances bypass the relocation, so this reaches the validator."""
+        with self.assertRaises(ValidationError):
+            LogicalIR(
+                corridors=[Corridor(id="domain_commerce", label="Commerce", leaves=[_leaf("orders")])],
+                anchored=[AnchoredCorridor(
+                    id="domain_saas", label="SaaS", anchor_id="domain_commerce", leaves=[_leaf("pay")],
+                )],
+            )
+
+    def test_logical_shelf_still_pinned_when_data_domain_present(self) -> None:
+        # Model instances bypass _relocate_vocabulary (it only rewrites raw
+        # dicts), so this reaches the validator with the preference intact.
+        with self.assertRaises(ValidationError):
+            LogicalIR(
+                corridors=[
+                    Corridor(id="domain_commerce", label="Commerce", leaves=[_leaf("orders")]),
+                    Corridor(id="domain_data", label="Data", leaves=[_leaf("store")]),
+                ],
+                anchored=[AnchoredCorridor(
+                    id="domain_saas", label="SaaS", anchor_id="domain_commerce", leaves=[_leaf("pay")],
+                )],
+            )
+
+    def test_unanchored_shelf_is_accepted_when_preferred_corridor_absent(self) -> None:
+        ir = LogicalIR(
+            corridors=[Corridor(id="domain_commerce", label="Commerce", leaves=[_leaf("orders")])],
+            anchored=[AnchoredCorridor(
+                id="domain_saas", label="SaaS", anchor_id=None, leaves=[_leaf("pay")],
+            )],
+            flows=[Flow(source="orders", target="pay")],
+        )
+        self.assertIsNone(ir.anchored[0].anchor_id)
+
+    def test_security_and_data_flow_relocate_the_same_way(self) -> None:
+        sec = SecurityIR.model_validate({
+            "corridors": [{"id": "zone_public", "label": "Public",
+                           "leaves": [{"id": "edge", "shape_type": "aws_alb", "label": "Edge"}]}],
+            "anchored": [{"id": "zone_external_saas", "label": "SaaS", "anchor_id": "zone_public",
+                          "leaves": [{"id": "idp", "shape_type": "saas_okta", "label": "IdP"}]}],
+            "flows": [{"source": "edge", "target": "idp"}],
+        })
+        self.assertIsNone(sec.anchored[0].anchor_id)
+
+        flow = DataFlowIR.model_validate({
+            "corridors": [{"id": "phase_ingest", "label": "Ingest",
+                           "leaves": [{"id": "api", "shape_type": "aws_api_gateway", "label": "API"}]}],
+            "anchored": [{"id": "phase_consume", "label": "Consume", "anchor_id": "phase_ingest",
+                          "leaves": [{"id": "dw", "shape_type": "aws_redshift", "label": "Warehouse"}]}],
+            "flows": [{"source": "api", "target": "dw"}],
+        })
+        self.assertIsNone(flow.anchored[0].anchor_id)
+
+
 class SecurityVocabularyTests(unittest.TestCase):
     def test_valid_zone_ids_accepted(self) -> None:
         ir = SecurityIR(

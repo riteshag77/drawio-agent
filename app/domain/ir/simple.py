@@ -43,13 +43,23 @@ from app.domain.ir.generic import GenericNodeShape
 
 SimpleDiagramKind = Literal["flow", "sequence", "bar", "line", "pie", "gantt"]
 
-#: Soft ceilings, enforced here rather than left to prose in the prompt pack.
-#: A chart with more categories than this stops being readable at any page size
-#: the compiler can produce, and a runaway series is the failure mode of a model
-#: that has started enumerating instead of summarizing.
+#: Density figures above which a diagram is *probably* doing too much. These
+#: two are advisory only — they surface through ``semantic_warnings`` and are
+#: logged, never enforced. They were hard errors, which meant a 30-category
+#: chart failed the whole request over a readability opinion, even though the
+#: compiler grows the plot frame to fit any number of them
+#: (``CHART_MIN_COLUMN_W``). Rejecting a diagram nobody can prove is wrong is
+#: the same mistake as the shelf-anchor dead end: fail the user for a
+#: preference they never agreed to.
 MAX_CATEGORIES = 24
-MAX_SERIES = 6
 MAX_TASKS = 30
+
+#: This one *is* enforced, and is not a matter of taste. A categorical palette
+#: is assigned in fixed slot order and never cycled, so with only
+#: ``palette.PALETTE_SLOTS`` hues a 7th series could only reuse a colour already
+#: on the chart — two different things drawn identically. Raising it means
+#: adding validated hues to ``compiler/palette.py`` first.
+MAX_SERIES = 6
 #: Pie is capped harder than the other charts because each slice needs its own
 #: categorical colour, and a categorical palette is assigned in fixed slot
 #: order and never cycled — a 7th slice could only reuse a hue already in use.
@@ -149,6 +159,16 @@ class SequenceMessage(IRModel):
             "an activation bar on the target). 'reply' for the return of an earlier "
             "call (dashed arrow, ends that activation). 'async' for fire-and-forget "
             "— an event or a queued message that nothing waits on."
+        ),
+    )
+    phase: str = Field(
+        default="",
+        description=(
+            "Optional name of the stage this message belongs to, e.g. 'First Notice of "
+            "Loss' or 'Settlement'. Consecutive messages sharing a phase are drawn "
+            "inside one shaded, labelled band, which is what turns a long conversation "
+            "into a readable story. Repeat the exact same string on every message in "
+            "the stage; leave blank when a diagram is short enough not to need stages."
         ),
     )
 
@@ -332,15 +352,13 @@ class SimpleDiagramIR(IRModel):
         errors: list[str] = []
         if not self.categories:
             errors.append(f"kind={self.kind!r} needs at least one entry in `categories`")
-        if len(self.categories) > MAX_CATEGORIES:
-            errors.append(
-                f"`categories` has {len(self.categories)} entries — keep it to {MAX_CATEGORIES} "
-                "or fewer so the chart stays readable"
-            )
         if not self.series:
             errors.append(f"kind={self.kind!r} needs at least one entry in `series`")
         if len(self.series) > MAX_SERIES:
-            errors.append(f"`series` has {len(self.series)} entries — keep it to {MAX_SERIES} or fewer")
+            errors.append(
+                f"`series` has {len(self.series)} entries but the palette has {MAX_SERIES} "
+                "distinct colours — two series would be drawn in the same colour"
+            )
         for index, series in enumerate(self.series):
             if len(series.values) != len(self.categories):
                 errors.append(
@@ -416,8 +434,6 @@ class SimpleDiagramIR(IRModel):
         if self.kind == "gantt":
             if not self.tasks:
                 errors.append("kind='gantt' needs at least one entry in `tasks`")
-            if len(self.tasks) > MAX_TASKS:
-                errors.append(f"`tasks` has {len(self.tasks)} entries — keep it to {MAX_TASKS} or fewer")
         elif self.tasks:
             errors.append(f"kind={self.kind!r} does not use `tasks` — leave it empty")
 
@@ -429,7 +445,20 @@ class SimpleDiagramIR(IRModel):
         return errors
 
     def semantic_warnings(self) -> list[str]:
-        return []
+        """Density advice. Never blocks: these are judgements about whether a
+        diagram is doing too much, and the user asking for a 40-row gantt is
+        entitled to one."""
+        warnings: list[str] = []
+        if len(self.categories) > MAX_CATEGORIES:
+            warnings.append(
+                f"{len(self.categories)} categories is dense for one chart "
+                f"(over {MAX_CATEGORIES}) — it will render, but consider grouping"
+            )
+        if len(self.tasks) > MAX_TASKS:
+            warnings.append(
+                f"{len(self.tasks)} gantt rows is dense for one chart (over {MAX_TASKS})"
+            )
+        return warnings
 
     def is_valid(self) -> bool:
         return not self.semantic_errors()

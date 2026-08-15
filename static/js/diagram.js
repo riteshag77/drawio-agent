@@ -269,6 +269,13 @@ function loadDiagramFromResponse(data) {
     isSimpleDiagram = data.diagram_type === 'simple';
     if (data.xml) {
         document.getElementById('xml-output').textContent = data.xml;
+        // Drop the "your diagram will appear here" placeholder as soon as a
+        // diagram exists, rather than waiting for draw.io's 'load' to confirm.
+        // That event was the only thing that hid it, so any path where the
+        // embed never answers left instructional text sitting over the canvas —
+        // exactly what the old Mermaid `import` did, since it was rejected
+        // outright and no 'load' ever came.
+        document.getElementById('diagram-placeholder')?.classList.add('hidden');
         loadDiagramIntoEditor(data.xml);
         if (typeof refreshVersionStrip === 'function') refreshVersionStrip();
     }

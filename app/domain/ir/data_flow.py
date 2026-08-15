@@ -149,8 +149,9 @@ class DataFlowIR(CorridorIR):
                 )
         for shelf in self.anchored:
             if shelf.id in _STORE_SHELF_IDS:
-                if shelf.anchor_id != "phase_store":
-                    raise ValueError(f"{shelf.id!r} must anchor under 'phase_store' (got {shelf.anchor_id!r})")
+                problem = self.shelf_anchor_error(shelf, "phase_store")
+                if problem:
+                    raise ValueError(problem)
             elif shelf.id == _WHOLE_ROW_SHELF_ID:
                 if shelf.anchor_id is not None:
                     raise ValueError(f"{_WHOLE_ROW_SHELF_ID!r} anchors below the whole row — anchor_id must be None")

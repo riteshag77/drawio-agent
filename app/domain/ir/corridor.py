@@ -201,6 +201,14 @@ class CorridorIR(DiagramIR):
                 shelf["anchor_id"] = None
             elif required in present_row_ids:
                 shelf["anchor_id"] = required
+            else:
+                # The preferred corridor isn't in this diagram at all, and every
+                # view's after-validator demands it — so leaving the model's own
+                # anchor here left the shelf with no legal value and 400'd the
+                # request (see shelf_anchor_error). "Below the whole row" is the
+                # placement the layout already supports for a shelf with no
+                # parent, so it is used instead of failing.
+                shelf["anchor_id"] = None
 
         # A corridor id that is neither a row id nor a shelf id is not a
         # mis-slotting (that's the swap above) — it's an invented id outside
@@ -358,6 +366,51 @@ class CorridorIR(DiagramIR):
         return self
 
     # ── shared helpers for subclasses' semantic_warnings() ──────────────
+
+    def shelf_anchor_error(self, shelf: AnchoredCorridor, required: str) -> str | None:
+        """Validate an anchored shelf's target, tolerating a missing preferred anchor.
+
+        Each view names one corridor its SaaS/store shelf should hang under
+        (Logical: ``domain_data``, Security: ``zone_restricted``, Data-flow:
+        ``phase_store``). That corridor is *optional* — nothing requires a
+        diagram to have a data domain — and the two halves of the old check
+        disagreed about what to do when it was absent, producing a shelf with
+        no legal value at all:
+
+        - ``_relocate_vocabulary`` forces the anchor **only when the required
+          corridor is present** (see its ``required in present_row_ids``
+          guard), deliberately leaving it alone otherwise.
+        - the per-view ``mode="after"`` validator then demanded the anchor *be*
+          that corridor, unconditionally.
+
+        So a Logical view built from, say, Experience + Commerce with a SaaS
+        shelf could not be constructed: anchoring anywhere raised, and
+        anchoring to the absent ``domain_data`` would leave the layout engine
+        resolving an id that isn't there (``geos.get(shelf.anchor_id)`` -> None).
+        Because this is a Pydantic validator the object never builds, so
+        ``semantic_errors()`` and its corrective LLM pass never see it either —
+        the request just 400s with no diagram. Measured on "show me the message
+        flow when an order is placed", which came back as HTTP 400.
+
+        The semantic rule is *not* loosened: a shelf still never hangs under an
+        unrelated corridor (a data-flow "consume" shelf under "process" stays
+        invalid). The escape is the placement the layout already supports for
+        exactly this — ``anchor_id=None``, "below the whole row", which
+        ``phase_control`` uses routinely. ``_relocate_vocabulary`` now rewrites
+        an orphaned anchor to ``None`` before parsing, so the shelf is drawn
+        under the row instead of failing the request.
+        """
+        present = {corridor.id for corridor in self.corridors}
+        if required in present:
+            if shelf.anchor_id == required:
+                return None
+            return f"{shelf.id!r} must anchor under {required!r} (got {shelf.anchor_id!r})"
+        if shelf.anchor_id is None:
+            return None
+        return (
+            f"{shelf.id!r} cannot anchor under {shelf.anchor_id!r}: this diagram has no "
+            f"{required!r} corridor, so the shelf belongs below the whole row (anchor_id=None)"
+        )
 
     def corridor_by_id(self, corridor_id: str) -> Corridor | None:
         """The row or anchored corridor with this id, or ``None`` — a

@@ -142,8 +142,13 @@ def _fmt(value: float) -> str:
             return f"{text}{suffix}"
     if magnitude >= 100:
         return f"{value:.0f}"
-    text = f"{value:.2f}".rstrip("0").rstrip(".")
-    return text
+    if magnitude < 1:
+        # Two decimals turn every sub-0.01 value into "0" — a label stating a
+        # number the bar isn't drawing (measured: 0.001 rendered as "0" beside
+        # a 1.5B bar). Significant figures keep small magnitudes truthful
+        # without padding ordinary values with noise.
+        return f"{value:.3g}"
+    return f"{value:.2f}".rstrip("0").rstrip(".")
 
 
 class _ChartCompiler:

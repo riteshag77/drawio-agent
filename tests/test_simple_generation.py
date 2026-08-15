@@ -17,7 +17,7 @@ import xml.etree.ElementTree as ET
 from app.adapters.outbound.diagram.compiler.chart_theme import PALETTE_SLOTS, SERIES
 from app.adapters.outbound.diagram.compiler.simple import compile_simple_ir
 from app.core.logging import StepLogger
-from app.core.services.agent import generate_simple_diagram_from_ir
+from app.core.services.agent import _SIMPLE_SOFT_NODE_CAP, generate_simple_diagram_from_ir
 from app.domain.ir.simple import MAX_PIE_SLICES, MAX_SERIES, SimpleDiagramIR
 
 
@@ -274,6 +274,18 @@ class CompilerOutputTests(unittest.TestCase):
         }
         self.assertEqual(fills, {SERIES[0], SERIES[1]})
 
+    def test_small_values_are_not_labelled_zero(self) -> None:
+        """A label must never state a number the mark isn't drawing. Found by
+        rendering 0.001 next to 1.5e9: the small bar came out labelled "0"."""
+        from app.adapters.outbound.diagram.compiler.chart import _fmt
+
+        self.assertEqual(_fmt(0.001), "0.001")
+        self.assertEqual(_fmt(0.25), "0.25")
+        self.assertEqual(_fmt(0), "0")
+        self.assertEqual(_fmt(12.5), "12.5")
+        self.assertEqual(_fmt(1_500_000_000), "1.5B")
+        self.assertNotEqual(_fmt(0.004), _fmt(0))
+
     def test_line_connects_every_point(self) -> None:
         """N points make N-1 segments and N markers — a missing segment reads
         as a break in the data that isn't there."""
@@ -429,11 +441,14 @@ class GeneratorTests(unittest.TestCase):
         self.assertNotIn("revising a diagram", self.seen_human)
 
     def test_soft_node_cap_warns_without_failing(self) -> None:
-        """Over the pack's cap is a judgement call ("unless the user explicitly
-        asks for more"), so it logs rather than rejecting."""
+        """Over the top of the pack's depth table is a judgement call, so it
+        logs rather than rejecting. Sized off the constant so raising the cap
+        (it went 8 -> 20 when the flat cap became a depth table) can't quietly
+        turn this into a test that asserts nothing."""
+        count = _SIMPLE_SOFT_NODE_CAP + 4
         big = _flow(
-            nodes=[{"id": f"n{i}", "shape": "rectangle", "label": f"Step {i}"} for i in range(12)],
-            edges=[{"source": f"n{i}", "target": f"n{i + 1}"} for i in range(11)],
+            nodes=[{"id": f"n{i}", "shape": "rectangle", "label": f"Step {i}"} for i in range(count)],
+            edges=[{"source": f"n{i}", "target": f"n{i + 1}"} for i in range(count - 1)],
         )
         logger = StepLogger()
         result = generate_simple_diagram_from_ir("big flow", llm=self._llm(big), logger=logger)

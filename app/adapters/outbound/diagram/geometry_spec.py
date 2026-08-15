@@ -180,6 +180,18 @@ SEQ_ACTIVATION_W = 12.0
 SEQ_ARROW_H = 12.0
 SEQ_ARROW_W = 10.0
 SEQ_SHAFT_H = 16.0
+#: Phase bands: the title strip reserved above a band's first message, the
+#: clear space left when one band ends before the next begins, and how far the
+#: band extends past the outermost lifelines on each side.
+#: Tall enough to clear a message's own furniture, not just its arrow: the
+#: autonumber badge sits ~27px above the shaft and the label above that, so a
+#: shorter strip put the band's title straight through the first message.
+SEQ_BAND_TITLE_H = 50.0
+SEQ_BAND_GAP_Y = 16.0
+SEQ_BAND_PAD_X = 26.0
+SEQ_BAND_TAIL_Y = 18.0
+#: Diameter of the autonumber badge sitting at a message's tail.
+SEQ_NUMBER_D = 18.0
 
 # ── Defaults for malformed input (used by diagnostics' repair fixers) ──
 DEFAULT_LEAF_SIZE = (LEAF_W, LEAF_H)

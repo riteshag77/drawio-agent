@@ -2,16 +2,19 @@
 
 Fourth theme module, alongside ``theme.py`` (cloud), ``generic_theme.py``
 (as-is image replication) and ``chart_theme.py`` (plotted charts). Same reason
-they are all separate: the vocabularies don't overlap. A sequence diagram has
-no platform accent, no traced source colour and no series identity — colour
-here carries nothing at all, which is exactly the point. Every mark is neutral
-ink, because the information is in the *ordering*, and a coloured arrow would
-imply a distinction that doesn't exist.
+they are all separate: the vocabularies don't overlap.
 
-Palette values match ``generic_theme``'s neutral house colours (rather than
-importing them) so the two can diverge if the sequence view ever needs to,
-without a cross-theme dependency: ``#F5F5F5`` fill, ``#B3B3B3`` stroke,
-``#333333`` ink.
+Colour is used sparingly and structurally, not decoratively. Arrows and their
+labels stay ink, because the information in a message is its *position* and a
+coloured arrow would imply a distinction that doesn't exist. What does earn
+colour is the frame: participant headers (so the columns read as headers at a
+glance), activation blocks, and the phase bands that group a long conversation
+into stages.
+
+The tints are the Material 50/100 family with 700-weight borders, matching the
+reference sequence diagram this view was measured against — the same
+``#E3F2FD`` / ``#FFF3E0`` / ``#E8F5E9`` / ``#F3E5F5`` / ``#FFEBEE`` progression
+its phase ``rect`` blocks use.
 
 Every style here belongs to a *vertex*. A sequence diagram, like a chart,
 emits no edges: an arrow is a ``shape=line`` shaft plus a ``triangle`` head,
@@ -23,12 +26,27 @@ one view where a message's vertical position *is* its meaning.
 
 from __future__ import annotations
 
+from app.adapters.outbound.diagram.compiler import palette
+
 _FILL = "#F5F5F5"
 _STROKE = "#B3B3B3"
 _INK = "#333333"
+
+#: Participant header: saturated fill with white text, so the columns read as
+#: headers rather than as another box in the drawing.
+_HEADER_FILL = palette.series_color(0)
+_HEADER_STROKE = palette.shade(palette.series_color(0), 0.3)
+_HEADER_TEXT = "#FFFFFF"
+
+#: Phase bands cycle the shared palette, tinted well toward white: a band
+#: sits *behind* every arrow and label in its stage, so anything stronger
+#: would fight the content it exists to group.
+
 #: Activation blocks sit on top of the dashed lifeline stem and must hide it,
-#: so they are opaque white rather than "no fill".
-_ACTIVATION_FILL = "#FFFFFF"
+#: so they are opaque rather than "no fill" — and tinted, so a busy participant
+#: is visible at a glance against the band behind it.
+_ACTIVATION_FILL = palette.tint(palette.series_color(0), 0.72)
+_ACTIVATION_STROKE = palette.series_color(0)
 
 
 def lifeline_style(kind: str, *, header_h: float) -> str:
@@ -50,12 +68,28 @@ def lifeline_style(kind: str, *, header_h: float) -> str:
     # draw. Writing `shape=umlActor` instead replaces the lifeline shape
     # outright, which renders a stick figure scaled to the whole 130x340 cell
     # and no stem at all.
-    head = "participant=umlActor;" if kind == "actor" else ""
+    is_actor = kind == "actor"
+    head = "participant=umlActor;" if is_actor else ""
+    # An actor's name is drawn *below* the stick figure, on the page background
+    # rather than inside a filled header box — so the white header text that
+    # makes a boxed participant readable renders white-on-white and the label
+    # vanishes entirely. Actors take ink instead.
+    font = _INK if is_actor else _HEADER_TEXT
+    # An actor's box is only SEQ_ACTOR_W wide (the stick figure is scaled to it),
+    # so a wrapped label breaks "👤 Claimant" across lines and loses the emoji
+    # off the top. It overflows the box either way; nowrap keeps it one line.
+    # nowrap keeps "👤 Customer" on one line — a wrapped label breaks across
+    # lines in the narrow actor box and loses the emoji off the top. Tried
+    # verticalLabelPosition=bottom to also clear the stick figure: it puts the
+    # label below the *whole lifeline* (400px down, off the diagram) rather
+    # than below the glyph, so the slight overlap is the better of the two.
+    wrap = "whiteSpace=nowrap;" if is_actor else "whiteSpace=wrap;"
     return (
-        f"shape=umlLifeline;perimeter=lifelinePerimeter;{head}"
-        "whiteSpace=wrap;html=1;container=0;collapsible=0;recursiveResize=0;"
-        f"outlineConnect=0;size={round(header_h)};fillColor={_FILL};"
-        f"strokeColor={_STROKE};fontColor={_INK};fontSize=12;"
+        f"shape=umlLifeline;perimeter=lifelinePerimeter;{head}{wrap}"
+        "html=1;container=0;collapsible=0;recursiveResize=0;"
+        f"outlineConnect=0;size={round(header_h)};fillColor={_HEADER_FILL};"
+        f"strokeColor={_HEADER_STROKE};fontColor={font};fontSize=12;"
+        "fontStyle=1;"
     )
 
 
@@ -63,7 +97,7 @@ def activation_style() -> str:
     """The block on a lifeline showing it is busy handling a call."""
     return (
         f"rounded=0;whiteSpace=wrap;html=1;fillColor={_ACTIVATION_FILL};"
-        f"strokeColor={_STROKE};strokeWidth=1;"
+        f"strokeColor={_ACTIVATION_STROKE};strokeWidth=1;"
     )
 
 
@@ -105,4 +139,28 @@ def title_style() -> str:
     return (
         "text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;"
         "fontSize=16;fontStyle=1;fontColor=#0B0B0B;"
+    )
+
+
+def band_style(index: int) -> str:
+    """The shaded box behind one phase of the conversation.
+
+    Emitted before every arrow in its range so it stays behind them, and given
+    a title in the top-left rather than centred — a centred label would sit in
+    the middle of the messages it groups.
+    """
+    fill, stroke = palette.fill_and_border(index % palette.PALETTE_SLOTS, band=True)
+    return (
+        f"rounded=0;whiteSpace=wrap;html=1;fillColor={fill};strokeColor={stroke};"
+        "strokeWidth=1;dashed=1;verticalAlign=top;align=left;spacingLeft=10;"
+        f"spacingTop=4;fontSize=11;fontStyle=1;fontColor={stroke};"
+    )
+
+
+def sequence_number_style() -> str:
+    """The autonumber badge on a message — a small circle at the arrow's tail,
+    matching the reference diagram's ``autonumber``."""
+    return (
+        f"ellipse;html=1;fillColor={_HEADER_FILL};strokeColor=none;"
+        "fontColor=#FFFFFF;fontSize=9;fontStyle=1;whiteSpace=wrap;"
     )
