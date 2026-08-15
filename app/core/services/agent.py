@@ -1327,12 +1327,13 @@ def generate_xml_diagram_from_ir(
     )
 
 
-#: Mirrors the upper end of ``config/xml_gen/ir/simple.txt``'s depth table —
-#: update both together. Raised from 8 when that table replaced a flat cap:
-#: the old figure was suppressing detail on exactly the requests ("end to end",
-#: "detailed") that want it, and warning about the intended result is noise.
-#: A logged warning rather than a semantic error, since a genuinely large
-#: process is a legitimate answer, not a failure.
+#: Density note only — nothing in the pipeline caps a flow's size, and the pack
+#: now states outright that its depth figures are floors with no ceiling. This
+#: exists so an unusually large diagram is *visible* in the logs, not so it can
+#: be prevented: a 40-step process is a legitimate answer to a request for a
+#: 40-step process. Raised from 8 when the depth table replaced a flat cap,
+#: which had been suppressing detail on exactly the requests ("end to end",
+#: "detailed") that want it.
 _SIMPLE_SOFT_NODE_CAP = 20
 
 
@@ -1416,9 +1417,9 @@ def _generate_simple_ir_with_corrections(
         if ir.kind == "flow" and len(ir.nodes) > _SIMPLE_SOFT_NODE_CAP:
             logger.log(
                 "ir",
-                f"{len(ir.nodes)} nodes exceeds the pack's soft cap of {_SIMPLE_SOFT_NODE_CAP} — "
-                "fine if the request asked for more, otherwise the diagram may be denser "
-                "than a glanceable one should be.",
+                f"{len(ir.nodes)} nodes is dense for one diagram (over "
+                f"{_SIMPLE_SOFT_NODE_CAP}) — drawn in full, and correct when the request "
+                "asked for that much; noted here only so the density is visible.",
                 level="warning",
                 details={"node_count": len(ir.nodes), "soft_cap": _SIMPLE_SOFT_NODE_CAP},
             )

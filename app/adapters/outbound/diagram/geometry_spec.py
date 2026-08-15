@@ -158,14 +158,17 @@ SEQ_ORIGIN_X = 40.0
 SEQ_ORIGIN_Y = 40.0
 SEQ_PARTICIPANT_W = 130.0
 SEQ_PARTICIPANT_GAP_X = 90.0
-#: An actor's box is much narrower than a system's, because draw.io scales
-#: the umlActor stick figure to its cell width — at the full participant
-#: width the figure comes out stretched, with arms spanning the column.
-#: Its lifeline still sits on the same column centre, so spacing is uniform.
-SEQ_ACTOR_W = 40.0
 #: Header box height — passed to draw.io's umlLifeline as its `size=`, which is
-#: where the header ends and the dashed stem begins.
-SEQ_HEADER_H = 44.0
+#: where the header ends and the dashed stem begins. Tall enough for two lines:
+#: the participant's emoji icon at SEQ_ICON_PT over its name (see
+#: ``sequence_theme.header_label``). Actors take the same box as systems — a
+#: uniform header row is the point; role is carried by colour, not by shape.
+SEQ_HEADER_H = 58.0
+#: Point size of the leading emoji in a participant header. Large enough to
+#: read as an icon rather than as punctuation in front of the name — at the
+#: label's own 12pt it was a speck, which is what "no nice representation"
+#: meant.
+SEQ_ICON_PT = 19
 #: Clear space between the header and the first message, and below the last.
 SEQ_FIRST_MESSAGE_GAP = 36.0
 SEQ_TAIL_GAP = 40.0
@@ -190,6 +193,18 @@ SEQ_BAND_TITLE_H = 50.0
 SEQ_BAND_GAP_Y = 16.0
 SEQ_BAND_PAD_X = 26.0
 SEQ_BAND_TAIL_Y = 18.0
+#: A band's colour lives in a solid rail down its left edge and a solid chip
+#: around its title, rather than in the wash behind the messages: at a fill
+#: light enough to keep arrows and labels readable on top of it, the hue is too
+#: faint to tell one stage from the next. Rail and chip carry it at full
+#: strength without ever sitting under text that isn't their own.
+SEQ_BAND_RAIL_W = 5.0
+SEQ_BAND_CHIP_H = 22.0
+#: Chip width is estimated from the label — a vertex needs an explicit width,
+#: and draw.io will not shrink-wrap one. Per-character advance for the 11px
+#: bold chip text, plus padding for the two ends.
+SEQ_BAND_CHIP_CHAR_W = 6.9
+SEQ_BAND_CHIP_PAD_X = 24.0
 #: Diameter of the autonumber badge sitting at a message's tail.
 SEQ_NUMBER_D = 18.0
 

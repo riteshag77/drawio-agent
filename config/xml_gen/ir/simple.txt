@@ -33,12 +33,19 @@ process" is a flow (steps); "show me our sales" is a bar chart (numbers).
 The single most common complaint about this output is that it is too thin. Size
 the diagram to the ask, not to a default:
 
-| The request says | Give it |
+| The request says | Give it at least |
 |---|---|
 | "quick", "simple", "high level", "overview" | 5-8 nodes / 4-8 messages, happy path only |
 | no qualifier at all | 8-12 nodes / 8-14 messages, main branches included |
-| "end to end", "detailed", "comprehensive", "full", "complete" | 12-20 nodes / 15-25 messages, phases, error and exception branches, async side-effects |
+| "end to end", "detailed", "comprehensive", "full", "complete" | 15+ nodes / 18+ messages, phases, error and exception branches, async side-effects |
 | a list of named systems, teams or stages | **every one of them**, plus the steps connecting them |
+
+**These figures are floors, not ceilings.** There is no upper limit on nodes,
+messages, participants, categories or tasks — the compiler grows the page to
+fit whatever you emit, so a process that genuinely has 40 steps gets 40. Never
+drop, merge or summarize away a step, system or stage the user named in order
+to land inside a number; a diagram that is missing what was asked for is the
+one failure the user always notices.
 
 Depth means *more of the real process* — the checks, the rejections, the
 retries, the notifications, the audit writes — never the same step restated in
@@ -85,7 +92,9 @@ two can't disagree unless you make them.
 
 Every label is rendered as-is, so a leading emoji **is** the icon. Use one on
 participants, on flow nodes, and on message labels — it is the cheapest way to
-make a diagram scannable, and it costs nothing to render:
+make a diagram scannable, and it costs nothing to render. On a sequence
+diagram's participants the leading emoji is lifted out of the label and drawn
+at icon size above the name, so a column without one is a column with no icon:
 
 - People and roles: 👤 🧑‍💼 👥 🕵️
 - Systems and services: ⚙️ 🖥️ 📱 ☁️ 🔌
@@ -125,10 +134,10 @@ Shapes — pick the closest, never invent a key:
 Rules:
 
 - **Match the depth to the request** (see §Depth). Roughly 5-8 nodes for a
-  quick sketch; 12-20 for anything described as end-to-end, detailed, or with
-  named stages — including the rejection, retry and exception branches that
-  make a real process real. Never pad with filler steps, but never drop a step
-  the user actually named.
+  quick sketch; 15 or more for anything described as end-to-end, detailed, or
+  with named stages — including the rejection, retry and exception branches
+  that make a real process real. There is no maximum: never pad with filler
+  steps, and never drop a step the user actually named.
 - Labels are 1-4 words. Not sentences.
 - Every decision (`diamond`) needs its outgoing edges labelled — `"Yes"`/`"No"`,
   or the actual branch condition. An unlabelled branch is unreadable.
@@ -168,7 +177,11 @@ is a `flow`.
   Put the initiator leftmost. `kind: "actor"` for a person or external client,
   `"participant"` for a system, service or datastore. Include **every** system
   the request names — an end-to-end flow across 8 systems needs 8 columns, and
-  silently dropping one misrepresents the architecture. 3-5 for a quick sketch.
+  silently dropping one misrepresents the architecture. 3-5 for a quick sketch;
+  there is no upper limit, and the page widens to fit however many you declare.
+- Put a **leading emoji on every participant label** (`👤 Claimant`,
+  `⚙️ Claims Engine`). It is drawn as the column's icon, above the name, at
+  icon size — a header with no emoji simply gets no icon.
 - `messages` are the arrows, **in the order they happen** — the list order is
   the diagram. There is no timestamp field and none is needed.
 - `kind` on each message:
@@ -194,8 +207,8 @@ is a `flow`.
   without adding clarity. Leave blank for a short exchange.
 - Draw the **whole** exchange when asked for one: not just the happy path, but
   the validation call, the failure reply, the retry, the async audit/event
-  write. A real protocol has 12-25 messages; a 6-message sketch of it is a
-  summary, not a diagram.
+  write. A real protocol runs to 18 messages or well beyond; a 6-message sketch
+  of it is a summary, not a diagram. Nothing truncates a long conversation.
 
 Messages are numbered automatically in the order you list them, so don't put
 "1.", "2." in the labels yourself.

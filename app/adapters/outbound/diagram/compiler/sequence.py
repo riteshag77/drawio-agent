@@ -127,13 +127,21 @@ def _activations(
     it, which is what makes nested calls (A->B, B->C, C-->B, B-->A) come out as
     nested bars. ``async`` messages open nothing: nobody is waiting.
 
-    An activation with no matching reply stays open to the end of the diagram
-    rather than being dropped — an unreturned call is a perfectly ordinary
-    thing to draw, and silently omitting the bar would hide it.
+    An activation with no matching reply is still drawn rather than dropped —
+    an unreturned call is a perfectly ordinary thing to draw, and silently
+    omitting the bar would hide it. It closes at the last message that
+    *involves* that participant, though, not at the bottom of the page. Running
+    it to the page bottom claims the participant is still working long after it
+    last appears in the conversation, which is a fact the diagram doesn't have;
+    on a 24-message claims flow it also painted two full-height pillars down
+    columns that were only busy near the top.
     """
     open_stacks: dict[str, list[float]] = {}
     spans: list[tuple[str, float, float]] = []
+    last_seen: dict[str, float] = {}
     for message, offset in zip(messages, offsets):
+        last_seen[message.source] = offset
+        last_seen[message.target] = offset
         if message.source == message.target:
             continue
         if message.kind == "sync":
@@ -142,10 +150,13 @@ def _activations(
             stack = open_stacks.get(message.source)
             if stack:
                 spans.append((message.source, stack.pop(), offset))
-    tail = last_offset + geo.SEQ_MESSAGE_PITCH_Y / 2.0
     for participant_id, stack in open_stacks.items():
+        end = min(
+            last_seen.get(participant_id, last_offset) + geo.SEQ_MESSAGE_PITCH_Y / 2.0,
+            last_offset + geo.SEQ_MESSAGE_PITCH_Y / 2.0,
+        )
         for start in stack:
-            spans.append((participant_id, start, tail))
+            spans.append((participant_id, start, end))
     return spans
 
 
@@ -203,11 +214,27 @@ class _SequenceCompiler:
             + geo.SEQ_PARTICIPANT_W + geo.SEQ_BAND_PAD_X
         )
         for band_index, (label, top, bottom) in enumerate(_bands(messages, offsets)):
+            band_y = first_message_y + top
+            band_h = max(bottom - top, geo.SEQ_MESSAGE_PITCH_Y)
             self.w.vertex(
-                id=self._id("band"), label=label, style=theme.band_style(band_index),
-                x=band_left, y=first_message_y + top,
-                w=max(band_right - band_left, _MIN_MARK),
-                h=max(bottom - top, geo.SEQ_MESSAGE_PITCH_Y), parent="1",
+                id=self._id("band"), label="", style=theme.band_style(band_index),
+                x=band_left, y=band_y,
+                w=max(band_right - band_left, _MIN_MARK), h=band_h, parent="1",
+            )
+            self.w.vertex(
+                id=self._id("rail"), label="", style=theme.band_rail_style(band_index),
+                x=band_left, y=band_y, w=geo.SEQ_BAND_RAIL_W, h=band_h, parent="1",
+            )
+            # The title rides in a chip straddling the band's top edge — a tab,
+            # not a caption inside the band. Sitting wholly inside it, the chip
+            # shared the strip with the first message's autonumber badge and the
+            # two overlapped whenever that message left the leftmost column.
+            chip_w = len(label) * geo.SEQ_BAND_CHIP_CHAR_W + geo.SEQ_BAND_CHIP_PAD_X
+            self.w.vertex(
+                id=self._id("chip"), label=label, style=theme.band_chip_style(band_index),
+                x=band_left + geo.SEQ_BAND_RAIL_W + 8.0,
+                y=band_y - geo.SEQ_BAND_CHIP_H / 2.0,
+                w=max(chip_w, 60.0), h=geo.SEQ_BAND_CHIP_H, parent="1",
             )
 
         # Lifelines next: everything else is drawn over them, and draw.io
@@ -218,16 +245,16 @@ class _SequenceCompiler:
             # z-order guarantee the padded sequence exists for: "zebra" sorts
             # after every "s0001_"-style id, so validate_and_fix_xml's id-keyed
             # cell sort would lift that lifeline above the arrows crossing it.
-            box_w = geo.SEQ_ACTOR_W if participant.kind == "actor" else geo.SEQ_PARTICIPANT_W
             self.w.vertex(
-                id=self._id("life"), label=participant.label,
+                id=self._id("life"), label=theme.header_label(participant.label),
                 style=theme.lifeline_style(participant.kind, header_h=geo.SEQ_HEADER_H),
-                x=column_x[participant.id] - box_w / 2.0, y=head_y,
-                w=box_w, h=lifeline_h, parent="1",
+                x=column_x[participant.id] - geo.SEQ_PARTICIPANT_W / 2.0, y=head_y,
+                w=geo.SEQ_PARTICIPANT_W, h=lifeline_h, parent="1",
             )
 
         # Activation blocks sit over the stem but under the arrows, so a head
         # landing on a busy lifeline is drawn on top of its block.
+        kinds = {p.id: p.kind for p in participants}
         for participant_id, start, end in _activations(messages, offsets, last_offset):
             centre = column_x.get(participant_id)
             if centre is None:
@@ -235,7 +262,8 @@ class _SequenceCompiler:
             top = first_message_y + start
             height = max(end - start, geo.SEQ_MESSAGE_PITCH_Y / 2.0)
             self.w.vertex(
-                id=self._id("act"), label="", style=theme.activation_style(),
+                id=self._id("act"), label="",
+                style=theme.activation_style(kinds.get(participant_id, "participant")),
                 x=centre - geo.SEQ_ACTIVATION_W / 2.0, y=top,
                 w=geo.SEQ_ACTIVATION_W, h=height, parent="1",
             )
@@ -270,10 +298,14 @@ class _SequenceCompiler:
             x=x, y=y, w=max(w, _MIN_MARK), h=max(h, _MIN_MARK), parent="1",
         )
 
-    def _head(self, x: float, y: float, *, pointing_right: bool, open_head: bool) -> None:
+    def _head(
+        self, x: float, y: float, *, pointing_right: bool, open_head: bool, muted: bool,
+    ) -> None:
         self.w.vertex(
             id=self._id("head"), label="",
-            style=theme.arrowhead_style(pointing_right=pointing_right, open_head=open_head),
+            style=theme.arrowhead_style(
+                pointing_right=pointing_right, open_head=open_head, muted=muted,
+            ),
             x=x, y=y - geo.SEQ_ARROW_H / 2.0,
             w=geo.SEQ_ARROW_W, h=geo.SEQ_ARROW_H, parent="1",
         )
@@ -294,10 +326,10 @@ class _SequenceCompiler:
             end = from_x - inset
             head_x = to_x + inset
         self._shaft(start, y - geo.SEQ_SHAFT_H / 2.0, end - start, geo.SEQ_SHAFT_H, dashed=dashed)
-        self._head(head_x, y, pointing_right=pointing_right, open_head=open_head)
+        self._head(head_x, y, pointing_right=pointing_right, open_head=open_head, muted=dashed)
         if message.label:
             self._text(
-                message.label, theme.message_label_style(),
+                message.label, theme.message_label_style(muted=dashed),
                 min(start, end), y - geo.SEQ_SHAFT_H / 2.0 - 18.0,
                 max(abs(end - start), 40.0), 18.0,
             )
@@ -325,9 +357,9 @@ class _SequenceCompiler:
             left + geo.SEQ_ARROW_W, bottom - geo.SEQ_SHAFT_H / 2.0,
             right - left - geo.SEQ_ARROW_W, geo.SEQ_SHAFT_H, dashed=dashed,
         )
-        self._head(left, bottom, pointing_right=False, open_head=open_head)
+        self._head(left, bottom, pointing_right=False, open_head=open_head, muted=dashed)
         if message.label:
             self._text(
-                message.label, theme.message_label_style(align="left"),
+                message.label, theme.message_label_style(align="left", muted=dashed),
                 right + 8.0, y + geo.SEQ_SELF_DROP / 2.0 - 9.0, 160.0, 18.0,
             )

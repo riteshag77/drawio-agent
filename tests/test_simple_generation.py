@@ -11,9 +11,11 @@ is draw.io XML that renders.
 from __future__ import annotations
 
 import math
+import re
 import unittest
 import xml.etree.ElementTree as ET
 
+from app.adapters.outbound.diagram import geometry_spec as geo
 from app.adapters.outbound.diagram.compiler.chart_theme import PALETTE_SLOTS, SERIES
 from app.adapters.outbound.diagram.compiler.simple import compile_simple_ir
 from app.core.logging import StepLogger
@@ -168,6 +170,81 @@ class SequenceTests(unittest.TestCase):
         cells = _cells(compile_simple_ir(ir))
         # Three legs: out, down, back.
         self.assertEqual(len([c for c in cells if "_shaft" in (c.get("id") or "")]), 3)
+
+    def test_unreturned_call_ends_at_the_participants_last_message(self) -> None:
+        """A bar with no reply closes where that participant stops appearing —
+        not at the bottom of the page, which claimed it was still working
+        through stages it takes no part in (and painted a full-height pillar)."""
+        from app.adapters.outbound.diagram.compiler.sequence import _activations, _message_slots
+
+        ir = SimpleDiagramIR(**_sequence(messages=[
+            {"source": "user", "target": "api", "label": "fire", "kind": "sync"},
+            {"source": "user", "target": "db", "label": "later", "kind": "sync"},
+            {"source": "db", "target": "user", "label": "done", "kind": "reply"},
+        ]))
+        offsets = _message_slots(ir.messages)
+        spans = {pid: (s, e) for pid, s, e in _activations(ir.messages, offsets, offsets[-1])}
+        # api is only involved in message 0, so its unclosed bar stops there.
+        self.assertLess(spans["api"][1], offsets[-1])
+
+    def test_participant_icon_becomes_the_header_icon(self) -> None:
+        """The prompt pack asks for a leading emoji because a label renders
+        as-is — so it is lifted onto its own line at icon size rather than
+        being left inline at label size, where it read as punctuation."""
+        ir = SimpleDiagramIR(**_sequence(
+            participants=[{"id": "cl", "label": "👤 Claimant", "kind": "actor"},
+                          {"id": "api", "label": "API"}],
+            messages=[{"source": "cl", "target": "api", "label": "go"}],
+        ))
+        lifelines = [
+            c for c in _cells(compile_simple_ir(ir)) if "_life" in (c.get("id") or "")
+        ]
+        labels = [c.get("value") for c in lifelines]
+        self.assertTrue(any(f"font-size:{geo.SEQ_ICON_PT}px" in v and "👤" in v for v in labels))
+        # The name survives the split, and no icon markup is invented for a
+        # participant that never had an emoji.
+        self.assertTrue(any("Claimant" in v for v in labels))
+        self.assertTrue(any(v == "<b>API</b>" for v in labels))
+
+    def test_actor_and_system_headers_share_one_row(self) -> None:
+        """Actors used to be drawn as a narrow umlActor stick figure, leaving a
+        gap in the header row and no room for the icon."""
+        ir = SimpleDiagramIR(**_sequence())
+        lifelines = [
+            c for c in _cells(compile_simple_ir(ir)) if "_life" in (c.get("id") or "")
+        ]
+        widths = {float(c.find("mxGeometry").get("width")) for c in lifelines}
+        self.assertEqual(widths, {geo.SEQ_PARTICIPANT_W})
+        self.assertNotIn("umlActor", "".join(c.get("style") or "" for c in lifelines))
+
+    def test_actor_and_system_take_different_role_hues(self) -> None:
+        styles = {
+            c.get("id"): c.get("style")
+            for c in _cells(compile_simple_ir(SimpleDiagramIR(**_sequence())))
+            if "_life" in (c.get("id") or "")
+        }
+        fills = {re.search(r"fillColor=(#\w+)", s).group(1) for s in styles.values()}
+        self.assertEqual(len(fills), 2, "a person and a system must not look alike")
+
+    def test_phase_band_carries_a_rail_and_a_title_chip(self) -> None:
+        """The band's wash has to stay light enough to read arrows through, so
+        its hue lives in a rail and a chip instead."""
+        ir = SimpleDiagramIR(**_sequence(messages=[
+            {"source": "user", "target": "api", "label": "go", "phase": "1 — Intake"},
+            {"source": "api", "target": "user", "label": "ok", "kind": "reply",
+             "phase": "1 — Intake"},
+        ]))
+        cells = _cells(compile_simple_ir(ir))
+        rails = [c for c in cells if "_rail" in (c.get("id") or "")]
+        chips = [c for c in cells if "_chip" in (c.get("id") or "")]
+        self.assertEqual(len(rails), 1)
+        self.assertEqual([c.get("value") for c in chips], ["1 — Intake"])
+        # The chip straddles the band's top edge, clear of the first message's
+        # autonumber badge, which shares that strip.
+        band = next(c for c in cells if "_band" in (c.get("id") or ""))
+        band_y = float(band.find("mxGeometry").get("y"))
+        chip_y = float(chips[0].find("mxGeometry").get("y"))
+        self.assertLess(chip_y, band_y)
 
     def test_lifeline_ids_are_minted_not_model_authored(self) -> None:
         """Cell z-order is keyed on id by validate_and_fix_xml, so a participant
@@ -440,11 +517,11 @@ class GeneratorTests(unittest.TestCase):
         generate_simple_diagram_from_ir("draw a claim flow", llm=self._llm(_flow()))
         self.assertNotIn("revising a diagram", self.seen_human)
 
-    def test_soft_node_cap_warns_without_failing(self) -> None:
-        """Over the top of the pack's depth table is a judgement call, so it
-        logs rather than rejecting. Sized off the constant so raising the cap
-        (it went 8 -> 20 when the flat cap became a depth table) can't quietly
-        turn this into a test that asserts nothing."""
+    def test_dense_flow_is_drawn_in_full_and_only_noted(self) -> None:
+        """Nothing caps a flow's size — the pack's depth figures are floors.
+        A large diagram is logged so the density is visible, and every node the
+        model asked for still reaches the page. Sized off the constant so
+        raising it can't quietly turn this into a test that asserts nothing."""
         count = _SIMPLE_SOFT_NODE_CAP + 4
         big = _flow(
             nodes=[{"id": f"n{i}", "shape": "rectangle", "label": f"Step {i}"} for i in range(count)],
@@ -453,8 +530,12 @@ class GeneratorTests(unittest.TestCase):
         logger = StepLogger()
         result = generate_simple_diagram_from_ir("big flow", llm=self._llm(big), logger=logger)
         self.assertIn('vertex="1"', result.xml)
+        # Every node survives: the density note must never become a truncation.
+        self.assertEqual(result.xml.count('vertex="1"'), count)
         warnings = [e for e in logger.to_list() if e.get("level") == "warning"]
-        self.assertTrue(any("soft cap" in (e.get("message") or "") for e in warnings))
+        self.assertTrue(
+            any((e.get("details") or {}).get("node_count") == count for e in warnings)
+        )
 
 
 if __name__ == "__main__":
