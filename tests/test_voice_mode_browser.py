@@ -10,9 +10,9 @@ Hermetic by construction:
 
 * ``SpeechRecognition`` and ``speechSynthesis`` are replaced with fakes, so no
   microphone, no network speech service, and no waiting on real audio.
-* ``POST /voice/route`` is stubbed, so no LLM call, no API key, no cost. What
-  is under test is how the browser *reacts* to a route, not the routing —
-  tests/test_voice_intent.py covers the routing itself.
+* ``sendMessage`` is recorded rather than run, so no diagram is generated and
+  no LLM is called. Routing itself is local (voice-router.js) and runs for
+  real — there is nothing to stub.
 
 Skips (never fails) when Playwright is not installed, so `pytest` stays green
 on a machine that only wants the Python suite. Install with:
@@ -91,21 +91,11 @@ Object.defineProperty(window, 'speechSynthesis', {
 navigator.mediaDevices = navigator.mediaDevices || {};
 navigator.mediaDevices.getUserMedia = async () => ({ getTracks: () => [] });
 
-// Stub the router and record sends, so a turn costs no LLM call.
-window.__routed = [];
+// Record sends rather than running a real generation. Routing is local,
+// so nothing else needs intercepting.
 window.__sent = [];
-window.__routeReply = { kind: 'diagram_turn', prompt: 'Add a Redis cache.', speak: 'Adding a cache.' };
 window.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {
-        const realFetch = window.fetch;
-        window.fetch = function (u, o) {
-            if (String(u).includes('/voice/route')) {
-                window.__routed.push(JSON.parse(o.body));
-                return Promise.resolve(new Response(JSON.stringify(window.__routeReply),
-                    { status: 200, headers: { 'Content-Type': 'application/json' } }));
-            }
-            return realFetch.apply(this, arguments);
-        };
         window.sendMessage = function () {
             window.__sent.push(document.getElementById('chat-input').value);
             return Promise.resolve();
@@ -203,6 +193,8 @@ class VoiceModeBrowserTests(unittest.TestCase):
                              "fired before the endpoint delay elapsed")
 
             pg.wait_for_timeout(2500)
+            # Routed locally: vocabulary corrected, shaped into an instruction,
+            # and fired — with no network call in the path at all.
             self.assertEqual(pg.evaluate("__sent"), ["Add a Redis cache."])
 
     def test_the_live_transcript_is_visible_before_it_fires(self) -> None:
@@ -220,14 +212,52 @@ class VoiceModeBrowserTests(unittest.TestCase):
             # and it must not pollute the composer on the way
             self.assertEqual(pg.eval_on_selector("#chat-input", "s => s.value"), "")
 
-    def test_an_exact_phrase_never_reaches_the_router(self) -> None:
-        """"stop" waiting on a network round-trip is not a stop."""
+    def test_an_exact_phrase_runs_as_a_command_not_a_diagram_turn(self) -> None:
+        """The registry claims it first, so it never becomes a prompt."""
         with self.page() as pg:
             pg.evaluate("toggleVoiceInput()")
             pg.wait_for_timeout(400)
             pg.evaluate("__emit('clear chat', true)")
             pg.wait_for_timeout(2200)
-            self.assertEqual(pg.evaluate("__routed"), [])
+            self.assertEqual(pg.evaluate("__sent"), [])
+
+    def test_routing_makes_no_network_request(self) -> None:
+        """Latency is the whole point: a spoken turn must not wait on a server
+        to find out what it meant."""
+        with self.page() as pg:
+            pg.evaluate("""() => {
+                window.__fetches = [];
+                const of = window.fetch;
+                window.fetch = function (u) { window.__fetches.push(String(u)); return of.apply(this, arguments); };
+            }""")
+            pg.evaluate("toggleVoiceInput()")
+            pg.wait_for_timeout(400)
+            pg.evaluate("__emit('add an easy two instance behind the load balancer', true)")
+            pg.wait_for_timeout(2500)
+            self.assertEqual(pg.evaluate("__fetches"), [])
+            self.assertEqual(pg.evaluate("__sent"),
+                             ["Add an EC2 instance behind the load balancer."])
+
+    def test_jargon_is_corrected_locally(self) -> None:
+        cases = {
+            "add an easy two instance": "Add an EC2 instance.",
+            "put it in the v p c": "Put it in the VPC.",
+            "make the are d s database multi a z": "Make the RDS database Multi-AZ.",
+            "store files in s three": "Store files in S3.",
+            "add a redis cache": "Add a Redis cache.",
+        }
+        with self.page() as pg:
+            for said, want in cases.items():
+                got = pg.evaluate("(t) => routeVoiceUtterance(t).then(r => r.prompt)", said)
+                self.assertEqual(got, want, f"for {said!r}")
+
+    def test_ordinary_speech_is_not_rewritten_into_infrastructure(self) -> None:
+        """"easy to" is English. Turning it into EC2 would corrupt normal
+        sentences, so it only converts when a compute noun follows."""
+        with self.page() as pg:
+            got = pg.evaluate(
+                "() => routeVoiceUtterance('make it easy to read the diagram').then(r => r.prompt)")
+            self.assertNotIn("EC2", got)
 
     # ── duplex ───────────────────────────────────────────────────────────
 
