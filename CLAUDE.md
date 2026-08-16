@@ -27,6 +27,20 @@ lint-imports        # architecture boundaries (import-linter)
 pytest --cov        # suite + the coverage floor
 ```
 
+Two checks are not in CI and have to be run deliberately:
+
+```bash
+# Frontend, browser-driven. Skips (never fails) without Playwright:
+#   pip install playwright && playwright install chromium
+pytest tests/test_voice_mode_browser.py
+
+# Layout/geometry regression net — replays every stored capture's IR through
+# the current compiler. Record a baseline BEFORE starting layout work; doing
+# it after bakes in whatever you just changed and the check can only pass.
+python tools/replay_captures.py --update-baseline   # once, before
+python tools/replay_captures.py                     # after
+```
+
 `pyproject.toml` holds all three configs. Two things there are deliberate and
 should not be "tidied": the ruff ruleset is narrow on purpose (a blanket one
 flags ~250 style disagreements with deliberate choices and buries the real
@@ -45,7 +59,9 @@ app/
   domain/entities/        # plain dataclasses/pydantic models (XmlDiagram, DiagramEditPlan) — no I/O
   domain/ir/              # diagram IR — NetworkIR + shared CorridorIR (Logical/Security/Data flow),
                           # GenericDiagramIR (as-is image trace), SimpleDiagramIR (non-cloud), self-validating
-  core/services/          # use cases: agent.py (LLM calls), xml_pipeline.py (orchestration), intent.py
+  core/services/          # use cases: agent.py (LLM calls), xml_pipeline.py (orchestration), intent.py,
+                          # voice_intent.py (voice-mode utterance router — takes its prompt as an
+                          # argument so core never imports an adapter; see the frozen list below)
   adapters/inbound/web/   # FastAPI routes.py + schemas.py + rate_limit.py
   adapters/outbound/      # everything that talks to the outside world:
     llm/                  # provider registry, langchain client wrapper, prompt builders, fallback.py
@@ -147,6 +163,49 @@ Rules of thumb:
 ### Attachments (PDF/image/text context)
 
 `app/adapters/outbound/utils/documents.py:extract_document` classifies an upload and never raises — every failure (corrupt, encrypted, oversized, malicious, unsupported) becomes a `kind="error"` result so one bad attachment doesn't break the batch. Plain text/markdown/JSON/YAML → `kind="text"` (inlined into the prompt as `context_text`). PDFs and images → `kind="vision"`, base64-encoded and sent to the LLM as a native multimodal content block (`llm_client._build_human_message`) rather than locally extracted — PDFs are validated (active-content markers, corruption, encryption) but never text-extracted locally, since that would silently drop embedded diagrams/images the model needs to see. Only `ChatRequest` (`/chat`, `/chat/stream`) carries attachment fields; `PromptRequest` (`/generate`, `/download`) has none.
+
+### Frontend (`static/js/`)
+
+No module system: every file declares plain globals, and `index.html`'s ordered
+`<script>` tags **are** the dependency graph. A new file needs a tag added
+there and nothing else. `app.js` must stay **last** — it is the only file that
+executes at load time (the boot sequence); every sibling only declares
+functions. `index.html` also carries ~86 inline `onclick=` handlers that
+resolve against `window`, which is why converting to ES modules would be a
+large change rather than a mechanical one.
+
+One chat turn spans four files, split by *why they change* rather than by size:
+`chat-api.js` (transport: `/chat/stream` SSE + the plain-POST fallback),
+`chat-request.js` (assembling the request), `chat-response.js` (applying a
+result + the six insight panels), `chat-send.js` (`sendMessage()`, which should
+stay readable as `begin -> build -> post -> apply -> end`). Anything that grows
+a body of its own belongs in a sibling, not inline in `sendMessage`.
+`provider-options.js` is shared with `admin.html`, which loads a different
+script set — that is why it is its own file.
+
+### Voice mode
+
+The mic button runs a conversational loop, not dictation: ~1.2s of silence ends
+a turn (there is no "send"), the app speaks back, and the user can interrupt it
+by talking. Dictation survives behind a settings toggle and is the only thing
+that works for mixing typing and speech.
+
+- `voice.js` owns the state machine (`off | listening | capturing | thinking |
+  speaking`), endpointing, the TTS queue, and the echo filter. Tunables live in
+  one `VOICE_TUNING` block.
+- **The exact-phrase registry (`voice-commands.js`) runs first and
+  synchronously.** `"stop"` must never wait on a round-trip. Only unmatched
+  speech reaches `voice-router.js` → `POST /voice/route`, which also normalises
+  cloud jargon browser STT gets wrong ("easy two" → EC2) in the same call.
+- Routing **fails open**: an error with a diagram on screen still attempts the
+  edit; with an empty canvas it asks. A spoken utterance is never dropped.
+- **Self-echo is the load-bearing guess.** Barge-in needs the mic open during
+  playback, and the Web Speech API opens its own capture stream that accepts no
+  `echoCancellation` constraint — so the filter compares transcripts against
+  what is being spoken. If it proves leaky on real hardware the escape hatch is
+  half-duplex; see the comment on `_isLikelySelfEcho`.
+- Covered by `tests/test_voice_mode_browser.py` (see Commands) — the only
+  frontend test, because this is the one place a regression is silent.
 
 ### Logging
 
