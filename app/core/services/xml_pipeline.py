@@ -653,6 +653,26 @@ def _score_and_maybe_keep(
     return page_xml, scored
 
 
+def _score_primary(page_xml: str, *, view: str, human_prompt: str, min_score: int) -> Any:
+    """Score the primary page against its own viewpoint rules.
+
+    Separate from ``_score_and_maybe_keep`` because the primary has no *other*
+    page to be measured against: that helper passes ``primary_xml`` so a
+    focused view can be compared with the page it was derived from, and here
+    the page in hand is that page. Density is read from the page's own leaves
+    for the same reason.
+    """
+    leaf_n = _count_service_leaves(page_xml)
+    return score_view(
+        page_xml,
+        view=view,
+        primary_xml=page_xml,
+        request_text=human_prompt,
+        density_target=achievable_density_target(leaf_n),
+        min_score=min_score,
+    )
+
+
 def _merge_ordered_view_pages(
     *,
     primary_view: str,
@@ -1435,32 +1455,107 @@ async def run_xml_pipeline(
     ) if p]
     enriched_context = "\n\n".join(context_parts) if context_parts else None
 
-    xml_diagram, used_ir_path = await _generate_primary_page(
-        primary_view=primary_view,
-        human_prompt=human_prompt,
-        provider_key=provider_key,
-        platform_key=platform_key,
-        logger=logger,
-        messages=messages,
-        custom_system_message=custom_system_message,
-        applied_suggestions=applied_suggestions,
-        enriched_context=enriched_context,
-        attachment_documents=attachment_documents,
-        current_xml=current_xml,
-        image_replicate=image_replicate,
-        animated_connectors=animated_connectors,
-        include_suggestions=include_suggestions,
-        include_governance_report=governance,
-        three_d=three_d,
-        on_progress=on_progress,
-    )
+    async def _primary_attempt(context: str | None, *, provider: str = "") -> tuple[Any, bool, str]:
+        """One primary generation, normalized. Returns (diagram, used_ir, xml)."""
+        diagram, used_ir = await _generate_primary_page(
+            primary_view=primary_view,
+            human_prompt=human_prompt,
+            provider_key=provider or provider_key,
+            platform_key=platform_key,
+            logger=logger,
+            messages=messages,
+            custom_system_message=custom_system_message,
+            applied_suggestions=applied_suggestions,
+            enriched_context=context,
+            attachment_documents=attachment_documents,
+            current_xml=current_xml,
+            image_replicate=image_replicate,
+            animated_connectors=animated_connectors,
+            include_suggestions=include_suggestions,
+            include_governance_report=governance,
+            three_d=three_d,
+            on_progress=on_progress,
+        )
+        await _emit(on_progress, "validate", "Validating and normalizing XML…")
+        with _maybe_span(logger, "validate", "Validating and normalizing XML"):
+            out = ensure_diagram_document(diagram.xml, primary_page_name)
+            check = validate_and_fix_xml(out)
+            out = choose_fixed_xml(out, check)
+            out = normalize_platform_styles(out, platform_key)
+        return diagram, used_ir, out
 
-    await _emit(on_progress, "validate", "Validating and normalizing XML…")
-    with _maybe_span(logger, "validate", "Validating and normalizing XML"):
-        xml_output = ensure_diagram_document(xml_diagram.xml, primary_page_name)
-        check = validate_and_fix_xml(xml_output)
-        xml_output = choose_fixed_xml(xml_output, check)
-        xml_output = normalize_platform_styles(xml_output, platform_key)
+    xml_diagram, used_ir_path, xml_output = await _primary_attempt(enriched_context)
+
+    # The primary page gets the same improve-while-it-improves loop the extra
+    # views get. It was left out at first, which meant turning validation on
+    # left the page the user is actually looking at untouched.
+    #
+    # Scored here, before the repair/overview/badge passes, because that is what
+    # score_view measures: viewpoint conformance is a property of what the model
+    # produced, and the passes below fix structural hygiene rather than density
+    # or vocabulary. Scoring after them would credit the repair pass for the
+    # model's work.
+    #
+    # Fresh IR only. A surgical edit or a 3D page must never be regenerated
+    # wholesale to chase a score — that would throw away the canvas the user has
+    # been editing, which is a far worse outcome than a view scoring 68.
+    _cfg_primary = get_config()
+    if (
+        _cfg_primary.validation_enabled
+        and used_ir_path
+        and not three_d
+        and not (current_xml and len(current_xml) > 200)
+    ):
+        primary_min = _cfg_primary.view_quality_min_score
+        primary_scored = _score_primary(
+            xml_output, view=primary_view, human_prompt=human_prompt or "",
+            min_score=primary_min,
+        )
+        primary_iter = 0
+        while (
+            not primary_scored.passes
+            and primary_iter < _cfg_primary.validation_max_iterations
+        ):
+            primary_iter += 1
+            feedback = "; ".join(
+                (v.message or v.code) for v in (primary_scored.violations or [])[:6]
+            ) or "raise leaf density and fix viewpoint violations"
+            retry_ctx = "\n\n".join(p for p in (
+                enriched_context,
+                (
+                    f"QUALITY CORRECTION — the previous {primary_page_name} page scored "
+                    f"{primary_scored.score}/{primary_min}. Regenerate a complete IR that "
+                    f"fixes:\n{feedback}"
+                ),
+            ) if p)
+            try:
+                cand_diagram, cand_used_ir, cand_xml = await _primary_attempt(
+                    retry_ctx or None, provider=_cfg_primary.validation_provider,
+                )
+            except Exception as exc:
+                if logger:
+                    logger.log(
+                        "validate", f"Primary validation pass failed: {exc}", level="warning",
+                    )
+                break
+            cand_scored = _score_primary(
+                cand_xml, view=primary_view, human_prompt=human_prompt or "",
+                min_score=primary_min,
+            )
+            gain = cand_scored.score - primary_scored.score
+            if gain >= 0:
+                xml_diagram, used_ir_path, xml_output = cand_diagram, cand_used_ir, cand_xml
+                primary_scored = cand_scored
+            if logger:
+                logger.log(
+                    "validate",
+                    f"{primary_page_name} validation pass {primary_iter} scored "
+                    f"{cand_scored.score} ({gain:+d})",
+                    level="info" if cand_scored.passes else "warning",
+                    details={"score": cand_scored.score, "gain": gain, "iteration": primary_iter},
+                )
+            if gain <= 0 or gain < _cfg_primary.validation_min_improvement:
+                break
 
     derived_story_markers: list[Any] = []
     if used_ir_path and not page_has_overview_panel(xml_output):

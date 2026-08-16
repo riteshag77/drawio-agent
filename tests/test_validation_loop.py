@@ -156,3 +156,50 @@ class ProviderSelectionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PrimaryPageCoverageTests(unittest.TestCase):
+    """The loop was wired only into the *extra* views at first, so turning
+    validation on left the page the user is actually looking at untouched."""
+
+    def _source(self) -> str:
+        import inspect
+
+        from app.core.services import xml_pipeline
+
+        return inspect.getsource(xml_pipeline)
+
+    def test_the_primary_page_is_scored(self) -> None:
+        from app.core.services.xml_pipeline import _score_primary
+
+        self.assertTrue(callable(_score_primary))
+        self.assertIn("_score_primary(", self._source())
+
+    def test_the_primary_loop_is_guarded_to_fresh_ir_only(self) -> None:
+        """A surgical edit or a 3D page must never be regenerated wholesale to
+        chase a score — that throws away the canvas the user has been editing,
+        which is a far worse outcome than a view scoring 68."""
+        source = self._source()
+        guard = source[source.index("_cfg_primary.validation_enabled"):]
+        guard = guard[:guard.index("primary_min =")]
+        self.assertIn("used_ir_path", guard)
+        self.assertIn("not three_d", guard)
+        self.assertIn("current_xml", guard)
+
+    def test_the_primary_loop_uses_the_same_stopping_rule(self) -> None:
+        source = self._source()
+        self.assertIn("validation_min_improvement", source)
+        self.assertIn("validation_max_iterations", source)
+
+    def test_network_is_scoreable(self) -> None:
+        """The primary is usually Network; if score_view had no rules for it
+        the loop above would be measuring nothing."""
+        from app.adapters.outbound.diagram.view_conformance import score_view
+
+        xml = (
+            '<mxfile><diagram name="Network"><mxGraphModel><root>'
+            '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+            '</root></mxGraphModel></diagram></mxfile>'
+        )
+        scored = score_view(xml, view="network", min_score=75)
+        self.assertIsInstance(scored.score, int)
