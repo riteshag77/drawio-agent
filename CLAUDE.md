@@ -199,11 +199,16 @@ that works for mixing typing and speech.
   cloud jargon browser STT gets wrong ("easy two" → EC2) in the same call.
 - Routing **fails open**: an error with a diagram on screen still attempts the
   edit; with an empty canvas it asks. A spoken utterance is never dropped.
-- **Self-echo is the load-bearing guess.** Barge-in needs the mic open during
+- **Self-echo degrades automatically.** Barge-in needs the mic open during
   playback, and the Web Speech API opens its own capture stream that accepts no
-  `echoCancellation` constraint — so the filter compares transcripts against
-  what is being spoken. If it proves leaky on real hardware the escape hatch is
-  half-duplex; see the comment on `_isLikelySelfEcho`.
+  `echoCancellation` constraint, so the filter compares transcripts against what
+  is being spoken — a guess about hardware no test can check. Rather than trust
+  it, the filter's own hit rate is the signal: it only fires if playback really
+  is reaching the mic, so three hits in a session drop voice mode to
+  **half-duplex** (mic ignored during playback, except the stop phrases in
+  `_INTERRUPT_PHRASES`). Announced via toast, reflected in the HUD, and relearnt
+  each session so headphones win barge-in back. Tune with
+  `VOICE_TUNING.halfDuplexAfterEchoes`.
 - Covered by `tests/test_voice_mode_browser.py` (see Commands) — the only
   frontend test, because this is the one place a regression is silent.
 

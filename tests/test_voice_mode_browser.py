@@ -262,6 +262,71 @@ class VoiceModeBrowserTests(unittest.TestCase):
             self.assertGreaterEqual(pg.evaluate("__cancels"), 1, "playback was not cancelled")
             self.assertEqual(pg.evaluate("_voiceTurnBuffer"), "no wait remove that")
 
+    def test_repeated_echo_degrades_to_half_duplex(self) -> None:
+        """The echo filter is a guess about hardware we cannot test against.
+
+        Rather than trust it, the app watches its own hit rate: a filter that
+        keeps firing proves playback IS reaching the mic, so it stops listening
+        during playback instead of waiting to be fooled.
+        """
+        with self.page() as pg:
+            pg.evaluate("toggleVoiceInput()")
+            pg.wait_for_timeout(400)
+            self.assertFalse(pg.evaluate("isHalfDuplex()"))
+
+            spoken = "Adding an EC2 instance behind the load balancer."
+            for _ in range(3):
+                self._start_speaking(pg, spoken)
+                pg.evaluate("__emit('adding an EC2 instance behind the load balancer', true)")
+                pg.wait_for_timeout(120)
+            self.assertTrue(pg.evaluate("isHalfDuplex()"),
+                            "kept trusting the filter after repeated echoes")
+
+            # Real speech no longer interrupts...
+            self._start_speaking(pg, spoken)
+            pg.evaluate("__cancels = 0")
+            pg.evaluate("__emit('no wait remove that', true)")
+            pg.wait_for_timeout(200)
+            self.assertEqual(pg.evaluate("__cancels"), 0, "barge-in survived half-duplex")
+            self.assertEqual(pg.evaluate("_voiceTurnBuffer"), "")
+
+    def test_stop_still_cuts_through_half_duplex(self) -> None:
+        """Half-duplex shuts the mic out during playback — but a user who says
+        "stop" and is ignored has an app that will not shut up."""
+        with self.page() as pg:
+            pg.evaluate("toggleVoiceInput()")
+            pg.wait_for_timeout(400)
+            pg.evaluate("_halfDuplex = true")
+
+            self._start_speaking(pg, "Generating the diagram now.")
+            pg.evaluate("__cancels = 0")
+            pg.evaluate("__emit('stop', true)")
+            pg.wait_for_timeout(250)
+            self.assertGreaterEqual(pg.evaluate("__cancels"), 1, "'stop' was swallowed")
+
+    def test_the_hud_stops_promising_barge_in(self) -> None:
+        with self.page() as pg:
+            pg.evaluate("toggleVoiceInput()")
+            pg.wait_for_timeout(400)
+            pg.evaluate("_halfDuplex = true; _voiceTurnBuffer=''; _voiceInterim='';"
+                        "setVoiceState('speaking'); renderVoiceHud();")
+            pg.wait_for_timeout(120)
+            label = pg.eval_on_selector("#voice-status-text", "s => s.textContent")
+            self.assertIn("stop", label.lower())
+            self.assertNotIn("just talk", label.lower())
+
+    def test_duplex_learning_resets_between_sessions(self) -> None:
+        """Plugging in headphones should win barge-in back without a reload."""
+        with self.page() as pg:
+            pg.evaluate("toggleVoiceInput()")
+            pg.wait_for_timeout(400)
+            pg.evaluate("_halfDuplex = true; _echoHits = 9")
+            pg.evaluate("_speaking = false; toggleVoiceInput()")
+            pg.wait_for_timeout(400)
+            pg.evaluate("toggleVoiceInput()")
+            pg.wait_for_timeout(400)
+            self.assertFalse(pg.evaluate("isHalfDuplex()"))
+
     def test_a_single_stray_word_does_not_interrupt(self) -> None:
         with self.page() as pg:
             pg.evaluate("toggleVoiceInput()")
