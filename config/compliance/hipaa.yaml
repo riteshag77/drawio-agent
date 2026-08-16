@@ -26,6 +26,7 @@ controls:
   encryption_in_transit:
     name: "Encryption in Transit"
     description: "PHI must be encrypted during transmission per HIPAA Security Rule §164.312(e)(1)"
+    topology_check: transit_encryption
     severity: high
     recommendation: "Use TLS termination on load balancers and API gateways, enforce HTTPS"
     affected_categories:
@@ -61,6 +62,7 @@ controls:
   network_segmentation:
     name: "Network Segmentation"
     description: "Segment PHI-processing resources from public access and untrusted networks"
+    topology_check: segmentation
     severity: medium
     recommendation: "Deploy WAF, network firewalls, and private subnets for PHI environments"
     affected_categories:

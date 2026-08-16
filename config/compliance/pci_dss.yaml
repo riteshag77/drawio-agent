@@ -25,6 +25,7 @@ controls:
   encryption_in_transit:
     name: "Encryption in Transit"
     description: "Requirement 4.1 — encrypt cardholder data over open/public networks"
+    topology_check: transit_encryption
     severity: high
     recommendation: "Use TLS 1.2+ on all load balancers, API gateways, and public endpoints"
     affected_categories:
@@ -59,6 +60,7 @@ controls:
   network_segmentation:
     name: "Network Segmentation"
     description: "Requirement 1 — install and maintain firewall configuration to protect cardholder data"
+    topology_check: segmentation
     severity: high
     recommendation: "Deploy WAF and network firewalls to segment CDE from untrusted networks"
     affected_categories:

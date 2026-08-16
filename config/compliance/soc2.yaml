@@ -25,6 +25,7 @@ controls:
   encryption_in_transit:
     name: "Encryption in Transit"
     description: "CC6.1 — protect data during transmission over networks"
+    topology_check: transit_encryption
     severity: high
     recommendation: "Enforce TLS for all data in transit between internal and external networks"
     affected_categories:

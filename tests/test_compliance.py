@@ -150,3 +150,80 @@ class ComplianceYamlRequiredServicesTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TopologyEvidenceTests(unittest.TestCase):
+    """Presence is a proxy; the drawing is evidence. "Encryption in Transit"
+    used to be answered by "is there a load balancer on the page?" — a diagram
+    can carry an ALB and still route cardholder data over an unprotected hop."""
+
+    def _compiled(self, *, db_tier: str, protection: str) -> str:
+        from app.adapters.outbound.diagram.compiler.network import compile_network_ir
+        from app.domain.ir import (
+            AvailabilityZone, CloudBoundary, Flow, Leaf, NetworkIR, Region, Subnet, Vpc,
+        )
+
+        subnets = [
+            Subnet(id="pub", tier="public", leaves=[
+                Leaf(id="alb", shape_type="aws_application_load_balancer", label="ALB"),
+                Leaf(id="waf", shape_type="aws_waf", label="WAF"),
+            ]),
+            Subnet(id="app", tier="app", leaves=[
+                Leaf(id="svc", shape_type="aws_ecs", label="Checkout"),
+            ]),
+        ]
+        db = Leaf(id="db", shape_type="aws_rds", label="Cardholder DB")
+        if db_tier == "public":
+            subnets[0].leaves.append(db)
+        else:
+            subnets.append(Subnet(id="data", tier="data", leaves=[db]))
+        ir = NetworkIR(
+            cloud=CloudBoundary(id="cloud", label="AWS Cloud", regions=[
+                Region(id="r", label="us-east-1", vpcs=[
+                    Vpc(id="vpc", zones=[AvailabilityZone(id="az", label="AZ", subnets=subnets)]),
+                ]),
+            ]),
+            platform="aws",
+        )
+        ir.flows = [
+            Flow(source="alb", target="svc", label="HTTPS", protection="tls"),
+            Flow(source="svc", target="db", label="SQL",
+                 classification="pci", protection=protection),
+        ]
+        return compile_network_ir(ir)
+
+    def _control(self, xml: str, control_id: str) -> dict:
+        result = assess_compliance(xml, platform="aws", frameworks=["pci_dss"])
+        controls = result["frameworks"]["pci_dss"]["controls"]
+        return next(c for c in controls if c["id"] == control_id)
+
+    def test_an_unprotected_sensitive_flow_fails_transit_encryption(self) -> None:
+        control = self._control(
+            self._compiled(db_tier="data", protection="none"), "encryption_in_transit",
+        )
+        self.assertEqual(control["status"], "fail")
+        self.assertEqual(control["assessed_from"], "topology")
+        self.assertIn("Cardholder DB", control["evidence"])
+
+    def test_tls_on_every_classified_flow_passes(self) -> None:
+        control = self._control(
+            self._compiled(db_tier="data", protection="tls"), "encryption_in_transit",
+        )
+        self.assertEqual(control["status"], "pass")
+        self.assertEqual(control["assessed_from"], "topology")
+
+    def test_a_datastore_in_a_public_subnet_fails_segmentation(self) -> None:
+        control = self._control(
+            self._compiled(db_tier="public", protection="tls"), "network_segmentation",
+        )
+        self.assertEqual(control["status"], "fail")
+        self.assertIn("Cardholder DB", control["evidence"])
+
+    def test_presence_still_decides_when_the_drawing_cannot_answer(self) -> None:
+        """An uploaded diagram that never went through this compiler carries no
+        tiers and no flow classifications — the control must fall back rather
+        than report a pass nobody verified."""
+        xml = _xml_with_services("aws_application_load_balancer", "aws_kms", "aws_iam")
+        control = self._control(xml, "encryption_in_transit")
+        self.assertEqual(control["assessed_from"], "service_presence")
+        self.assertEqual(control["evidence"], "")

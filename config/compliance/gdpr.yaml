@@ -26,6 +26,7 @@ controls:
   encryption_in_transit:
     name: "Encryption in Transit"
     description: "Article 32 — ensure ongoing confidentiality of processing systems and services"
+    topology_check: transit_encryption
     severity: medium
     recommendation: "Enforce TLS for all data in transit between services and public endpoints"
     affected_categories:

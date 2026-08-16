@@ -8,6 +8,7 @@ import yaml
 from pydantic import BaseModel, Field
 
 from app.adapters.outbound.diagram.xml_tools import find_service_keys
+from app.adapters.outbound.waf_topology import Topology, read_topology
 from app.adapters.outbound.llm.llm_client import call_llm, is_quota_or_rate_limit_error
 from app.adapters.outbound.llm.providers import get_provider, normalize_provider_key
 from app.core.logging import StepLogger
@@ -148,8 +149,68 @@ def _get_platform_services(fw_config: dict, control_id: str, platform: str) -> l
     return []
 
 
+#: Controls whose real answer is in the *wiring*, keyed by the ``topology_check``
+#: a control declares in its YAML.
+#:
+#: Presence is a proxy, and for these controls a poor one. "Encryption in
+#: Transit" was answered by "is there a load balancer on the page?" — a diagram
+#: can carry an ALB and still route cardholder data over an unprotected hop, and
+#: the compiled XML says so directly, because every flow carries its own
+#: ``classification`` and ``protection``. "Network Segmentation" was answered by
+#: "is there a WAF?" while the database sat in a public subnet.
+#:
+#: A check returns ``None`` when the diagram does not carry the structure to
+#: answer with — an uploaded diagram that never went through this app's
+#: compiler, say — and the control then falls back to the presence rule rather
+#: than reporting a pass nobody verified.
+def _check_transit_encryption(topo: "Topology") -> "tuple[bool, str] | None":
+    classified = [
+        e for e in topo.edges
+        if e.classification not in ("none", "") or e.protection not in ("none", "")
+    ]
+    if not classified:
+        return None
+    unprotected = [
+        e for e in classified
+        if e.classification in ("pii", "pci", "confidential") and e.protection == "none"
+    ]
+    if not unprotected:
+        return True, f"all {len(classified)} classified flow(s) carry TLS or mTLS"
+    named = ", ".join(
+        f"{_label(topo, e.source)} -> {_label(topo, e.target)} ({e.classification.upper()})"
+        for e in unprotected[:3]
+    )
+    return False, f"{len(unprotected)} sensitive flow(s) with no transport protection: {named}"
+
+
+def _check_segmentation(topo: "Topology") -> "tuple[bool, str] | None":
+    tiers = {topo.tier_of(n.id) for n in topo.leaves()}
+    if not any(tiers):
+        return None
+    exposed = [
+        n for n in topo.leaves_in_tier("public")
+        if any(m in (n.shape_type or "").lower() for m in ("rds", "sql", "dynamodb", "database", "aurora"))
+    ]
+    if exposed:
+        named = ", ".join(_label(topo, n.id) for n in exposed[:3])
+        return False, f"datastore(s) in a public subnet: {named}"
+    return True, "data tier is separated from the public subnet"
+
+
+_TOPOLOGY_CHECKS = {
+    "transit_encryption": _check_transit_encryption,
+    "segmentation": _check_segmentation,
+}
+
+
+def _label(topo: "Topology", node_id: str) -> str:
+    node = topo.nodes.get(node_id)
+    return (node.label or node.id) if node else node_id
+
+
 def _analyze_rule_based(
-    services: list[str], platform: str, fw_id: str, fw_config: dict
+    services: list[str], platform: str, fw_id: str, fw_config: dict,
+    topo: "Topology | None" = None,
 ) -> dict[str, Any]:
     in_scope_categories = fw_config.get("in_scope_categories", [])
     in_scope = _services_in_categories(services, in_scope_categories)
@@ -174,6 +235,17 @@ def _analyze_rule_based(
         required = _get_platform_services(fw_config, ctrl_id, platform)
         status = _control_status(required, services)
 
+        # Evidence beats proxy: when the diagram can actually answer this
+        # control, that answer wins over "the right icon is somewhere on the
+        # page". Only when the check abstains does presence decide.
+        evidence = ""
+        check = _TOPOLOGY_CHECKS.get(ctrl.get("topology_check", ""))
+        if check is not None and topo is not None:
+            verdict = check(topo)
+            if verdict is not None:
+                passed, evidence = verdict
+                status = "pass" if passed else "fail"
+
         findings: list[dict[str, str]] = []
         if status == "fail":
             affected_list: list[str] = []
@@ -181,9 +253,13 @@ def _analyze_rule_based(
                 affected_list = _services_in_categories(services, affected_cats)
             else:
                 affected_list = [s for s in services if s not in _CATEGORY_SERVICES.get("security", [])]
+            description = ctrl.get("description") or f"Missing {ctrl.get('name', ctrl_id)}"
             findings.append({
                 "severity": ctrl.get("severity", "medium"),
-                "message": ctrl.get("description", f"Missing {ctrl.get('name', ctrl_id)}"),
+                # The evidence, when there is any, names the offending flow or
+                # cell — which is the difference between a control a reviewer
+                # has to go and verify and one they can act on.
+                "message": f"{description} — {evidence}" if evidence else description,
                 "recommendation": ctrl.get("recommendation", ""),
                 "affected_services": affected_list[:10],
                 "missing_services": required,
@@ -197,6 +273,10 @@ def _analyze_rule_based(
             "name": ctrl.get("name", ctrl_id),
             "status": status,
             "findings": findings,
+            # Present only when the verdict came from the drawing rather than
+            # from a service being on the page.
+            "evidence": evidence,
+            "assessed_from": "topology" if evidence else "service_presence",
         })
 
     if total_fail > 0:
@@ -357,6 +437,7 @@ def assess_compliance(
     logger: StepLogger | None = None,
 ) -> dict[str, Any]:
     services = find_service_keys(xml or "")
+    topo = read_topology(xml or "")
     if not services:
         return {"frameworks": {}, "services_analyzed": 0, "llm_enhanced": False}
 
@@ -372,7 +453,7 @@ def assess_compliance(
     results: dict[str, dict] = {}
     for fw_id in selected:
         fw_config = all_frameworks[fw_id]
-        results[fw_id] = _analyze_rule_based(services, platform_key, fw_id, fw_config)
+        results[fw_id] = _analyze_rule_based(services, platform_key, fw_id, fw_config, topo)
 
     llm_used = False
     if provider and selected and LLM_PROMPT_PATH.is_file():

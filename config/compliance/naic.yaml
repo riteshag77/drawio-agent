@@ -25,6 +25,7 @@ controls:
   encryption_in_transit:
     name: "Encryption in Transit"
     description: "Section 4.C — encrypt nonpublic consumer information in transit over public networks"
+    topology_check: transit_encryption
     severity: high
     recommendation: "Enforce TLS for all data in transit across public and external networks"
     affected_categories:
@@ -59,6 +60,7 @@ controls:
   network_segmentation:
     name: "Network Segmentation"
     description: "Section 4.G — secure network segmentation for information systems"
+    topology_check: segmentation
     severity: medium
     recommendation: "Deploy WAF and network firewalls to segment consumer information systems"
     affected_categories:
