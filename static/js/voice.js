@@ -27,6 +27,16 @@ const VOICE_TUNING = {
     /** Token overlap with what is currently being spoken, above which a
      *  transcript is assumed to be the mic hearing our own voice. */
     echoOverlap: 0.6,
+    /** Self-echoes caught during one session before dropping to half-duplex.
+     *
+     *  The count is a *leading* indicator, not a failure count. If the room and
+     *  hardware are not leaking, the filter never fires at all — so every hit
+     *  is proof that our own playback is reaching the microphone, and the
+     *  filter is one unlucky overlap score away from letting a phantom turn
+     *  through. Degrading on the third hit trades barge-in (a convenience) for
+     *  never talking to ourselves (a correctness bug that looks like the app
+     *  possessed). */
+    halfDuplexAfterEchoes: 3,
     /** Cap on the router round-trip before falling back locally. */
     routerTimeoutMs: 3000,
     /** Floor between spoken progress updates during a long generation. */
@@ -214,7 +224,52 @@ function _isLikelySelfEcho(text) {
     if (!spoken.length) return false;
     const spokenSet = new Set(spoken);
     const overlap = heard.filter((t) => spokenSet.has(t)).length / heard.length;
-    return overlap >= VOICE_TUNING.echoOverlap;
+    const isEcho = overlap >= VOICE_TUNING.echoOverlap;
+    if (isEcho) _noteSelfEcho();
+    return isEcho;
+}
+
+/** Phrases that must still be obeyed while the app is talking, even after
+ *  half-duplex has shut the rest of the microphone out. Mirrors the stop
+ *  entries in voice-commands.js; the registry still *executes* them, this list
+ *  only decides what is allowed through the gate. */
+const _INTERRUPT_PHRASES = new Set([
+    'stop', 'cancel', 'stop generation', 'cancel generation',
+    'stop listening', 'stop voice', 'mic off', 'microphone off',
+]);
+
+let _echoHits = 0;
+let _halfDuplex = false;
+
+function isHalfDuplex() {
+    return _halfDuplex;
+}
+
+/** Count a caught echo and drop to half-duplex once they stop looking like
+ *  chance. Announced, because the user is about to lose the ability to
+ *  interrupt by talking and silently removing that reads as a bug. */
+function _noteSelfEcho() {
+    if (_halfDuplex) return;
+    _echoHits += 1;
+    if (_echoHits < VOICE_TUNING.halfDuplexAfterEchoes) return;
+    _halfDuplex = true;
+    if (typeof appendVerboseLog === 'function') {
+        appendVerboseLog('voice', 'Switched to half-duplex — own audio is reaching the mic',
+            'warn', { echo_hits: _echoHits });
+    }
+    if (typeof showToast === 'function') {
+        showToast('Your speakers are bleeding into the mic, so I\'ll stop listening '
+            + 'while I talk. Say “stop” any time, or use headphones to keep '
+            + 'interrupting me.', 'warning', 8000);
+    }
+}
+
+/** Recomputed per session: plugging in headphones between sessions should win
+ *  back barge-in without a reload. Three filtered echoes is a cheap price to
+ *  re-learn, since they are caught correctly either way. */
+function _resetDuplexLearning() {
+    _echoHits = 0;
+    _halfDuplex = false;
 }
 
 // ── Turn commit ───────────────────────────────────────────────────────────
@@ -341,6 +396,13 @@ const _VOICE_STATE_LABELS = {
     speaking: 'Speaking — just talk to interrupt',
 };
 
+/** The speaking hint promises barge-in, which half-duplex has taken away —
+ *  leaving it up would have the user talking at an app that stopped listening. */
+function _voiceStateLabel(state) {
+    if (state === 'speaking' && _halfDuplex) return 'Speaking — say “stop” to cut in';
+    return _VOICE_STATE_LABELS[state] || 'Voice mode on';
+}
+
 /** Shows state *and* the live transcript. With a pause committing the turn on
  *  its own, a silent mishearing is the main failure mode — seeing the words
  *  before they fire is what makes it recoverable. */
@@ -356,7 +418,7 @@ function renderVoiceHud() {
     bar.setAttribute('data-voice-state', voiceState);
     if (!label) return;
     const heard = (_voiceTurnBuffer + ' ' + _voiceInterim).trim();
-    label.textContent = heard || _VOICE_STATE_LABELS[voiceState] || 'Voice mode on';
+    label.textContent = heard || _voiceStateLabel(voiceState);
 }
 
 function isVoiceSecureContext() {
@@ -560,6 +622,20 @@ function _onVoiceModeResult(finals, interim) {
     if (speakingNow) {
         const candidate = (finals.join(' ') + ' ' + interim).trim();
         if (!candidate) return;
+
+        // Half-duplex: the mic has been proven to hear our own playback, so
+        // nothing said during it can be trusted as the user — except the one
+        // thing that must always work. Checked against the phrase list rather
+        // than the echo filter, because "stop" is short enough to plausibly
+        // overlap whatever we are saying and get eaten as an echo.
+        if (_halfDuplex) {
+            if (!_INTERRUPT_PHRASES.has(normalizeVoiceText(candidate))) return;
+            cancelVoiceSpeech();
+            if (typeof tryRunVoiceCommand === 'function') tryRunVoiceCommand(candidate);
+            setVoiceState('listening');
+            return;
+        }
+
         if (_isLikelySelfEcho(candidate)) return;
         if (_voiceTokens(candidate).length < VOICE_TUNING.bargeInMinWords) return;
         // Real speech over the top of playback — the user is interrupting.
@@ -662,6 +738,7 @@ async function toggleVoiceInput() {
     _voiceTurnBuffer = '';
     _voiceInterim = '';
     _voicePendingTurn = '';
+    _resetDuplexLearning();
     resetVoiceProgressThrottle();
     const startRecognition = () => {
         speechRecognition.start();
