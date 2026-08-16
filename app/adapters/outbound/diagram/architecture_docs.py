@@ -41,6 +41,56 @@ _SERVICE_INVENTORY_LIMIT = 36
 _EDGE_INVENTORY_LIMIT = 20
 _REQUEST_TRUNCATE_DOCS = 600
 
+_INTERVIEW_PACK_FILE = "interview.txt"
+#: Hard ceiling on one round. The pack asks for 3-5; this is the guard against a
+#: model that ignores it, because a fifteen-question form gets "n/a" fifteen
+#: times and is worse than not asking.
+MAX_INTERVIEW_QUESTIONS = 5
+
+
+class InterviewQuestion(BaseModel):
+    """One question, chosen for *this* brief, carrying the default it replaces."""
+
+    id: str = Field(
+        default="", description="Short snake_case key, e.g. 'region_strategy', 'pci_scope'.",
+    )
+    prompt: str = Field(
+        description=(
+            "The question as you would say it out loud, including the default you would "
+            "otherwise assume — 'Which region(s)? I'll assume single-region us-east-1 "
+            "with multi-AZ inside it.'"
+        ),
+    )
+    assumption: str = Field(
+        default="",
+        description="The default alone, used when the user skips this question.",
+    )
+
+
+class InterviewPlan(BaseModel):
+    """The questions worth asking. Empty is a valid, and often correct, answer."""
+
+    questions: list[InterviewQuestion] = Field(default_factory=list)
+
+    def capped(self) -> list[InterviewQuestion]:
+        return [q for q in self.questions if q.prompt.strip()][:MAX_INTERVIEW_QUESTIONS]
+
+
+def load_interview_prompt_pack() -> str:
+    path = _CONFIG_DIR / _INTERVIEW_PACK_FILE
+    if path.is_file():
+        return path.read_text(encoding="utf-8")
+    return (
+        "Choose 3-5 questions whose answers would change the drawing. State the default "
+        "you would otherwise assume in each question. Return no questions when the brief "
+        "is already specific."
+    )
+
+
+#: Fallback when the interview LLM call fails or is disabled — the original
+#: fixed list. Domain-blind by construction, which is exactly why it is the
+#: fallback and no longer the default: it asks a static-site brief about trust
+#: boundaries and a PCI brief nothing about cardholder data.
 INTERVIEW_QUESTIONS = [
     {
         "id": "regions_envs",

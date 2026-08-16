@@ -54,6 +54,8 @@ from app.adapters.outbound.diagram.architecture_docs import (
     achievable_density_target,
     build_adr_page_xml,
     build_architecture_inventory,
+    INTERVIEW_QUESTIONS,
+    InterviewPlan,
     build_gap_analysis_block,
     build_interview_prompt_block,
     build_raid_page_xml,
@@ -64,6 +66,7 @@ from app.adapters.outbound.diagram.architecture_docs import (
     refresh_ir_overview_panel,
     load_docs_prompt_pack,
     load_gap_analysis_prompt_pack,
+    load_interview_prompt_pack,
     merge_mxfile_pages,
     normalize_diagram_views,
     normalize_single_page_xml,
@@ -270,6 +273,75 @@ def _classify_attachment_view(
                 "classify", f"Attachment view classification failed: {exc}", level="warning",
             )
         return None
+
+
+def plan_interview(
+    *,
+    human_prompt: str,
+    platform_key: str,
+    views: list[str],
+    provider_key: str,
+    logger: Any,
+    prior_answers: dict[str, str] | None = None,
+) -> list[dict[str, str]]:
+    """Choose the questions worth asking about *this* brief.
+
+    Replaces a fixed five-question form that was identical for every request —
+    it asked a static-site brief about trust boundaries and a PCI brief nothing
+    about cardholder data. See ``config/xml_gen/interview.txt`` for the rule
+    that decides what earns a slot: would a different answer change the
+    drawing?
+
+    Returns ``[]`` both when the brief is already specific (a correct answer,
+    not a failure — the caller then draws immediately) and when the call fails
+    in a way that leaves nothing sensible to ask. Any other failure falls back
+    to the fixed list, mirroring ``_run_gap_analysis``: an interview is an
+    enhancement, and it must never be the reason a diagram doesn't get drawn.
+
+    ``prior_answers`` turns this into the follow-up round — the pack asks for
+    questions only where an answer opened something the first round could not
+    have known to ask, and for none otherwise.
+    """
+    system = load_interview_prompt_pack()
+    parts = [
+        f"Platform: {platform_key}",
+        f"Requested views: {', '.join(normalize_diagram_views(views))}",
+        f"User brief: {human_prompt[:_REQUEST_TRUNCATE_DOCS]}",
+        build_interview_prompt_block(prior_answers),
+    ]
+    if prior_answers:
+        parts.append(
+            "This is the follow-up round. Ask only what those answers opened; "
+            "return no questions otherwise. There is never a third round."
+        )
+    human = "\n".join(p for p in parts if p)
+    try:
+        plan = get_llm()(system, human, provider_key, InterviewPlan, logger, None)
+        if isinstance(plan, InterviewPlan):
+            questions = [
+                {"id": q.id or f"q{i + 1}", "prompt": q.prompt.strip(), "assumption": q.assumption}
+                for i, q in enumerate(plan.capped())
+            ]
+            if logger:
+                logger.log(
+                    "interview", f"Planned {len(questions)} question(s) for this brief",
+                    details={"questions": [q["prompt"] for q in questions],
+                             "follow_up": bool(prior_answers)},
+                )
+            return questions
+    except Exception as exc:
+        if logger:
+            logger.log(
+                "interview", f"Interview planning failed, using the fixed question set: {exc}",
+                level="warning",
+                details={"degraded": True, "feature": "Adaptive interview"},
+            )
+        # A follow-up round has nothing to fall back *to*: the fixed list was
+        # already asked, and asking it again would be worse than proceeding.
+        if prior_answers:
+            return []
+        return [dict(q) for q in INTERVIEW_QUESTIONS]
+    return []
 
 
 def _run_gap_analysis(

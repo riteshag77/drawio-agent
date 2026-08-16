@@ -333,10 +333,21 @@ async function sendMessage(options = {}) {
         };
 
         if (typeof window !== 'undefined' && window._awaitingInterview) {
-            chatBody.interview_answers = { answers: text };
+            // Merge, never replace. A follow-up round used to overwrite this
+            // object, so answering a second question silently threw away
+            // everything said in the first round — the diagram was then drawn
+            // from the follow-up alone. `_rounds` is what the server counts to
+            // stop after one follow-up.
+            const prior = (typeof window._interviewAnswersSoFar === 'object' && window._interviewAnswersSoFar)
+                ? window._interviewAnswersSoFar
+                : {};
+            const round = Number(prior._rounds || 0) + 1;
+            const merged = Object.assign({}, prior, { _rounds: String(round) });
+            merged['answers' + (round > 1 ? '_round' + round : '')] = text;
+            chatBody.interview_answers = merged;
             chatBody.architecture_interview = true;
             window._awaitingInterview = false;
-            pendingInterviewAnswers = { answers: text };
+            pendingInterviewAnswers = merged;
         } else if (pendingInterviewAnswers) {
             chatBody.interview_answers = pendingInterviewAnswers;
         }
@@ -367,6 +378,9 @@ async function sendMessage(options = {}) {
 
         if (data.interview_required) {
             window._awaitingInterview = true;
+            // Carry what has already been answered into the next send. Setting
+            // pendingInterviewAnswers to null here is what dropped round one.
+            window._interviewAnswersSoFar = data.interview_answers_so_far || {};
             pendingInterviewAnswers = null;
             const assistantText = data.assistant_message || 'Please answer the architecture interview questions.';
             chatMessages.push({ role: 'assistant', content: assistantText });

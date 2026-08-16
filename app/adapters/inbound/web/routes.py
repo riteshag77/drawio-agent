@@ -211,6 +211,28 @@ async def generate_diagram(body: PromptRequest, request: Request):
         )
 
 
+#: One follow-up, never a third — a user who has answered twice has earned
+#: their diagram (see config/xml_gen/interview.txt).
+_MAX_INTERVIEW_ROUNDS = 2
+
+
+def _interview_rounds(answers: dict[str, str] | None) -> int:
+    """How many rounds have already been answered.
+
+    Counted from the answers themselves rather than held server-side: the chat
+    endpoint is stateless per request, and a session store for a two-round form
+    would be the only stateful thing in the request path.
+    """
+    if not answers:
+        return 0
+    raw = str(answers.get("_rounds", "")).strip()
+    if raw.isdigit():
+        return int(raw)
+    # Answers present without a marker: the first round was answered by a
+    # client that predates the marker.
+    return 1
+
+
 async def _run_chat(body: ChatRequest, logger: StepLogger, *, on_progress=None) -> dict[str, Any]:
     platform = (body.platform or "aws").strip().lower()
     # A custom_provider payload always wins over `provider` — the pipeline routes
@@ -273,33 +295,56 @@ async def _run_chat(body: ChatRequest, logger: StepLogger, *, on_progress=None) 
 
         # Architecture interview — only when setting is on and answers not yet provided.
         # Skip when surgically editing an existing diagram (current_xml present).
+        # A second round is allowed exactly once — see interview.txt. `rounds`
+        # is carried on the answers themselves so the count survives the
+        # round-trip without a server session.
+        interview_rounds = _interview_rounds(body.interview_answers)
         if (
             intent != "simple"
             and body.architecture_interview
-            and not body.interview_answers
+            and interview_rounds < _MAX_INTERVIEW_ROUNDS
             and not (body.current_xml and len(body.current_xml) > 200)
         ):
-            from app.adapters.outbound.diagram.architecture_docs import INTERVIEW_QUESTIONS
-            questions = INTERVIEW_QUESTIONS
-            lines = [
-                "Before I draw the architecture, please answer these questions "
-                "(reply in one message):",
-                "",
-            ]
-            for i, q in enumerate(questions, start=1):
-                lines.append(f"{i}. {q['prompt']}")
-            msg = "\n".join(lines)
-            logger.log("interview", "Architecture interview required", details={"questions": len(questions)})
-            return {
-                "status": "success",
-                "interview_required": True,
-                "interview_questions": questions,
-                "assistant_message": msg,
-                "xml": None,
-                "diagram_type": None,
-                "suggestions": [],
-                "logs": logger.to_list(),
-            }
+            from app.core.services.xml_pipeline import plan_interview
+
+            questions = await asyncio.to_thread(
+                plan_interview,
+                human_prompt=body.message or "",
+                platform_key=(body.platform or "aws"),
+                views=body.diagram_views or ["logical"],
+                provider_key=provider,
+                logger=logger,
+                prior_answers=body.interview_answers or None,
+            )
+            # No questions is a real answer: the brief already says enough, or
+            # the follow-up round found nothing new. Fall through and draw.
+            if questions:
+                lines = [
+                    "Before I draw this, a few things that would change the diagram "
+                    "(reply in one message — say 'all fine' to take every default):",
+                    "",
+                ]
+                for i, q in enumerate(questions, start=1):
+                    lines.append(f"{i}. {q['prompt']}")
+                msg = "\n".join(lines)
+                logger.log(
+                    "interview", "Architecture interview required",
+                    details={"questions": len(questions), "round": interview_rounds + 1},
+                )
+                return {
+                    "status": "success",
+                    "interview_required": True,
+                    "interview_questions": questions,
+                    # Echoed back so the next request can carry both the round
+                    # count and the answers already given — without this a
+                    # second round silently discarded the first round's answers.
+                    "interview_answers_so_far": dict(body.interview_answers or {}),
+                    "assistant_message": msg,
+                    "xml": None,
+                    "diagram_type": None,
+                    "suggestions": [],
+                    "logs": logger.to_list(),
+                }
 
         if intent == "simple":
             if body.current_diagram_type == "simple" and body.current_xml:
