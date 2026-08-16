@@ -145,6 +145,47 @@ class EnvConfigAdapter:
         return (self.get("VIEW_LLM_PROVIDER", "") or "").strip()
 
     @property
+    def validation_enabled(self) -> bool:
+        """When true, a generated view is re-scored and re-generated while it
+        keeps measurably improving. Off by default: it costs an LLM call per
+        iteration, and the single corrective pass it replaces was free of that
+        choice."""
+        return self.get_bool("DIAGRAM_VALIDATION_ENABLED", False)
+
+    @property
+    def validation_max_iterations(self) -> int:
+        """How many *corrective* passes a view may take, on top of the first
+        generation. 0 disables the loop as surely as the flag does; the ceiling
+        is low because each one is a full view regeneration."""
+        return max(0, min(5, self.get_int("DIAGRAM_VALIDATION_MAX_ITERATIONS", 2)))
+
+    @property
+    def validation_provider(self) -> str:
+        """Provider key that performs validation passes; blank uses the same
+        provider that drew the diagram.
+
+        Separable because judging and drawing are different jobs: a cheaper
+        model is often enough to find the violations, and a stronger one is
+        sometimes worth it only for the retry.
+        """
+        return (self.get("DIAGRAM_VALIDATION_PROVIDER", "") or "").strip()
+
+    @property
+    def validation_min_improvement(self) -> int:
+        """Score points an iteration must gain to earn the next one.
+
+        **0 means "any measurable improvement"** — the loop continues while the
+        score is still going up and stops the moment it flattens or regresses.
+        That is the default, and it is the whole point of the setting: iterating
+        because a budget allows it, rather than because the diagram is getting
+        better, is how a pipeline burns tokens producing no change.
+
+        A positive value demands the gain be at least that big, which is how an
+        operator says "don't spend another call on a two-point win".
+        """
+        return max(0, min(100, self.get_int("DIAGRAM_VALIDATION_MIN_IMPROVEMENT", 0)))
+
+    @property
     def ssl_verify(self) -> bool:
         return self.get_bool("SSL_VERIFY", True)
 

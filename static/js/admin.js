@@ -45,7 +45,7 @@ function showAdminLogin() {
  * governance rule list never bleeds into view under Providers (or vice
  * versa). */
 function adminSwitchSection(section) {
-    ['providers', 'governance'].forEach((s) => {
+    ['providers', 'governance', 'validation'].forEach((s) => {
         const panel = document.getElementById(`admin-section-${s}`);
         const btn = document.getElementById(`admin-subnav-${s}`);
         if (panel) panel.hidden = s !== section;
@@ -166,6 +166,7 @@ async function adminLoadMain() {
     if (typeof adminGovernanceKindChanged === 'function') adminGovernanceKindChanged();
     if (typeof adminGovernanceViewChanged === 'function') adminGovernanceViewChanged();
     if (typeof adminLoadGovernanceRules === 'function') adminLoadGovernanceRules();
+    if (typeof adminLoadValidation === 'function') adminLoadValidation();
 }
 
 async function adminSaveProvider(key) {
@@ -236,6 +237,54 @@ async function adminSaveDefaultProvider() {
         adminLoadMain();
     } else {
         showToast('Could not save default provider.', 'error');
+    }
+}
+
+
+// ── Diagram validation loop ──────────────────────────────────────────────
+
+async function adminLoadValidation() {
+    const res = await adminFetch('/admin/validation');
+    if (!res.ok) return;
+    const data = await res.json();
+    const v = data.validation || {};
+    const enabled = document.getElementById('admin-validation-enabled');
+    const score = document.getElementById('admin-validation-min-score');
+    const iters = document.getElementById('admin-validation-max-iterations');
+    const gain = document.getElementById('admin-validation-min-improvement');
+    const provider = document.getElementById('admin-validation-provider');
+    if (enabled) enabled.checked = !!v.enabled;
+    if (score) score.value = v.min_score;
+    if (iters) iters.value = v.max_iterations;
+    if (gain) gain.value = v.min_improvement;
+    if (provider) {
+        // A blank option is meaningful, not a placeholder: it means "use the
+        // provider that drew the diagram".
+        provider.innerHTML = '<option value="">Same as generation</option>'
+            + (data.providers || []).map(
+                (k) => `<option value="${_escHtml(k)}">${_escHtml(k)}</option>`).join('');
+        provider.value = v.provider || '';
+    }
+}
+
+async function adminSaveValidation() {
+    const body = {
+        enabled: document.getElementById('admin-validation-enabled').checked,
+        min_score: Number(document.getElementById('admin-validation-min-score').value),
+        max_iterations: Number(document.getElementById('admin-validation-max-iterations').value),
+        min_improvement: Number(document.getElementById('admin-validation-min-improvement').value),
+        provider: document.getElementById('admin-validation-provider').value,
+    };
+    const res = await adminFetch('/admin/validation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    if (res.ok) {
+        showToast('Validation settings saved.', 'success');
+        adminLoadValidation();
+    } else {
+        showToast('Could not save validation settings.', 'error');
     }
 }
 

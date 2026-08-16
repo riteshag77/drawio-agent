@@ -164,6 +164,76 @@ async def admin_set_default_provider(body: DefaultProviderUpdate, x_admin_token:
     return {"status": "ok", "default_provider": key}
 
 
+# ── Diagram validation loop ──────────────────────────────────────────────
+# Re-score a generated view and regenerate it while it keeps measurably
+# improving. Every knob here is deliberately an *operator* decision: how many
+# calls a diagram is worth, which model does the judging, how much of a gain
+# earns another pass, and what "good enough" means in the first place.
+
+
+class ValidationSettingsUpdate(BaseModel):
+    enabled: bool | None = None
+    max_iterations: int | None = Field(default=None, ge=0, le=5)
+    #: Blank means "same provider that drew the diagram".
+    provider: str | None = Field(default=None, max_length=100)
+    #: 0 = continue on any measurable improvement.
+    min_improvement: int | None = Field(default=None, ge=0, le=100)
+    #: The quality gate itself — the score a view must reach to be accepted,
+    #: and therefore what the loop is iterating *toward*. Tuning the loop
+    #: without being able to move the target is half a control.
+    min_score: int | None = Field(default=None, ge=0, le=100)
+
+
+def _validation_settings() -> dict:
+    cfg = get_config()
+    return {
+        "enabled": cfg.validation_enabled,
+        "max_iterations": cfg.validation_max_iterations,
+        "provider": cfg.validation_provider,
+        "min_improvement": cfg.validation_min_improvement,
+        "min_score": cfg.view_quality_min_score,
+    }
+
+
+@router.get("/validation")
+async def admin_get_validation(x_admin_token: str | None = Header(default=None)) -> dict:
+    _require_admin(x_admin_token)
+    return {
+        "status": "ok",
+        "validation": _validation_settings(),
+        "providers": sorted(providers_module.PROVIDERS),
+    }
+
+
+@router.post("/validation")
+async def admin_update_validation(
+    body: ValidationSettingsUpdate, x_admin_token: str | None = Header(default=None),
+) -> dict:
+    _require_admin(x_admin_token)
+    if body.provider is not None:
+        key = body.provider.strip().lower()
+        # Blank is meaningful ("use the generation provider"), so it is the one
+        # value that skips the known-provider check.
+        if key and key not in providers_module.PROVIDERS:
+            raise HTTPException(status_code=400, detail="Unknown provider")
+        admin_settings_store.set_setting("DIAGRAM_VALIDATION_PROVIDER", key)
+    if body.enabled is not None:
+        admin_settings_store.set_setting(
+            "DIAGRAM_VALIDATION_ENABLED", "true" if body.enabled else "false",
+        )
+    if body.max_iterations is not None:
+        admin_settings_store.set_setting(
+            "DIAGRAM_VALIDATION_MAX_ITERATIONS", str(body.max_iterations),
+        )
+    if body.min_improvement is not None:
+        admin_settings_store.set_setting(
+            "DIAGRAM_VALIDATION_MIN_IMPROVEMENT", str(body.min_improvement),
+        )
+    if body.min_score is not None:
+        admin_settings_store.set_setting("VIEW_QUALITY_MIN_SCORE", str(body.min_score))
+    return {"status": "ok", "validation": _validation_settings()}
+
+
 # ── Governance / house-style rules ───────────────────────────────────────
 # Soft-enforcement only (see app/core/services/governance.py's module
 # docstring) — every rule created here feeds the existing semantic-warnings

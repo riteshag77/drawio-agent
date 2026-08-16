@@ -1583,13 +1583,16 @@ async def run_xml_pipeline(
         # Extra views for fresh multi-view are IR-only (same contract as primary).
         _require_ir_or_raise(view_key, context=f"{title} view")
 
-        async def _once(context: str | None) -> tuple[str, Any]:
+        async def _once(context: str | None, *, provider: str = "") -> tuple[str, Any]:
             xml = await run_llm_sync(
                 _generate_ir_view_page,
                 human_prompt=human_prompt,
                 platform_key=platform_key,
                 primary_xml=primary_xml_snapshot,
-                provider_key=view_provider,
+                # Validation passes may run on their own provider — judging and
+                # drawing are different jobs, and an operator may want a
+                # stronger (or cheaper) model for only the corrections.
+                provider_key=provider or view_provider,
                 view=view_key,
                 logger=logger,
                 context_text=context,
@@ -1608,9 +1611,17 @@ async def run_xml_pipeline(
             )
 
         page_xml, scored = await _once(enriched_context)
-        # One corrective IR retry when below VIEW_QUALITY_MIN_SCORE, then keep
-        # the best attempt (soft-degrade) rather than dropping the tab.
-        if not scored.passes:
+        # Corrective passes, while the view keeps measurably improving. The
+        # loop below reduces to exactly the previous behaviour — one retry,
+        # keep the better attempt — when validation is off, which is the
+        # default; see EnvConfigAdapter.validation_* for what each knob means.
+        max_iterations = (
+            cfg.validation_max_iterations if cfg.validation_enabled else 1
+        )
+        min_gain = cfg.validation_min_improvement if cfg.validation_enabled else 0
+        iteration = 0
+        while not scored.passes and iteration < max_iterations:
+            iteration += 1
             feedback = "; ".join(
                 (v.message or v.code) for v in (scored.violations or [])[:6]
             ) or "raise leaf density and fix viewpoint violations"
@@ -1625,27 +1636,51 @@ async def run_xml_pipeline(
                 ) if p
             )
             try:
-                retry_xml, scored2 = await _once(retry_ctx or None)
-                if scored2.score >= scored.score:
-                    page_xml, scored = retry_xml, scored2
-                    if logger:
-                        logger.log(
-                            "views",
-                            f"{title} quality retry scored {scored.score}",
-                            level="info" if scored.passes else "warning",
-                            details={
-                                "score": scored.score,
-                                "violations": [v.code for v in scored.violations][:8],
-                                "retry": True,
-                            },
-                        )
+                retry_xml, retry_scored = await _once(
+                    retry_ctx or None,
+                    provider=cfg.validation_provider if cfg.validation_enabled else "",
+                )
             except Exception as exc:
                 if logger:
                     logger.log(
-                        "views",
-                        f"{title} quality retry failed: {exc}",
-                        level="warning",
+                        "views", f"{title} quality retry failed: {exc}", level="warning",
                     )
+                break
+
+            gain = retry_scored.score - scored.score
+            # Keep any attempt that is not worse — a tie already cost the call,
+            # and the later attempt was generated against the violation list.
+            if gain >= 0:
+                page_xml, scored = retry_xml, retry_scored
+            if logger:
+                logger.log(
+                    "views",
+                    f"{title} validation pass {iteration} scored {retry_scored.score} "
+                    f"({gain:+d})",
+                    level="info" if retry_scored.passes else "warning",
+                    details={
+                        "score": retry_scored.score,
+                        "gain": gain,
+                        "iteration": iteration,
+                        "violations": [v.code for v in retry_scored.violations][:8],
+                        "retry": True,
+                    },
+                )
+            # Stop unless this pass earned the next one. With min_gain == 0 that
+            # means *any* measurable improvement; a positive threshold demands
+            # the gain be at least that big. Iterating because a budget allows
+            # it rather than because the diagram is getting better is how a
+            # pipeline burns calls producing no change.
+            if gain <= 0 or gain < min_gain:
+                if logger and iteration < max_iterations:
+                    logger.log(
+                        "views",
+                        f"{title} validation stopped after pass {iteration}: "
+                        f"gain {gain:+d} did not meet the "
+                        f"{'any-improvement' if min_gain == 0 else f'{min_gain}-point'} bar",
+                        details={"gain": gain, "min_improvement": min_gain},
+                    )
+                break
 
         if logger:
             codes = [v.code for v in scored.violations][:8]
