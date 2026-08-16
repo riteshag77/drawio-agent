@@ -190,6 +190,42 @@ class ServiceKeyDriftTests(unittest.TestCase):
                     )
 
 
+class AdvisoryPreconditionTests(unittest.TestCase):
+    """Advice with no precondition is a slogan, and a panel that mixes real
+    findings with horoscopes trains people to skim past both."""
+
+    def _advisory(self, xml: str) -> list[str]:
+        result = assess_well_architected(xml, platform="aws")
+        return [
+            f["message"]
+            for p in result["pillars"] if p["name"].startswith(("Cost", "Sustain"))
+            for f in p["findings"] if f.get("kind") != "strength"
+        ]
+
+    def test_an_already_serverless_diagram_is_not_told_to_go_serverless(self) -> None:
+        xml = _xml_with_services("aws_lambda", "aws_dynamodb", "aws_s3")
+        self.assertEqual(self._advisory(xml), [])
+
+    def test_a_diagram_with_no_compute_at_all_gets_no_compute_advice(self) -> None:
+        self.assertEqual(self._advisory(_xml_with_services("aws_s3")), [])
+
+    def test_always_on_compute_still_gets_the_advice(self) -> None:
+        messages = self._advisory(_xml_with_services("aws_ec2", "aws_rds"))
+        self.assertTrue([m for m in messages if "serverless" in m.lower()], messages)
+
+    def test_strengths_are_tagged_and_carry_no_recommendation(self) -> None:
+        """A strength is what the diagram got right — it must be
+        distinguishable from the findings it sits among, and must never become
+        an actionable checkbox in the panel."""
+        result = assess_well_architected(_xml_with_services("aws_kms"), platform="aws")
+        strengths = [
+            f for p in result["pillars"] for f in p["findings"] if f.get("kind") == "strength"
+        ]
+        self.assertTrue(strengths)
+        for strength in strengths:
+            self.assertNotIn("recommendation", strength)
+
+
 class TopologyFindingTests(unittest.TestCase):
     """Findings about how the diagram is wired, not what is on it."""
 

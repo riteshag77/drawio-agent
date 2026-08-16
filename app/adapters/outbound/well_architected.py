@@ -115,6 +115,28 @@ def _applies_to_platform(rec: dict[str, Any], platform: str) -> bool:
     return any(s.startswith(platform + "_") for s in rec["services"])
 
 
+def _precondition_met(rec: dict[str, Any], services: list[str]) -> bool:
+    """Whether the diagram contains the thing this recommendation would improve.
+
+    Advice with no precondition is a slogan. "Consider serverless for a lower
+    carbon footprint" fired on every diagram without a Lambda — including one
+    that was *already entirely serverless*, and one that drew no compute at
+    all. Neither reader learned anything, and a panel that mixes real findings
+    with horoscopes trains people to skim past both.
+
+    ``requires`` names the substrings that have to be present for the advice to
+    mean something: suggest replacing always-on compute only where there is
+    always-on compute to replace. A rec with no ``requires`` is unconditional,
+    which is right for the controls (a WAF is worth asking about on any
+    internet-facing design).
+    """
+    requires = rec.get("requires") or ()
+    if not requires:
+        return True
+    lowered = [s.lower() for s in services]
+    return any(need in service for need in requires for service in lowered)
+
+
 def _matches_marker(rec: dict[str, Any], services: list[str]) -> bool:
     """Whether any service *looks like* what ``rec`` is asking for.
 
@@ -147,6 +169,11 @@ def _pillar_findings(pillar_key: str, services: list[str], platform: str) -> lis
 
     if matched:
         findings.append({
+            # Tagged so a reader (and the UI) can tell this apart from the
+            # findings around it: it is what the diagram got *right*, carries
+            # no recommendation, and is deliberately incapable of moving the
+            # pillar's status.
+            "kind": "strength",
             "severity": "low",
             "message": f"Good practices detected: {', '.join(matched[:4])}",
         })
@@ -154,6 +181,8 @@ def _pillar_findings(pillar_key: str, services: list[str], platform: str) -> lis
     missing = _MISSING_RECOMMENDATIONS.get(pillar_key, [])
     for rec in missing:
         if not _applies_to_platform(rec, platform):
+            continue
+        if not _precondition_met(rec, services):
             continue
         # Satisfied by *any* listed equivalent, not just this platform's: a
         # diagram labelled `aws` that fronts its app with Cloud Armor has still
@@ -244,12 +273,14 @@ _MISSING_RECOMMENDATIONS: dict[str, list[dict[str, Any]]] = {
         {
             "severity": "medium",
             "services": ["aws_lambda", "azure_functions", "gcp_cloud_functions"],
+            "requires": ("ec2", "virtual_machine", "compute_engine", "_vm", "instance"),
             "message": "No serverless compute detected — consider for cost savings",
             "recommendation": "Use serverless for variable workloads to reduce costs",
         },
         {
             "severity": "low",
             "services": ["aws_s3", "azure_storage_account", "gcp_cloud_storage"],
+            "requires": ("rds", "aurora", "sql", "dynamodb", "database", "datastore"),
             "message": "Consider object storage for cost-effective data",
             "recommendation": "Use S3/Blob Storage for archival and static content",
         },
@@ -278,6 +309,7 @@ _MISSING_RECOMMENDATIONS: dict[str, list[dict[str, Any]]] = {
         {
             "severity": "low",
             "services": ["aws_lambda", "azure_functions", "gcp_cloud_functions"],
+            "requires": ("ec2", "virtual_machine", "compute_engine", "_vm", "instance"),
             "message": "Consider serverless for lower carbon footprint",
             "recommendation": "Serverless functions reduce idle resource waste",
         },
