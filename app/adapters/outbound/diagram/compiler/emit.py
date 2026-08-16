@@ -35,6 +35,7 @@ class CellWriter:
         shape_type: str | None = None,
         criticality: str | None = None,
         tier: str | None = None,
+        actor_kind: str | None = None,
     ) -> None:
         attrs = {
             "id": id,
@@ -55,6 +56,13 @@ class CellWriter:
         # a label changes. Analysis (well_architected.topology) reads this.
         if tier:
             attrs["tier"] = tier
+        # actor_kind marks what sits *outside* the architecture's boundary.
+        # Analysis needs to tell "a user on the internet" from "a service in a
+        # subnet" to say anything about ingress at all, and the only other
+        # signals are the actor's stencil and the fact that it has no container
+        # — both accidents of rendering rather than statements of role.
+        if actor_kind:
+            attrs["actor_kind"] = actor_kind
         # Stamped only when non-default: "standard" is the overwhelming common
         # case, and an attribute that's always present either way is noise a
         # reader of the raw XML has to filter past to find the leaves that

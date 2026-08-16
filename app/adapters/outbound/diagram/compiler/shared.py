@@ -154,6 +154,7 @@ def emit_external_actors(
                     style=theme.actor_style(actor.kind),
                     x=x, y=y, w=geo.LEAF_W, h=geo.LEAF_H,
                     parent="1",
+                    actor_kind=actor.kind,
                 )
                 placed_y = y + geo.LEAF_H + geo.LABEL_BAND_H + geo.ACTOR_GAP_Y
             continue
@@ -164,6 +165,7 @@ def emit_external_actors(
                 style=theme.actor_style(actor.kind),
                 x=x, y=y, w=geo.LEAF_W, h=geo.LEAF_H,
                 parent="1",
+                actor_kind=actor.kind,
             )
             y += geo.LEAF_H + geo.LABEL_BAND_H + geo.ACTOR_GAP_Y
 

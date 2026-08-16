@@ -306,6 +306,111 @@ class TopologyFindingTests(unittest.TestCase):
         self.assertFalse([m for m in messages if "public subnet" in m], messages)
 
 
+class IngressPathTests(unittest.TestCase):
+    """What a request from outside actually touches on its way in — a question
+    about the path, not the service list."""
+
+    def _compiled(self, *, route: str) -> str:
+        from app.adapters.outbound.diagram.compiler.network import compile_network_ir
+        from app.domain.ir import (
+            AvailabilityZone, CloudBoundary, EdgeLayer, ExternalActor, Flow, Leaf,
+            NetworkIR, Region, Subnet, Vpc,
+        )
+
+        zone = AvailabilityZone(id="az1", label="us-east-1a", subnets=[
+            Subnet(id="pub", tier="public", leaves=[
+                Leaf(id="alb", shape_type="aws_application_load_balancer", label="ALB"),
+            ]),
+            Subnet(id="app", tier="app", leaves=[
+                Leaf(id="svc", shape_type="aws_ecs", label="Checkout"),
+            ]),
+        ])
+        edge = EdgeLayer(id="edge", label="Edge", leaves=[
+            Leaf(id="waf", shape_type="aws_waf", label="WAF"),
+        ]) if route != "no_control" else None
+        ir = NetworkIR(
+            cloud=CloudBoundary(
+                id="cloud", label="AWS Cloud", edge_layer=edge,
+                regions=[Region(id="r", label="us-east-1", vpcs=[Vpc(id="vpc", zones=[zone])])],
+            ),
+            platform="aws",
+            external_actors=[ExternalActor(id="users", kind="users", label="Users")],
+        )
+        if route == "direct":
+            ir.flows = [Flow(source="users", target="svc", label="HTTPS")]
+        elif route == "screened":
+            ir.flows = [
+                Flow(source="users", target="waf", label="HTTPS"),
+                Flow(source="waf", target="alb", label="fwd"),
+                Flow(source="alb", target="svc", label="HTTPS"),
+            ]
+        else:  # "bypass" and "no_control"
+            ir.flows = [
+                Flow(source="users", target="alb", label="HTTPS"),
+                Flow(source="alb", target="svc", label="HTTPS"),
+            ]
+        return compile_network_ir(ir)
+
+    def _security(self, route: str) -> list[str]:
+        result = assess_well_architected(self._compiled(route=route), platform="aws")
+        security = next(p for p in result["pillars"] if p["name"] == "Security")
+        return [f["message"] for f in security["findings"] if f.get("kind") != "strength"]
+
+    def test_a_screened_path_is_clean(self) -> None:
+        messages = self._security("screened")
+        self.assertFalse([m for m in messages if "without passing" in m], messages)
+        self.assertFalse([m for m in messages if "directly" in m], messages)
+
+    def test_a_path_that_skips_the_edge_control_is_reported_with_its_route(self) -> None:
+        messages = self._security("bypass")
+        hit = [m for m in messages if "without passing" in m]
+        self.assertTrue(hit, messages)
+        # The route is the whole value of the finding — a reviewer should not
+        # have to go and trace it themselves.
+        self.assertIn("Users", hit[0])
+        self.assertIn("ALB", hit[0])
+        self.assertIn("Checkout", hit[0])
+
+    def test_an_external_actor_landing_on_an_internal_tier_is_reported(self) -> None:
+        messages = self._security("direct")
+        self.assertTrue([m for m in messages if "directly" in m], messages)
+
+    def test_no_bypass_finding_when_the_page_has_no_edge_control(self) -> None:
+        """"You have no WAF" is the presence check's sentence. Saying it again
+        in path vocabulary is how a report stops being read."""
+        messages = self._security("no_control")
+        self.assertFalse([m for m in messages if "without passing" in m], messages)
+
+    def test_a_diagram_with_no_external_actors_produces_no_ingress_findings(self) -> None:
+        result = assess_well_architected(_xml_with_services("aws_ecs", "aws_rds"), platform="aws")
+        security = next(p for p in result["pillars"] if p["name"] == "Security")
+        messages = [f["message"] for f in security["findings"]]
+        self.assertFalse([m for m in messages if "reaches" in m], messages)
+
+
+class PathWalkerTests(unittest.TestCase):
+    def test_a_cycle_does_not_hang_the_walker(self) -> None:
+        """Architecture diagrams are not DAGs — a retry arrow, a bidirectional
+        link and a hub-and-spoke all produce cycles, and a walker that assumes
+        otherwise hangs on exactly the diagrams that most need checking."""
+        from app.adapters.outbound.waf_topology import read_topology
+
+        cells = "".join([
+            '<mxCell id="a" vertex="1" parent="1"/>',
+            '<mxCell id="b" vertex="1" parent="1"/>',
+            '<mxCell id="c" vertex="1" parent="1"/>',
+            '<mxCell id="e1" edge="1" parent="1" source="a" target="b"/>',
+            '<mxCell id="e2" edge="1" parent="1" source="b" target="c"/>',
+            '<mxCell id="e3" edge="1" parent="1" source="c" target="a"/>',
+        ])
+        topo = read_topology(
+            f'<mxfile><diagram><mxGraphModel><root>{cells}</root></mxGraphModel></diagram></mxfile>'
+        )
+        paths = topo.paths_from("a", stop_at={"c"})
+        self.assertTrue(paths)
+        self.assertTrue(all(len(set(p)) == len(p) for p in paths), paths)
+
+
 class CatalogDriftTests(unittest.TestCase):
     """The six pillar service sets and _MISSING_RECOMMENDATIONS are a
     hand-maintained mirror of the icon catalogs — same drift risk as

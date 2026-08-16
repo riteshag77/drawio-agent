@@ -331,6 +331,18 @@ _DATASTORE_MARKERS: tuple[str, ...] = (
 #: Classifications that make an unprotected flow a reportable finding.
 _SENSITIVE = frozenset({"pii", "pci"})
 
+#: Leaf ``shape_type`` fragments for a control that inspects or filters traffic
+#: at the edge. Anything here counts as "the request was screened" for the
+#: bypass check — deliberately broad, because the check's job is to find the
+#: path with *nothing* on it, not to arbitrate which product is the better
+#: gatekeeper.
+_EDGE_CONTROL_MARKERS: tuple[str, ...] = (
+    "waf", "firewall", "cloud_armor", "shield", "front_door",
+    "application_gateway", "api_gateway", "apigateway",
+)
+#: Tiers that should never be the first thing a request from outside touches.
+_INTERNAL_TIERS = frozenset({"app", "data"})
+
 
 def _is_datastore(shape_type: str) -> bool:
     lowered = (shape_type or "").lower()
@@ -377,6 +389,8 @@ def _topology_findings(pillar_key: str, topo: "Topology") -> list[dict[str, str]
                     "recommendation": "Terminate this flow over TLS (or mTLS between services)",
                 })
 
+        findings.extend(_ingress_findings(topo))
+
     if pillar_key == "reliability":
         zones = topo.zone_count()
         data_leaves = [n for n in topo.leaves() if _is_datastore(n.shape_type)]
@@ -399,6 +413,82 @@ def _topology_findings(pillar_key: str, topo: "Topology") -> list[dict[str, str]
                 "recommendation": "Add a replica or standby so a zone loss does not lose the data tier",
             })
 
+    return findings
+
+
+def _is_edge_control(shape_type: str) -> bool:
+    lowered = (shape_type or "").lower()
+    return any(marker in lowered for marker in _EDGE_CONTROL_MARKERS)
+
+
+def _ingress_findings(topo: "Topology") -> list[dict[str, str]]:
+    """What a request from outside actually touches on its way in.
+
+    Two questions, both about the *path* and neither answerable from a service
+    list: does traffic from the internet land straight on an internal tier, and
+    does it reach one without passing anything that inspects it.
+
+    The second is scoped to diagrams that *have* an edge control somewhere.
+    "You have a WAF and it isn't in the request path" is a design error worth
+    interrupting someone for. "You have no WAF" is the presence check's
+    sentence to say, and saying it twice in two vocabularies is how a report
+    stops being read.
+    """
+    findings: list[dict[str, str]] = []
+    actors = topo.external_actors()
+    if not actors:
+        return findings
+
+    internal = {n.id for n in topo.leaves() if topo.tier_of(n.id) in _INTERNAL_TIERS}
+    if not internal:
+        return findings
+    has_edge_control = any(_is_edge_control(n.shape_type) for n in topo.leaves())
+
+    reported_direct: set[tuple[str, str]] = set()
+    reported_bypass: set[str] = set()
+    for actor in actors:
+        for path in topo.paths_from(actor.id, stop_at=internal):
+            landing = path[-1]
+            if landing not in internal:
+                continue
+            hops = path[1:-1]
+
+            if not hops and (actor.id, landing) not in reported_direct:
+                reported_direct.add((actor.id, landing))
+                target = topo.nodes.get(landing)
+                findings.append({
+                    "severity": "high",
+                    "message": (
+                        f"'{_name(actor, actor.id)}' reaches "
+                        f"'{_name(target, landing)}' directly, with nothing in between"
+                    ),
+                    "recommendation": (
+                        "Front the internal tier with a load balancer or gateway so traffic "
+                        "from outside terminates at the edge"
+                    ),
+                })
+                continue
+
+            screened = any(
+                _is_edge_control(topo.nodes[h].shape_type) for h in hops if h in topo.nodes
+            )
+            if has_edge_control and not screened and landing not in reported_bypass:
+                reported_bypass.add(landing)
+                target = topo.nodes.get(landing)
+                route = " → ".join(
+                    _name(topo.nodes.get(node_id), node_id) for node_id in path
+                )
+                findings.append({
+                    "severity": "high",
+                    "message": (
+                        f"Traffic reaches '{_name(target, landing)}' without passing the "
+                        f"edge control on this page ({route})"
+                    ),
+                    "recommendation": (
+                        "Route this path through the WAF/gateway as well, or remove the "
+                        "path if it is not real"
+                    ),
+                })
     return findings
 
 

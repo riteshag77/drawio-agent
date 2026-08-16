@@ -43,6 +43,12 @@ class Node:
     tier: str
     parent: str
     criticality: str
+    actor_kind: str = ""
+
+    @property
+    def is_external(self) -> bool:
+        """Outside the architecture's own boundary — a user, a partner, a SaaS."""
+        return bool(self.actor_kind)
 
 
 @dataclass(frozen=True)
@@ -95,6 +101,48 @@ class Topology:
     def leaves_in_tier(self, tier: str) -> list[Node]:
         return [n for n in self.leaves() if self.tier_of(n.id) == tier]
 
+    def external_actors(self) -> list[Node]:
+        return [n for n in self.nodes.values() if n.is_external]
+
+    def paths_from(
+        self, start: str, *, stop_at: set[str], max_depth: int = 12,
+    ) -> list[list[str]]:
+        """Every forward path out of ``start``, cut where it enters ``stop_at``.
+
+        Returns the node ids along each path *including* the stopping node, so
+        a caller can ask both "where does traffic from the internet end up?"
+        and "what did it pass through on the way?".
+
+        Breadth-limited and visited-guarded per path: an architecture diagram
+        is not a DAG (a retry arrow, a bidirectional link and a hub-and-spoke
+        all produce cycles), and a path walker that assumes otherwise hangs on
+        exactly the diagrams that most need checking. ``max_depth`` bounds the
+        pathological fan-out case rather than describing a real limit.
+        """
+        outgoing: dict[str, list[str]] = {}
+        for edge in self.edges:
+            outgoing.setdefault(edge.source, []).append(edge.target)
+
+        complete: list[list[str]] = []
+        queue: list[list[str]] = [[start]]
+        while queue:
+            path = queue.pop()
+            if len(path) > max_depth:
+                continue
+            tail = path[-1]
+            nexts = [n for n in outgoing.get(tail, []) if n not in path]
+            if not nexts:
+                if len(path) > 1:
+                    complete.append(path)
+                continue
+            for nxt in nexts:
+                extended = [*path, nxt]
+                if nxt in stop_at:
+                    complete.append(extended)
+                else:
+                    queue.append(extended)
+        return complete
+
     def zone_count(self) -> int:
         """How many availability zones the page draws.
 
@@ -141,6 +189,7 @@ def read_topology(xml: str) -> Topology:
             tier=cell.get("tier") or "",
             parent=cell.get("parent") or "",
             criticality=cell.get("criticality") or "standard",
+            actor_kind=cell.get("actor_kind") or "",
         )
     return topology
 
