@@ -60,6 +60,7 @@ controls:
   availability:
     name: "Availability"
     description: "A1.1 — maintain availability of system for operation and use per commitments"
+    topology_check: multi_az
     severity: medium
     recommendation: "Deploy services across multiple AZs with load balancing and auto-scaling"
     affected_categories:

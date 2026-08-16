@@ -73,6 +73,7 @@ controls:
   incident_response:
     name: "Incident Response"
     description: "Section 5 — establish and maintain incident response plan for cybersecurity events"
+    assessment: process
     severity: medium
     recommendation: "Enable monitoring, alerting, and automated incident response workflows"
     affected_categories: []

@@ -1031,7 +1031,14 @@ function switchComplianceTab(fwId) {
     } else {
         controls.forEach(function (ctrl, ctrlIdx) {
             var statusClass = ctrl.status || 'pass';
-            var icon = statusClass === 'pass' ? '&#x2713;' : statusClass === 'warn' ? '&#x26A0;' : '&#x2717;';
+            // 'not_assessed' is a control a *diagram* cannot answer — a breach
+            // notification process, an incident-response programme. It used to
+            // be failed for the absence of an icon, which is how a report
+            // teaches people to discount it.
+            var icon = statusClass === 'pass' ? '&#x2713;'
+                : statusClass === 'warn' ? '&#x26A0;'
+                : statusClass === 'not_assessed' ? '&#x2013;'
+                : '&#x2717;';
             html += '<div class="compliance-control-card ' + statusClass + '">';
             html += '<div class="compliance-control-header">';
             html += '<span class="compliance-control-status compliance-status-' + statusClass + '">' + icon + '</span>';

@@ -227,3 +227,51 @@ class TopologyEvidenceTests(unittest.TestCase):
         control = self._control(xml, "encryption_in_transit")
         self.assertEqual(control["assessed_from"], "service_presence")
         self.assertEqual(control["evidence"], "")
+
+
+class NotAssessableControlTests(unittest.TestCase):
+    """A control a *diagram* cannot answer must not be failed for the absence
+    of an icon. A perfectly good GDPR diagram was told it failed "Breach
+    Notification" because it didn't draw GuardDuty — which is how a report
+    teaches someone to discount every other line in it."""
+
+    def _gdpr(self, xml: str) -> dict:
+        return assess_compliance(xml, platform="aws", frameworks=["gdpr"])["frameworks"]["gdpr"]
+
+    def test_a_process_control_is_reported_as_not_assessed(self) -> None:
+        fw = self._gdpr(_xml_with_services("aws_kms", "aws_iam", "aws_cloudtrail", "aws_rds"))
+        breach = next(c for c in fw["controls"] if c["id"] == "breach_notification")
+        self.assertEqual(breach["status"], "not_assessed")
+        self.assertEqual(breach["findings"], [])
+
+    def test_it_is_out_of_the_denominator_not_just_the_failures(self) -> None:
+        """'5/6 passing' with one marked not-assessed reads as a missing mark
+        rather than a control that was never in scope for this artifact."""
+        fw = self._gdpr(_xml_with_services("aws_kms", "aws_iam", "aws_cloudtrail", "aws_rds"))
+        self.assertIn("not assessable", fw["summary"])
+        self.assertNotIn("/6", fw["summary"])
+
+    def test_it_cannot_drag_the_framework_to_fail(self) -> None:
+        fw = self._gdpr(_xml_with_services("aws_kms", "aws_iam", "aws_cloudtrail", "aws_rds"))
+        statuses = {c["status"] for c in fw["controls"]}
+        self.assertIn("not_assessed", statuses)
+        self.assertNotEqual(fw["overall_status"], "fail")
+
+    def test_every_process_control_declares_itself(self) -> None:
+        """The tag is what keeps this honest — a control with no
+        `assessment: process` is claiming a diagram can answer it."""
+        import yaml
+        from pathlib import Path
+
+        flagged = []
+        for path in sorted((Path(__file__).resolve().parent.parent / "config" / "compliance").glob("*.yaml")):
+            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            for ctrl_id, ctrl in (data.get("controls") or {}).items():
+                if ctrl.get("assessment") == "process":
+                    flagged.append(f"{path.stem}.{ctrl_id}")
+        # The three known programme-level controls across the five frameworks.
+        self.assertEqual(
+            sorted(flagged),
+            ["gdpr.breach_notification", "naic.incident_response",
+             "pci_dss.vulnerability_management"],
+        )

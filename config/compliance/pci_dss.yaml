@@ -73,6 +73,7 @@ controls:
   vulnerability_management:
     name: "Vulnerability Management"
     description: "Requirement 6 — develop and maintain secure systems and applications"
+    assessment: process
     severity: medium
     recommendation: "Implement vulnerability scanning and patch management for all CDE resources"
     affected_categories: []

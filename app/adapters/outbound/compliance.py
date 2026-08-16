@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 from functools import lru_cache
@@ -197,9 +198,56 @@ def _check_segmentation(topo: "Topology") -> "tuple[bool, str] | None":
     return True, "data tier is separated from the public subnet"
 
 
+def _check_multi_az(topo: "Topology") -> "tuple[bool, str] | None":
+    """Availability, as the drawing states it rather than as an icon implies it.
+
+    SOC 2's availability criterion was satisfied by "there is a load balancer
+    or an RDS on the page" — true of a single-AZ deployment with nothing to
+    fail over to.
+    """
+    zones = topo.zone_count()
+    if not zones:
+        return None
+    if zones > 1:
+        return True, f"workload spans {zones} availability zones"
+    return False, "single availability zone — nothing to fail over to"
+
+
+def _check_data_residency(topo: "Topology") -> "tuple[bool, str] | None":
+    """Residency is about *where*, and the region is on the page.
+
+    The rule was "does the diagram contain S3 or RDS" — which is storage, not
+    residency, and passed for data sitting anywhere on earth. This reports the
+    regions actually drawn so a reviewer can judge them; it cannot know which
+    jurisdictions the data is allowed in, so it never fails a named region —
+    it fails only when no region is stated at all, which is the one thing that
+    definitely cannot be reviewed.
+    """
+    regions = [
+        n.label.strip() for n in topo.nodes.values()
+        if n.label and _REGION_PATTERN.search(n.label)
+    ]
+    if regions:
+        return True, "region(s) stated on the diagram: " + ", ".join(sorted(set(regions))[:4])
+    if not topo.nodes:
+        return None
+    return False, "no region is named on the diagram, so residency cannot be reviewed"
+
+
+#: Region labels as every cloud writes them — "us-east-1", "europe-west4",
+#: "australiaeast". Matched on the label because that is where a compiler puts
+#: it (``Region.label``), and a reviewer reads the same string.
+_REGION_PATTERN = re.compile(
+    r"\b((us|eu|ap|sa|ca|me|af|il)-[a-z]+-\d|"
+    r"(europe|asia|australia|northamerica|southamerica|africa)[- ]?[a-z]+\d?)\b",
+    re.IGNORECASE,
+)
+
 _TOPOLOGY_CHECKS = {
     "transit_encryption": _check_transit_encryption,
     "segmentation": _check_segmentation,
+    "multi_az": _check_multi_az,
+    "data_residency": _check_data_residency,
 }
 
 
@@ -230,6 +278,25 @@ def _analyze_rule_based(
                 has_affected_services = False
 
         if not has_affected_services:
+            continue
+
+        # A control a *diagram* cannot answer — a breach-notification process,
+        # an incident-response programme, a patching regime. These were failed
+        # for the absence of an icon: a perfectly good GDPR diagram was told it
+        # failed "Breach Notification" because it didn't draw GuardDuty. The
+        # architecture can support such a programme but can never evidence it,
+        # so the honest report is "not assessed", excluded from the pass/fail
+        # tally rather than counted against the design.
+        if ctrl.get("assessment") == "process":
+            controls_result.append({
+                "id": ctrl_id,
+                "name": ctrl.get("name", ctrl_id),
+                "status": "not_assessed",
+                "findings": [],
+                "evidence": "",
+                "assessed_from": "not_assessable_from_a_diagram",
+                "note": ctrl.get("recommendation", ""),
+            })
             continue
 
         required = _get_platform_services(fw_config, ctrl_id, platform)
@@ -287,11 +354,17 @@ def _analyze_rule_based(
         overall = "pass"
 
     summary_parts = []
-    total_controls = len(controls_result)
+    # Controls a diagram cannot answer are out of the denominator as well as out
+    # of the failures: "5/6 passing" with one marked not-assessed reads as a
+    # missing mark rather than as a control that was never in scope here.
+    total_controls = sum(1 for c in controls_result if c["status"] != "not_assessed")
+    not_assessed = len(controls_result) - total_controls
     if total_pass > 0:
         summary_parts.append(f"{total_pass}/{total_controls} controls passing")
     if total_fail > 0:
         summary_parts.append(f"{total_fail} failing")
+    if not_assessed:
+        summary_parts.append(f"{not_assessed} not assessable from a diagram")
 
     return {
         "name": fw_config.get("name", fw_id),
@@ -410,11 +483,16 @@ def _merge_llm_findings(
 
     for fw_id in rule_results:
         fw = rule_results[fw_id]
-        total = len(fw.get("controls", []))
+        # Controls a diagram cannot answer are out of the denominator as well
+        # as out of the failures — "5/6 passing" with one of the six marked
+        # not-assessed reads as a missing mark rather than as a control that
+        # was never in scope for this artifact.
+        assessable = [c for c in fw.get("controls", []) if c["status"] != "not_assessed"]
+        total = len(assessable)
         if total == 0:
             continue
-        fails = sum(1 for c in fw["controls"] if c["status"] == "fail")
-        warns = sum(1 for c in fw["controls"] if c["status"] == "warn")
+        fails = sum(1 for c in assessable if c["status"] == "fail")
+        warns = sum(1 for c in assessable if c["status"] == "warn")
         passes = total - fails - warns
         if fails > 0:
             fw["overall_status"] = "fail"
@@ -422,7 +500,7 @@ def _merge_llm_findings(
             fw["overall_status"] = "warn"
         else:
             fw["overall_status"] = "pass"
-        fw["summary"] = f"{passes}/{total} controls passing" + (f", {fails} failing" if fails else "")
+        fw["summary"] = f"{passes}/{total} assessable controls passing" + (f", {fails} failing" if fails else "")
 
     return rule_results
 

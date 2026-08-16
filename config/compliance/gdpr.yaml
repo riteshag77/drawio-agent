@@ -61,6 +61,7 @@ controls:
   data_residency:
     name: "Data Residency"
     description: "Articles 44-49 — transfers of personal data to third countries require adequate safeguards"
+    topology_check: data_residency
     severity: high
     recommendation: "Use regional services and data classification to control personal data residency"
     affected_categories:
@@ -74,6 +75,7 @@ controls:
   breach_notification:
     name: "Breach Notification"
     description: "Articles 33-34 — detect, report, and notify data breaches within 72 hours"
+    assessment: process
     severity: medium
     recommendation: "Enable CloudWatch/Monitor alerts and automated incident response workflows"
     affected_categories: []
