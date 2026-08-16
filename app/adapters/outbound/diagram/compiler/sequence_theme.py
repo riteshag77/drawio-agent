@@ -220,6 +220,46 @@ def band_chip_style(index: int) -> str:
     )
 
 
+def fragment_frame_style() -> str:
+    """The box around a conditional/repeated block.
+
+    Unfilled, deliberately: a fragment sits *inside* a phase band and around
+    live messages, so any fill would either hide the band it is in or wash out
+    the arrows it contains. It is a border and nothing else.
+    """
+    return (
+        f"rounded=0;html=1;fillColor=none;strokeColor={_INK_MUTED};strokeWidth=1;"
+        "verticalAlign=top;align=left;"
+    )
+
+
+def fragment_tab_style() -> str:
+    """The operator label ("alt", "opt", "loop", "par") in the frame's corner.
+
+    A filled tab rather than bare text: it sits on the frame's own border line,
+    and text alone there reads as a message label that has drifted.
+    """
+    return (
+        f"rounded=0;whiteSpace=nowrap;html=1;fillColor=#FFFFFF;strokeColor={_INK_MUTED};"
+        f"strokeWidth=1;fontColor={_TEXT};fontSize=10;fontStyle=1;"
+        "align=center;verticalAlign=middle;"
+    )
+
+
+def fragment_guard_style() -> str:
+    """A branch condition, written in brackets under its divider — the UML
+    convention, and what tells one arm of an ``alt`` from the next."""
+    return (
+        f"text;html=1;align=left;verticalAlign=middle;whiteSpace=nowrap;"
+        f"fontSize=10;fontStyle=2;fontColor={_TEXT};labelBackgroundColor=#FFFFFF;"
+    )
+
+
+def fragment_divider_style() -> str:
+    """The dashed rule between two arms of an ``alt``."""
+    return f"shape=line;strokeWidth=1;html=1;strokeColor={_INK_MUTED};dashed=1;"
+
+
 def sequence_number_style() -> str:
     """The autonumber badge on a message — a small circle at the arrow's tail,
     so a long conversation can be talked about by step number."""

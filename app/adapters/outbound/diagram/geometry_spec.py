@@ -221,6 +221,17 @@ SEQ_BAND_CHIP_CHAR_W = 6.9
 SEQ_BAND_CHIP_PAD_X = 24.0
 #: Diameter of the autonumber badge sitting at a message's tail.
 SEQ_NUMBER_D = 18.0
+#: Combined fragments (alt/opt/loop/par): the strip reserved above a fragment's
+#: first message for its operator tab and first guard, the clear space left
+#: below its last, how far the frame sits inside the band around it, and the
+#: room a second/third branch needs for its own dashed divider and guard label.
+SEQ_FRAGMENT_HEAD_H = 34.0
+SEQ_FRAGMENT_TAIL_Y = 14.0
+SEQ_FRAGMENT_INSET_X = 12.0
+SEQ_FRAGMENT_BRANCH_H = 26.0
+#: The operator tab in the frame's top-left corner ("alt", "opt", ...).
+SEQ_FRAGMENT_TAB_W = 46.0
+SEQ_FRAGMENT_TAB_H = 20.0
 
 # ── Defaults for malformed input (used by diagnostics' repair fixers) ──
 DEFAULT_LEAF_SIZE = (LEAF_W, LEAF_H)

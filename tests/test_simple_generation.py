@@ -246,6 +246,50 @@ class SequenceTests(unittest.TestCase):
         chip_y = float(chips[0].find("mxGeometry").get("y"))
         self.assertLess(chip_y, band_y)
 
+    def test_an_alt_fragment_frames_its_branches(self) -> None:
+        """Without this a conditional was drawn as consecutive messages, so
+        "if the fraud score is high" and "if it is low" read as though both
+        happen — the one case where this view stated something false."""
+        ir = SimpleDiagramIR(**_sequence(messages=[
+            {"source": "user", "target": "api", "label": "score", "kind": "sync"},
+            {"source": "api", "target": "user", "label": "flag", "kind": "reply",
+             "fragment": "outcome", "fragment_kind": "alt", "branch": "High risk"},
+            {"source": "api", "target": "user", "label": "clear", "kind": "reply",
+             "fragment": "outcome", "fragment_kind": "alt", "branch": "Low risk"},
+        ]))
+        cells = _cells(compile_simple_ir(ir))
+        values = [c.get("value") for c in cells]
+        self.assertIn("alt", values)
+        self.assertIn("[High risk]", values)
+        self.assertIn("[Low risk]", values)
+        # One frame, and one divider — the first arm needs none, because the
+        # frame's own top edge is it.
+        self.assertEqual(len([c for c in cells if (c.get("id") or "").endswith("_frag")]), 1)
+        self.assertEqual(len([c for c in cells if (c.get("id") or "").endswith("_fragdiv")]), 1)
+
+    def test_a_fragment_frame_encloses_every_message_in_it(self) -> None:
+        ir = SimpleDiagramIR(**_sequence(messages=[
+            {"source": "user", "target": "api", "label": "a", "kind": "sync",
+             "fragment": "retry", "fragment_kind": "loop", "branch": "until valid"},
+            {"source": "api", "target": "user", "label": "b", "kind": "reply",
+             "fragment": "retry", "fragment_kind": "loop", "branch": "until valid"},
+        ]))
+        cells = _cells(compile_simple_ir(ir))
+        frame = next(c for c in cells if (c.get("id") or "").endswith("_frag"))
+        top = float(frame.find("mxGeometry").get("y"))
+        bottom = top + float(frame.find("mxGeometry").get("height"))
+        shafts = [c for c in cells if "_shaft" in (c.get("id") or "")]
+        for shaft in shafts:
+            y = float(shaft.find("mxGeometry").get("y"))
+            self.assertGreater(y, top, "message above the frame")
+            self.assertLess(y, bottom, "message below the frame")
+
+    def test_messages_outside_a_fragment_are_not_framed(self) -> None:
+        ir = SimpleDiagramIR(**_sequence())
+        cells = _cells(compile_simple_ir(ir))
+        self.assertEqual([c for c in cells if "_frag" in (c.get("id") or "")], [],
+                         "no fragment furniture on a plain sequence")
+
     def test_lifeline_ids_are_minted_not_model_authored(self) -> None:
         """Cell z-order is keyed on id by validate_and_fix_xml, so a participant
         called "zebra" must not be able to sort its lifeline above the arrows."""

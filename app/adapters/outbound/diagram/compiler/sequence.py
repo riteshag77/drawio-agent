@@ -66,6 +66,8 @@ def _message_slots(messages: list[SequenceMessage]) -> list[float]:
     offsets: list[float] = []
     cursor = 0.0
     previous_phase = ""
+    previous_fragment = ""
+    previous_branch = ""
     for message in messages:
         phase = message.phase.strip()
         if phase != previous_phase:
@@ -73,12 +75,81 @@ def _message_slots(messages: list[SequenceMessage]) -> list[float]:
                 cursor += geo.SEQ_BAND_GAP_Y
             if phase:
                 cursor += geo.SEQ_BAND_TITLE_H
+        # A fragment reserves a strip for its operator tab and first guard on
+        # entry, and each further branch needs room for its dashed divider and
+        # its own guard — without which the divider would be drawn through the
+        # message above it.
+        fragment = message.fragment.strip()
+        branch = message.branch.strip()
+        if fragment != previous_fragment:
+            if previous_fragment:
+                cursor += geo.SEQ_FRAGMENT_TAIL_Y
+            if fragment:
+                cursor += geo.SEQ_FRAGMENT_HEAD_H
+        elif fragment and branch != previous_branch:
+            cursor += geo.SEQ_FRAGMENT_BRANCH_H
         offsets.append(cursor)
         cursor += geo.SEQ_MESSAGE_PITCH_Y
         if message.source == message.target:
             cursor += geo.SEQ_SELF_DROP
         previous_phase = phase
+        previous_fragment = fragment
+        previous_branch = branch
     return offsets
+
+
+def _fragments(
+    messages: list[SequenceMessage], offsets: list[float],
+) -> list[tuple[SequenceMessage, float, float, list[tuple[str, float]]]]:
+    """Group consecutive messages sharing a ``fragment`` into one framed block.
+
+    Returns ``(first_message, top, bottom, branches)`` where ``branches`` is
+    ``(guard_label, y)`` per arm — the first at the fragment's own top, each
+    later one at the offset where its dashed divider goes.
+
+    Keyed on the repeated fragment *name*, exactly like ``_bands``, and for the
+    same reason: index ranges ("messages 3 to 7") ask a model to keep
+    arithmetic correct while it edits the list around them, and one inserted
+    message silently shifts every block.
+
+    Without this the compiler drew a conditional as consecutive messages, so
+    "if the fraud score is high" and "if it is low" read as though both
+    happen — the one case where this view stated something false rather than
+    merely plain.
+    """
+    groups: list[tuple[int, int]] = []
+    start: int | None = None
+    for index, message in enumerate(messages):
+        name = message.fragment.strip()
+        previous = messages[index - 1].fragment.strip() if index else ""
+        if name != previous and start is not None:
+            groups.append((start, index - 1))
+            start = None
+        if name and start is None:
+            start = index
+    if start is not None:
+        groups.append((start, len(messages) - 1))
+
+    out: list[tuple[SequenceMessage, float, float, list[tuple[str, float]]]] = []
+    for first, last in groups:
+        branches: list[tuple[str, float]] = []
+        seen_branch: str | None = None
+        for index in range(first, last + 1):
+            branch = messages[index].branch.strip()
+            if branch != seen_branch:
+                y = offsets[index] - (
+                    geo.SEQ_FRAGMENT_HEAD_H if index == first else geo.SEQ_FRAGMENT_BRANCH_H
+                )
+                branches.append((branch, y))
+                seen_branch = branch
+        tail = geo.SEQ_SELF_DROP if messages[last].source == messages[last].target else 0.0
+        out.append((
+            messages[first],
+            offsets[first] - geo.SEQ_FRAGMENT_HEAD_H,
+            offsets[last] + tail + geo.SEQ_FRAGMENT_TAIL_Y,
+            branches,
+        ))
+    return out
 
 
 def _bands(
@@ -236,6 +307,46 @@ class _SequenceCompiler:
                 y=band_y - geo.SEQ_BAND_CHIP_H / 2.0,
                 w=max(chip_w, 60.0), h=geo.SEQ_BAND_CHIP_H, parent="1",
             )
+
+        # Fragments sit above the phase wash and below the lifelines: the frame
+        # groups messages, so it must not be painted over the arrows it groups.
+        for first, top, bottom, branches in _fragments(messages, offsets):
+            frag_left = band_left + geo.SEQ_FRAGMENT_INSET_X
+            frag_right = band_right - geo.SEQ_FRAGMENT_INSET_X
+            frag_y = first_message_y + top
+            frag_h = max(bottom - top, geo.SEQ_MESSAGE_PITCH_Y)
+            self.w.vertex(
+                id=self._id("frag"), label="", style=theme.fragment_frame_style(),
+                x=frag_left, y=frag_y,
+                w=max(frag_right - frag_left, _MIN_MARK), h=frag_h, parent="1",
+            )
+            self.w.vertex(
+                id=self._id("fragtab"), label=first.fragment_kind,
+                style=theme.fragment_tab_style(),
+                x=frag_left, y=frag_y,
+                w=geo.SEQ_FRAGMENT_TAB_W, h=geo.SEQ_FRAGMENT_TAB_H, parent="1",
+            )
+            for branch_index, (guard, guard_y) in enumerate(branches):
+                # Every arm but the first is separated by a dashed rule; the
+                # first needs none because the frame's own top edge is it.
+                if branch_index:
+                    self.w.vertex(
+                        id=self._id("fragdiv"), label="",
+                        style=theme.fragment_divider_style(),
+                        x=frag_left, y=first_message_y + guard_y,
+                        w=max(frag_right - frag_left, _MIN_MARK),
+                        h=geo.SEQ_SHAFT_H, parent="1",
+                    )
+                if not guard:
+                    continue
+                self.w.vertex(
+                    id=self._id("fragguard"), label=f"[{guard}]",
+                    style=theme.fragment_guard_style(),
+                    x=frag_left + geo.SEQ_FRAGMENT_TAB_W + 8.0,
+                    y=first_message_y + guard_y,
+                    w=max(frag_right - frag_left - geo.SEQ_FRAGMENT_TAB_W - 16.0, _MIN_MARK),
+                    h=geo.SEQ_FRAGMENT_TAB_H, parent="1",
+                )
 
         # Lifelines next: everything else is drawn over them, and draw.io
         # z-orders by document order.

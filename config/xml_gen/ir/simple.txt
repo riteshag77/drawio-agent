@@ -226,6 +226,25 @@ is a `flow`.
   write. A real protocol runs to 18 messages or well beyond; a 6-message sketch
   of it is a summary, not a diagram. Nothing truncates a long conversation.
 
+- **`fragment` — conditional and repeated blocks.** Anything that does *not*
+  always happen belongs in one, or the diagram states something false: two
+  branches drawn as consecutive messages read as though both occur.
+  - Give every message in the block the same `fragment` name, exactly like
+    `phase`.
+  - `fragment_kind`: `alt` for mutually exclusive branches, `opt` for
+    happens-or-doesn't, `loop` for repeats, `par` for concurrent.
+  - `branch` is the condition. For `alt`, each arm has its own — messages
+    sharing a `branch` form one arm, and changing it starts the next, drawn
+    below a dashed divider. For `opt`/`loop`/`par` write the guard once.
+  - Blocks must be contiguous, like phases, and a message can be in only one.
+
+```json
+{"source": "siu", "target": "cms", "label": "🚩 Flag for SIU", "kind": "reply",
+ "fragment": "fraud outcome", "fragment_kind": "alt", "branch": "High fraud score"},
+{"source": "siu", "target": "cms", "label": "✅ Cleared", "kind": "reply",
+ "fragment": "fraud outcome", "fragment_kind": "alt", "branch": "Low risk"}
+```
+
 Messages are numbered automatically in the order you list them, so don't put
 "1.", "2." in the labels yourself.
 

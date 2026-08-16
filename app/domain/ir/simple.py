@@ -171,6 +171,33 @@ class SequenceMessage(IRModel):
             "the stage; leave blank when a diagram is short enough not to need stages."
         ),
     )
+    fragment: str = Field(
+        default="",
+        description=(
+            "Optional name of the conditional/repeated block this message is inside, "
+            "e.g. 'fraud outcome' or 'retry'. Consecutive messages sharing it are "
+            "framed together and labelled with `fragment_kind`. Same repeat-the-string "
+            "convention as `phase`. Leave blank for messages that always happen."
+        ),
+    )
+    fragment_kind: Literal["alt", "opt", "loop", "par"] = Field(
+        default="alt",
+        description=(
+            "What kind of block `fragment` is. 'alt' = mutually exclusive branches "
+            "(use `branch` to name each one). 'opt' = happens or doesn't. 'loop' = "
+            "repeats. 'par' = happens concurrently. Ignored when `fragment` is blank."
+        ),
+    )
+    branch: str = Field(
+        default="",
+        description=(
+            "Which branch of an 'alt' this message belongs to — the condition, e.g. "
+            "'High fraud score' or 'Below threshold'. Consecutive messages sharing the "
+            "same branch form one arm; changing it starts the next arm, drawn below a "
+            "dashed divider. For 'opt'/'loop'/'par' this is the guard or repeat "
+            "condition and is written once."
+        ),
+    )
 
 
 class GanttTask(IRModel):
