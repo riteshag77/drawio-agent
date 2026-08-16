@@ -588,6 +588,11 @@ def _generate_ir_with_corrections(
                 "flows": len(ir.flows),
                 "actors": len(ir.external_actors),
             })
+        # Density is logged, never corrected: unlike semantic_warnings these
+        # buy no LLM pass, because "fixing" a dense page means dropping
+        # components the request named. See IRModel.density_notes.
+        for note in ir.density_notes():
+            logger.log("ir", note, level="info", details={"view": view_label})
     return ir
 
 

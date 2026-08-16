@@ -130,6 +130,19 @@ satisfy. One clarifying sentence removes the ambiguity.
 
 ## C. Rules with no code backstop — MEDIUM / LOW
 
+> **Superseded — do not act on C1.** The Network cap this section asked for
+> was added (`MAX_LEAVES = 26`) and has since been removed again, along with
+> Logical's ≤14/≤5. Both were hard `semantic_errors`, so an estate or a
+> journey larger than a readability preference failed the whole request. A
+> 54-leaf Network page and a 24-leaf Logical page were then compiled and
+> rendered: both lay out correctly — containers size to their contents,
+> subnets stay aligned, flows route — so the numbers were never describing a
+> limit the compiler had. They are `density_notes()` now: logged, never
+> blocking, and deliberately not `semantic_warnings()` either, since that
+> channel buys a corrective LLM pass and "correcting" density means dropping
+> components the user asked for. The table below is kept as the historical
+> record of how the caps got there.
+
 **C1. `ir/network.txt` has no density cap at all — MEDIUM.** Compare:
 
 | pack | cap | enforced? |

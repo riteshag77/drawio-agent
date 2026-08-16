@@ -262,9 +262,9 @@ Every leaf has:
 
 ## Density
 
-Keep the page to **26 leaves or fewer** — this is enforced, and a rejected IR
-costs a retry. Aim for 12–18 on a typical brief; a genuinely large multi-AZ
-estate may approach the ceiling.
+Aim for 12–18 leaves on a typical brief. **There is no ceiling** — draw every
+system the request names, and if a genuinely large multi-AZ estate needs 50,
+draw 50. The page grows to fit; nothing is rejected or truncated for size.
 
 Network nests deeper than any other view (region → vpc → zone → subnet → leaf,
 plus edge layer, groups and hubs), so it is the easiest one to overfill. When

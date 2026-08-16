@@ -118,9 +118,11 @@ every other node leaves `group` as `""`.
 
 ## Density
 
-Soft cap: ≤40 nodes. If the source image is denser than that, keep the most
-structurally important nodes and connections rather than transcribing every
-minor label.
+No cap. This view exists to reproduce the image in front of you, so a source
+with 60 boxes gets 60 boxes — dropping the ones that look minor is how a trace
+stops matching its original, which is the only thing this view is judged on.
+Transcribe what is structurally there; skip only genuine visual noise (drop
+shadows, watermarks, decorative rules).
 
 ## Forbidden
 

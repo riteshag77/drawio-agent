@@ -320,6 +320,42 @@ class RegionAndVpcDensityTests(unittest.TestCase):
         for i in (1, 2, 3):
             self.assertIn(f"vpc_az{i}", cells)
 
+    def test_a_large_estate_is_drawn_in_full_and_only_noted(self) -> None:
+        """54 leaves — twice the figure that used to be a hard cap. It was a
+        semantic error, so an estate this size failed the request outright;
+        rendering one showed the layout holds (containers size to contents,
+        subnets stay aligned), so the count is a log note now."""
+        tiers = ("public", "app", "data")
+        zones, per = 3, 6
+        n = 0
+        az = []
+        for z in range(zones):
+            subnets = []
+            for tier in tiers:
+                leaves = []
+                for _ in range(per):
+                    leaves.append(_leaf(f"n{n}"))
+                    n += 1
+                subnets.append(Subnet(id=f"{tier}{z}", tier=tier, leaves=leaves))
+            az.append(AvailabilityZone(id=f"az{z}", label=f"AZ-{z}", subnets=subnets))
+        ir = NetworkIR(cloud=CloudBoundary(
+            id="cloud", label="AWS Cloud",
+            regions=[Region(id="r", label="us-east-1", vpcs=[Vpc(id="vpc", zones=az)])],
+        ))
+        ids = [lf.id for z in az for s in z.subnets for lf in s.leaves]
+        ir.flows = [Flow(source=a, target=b) for a, b in zip(ids, ids[1:])]
+
+        self.assertEqual(n, 54)
+        self.assertEqual(ir.semantic_errors(), [])
+        self.assertTrue(any("54 leaves" in note for note in ir.density_notes()))
+        # Never a corrective ask: "fixing" this means deleting services.
+        self.assertNotIn("54", " ".join(ir.semantic_warnings()))
+        xml = compile_network_ir(ir)
+        self.assertEqual(diagnose_xml(xml).errors, [])
+        cells = _cells(xml)
+        for leaf_id in ids:
+            self.assertIn(leaf_id, cells)
+
     def test_multiple_connectivity_hubs_form_a_grid(self) -> None:
         hubs = [_leaf(f"hub{i}", "aws_transit_gateway", f"TGW {i}") for i in range(1, 4)]
         zone = AvailabilityZone(id="az", label="AZ", subnets=[

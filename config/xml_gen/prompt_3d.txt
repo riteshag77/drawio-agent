@@ -48,4 +48,5 @@ Common services with NO 3D icon in aws3d:
 
 ## Quality
 - All source/target IDs must exist. No orphan references.
-- Keep diagrams clean: 15 or fewer leaf nodes unless user explicitly asks for more.
+- Keep diagrams clean: around 15 leaf nodes reads best. It is a preference, not
+  a limit — draw every system the request names, however many that is.

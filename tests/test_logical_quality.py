@@ -161,7 +161,10 @@ class LogicalRowOrderTests(unittest.TestCase):
                 flows=[Flow(source="p", target="a"), Flow(source="a", target="d")],
             )
 
-    def test_density_semantic_error(self) -> None:
+    def test_density_is_a_note_not_an_error(self) -> None:
+        """A crowded domain is logged, not rejected. It was an error, which
+        failed the whole request over a readability preference — and a 24-leaf
+        Logical page renders correctly, so the cap was never a real limit."""
         leaves = [_leaf(f"c{i}", "logical_capability", f"Cap{i}") for i in range(6)]
         ir = LogicalIR(
             corridors=[
@@ -171,8 +174,28 @@ class LogicalRowOrderTests(unittest.TestCase):
             ],
             flows=[Flow(source="p", target="c0"), Flow(source="c0", target="d")],
         )
-        errs = ir.semantic_errors()
-        self.assertTrue(any("domain_core" in e and "5" in e for e in errs), errs)
+        # (c1..c5 are orphans here, which is a separate and still-hard rule —
+        # the point is that nothing complains about the *count*.)
+        self.assertEqual([e for e in ir.semantic_errors() if "keep ≤" in e], [])
+        self.assertTrue(any("domain_core" in n for n in ir.density_notes()), ir.density_notes())
+        # And it must not buy a corrective LLM pass either — "fixing" density
+        # means dropping capabilities the request named.
+        self.assertNotIn("domain_core", " ".join(ir.semantic_warnings()))
+
+    def test_a_long_journey_compiles(self) -> None:
+        """24 leaves, 8 per corridor — well past both former caps."""
+        corridors = [
+            Corridor(
+                id=f"domain_{name}", label=name.title(),
+                leaves=[_leaf(f"{name[:2]}{i}", "logical_capability", f"Cap {i}") for i in range(8)],
+            )
+            for name in ("experience", "core", "data")
+        ]
+        ir = LogicalIR(corridors=corridors)
+        ids = [lf.id for c in corridors for lf in c.leaves]
+        ir.flows = [Flow(source=a, target=b) for a, b in zip(ids, ids[1:])]
+        self.assertEqual(ir.semantic_errors(), [])
+        self.assertIn('vertex="1"', _compile(ir))
 
 
 class LogicalOverviewTests(unittest.TestCase):

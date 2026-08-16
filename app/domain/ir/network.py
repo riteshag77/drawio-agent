@@ -462,7 +462,6 @@ class NetworkIR(DiagramIR):
                 "actors into the network; actors with no connections are not useful"
             )
         errors.extend(self._external_actor_orphan_errors())
-        errors.extend(self._density_errors(leaf_n))
 
         for flow in self.flows:
             if flow.source in forbidden or flow.target in forbidden:
@@ -502,32 +501,29 @@ class NetworkIR(DiagramIR):
                 )
         return errors
 
-    #: Leaf ceiling for a Network page. Network nests deeper than any other view
-    #: (region → vpc → zone → subnet → leaf, plus edge_layer, groups and
-    #: connectivity hubs), so its fan-out is the widest available and it was the
-    #: only view with no cap in either the pack or the schema — Logical enforces
-    #: ≤14, and Security/Data-flow/ArchiMate at least ask in prose.
-    #: Higher than Logical's 14 on purpose: a real multi-AZ network legitimately
-    #: mirrors app and data tiers across zones, so the same architecture carries
-    #: more leaves here than on a journey-shaped view.
-    MAX_LEAVES: ClassVar[int] = 26
+    #: The leaf count past which a Network page is worth *noting* as dense —
+    #: not a ceiling. It was one: a 27-leaf estate was rejected outright. Then
+    #: a 54-leaf page (three AZs x three tiers x six services) was compiled and
+    #: rendered, and it lays out correctly — containers size to their contents,
+    #: subnets stay aligned, flows route — so the number was never describing a
+    #: limit the compiler had. A real multi-AZ estate legitimately mirrors app
+    #: and data tiers across zones, and a user who asks for all of it gets all
+    #: of it.
+    DENSE_LEAVES: ClassVar[int] = 26
 
-    def _density_errors(self, leaf_n: int) -> list[str]:
-        """Cap total leaves so a Network page stays readable.
-
-        Deliberately a single global ceiling rather than a per-subnet rule: the
-        compiler already sizes every subnet to the widest one, so 26 leaves
-        spread thinly is fine while 26 in one subnet is a layout problem the
-        cap cannot express. The pack carries the shaping advice; this stops the
-        runaway case.
-        """
-        if leaf_n <= self.MAX_LEAVES:
+    def density_notes(self) -> list[str]:
+        """Log-only — see ``IRModel.density_notes``. A single global figure
+        rather than a per-subnet one: the compiler already sizes every subnet
+        to the widest, so leaves spread thinly across zones read very
+        differently from the same count stacked in one subnet, and a count is
+        the only part of that this can honestly report."""
+        leaf_n = len(list(self.iter_leaves()))
+        if leaf_n <= self.DENSE_LEAVES:
             return []
         return [
-            f"Network has {leaf_n} leaves — keep ≤{self.MAX_LEAVES}. Merge duplicate "
-            "per-AZ replicas into one leaf where the second adds no information, drop "
-            "inventory that is not on the request path, and prefer the cross-cutting "
-            "groups over listing every supporting service in a subnet"
+            f"Network has {leaf_n} leaves (over {self.DENSE_LEAVES}) — drawn in full; "
+            "dense pages read better when duplicate per-AZ replicas are merged and "
+            "supporting services move to the cross-cutting groups"
         ]
 
     def _external_actor_orphan_errors(self) -> list[str]:

@@ -470,8 +470,9 @@ stencil name in your output.
 9-15 elements when the brief supports it; 5-8 when thin. Aim for **3-6 per
 layer band** — elements wrap 4 per row, and a band past 8 starts drawing
 grouping boxes, so a crowded band needs real groupings rather than more
-elements. Never invent an element to fill a layer. Prefer the sparse diagram a
-reader finishes in seconds.
+elements. These are shaping figures, not limits: a brief naming 30 systems
+gets 30, grouped properly. Never invent an element to fill a layer, and never
+drop one the brief named to hit a number.
 
 ## Before you emit — for `layered` only
 

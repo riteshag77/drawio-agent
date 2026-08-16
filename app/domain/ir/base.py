@@ -245,5 +245,25 @@ class DiagramIR(IRModel):
         """
         return []
 
+    def density_notes(self) -> list[str]:
+        """How big this page got, for the log — never a block, never a nudge.
+
+        A third channel deliberately separate from both of the above, because
+        density is neither. It is not ``semantic_errors``: Logical rejected a
+        15-leaf journey and Network a 27-leaf estate outright, which failed the
+        user for a readability preference they never agreed to — and a
+        54-leaf Network page and a 24-leaf Logical page were both rendered and
+        found to lay out correctly, so the caps were never describing a limit
+        the compiler actually had. And it is not ``semantic_warnings`` either:
+        those buy one corrective LLM pass asking the model to change the
+        design, which for density means asking it to drop components the
+        request named.
+
+        So this only reaches the log. If a user asks for every service in their
+        estate, they get every service in their estate, and the operator can
+        still see in the logs that the page came out dense.
+        """
+        return []
+
     def is_valid(self) -> bool:
         return not self.semantic_errors()

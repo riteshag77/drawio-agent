@@ -12,8 +12,10 @@ left→right (User → Client → services → data), optionally one cloud bound
 **No Experience / Core / Data colored columns are drawn** — those `domain_*`
 ids are **JSON ranking only** so the compiler can order the journey.
 
-Prefer **5–10 leaves**. Overview panel, step badges, and legend are added
-after compile — you do not invent them in JSON.
+Prefer **5–10 leaves** — a journey reads best short. That is a preference, not
+a limit: if the request names more systems than that, draw all of them rather
+than dropping any. Overview panel, step badges, and legend are added after
+compile — you do not invent them in JSON.
 
 ## What belongs on Logical vs. what is noise
 

@@ -164,10 +164,17 @@ class LogicalIR(CorridorIR):
     )
 
     def semantic_errors(self) -> list[str]:
-        """Hard density/overcrowding rules, plus two story-completeness rules:
-        no unconnected leaf/actor (``CorridorIR._orphan_errors`` — Logical-only,
-        see that method's docstring for why Security/Data-flow opt out), no
-        replica/standby duplicate of a store.
+        """Two story-completeness rules: no unconnected leaf/actor
+        (``CorridorIR._orphan_errors`` — Logical-only, see that method's
+        docstring for why Security/Data-flow opt out), and no replica/standby
+        duplicate of a store.
+
+        Density used to be here too — ≤14 leaves overall and ≤5 per corridor,
+        as hard errors. They are ``density_notes()`` now: a 24-leaf Logical
+        page was compiled and rendered and lays out correctly, so the caps
+        were never describing a limit the compiler had, and rejecting a
+        journey for being longer than a preference fails the user for
+        something they never agreed to.
 
         Logical has no container nesting to fall back on (unlike Network) and
         no visible zone box (unlike Security) — a leaf or actor with zero
@@ -179,19 +186,6 @@ class LogicalIR(CorridorIR):
         """
         errors = super().semantic_errors()
         errors.extend(self._orphan_errors())
-        total = sum(len(c.leaves) for c in self.corridors) + sum(len(s.leaves) for s in self.anchored)
-        if total > 14:
-            errors.append(
-                f"Logical has {total} leaves — keep ≤14 (prefer 5–10) so the "
-                "journey stays readable left-to-right"
-            )
-        for corridor in list(self.corridors) + list(self.anchored):
-            if len(corridor.leaves) > 5:
-                errors.append(
-                    f"{corridor.id} has {len(corridor.leaves)} leaves — keep ≤5 "
-                    "per domain/shelf; merge or omit padding capabilities"
-                )
-
         for corridor in list(self.corridors) + list(self.anchored):
             for leaf in corridor.leaves:
                 label_lower = leaf.label.lower()
@@ -202,6 +196,28 @@ class LogicalIR(CorridorIR):
                         "(Multi-AZ), not Logical; remove it and keep one leaf for the store"
                     )
         return errors
+
+    def density_notes(self) -> list[str]:
+        """Log-only density observations — see ``IRModel.density_notes``.
+
+        The figures are the pack's shaping advice (5–10 leaves reads best,
+        ≤5 per domain), kept here so an operator can see a dense page in the
+        logs. Neither one blocks or triggers a corrective ask.
+        """
+        notes: list[str] = []
+        total = sum(len(c.leaves) for c in self.corridors) + sum(len(s.leaves) for s in self.anchored)
+        if total > 14:
+            notes.append(
+                f"Logical has {total} leaves — denser than the 5–10 a journey reads "
+                "best at; drawn in full"
+            )
+        for corridor in list(self.corridors) + list(self.anchored):
+            if len(corridor.leaves) > 5:
+                notes.append(
+                    f"{corridor.id} has {len(corridor.leaves)} leaves — over the 5 a "
+                    "domain/shelf reads best at; drawn in full"
+                )
+        return notes
 
     def semantic_warnings(self) -> list[str]:
         """Cache-aside companion for enterprise profile SaaS — not thin Cognito demos.
