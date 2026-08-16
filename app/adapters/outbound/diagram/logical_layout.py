@@ -186,21 +186,17 @@ def barycenter_order(
             adj_fwd[s].append(t)
             adj_bwd[t].append(s)
 
-    def _mean_pos(nbrs: list[str], pos: dict[str, int]) -> float:
-        vals = [pos[n] for n in nbrs if n in pos]
-        return sum(vals) / len(vals) if vals else 0.0
-
     for _ in range(sweeps):
         # L→R
         sorted_ranks = sorted(by_rank.keys())
         pos = {n: i for r in sorted_ranks for i, n in enumerate(by_rank[r])}
         for r in sorted_ranks[1:]:
-            by_rank[r].sort(key=lambda n: (_mean_pos(adj_bwd[n], pos), n))
+            by_rank[r].sort(key=lambda n: (_mean_pos(adj_bwd[n], pos, n), n))
             for i, n in enumerate(by_rank[r]):
                 pos[n] = i
         # R→L
         for r in reversed(sorted_ranks[:-1] if len(sorted_ranks) > 1 else []):
-            by_rank[r].sort(key=lambda n: (_mean_pos(adj_fwd[n], pos), n))
+            by_rank[r].sort(key=lambda n: (_mean_pos(adj_fwd[n], pos, n), n))
             for i, n in enumerate(by_rank[r]):
                 pos[n] = i
 
@@ -256,6 +252,7 @@ def barycenter_order_best(
     *,
     sweeps: int = 4,
     restarts: int = 3,
+    preferred: list[str] | None = None,
 ) -> dict[str, int]:
     """Run ``barycenter_order`` from a few different initial tie-breaks, keep the
 
@@ -264,12 +261,23 @@ def barycenter_order_best(
     trying a couple of different starting permutations and scoring each with
     ``_count_rank_order_crossings`` cheaply escapes bad local optima without
     needing a real (and much slower) global crossing-minimisation algorithm.
+
+    ``preferred`` is the caller's own meaningful order — for a corridor's
+    leaves, the order the model declared them in. It replaces the id-ascending
+    permutation as the first seed. Alphabetical order carries no information
+    about the diagram; declaration order is a statement by the author, so when
+    two seeds tie on crossings the sweeps should be converging from that one.
+    Every seed is still scored the same way, so this only decides *which*
+    equally-good result is kept.
     """
     nodes = list(ranks.keys())
     if not nodes:
         return {}
+    first = [n for n in (preferred or []) if n in ranks] or sorted(nodes)
+    if len(first) != len(nodes):  # `preferred` was partial — fill the rest
+        first = first + [n for n in sorted(nodes) if n not in set(first)]
     seeds = [
-        sorted(nodes),
+        first,
         sorted(nodes, reverse=True),
     ]
     if restarts > 2:
@@ -278,6 +286,7 @@ def barycenter_order_best(
         seeds.append(sorted(nodes, key=lambda n: (hash(n) & 0xFFFF, n)))
     seeds = seeds[: max(1, restarts)]
 
+    tiebreak = {n: i for i, n in enumerate(preferred)} if preferred else None
     best_order: dict[str, int] | None = None
     best_score: int | None = None
     for seed in seeds:
@@ -285,7 +294,7 @@ def barycenter_order_best(
         by_rank: dict[int, list[str]] = defaultdict(list)
         for n in seed:
             by_rank[ranks[n]].append(n)
-        order = _barycenter_order_from_seed(by_rank, edges, sweeps)
+        order = _barycenter_order_from_seed(by_rank, edges, sweeps, tiebreak)
         score = _count_rank_order_crossings(ranks, order, edges)
         if best_score is None or score < best_score:
             best_order, best_score = order, score
@@ -296,8 +305,16 @@ def _barycenter_order_from_seed(
     by_rank: dict[int, list[str]],
     edges: list[tuple[str, str]],
     sweeps: int,
+    tiebreak: dict[str, int] | None = None,
 ) -> dict[str, int]:
-    """Same sweep logic as ``barycenter_order`` but from a caller-seeded bucket order."""
+    """Same sweep logic as ``barycenter_order`` but from a caller-seeded bucket order.
+
+    ``tiebreak`` maps a node to its position in the caller's own meaningful
+    order (for a corridor, the order the model declared its leaves in). It is
+    what two nodes with the same barycenter are separated by. Without it the
+    separator is the node **id**, which is how a leaf could be placed by the
+    spelling of its identifier.
+    """
     adj_fwd: dict[str, list[str]] = defaultdict(list)
     adj_bwd: dict[str, list[str]] = defaultdict(list)
     ranked_nodes = {n for nodes in by_rank.values() for n in nodes}
@@ -305,20 +322,17 @@ def _barycenter_order_from_seed(
         if s in ranked_nodes and t in ranked_nodes:
             adj_fwd[s].append(t)
             adj_bwd[t].append(s)
-
-    def _mean_pos(nbrs: list[str], pos: dict[str, int]) -> float:
-        vals = [pos[n] for n in nbrs if n in pos]
-        return sum(vals) / len(vals) if vals else 0.0
+    keyed = _tiebreak_key(tiebreak)
 
     for _ in range(sweeps):
         sorted_ranks = sorted(by_rank.keys())
         pos = {n: i for r in sorted_ranks for i, n in enumerate(by_rank[r])}
         for r in sorted_ranks[1:]:
-            by_rank[r].sort(key=lambda n: (_mean_pos(adj_bwd[n], pos), n))
+            by_rank[r].sort(key=lambda n: (_mean_pos(adj_bwd[n], pos, n), keyed(n)))
             for i, n in enumerate(by_rank[r]):
                 pos[n] = i
         for r in reversed(sorted_ranks[:-1] if len(sorted_ranks) > 1 else []):
-            by_rank[r].sort(key=lambda n: (_mean_pos(adj_fwd[n], pos), n))
+            by_rank[r].sort(key=lambda n: (_mean_pos(adj_fwd[n], pos, n), keyed(n)))
             for i, n in enumerate(by_rank[r]):
                 pos[n] = i
 
@@ -327,6 +341,28 @@ def _barycenter_order_from_seed(
         for i, n in enumerate(nodes):
             order[n] = i
     return order
+
+
+def _mean_pos(nbrs: list[str], pos: dict[str, int], node: str) -> float:
+    """Mean row of ``node``'s neighbours — the barycenter it wants to sit at.
+
+    A node with no neighbours in the adjacent rank keeps *its own* position
+    rather than taking 0.0. Returning 0.0 pins every edgeless node to the top
+    of its rank, which is how an unconnected leaf ended up leading a corridor
+    ahead of the leaf that started the flow through it. Nothing is known about
+    where such a node belongs, so the honest answer is "where it already is".
+    """
+    vals = [pos[n] for n in nbrs if n in pos]
+    if vals:
+        return sum(vals) / len(vals)
+    return float(pos.get(node, 0))
+
+
+def _tiebreak_key(tiebreak: dict[str, int] | None):
+    """Separator for equal barycenters: the caller's order, else the id."""
+    if tiebreak is None:
+        return lambda n: n
+    return lambda n: (tiebreak.get(n, len(tiebreak)), n)
 
 
 def grid_cols(count: int) -> int:
@@ -382,18 +418,31 @@ def _tile_order(leaf_ids: list[str], local_edges: list[tuple[str, str]]) -> tupl
     """Reading-order list of `leaf_ids` + the column count to wrap them at —
     rank/barycenter logic for leaf grids inside a corridor.
 
-    No-edges fallback is declaration order (`leaf_ids` as given, i.e. the
-    IR's own `corridor.leaves` list order) rather than alphabetical — matches
-    the current XML-based pass's own fallback, which sorts by each leaf's
-    pre-layout placeholder position and is therefore stable to the
-    compiler's original emission order, not id text.
+    Declaration order (`leaf_ids` as given, i.e. the IR's own
+    `corridor.leaves` list order) is the fallback in *both* branches. It used
+    to be the fallback only when a corridor had no internal edges; with even
+    one, ordering fell through to the leaf's **id text** — both as the
+    barycenter seed and as the final sort tie-break. Measured on a corridor
+    declared `[checkout, auth, cart]` with a single `checkout -> auth` edge,
+    that put `cart` first: a leaf with no edges at all led the row because
+    "ca" sorts before "ch". Alphabetical order says nothing about the
+    diagram, and it silently overrode the one ordering statement the author
+    actually made.
+
+    Ranks and barycenter still lead, so genuine crossing reduction is
+    unaffected — only ties change, and they now resolve to what the model
+    said.
     """
     if local_edges and len(leaf_ids) > 1:
+        declared = {lid: i for i, lid in enumerate(leaf_ids)}
         ranks = longest_path_ranks(leaf_ids, local_edges)
-        order = barycenter_order_best(ranks, local_edges)
+        order = barycenter_order_best(ranks, local_edges, preferred=leaf_ids)
         max_rank = max(ranks.values(), default=0) + 1
         cols_n = min(grid_cols(len(leaf_ids)), max(1, max_rank))
-        ordered = sorted(leaf_ids, key=lambda lid: (ranks.get(lid, 0), order.get(lid, 0), lid))
+        ordered = sorted(
+            leaf_ids,
+            key=lambda lid: (ranks.get(lid, 0), order.get(lid, 0), declared[lid]),
+        )
     else:
         ordered = list(leaf_ids)
         cols_n = grid_cols(len(leaf_ids))

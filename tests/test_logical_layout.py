@@ -9,6 +9,7 @@ from app.adapters.outbound.diagram import geometry_spec as geo
 from app.adapters.outbound.diagram.logical_layout import (
     CONTAINER_MIN_H,
     CONTAINER_MIN_W,
+    _tile_order,
     barycenter_order,
     break_cycles,
     grid_cols,
@@ -42,6 +43,38 @@ class GraphHelpersTests(unittest.TestCase):
         edges = [("a1", "b2"), ("a2", "b1")]
         order = barycenter_order(ranks, edges, sweeps=4)
         self.assertLessEqual(order["b2"], order["b1"])
+
+
+class TileOrderTests(unittest.TestCase):
+    """What decides a leaf's place in its corridor's grid."""
+
+    def test_declaration_order_survives_an_unrelated_edge(self) -> None:
+        """One internal edge used to switch the whole corridor over to
+        ordering by *id text*: declared [checkout, auth, cart] with a single
+        checkout->auth edge put `cart` first, because it has no edges (so it
+        took barycenter 0.0, the top of its rank) and "ca" sorts before "ch".
+        A leaf must not be placed by the spelling of its identifier."""
+        declared = ["checkout", "auth", "cart"]
+        self.assertEqual(_tile_order(declared, [])[0], declared)
+        ordered, _ = _tile_order(declared, [("checkout", "auth")])
+        self.assertEqual(ordered[0], "checkout")
+        # `cart` is unconnected: nothing is known about where it belongs, so
+        # it stays where it was declared rather than being moved anywhere.
+        self.assertEqual(ordered, ["checkout", "cart", "auth"])
+
+    def test_a_real_flow_still_overrides_declaration_order(self) -> None:
+        """Declaration order is the tie-break, not a veto — an edge saying
+        checkout comes before auth still reverses a list declared the other
+        way round."""
+        self.assertEqual(
+            _tile_order(["auth", "checkout"], [("checkout", "auth")])[0],
+            ["checkout", "auth"],
+        )
+
+    def test_crossings_are_still_minimised(self) -> None:
+        ordered, _ = _tile_order(["a", "b", "c", "d"], [("a", "d"), ("b", "c")])
+        self.assertEqual(ordered.index("d"), 2)
+        self.assertEqual(ordered.index("c"), 3)
 
 
 class GridFillTests(unittest.TestCase):
