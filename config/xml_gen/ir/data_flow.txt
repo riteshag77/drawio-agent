@@ -238,6 +238,8 @@ pipeline.
 8–12 when supported; 5–7 when thin — never invent brokers to pad except the
 required SaaS+store companions above.
 
+These are shaping figures, not limits: draw every system the request names. **What replaces a limit is grouping, not deletion** — leaves wrap 4 per row, so past roughly 8 in one corridor a reader stops seeing a stage and starts seeing a wall. Move the supporting services into their own corridor/shelf and leave the main path where it is. A dense page that is organised reads; a dense page that is flat does not.
+
 ## Before you emit
 
 Two checks, in order: (1) if SaaS + a primary store are both in inventory,

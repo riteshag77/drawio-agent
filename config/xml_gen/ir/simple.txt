@@ -54,11 +54,26 @@ more words, and never invented components that don't belong to the domain.
 If the user asks for a chart but gives no numbers, use realistic illustrative
 values rather than refusing — but never invent numbers when they supplied some.
 
-`bar` vs `line` is the one pair worth pausing on: use `bar` when the categories
-are *things being compared* (regions, products, teams) and `line` when they are
-an *ordered progression* and the shape of the change is the point (Jan→Jun,
-v1→v5). If the categories could be reordered without losing meaning, it's a bar
-chart.
+### Choosing between the kinds — apply the test, don't go by the words
+
+Each of these is a question with a yes/no answer. Answer it rather than
+matching the noun in the request, which is what produces a line chart of five
+unrelated products.
+
+| Test | If yes |
+|---|---|
+| Could the categories be **reordered** without losing meaning? | `bar`, never `line` — a line's whole meaning is the shape it traces, so it needs a real progression (Jan→Jun, v1→v5) |
+| Do the values **sum to a meaningful whole**? | `pie` is allowed. If they don't (revenue by region across different years), it's a `bar` |
+| Is the interesting thing **branching logic** rather than who talks to whom? | `flow`, not `sequence` |
+| Is the interesting thing **who calls whom in what order**? | `sequence`, not `flow` |
+| Does each item have a **start and a duration**? | `gantt` |
+| Are there **two measures on different scales**? | Two charts, or one chart and a sentence — never one chart with two value axes |
+
+`pie` deserves the most suspicion: it is right for parts of one whole and wrong
+for everything else. Comparing across categories reads more accurately as a
+`bar`, because people judge length better than angle. When a request says "pie"
+but the numbers aren't parts of a whole, draw the bar and say so in
+`assistant_message`.
 
 These six are the only kinds that exist. When a request asks for something
 else, pick the closest one and **say so in `assistant_message`** rather than

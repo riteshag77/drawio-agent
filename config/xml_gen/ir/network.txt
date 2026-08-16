@@ -266,6 +266,13 @@ Aim for 12–18 leaves on a typical brief. **There is no ceiling** — draw ever
 system the request names, and if a genuinely large multi-AZ estate needs 50,
 draw 50. The page grows to fit; nothing is rejected or truncated for size.
 
+**What replaces a limit is grouping, not deletion.** Leaves wrap 4 per row, so
+past roughly 8 in one subnet a reader stops seeing a tier and starts seeing a
+wall. The answer is never to drop a service — it is to put the supporting ones
+in a cross-cutting `group` (security / monitoring / integration / management)
+and leave the request path in the subnet. A dense page that is *organised*
+reads; a dense page that is flat does not.
+
 Network nests deeper than any other view (region → vpc → zone → subnet → leaf,
 plus edge layer, groups and hubs), so it is the easiest one to overfill. When
 you are near the limit:
