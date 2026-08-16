@@ -91,6 +91,26 @@ PILLAR_SERVICE_MAP: dict[str, tuple[set[str], str, str]] = {
 }
 
 
+def _applies_to_platform(rec: dict[str, Any], platform: str) -> bool:
+    """Whether ``rec`` is a question worth asking of a ``platform`` diagram.
+
+    A recommendation is only answerable if this platform *has* a service that
+    could satisfy it. Without this check every rule fired on every cloud: a GCP
+    diagram carrying Cloud Logging was told "No audit logging detected (AWS) —
+    Enable CloudTrail", because the rule listed ``aws_cloudtrail`` and nothing
+    else, so ``has_any`` was False and the finding named a service that cannot
+    exist on GCP. A rule this platform cannot satisfy is *not applicable*, and
+    an inapplicable rule reported as a failure is worse than silence — it
+    teaches a reviewer to discount the whole report.
+
+    ``multi`` (and anything unrecognised) keeps the cross-cloud behaviour: on a
+    multi-cloud diagram every equivalent is legitimately in scope.
+    """
+    if platform not in ("aws", "gcp", "azure"):
+        return True
+    return any(s.startswith(platform + "_") for s in rec["services"])
+
+
 def _pillar_findings(pillar_key: str, services: list[str], platform: str) -> list[dict[str, str]]:
     service_set, _, _ = PILLAR_SERVICE_MAP[pillar_key]
     matched = [s for s in services if s in service_set]
@@ -105,6 +125,12 @@ def _pillar_findings(pillar_key: str, services: list[str], platform: str) -> lis
 
     missing = _MISSING_RECOMMENDATIONS.get(pillar_key, [])
     for rec in missing:
+        if not _applies_to_platform(rec, platform):
+            continue
+        # Satisfied by *any* listed equivalent, not just this platform's: a
+        # diagram labelled `aws` that fronts its app with Cloud Armor has still
+        # answered the WAF question, and failing it for using the "wrong"
+        # vendor's control would be a house-style opinion, not a WAF finding.
         has_any = any(m in services for m in rec["services"])
         if not has_any:
             platform_matches = [s for s in rec["services"] if s.startswith(platform + "_")]
@@ -201,10 +227,14 @@ _MISSING_RECOMMENDATIONS: dict[str, list[dict[str, Any]]] = {
             "recommendation": "Add CloudWatch/Azure Monitor for operational visibility",
         },
         {
+            # Was AWS-only, which made it unanswerable on GCP and Azure while
+            # still firing there — see _applies_to_platform. Every cloud has an
+            # API-audit-trail service; naming each one is what makes the rule
+            # true rather than merely applicable.
             "severity": "medium",
-            "services": ["aws_cloudtrail"],
-            "message": "No audit logging detected (AWS)",
-            "recommendation": "Enable CloudTrail for API audit trails",
+            "services": ["aws_cloudtrail", "gcp_cloud_logging", "azure_monitor"],
+            "message": "No API audit trail detected",
+            "recommendation": "Enable CloudTrail / Cloud Audit Logs / Azure Monitor for API audit trails",
         },
     ],
     "sustainability": [

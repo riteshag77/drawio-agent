@@ -77,6 +77,50 @@ class TileOrderTests(unittest.TestCase):
         self.assertEqual(ordered.index("c"), 3)
 
 
+class LayoutIdempotencyTests(unittest.TestCase):
+    """``layout_corridor_ir`` rewrites ``corridor.leaves`` into flow order —
+    Logical's emitter reads that list order rather than the geometry. The
+    rewrite has to be a fixed point, or a second layout pass over the same IR
+    would draw a different diagram than the first."""
+
+    def _backwards_ir(self) -> LogicalIR:
+        """Leaves declared in reverse of the flow, so the first pass must move
+        them — otherwise this asserts nothing."""
+        core = Corridor(id="domain_core", label="Core", leaves=[
+            Leaf(id=f"c{i}", shape_type="logical_capability", label=f"C{i}")
+            for i in (4, 3, 2, 1, 0)
+        ])
+        portal = Corridor(id="domain_experience", label="E", leaves=[
+            Leaf(id="p", shape_type="logical_portal", label="Portal"),
+        ])
+        ir = LogicalIR(corridors=[portal, core])
+        ir.flows = [Flow(source="p", target="c0")] + [
+            Flow(source=f"c{i}", target=f"c{i + 1}") for i in range(4)
+        ]
+        return ir
+
+    def test_reorder_settles_after_one_pass(self) -> None:
+        ir = self._backwards_ir()
+        declared = [leaf.id for leaf in ir.corridors[1].leaves]
+        layout_corridor_ir(ir)
+        after_first = [leaf.id for leaf in ir.corridors[1].leaves]
+        layout_corridor_ir(ir)
+        after_second = [leaf.id for leaf in ir.corridors[1].leaves]
+
+        self.assertNotEqual(declared, after_first, "fixture must actually reorder")
+        self.assertEqual(after_first, after_second)
+
+    def test_geometry_is_identical_on_a_repeat_pass(self) -> None:
+        ir = self._backwards_ir()
+        first, _ = layout_corridor_ir(ir)
+        second, _ = layout_corridor_ir(ir)
+        self.assertEqual(set(first), set(second))
+        for cell_id, geo_first in first.items():
+            geo_second = second[cell_id]
+            self.assertAlmostEqual(geo_first.x, geo_second.x, places=3, msg=cell_id)
+            self.assertAlmostEqual(geo_first.y, geo_second.y, places=3, msg=cell_id)
+
+
 class GridFillTests(unittest.TestCase):
     def test_grid_fill_wraps_at_grid_cols(self) -> None:
         cols, rows, w, h = grid_fill(5)

@@ -94,6 +94,43 @@ class MissingServicesHintTests(unittest.TestCase):
             self.assertTrue(svc.startswith("aws_"), svc)
 
 
+class PlatformApplicabilityTests(unittest.TestCase):
+    """A rule this platform cannot satisfy is not applicable, not a failure."""
+
+    def _ops_findings(self, xml: str, platform: str) -> list[dict]:
+        result = assess_well_architected(xml, platform=platform)
+        ops = next(p for p in result["pillars"] if p["name"].startswith("Operational"))
+        return ops["findings"]
+
+    def test_gcp_audit_logging_is_not_reported_as_a_missing_aws_service(self) -> None:
+        """The rule listed only ``aws_cloudtrail``, so a GCP diagram *carrying
+        Cloud Logging* was told "No audit logging detected (AWS) — Enable
+        CloudTrail": a failure naming a service that cannot exist on GCP."""
+        xml = _xml_with_services(
+            "gcp_cloud_load_balancing", "gcp_cloud_run",
+            "gcp_cloud_monitoring", "gcp_cloud_logging",
+        )
+        messages = [f["message"] for f in self._ops_findings(xml, "gcp")]
+        self.assertFalse([m for m in messages if "audit" in m.lower()], messages)
+
+    def test_the_same_gap_is_still_reported_on_aws(self) -> None:
+        messages = [f["message"] for f in self._ops_findings(_xml_with_services("aws_ec2"), "aws")]
+        self.assertTrue([m for m in messages if "audit" in m.lower()], messages)
+
+    def test_an_equivalent_from_another_cloud_still_satisfies_a_rule(self) -> None:
+        """Applicability decides whether the question is asked; any listed
+        equivalent answers it. Failing an `aws` diagram that fronts its app
+        with Cloud Armor would be a house-style opinion, not a WAF finding."""
+        result = assess_well_architected(_xml_with_services("gcp_cloud_armor"), platform="aws")
+        security = next(p for p in result["pillars"] if p["name"] == "Security")
+        messages = [f["message"] for f in security["findings"]]
+        self.assertFalse([m for m in messages if "WAF" in m], messages)
+
+    def test_multi_cloud_keeps_every_rule_in_scope(self) -> None:
+        before = len(self._ops_findings(_xml_with_services("aws_ec2"), "multi"))
+        self.assertGreaterEqual(before, 2)
+
+
 class KmsVsCloudArmorRegressionTests(unittest.TestCase):
     """Confirmed live: the "encryption key management" recommendation's
     services list was ["aws_kms", "azure_key_vault", "gcp_cloud_armor"] — a

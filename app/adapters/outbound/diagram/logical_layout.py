@@ -945,6 +945,20 @@ def layout_corridor_ir(ir: CorridorIR) -> tuple[dict[str, Geo], dict[str, list[t
     ``compiler/shared.emit_flows``, only present for flows ELK actually
     routed (row-to-row; see the ELK section docstring above). External
     actors are positioned separately by ``compiler/shared.py``.
+
+    **Mutates ``ir``**, and that is part of the contract rather than a leak:
+    ``_reorder_row_leaves`` rewrites each corridor's ``leaves`` into flow-aware
+    order, and Logical's emitter (``corridor._emit_logical_flat``) reads that
+    list order directly rather than the geometry returned here — it lays out
+    its own compact storyboard and needs the *sequence*, not the coordinates.
+    Returning the order instead would mean threading it through a signature
+    that thirty-odd call sites already destructure as a 2-tuple, for no change
+    in output.
+
+    The reorder is a **fixed point**: the second call sees a list already in
+    flow order and leaves it alone, so calling this twice yields identical
+    geometry (pinned by ``test_logical_layout.LayoutIdempotencyTests``). Do
+    not, however, read ``corridor.leaves`` expecting the order you passed in.
     """
     row = _corridor_row_order(ir)
     if not row:
