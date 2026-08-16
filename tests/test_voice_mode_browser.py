@@ -145,8 +145,18 @@ class VoiceModeBrowserTests(unittest.TestCase):
         else:  # pragma: no cover - only on a broken environment
             cls.tearDownClass()
             raise unittest.SkipTest("dev server did not start")
-        cls._pw = sync_playwright().start()
-        cls._browser = cls._pw.chromium.launch()
+        # Importing playwright is not the same as being able to launch it: the
+        # browser binary comes from a separate `playwright install chromium`
+        # step. CI installs the pip package via requirements-dev.lock but never
+        # that step, so treat a failed launch as "not available" rather than
+        # letting it error the run.
+        try:
+            cls._pw = sync_playwright().start()
+            cls._browser = cls._pw.chromium.launch()
+        except Exception as exc:  # pragma: no cover - environment-dependent
+            cls.tearDownClass()
+            raise unittest.SkipTest(f"chromium unavailable ({str(exc)[:80]}) — "
+                                    f"run `playwright install chromium`") from exc
 
     @classmethod
     def tearDownClass(cls) -> None:
