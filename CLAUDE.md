@@ -193,12 +193,21 @@ that works for mixing typing and speech.
 - `voice.js` owns the state machine (`off | listening | capturing | thinking |
   speaking`), endpointing, the TTS queue, and the echo filter. Tunables live in
   one `VOICE_TUNING` block.
-- **The exact-phrase registry (`voice-commands.js`) runs first and
-  synchronously.** `"stop"` must never wait on a round-trip. Only unmatched
-  speech reaches `voice-router.js` → `POST /voice/route`, which also normalises
-  cloud jargon browser STT gets wrong ("easy two" → EC2) in the same call.
-- Routing **fails open**: an error with a diagram on screen still attempts the
-  edit; with an empty canvas it asks. A spoken utterance is never dropped.
+- **Routing is entirely client-side and synchronous — no model, no network.**
+  `voice-commands.js` claims exact phrases first, then `voice-router.js` does
+  the rest locally: a substitution table fixes cloud jargon browser STT gets
+  wrong ("easy two" → EC2, "are d s" → RDS), UI commands are matched by
+  requiring *every* token of a command phrase to be present, and anything else
+  becomes a diagram instruction. Measured **0.2-1.2 ms**.
+  This replaced a `POST /voice/route` LLM call that ran 1.5-3s typically but
+  12.3s and 13.9s in one batch of eight. Latency is the feature here, and the
+  timeout it needed had no good value: too short silently dropped the turn or
+  sent the *raw* transcript uncorrected, too long left the user waiting. The
+  job was always mechanical — do not reintroduce a model on this path.
+- Matching is deliberately strict, because a loose match silently flips a
+  setting the user never mentioned. Single-word phrases are excluded from fuzzy
+  matching (the registry already handles `"stop"` exactly), and `"easy to"`
+  only becomes EC2 before a compute noun — it is ordinary English otherwise.
 - **Self-echo degrades automatically.** Barge-in needs the mic open during
   playback, and the Web Speech API opens its own capture stream that accepts no
   `echoCancellation` constraint, so the filter compares transcripts against what

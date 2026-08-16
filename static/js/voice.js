@@ -37,8 +37,6 @@ const VOICE_TUNING = {
      *  never talking to ourselves (a correctness bug that looks like the app
      *  possessed). */
     halfDuplexAfterEchoes: 3,
-    /** Cap on the router round-trip before falling back locally. */
-    routerTimeoutMs: 3000,
     /** Floor between spoken progress updates during a long generation. */
     progressSpeakMs: 8000,
 };
@@ -312,10 +310,10 @@ async function _commitVoiceTurn() {
         return;
     }
 
+    // No filler here any more: routing is local and synchronous, so the
+    // route's own line ("Okay, updating the diagram.") lands immediately.
+    // A separate "Okay." on top of it just made the app talk twice.
     setVoiceState('thinking');
-    // Immediate acknowledgement: the router call is short but not free, and
-    // dead air right after speaking reads as "it didn't hear me".
-    _enqueueSpeech('Okay.');
 
     const route = await routeVoiceUtterance(utterance);
     await _applyVoiceRoute(route, utterance);

@@ -17,7 +17,6 @@ from app.adapters.inbound.web.schemas import (
     TemplateCreate,
     TemplateUpdate,
     ValidateVisualRequest,
-    VoiceRouteRequest,
 )
 from app.adapters.outbound.capture_store import list_captures, load_capture, save_capture
 from app.adapters.outbound.compliance import assess_compliance
@@ -44,7 +43,6 @@ from app.adapters.outbound.utils.web import fetch_url_content
 from app.core.logging import StepLogger
 from app.core.services.agent import generate_followup_suggestions_for_xml, run_visual_qa_llm
 from app.core.services.intent import classify_intent, wants_three_d
-from app.core.services.voice_intent import VoiceCommand, route_voice_utterance
 from app.core.services.xml_pipeline import run_simple_pipeline, run_xml_pipeline
 from app.adapters.outbound.llm import providers as providers_module
 
@@ -800,44 +798,6 @@ async def parse_url(body: ParseUrlRequest, request: Request):
     except Exception as exc:
         logger.log("error", str(exc), level="error")
         return JSONResponse(status_code=400, content={"status": "error", "detail": str(exc), "logs": logger.to_list()})
-
-
-@router.post("/voice/route")
-async def voice_route(body: VoiceRouteRequest, request: Request):
-    """Understand one spoken utterance the browser's phrase registry missed.
-
-    Deliberately *not* on the critical path for everything said in voice mode:
-    exact phrases ("stop", "clear chat") are matched client-side with no
-    network call at all, because a stop command that waits on a round-trip is
-    not a stop command. This handles the rest.
-
-    Never returns an error status. A hands-free user cannot read a toast or
-    click retry, so a failure here degrades to a usable route (see
-    ``route_voice_utterance``) rather than surfacing as a 500.
-    """
-    from app.adapters.outbound.llm.prompts.voice import VOICE_ROUTE_SYSTEM_PROMPT
-
-    logger = _logger_from_request(request)
-    provider = (
-        providers_module.CUSTOM_PROVIDER_KEY if body.custom_provider
-        else (body.provider or default_provider_key()).strip().lower()
-    )
-    custom_payload = body.custom_provider.model_dump() if body.custom_provider else None
-    commands = [VoiceCommand(**c.model_dump()) for c in body.commands]
-    with providers_module.using_custom_provider(custom_payload), \
-            providers_module.using_model_override(body.model):
-        route = await asyncio.to_thread(
-            route_voice_utterance,
-            VOICE_ROUTE_SYSTEM_PROMPT,
-            body.transcript,
-            commands=commands,
-            has_diagram=body.has_diagram,
-            platform=body.platform,
-            diagram_type=body.diagram_type,
-            provider=provider,
-            logger=logger,
-        )
-    return {"status": "success", **route.model_dump(), "logs": logger.to_list()}
 
 
 @router.post("/diagram/validate-visual")
