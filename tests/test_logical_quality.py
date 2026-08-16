@@ -257,3 +257,41 @@ class LogicalOverviewTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LayoutDeterminismTests(unittest.TestCase):
+    """The same IR must draw the same diagram on every run.
+
+    Both helpers below start a traversal from a ``set`` of node ids. A set of
+    str iterates in hash order, which Python randomises per process, so an
+    unsorted start order made layout depend on PYTHONHASHSEED — measured as
+    four different Security-page geometries from four seeds on one capture.
+
+    These assert the *exact* expected result, not merely that two calls agree:
+    within one process the hash order is constant, so a self-consistency check
+    passes even with the bug present (verified — it did).
+    """
+
+    def test_break_cycles_picks_the_same_back_edge_every_run(self) -> None:
+        from app.adapters.outbound.diagram.logical_layout import break_cycles
+
+        # Contains a cycle, so which edge is classified as the back-edge
+        # depends on where the DFS starts — the exact source of the variance.
+        edges = [("a", "b"), ("b", "c"), ("c", "a"), ("c", "d"), ("d", "b")]
+        self.assertEqual(
+            break_cycles(list(edges)),
+            [("a", "b"), ("b", "c"), ("c", "d")],
+        )
+
+    def test_longest_chain_breaks_ties_by_id(self) -> None:
+        from app.adapters.outbound.diagram.logical_layout import _longest_primary_chain
+
+        class _F:
+            def __init__(self, s, t):
+                self.source, self.target, self.kind = s, t, "primary"
+
+        # Two chains of equal length: the winner is decided purely by start
+        # order, so the lowest id must win for the result to be reproducible.
+        flows = [_F("a1", "a2"), _F("a2", "a3"), _F("b1", "b2"), _F("b2", "b3")]
+        ids = {"a1", "a2", "a3", "b1", "b2", "b3"}
+        self.assertEqual(_longest_primary_chain(ids, flows), ["a1", "a2", "a3"])
