@@ -308,17 +308,54 @@ def _place_topological(
     return positions
 
 
+def global_depths(
+    nodes: list[GenericNode], edges: list[GenericEdge],
+) -> dict[str, int]:
+    """Topological depth of every node, measured across the *whole* diagram.
+
+    Swimlanes need this. Each lane is laid out on its own, so without a shared
+    row index every lane restarts at row 0 and the process zig-zags: step 2
+    sits below step 1 in lane A, then step 3 jumps back to the top of lane B.
+    Reusing ``_place_topological``'s own layering keeps one definition of depth
+    rather than a second, subtly different one.
+    """
+    ordered = _place_topological(nodes, edges)
+    if not ordered:
+        return {}
+    rows = sorted({round(y) for _x, y in ordered.values()})
+    row_index = {y: i for i, y in enumerate(rows)}
+    return {nid: row_index[round(y)] for nid, (_x, y) in ordered.items()}
+
+
 def _place_nodes(
-    nodes: list[GenericNode], edges: list[GenericEdge], base: tuple[float, float],
+    nodes: list[GenericNode],
+    edges: list[GenericEdge],
+    base: tuple[float, float],
+    row_of: dict[str, int] | None = None,
 ) -> tuple[dict[str, tuple[float, float]], float, float]:
     """Return ``{node_id: (x, y)}`` relative to a (0, 0) content origin, plus
     the content box's ``(width, height)``.
+
+    ``row_of`` pins each node to a diagram-wide row instead of one counted
+    within this box — see ``global_depths``.
     """
     if not nodes:
         return {}, 0.0, 0.0
     sizes = {n.id: _node_size(n, base) for n in nodes}
     hinted = any(n.x is not None or n.y is not None for n in nodes)
-    positions = _place_proportional(nodes, sizes) if hinted else _place_topological(nodes, edges)
+    if row_of is not None and not hinted:
+        # Column within the lane, row from the whole diagram: several nodes can
+        # share a lane *and* a step, so they spread sideways rather than
+        # stacking on top of each other.
+        per_row: dict[int, int] = {}
+        positions = {}
+        for node in nodes:
+            row = row_of.get(node.id, 0)
+            col = per_row.get(row, 0)
+            per_row[row] = col + 1
+            positions[node.id] = (col * _PITCH, row * geo.ROW_PITCH_Y)
+    else:
+        positions = _place_proportional(nodes, sizes) if hinted else _place_topological(nodes, edges)
 
     content_w = max(positions[n.id][0] + sizes[n.id][0] for n in nodes)
     content_h = max(positions[n.id][1] + sizes[n.id][1] for n in nodes) + geo.LABEL_BAND_H
@@ -359,6 +396,12 @@ class _GenericCompiler:
         self.ir = ir
         self.w = CellWriter(page_name)
         self.node_size = node_size
+        # One row index for the whole diagram, so lanes line up step by step
+        # instead of each restarting at row 0. Only meaningful when there are
+        # groups; ungrouped diagrams lay out as one box already.
+        self._group_rows = (
+            global_depths(list(ir.nodes), list(ir.edges)) if ir.groups else None
+        )
 
     def run(self) -> str:
         by_group: dict[str, list[GenericNode]] = {}
@@ -394,12 +437,25 @@ class _GenericCompiler:
         boxes: list[tuple[GenericGroup, list[GenericNode], dict, float, float]] = []
         for group in self.ir.groups:
             nodes = by_group.get(group.id, [])
-            positions, content_w, content_h = _place_nodes(nodes, self.ir.edges, self.node_size)
+            positions, content_w, content_h = _place_nodes(
+                nodes, self.ir.edges, self.node_size, self._group_rows,
+            )
             boxes.append((
                 group, nodes, positions,
                 max(content_w + geo.PAD * 2, 160.0),
                 max(geo.TITLE_PAD + content_h + geo.PAD, 120.0),
             ))
+
+        # Lanes are the same height and start at the same line. A swimlane's
+        # whole premise is that a step's *row* means the same thing in every
+        # lane, so boxes sized to their own contents — one short, one tall, all
+        # staggered — read as three unrelated containers that happen to sit
+        # side by side. Only when rows are shared (see `_group_rows`), because
+        # otherwise the rows are not comparable and stretching would just add
+        # empty space.
+        if self._group_rows is not None and boxes:
+            tallest = max(b[4] for b in boxes)
+            boxes = [(g, n, pos, w, tallest) for g, n, pos, w, _h in boxes]
 
         hinted_groups = [b for b in boxes if b[0].x is not None or b[0].y is not None]
         group_origins: dict[str, tuple[float, float]] = {}

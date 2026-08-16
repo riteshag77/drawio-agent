@@ -695,3 +695,71 @@ class GroupAndSelfLoopTests(unittest.TestCase):
             if c.get("edge") == "1" and c.get("source") != c.get("target")
         )
         self.assertNotIn("exitX=1", edge.get("style"))
+
+
+class SwimlaneLayoutTests(unittest.TestCase):
+    """Grouped flows are swimlanes, and a swimlane's premise is that a step's
+    *row* means the same thing in every lane."""
+
+    def _lanes(self) -> SimpleDiagramIR:
+        return SimpleDiagramIR(**_flow(
+            groups=[
+                {"id": "g1", "label": "Intake"},
+                {"id": "g2", "label": "Assessment"},
+                {"id": "g3", "label": "Settlement"},
+            ],
+            nodes=[
+                {"id": "a", "shape": "rectangle", "label": "Report", "group": "g1"},
+                {"id": "b", "shape": "rectangle", "label": "Intake", "group": "g1"},
+                {"id": "c", "shape": "rectangle", "label": "Review", "group": "g2"},
+                {"id": "d", "shape": "rectangle", "label": "Decide", "group": "g2"},
+                {"id": "e", "shape": "rectangle", "label": "Pay", "group": "g3"},
+            ],
+            edges=[
+                {"source": "a", "target": "b"},
+                {"source": "b", "target": "c"},
+                {"source": "c", "target": "d"},
+                {"source": "d", "target": "e"},
+            ],
+        ))
+
+    def _cells_by_id(self, ir: SimpleDiagramIR) -> dict:
+        return {c.get("id"): c for c in _cells(compile_simple_ir(ir))}
+
+    def test_a_later_step_never_sits_above_an_earlier_one(self) -> None:
+        """Without a diagram-wide row index each lane restarts at row 0, so
+        step 3 jumped back to the top of the next lane and the process
+        zig-zagged down-up-down."""
+        cells = self._cells_by_id(self._lanes())
+
+        def abs_y(node_id: str) -> float:
+            cell = cells[node_id]
+            parent = cells[cell.get("parent")]
+            return (
+                float(parent.find("mxGeometry").get("y"))
+                + float(cell.find("mxGeometry").get("y"))
+            )
+
+        ys = [abs_y(n) for n in ("a", "b", "c", "d", "e")]
+        self.assertEqual(ys, sorted(ys), "the process must read downward")
+
+    def test_every_lane_is_the_same_height(self) -> None:
+        """Boxes sized to their own contents read as unrelated containers that
+        happen to sit side by side."""
+        cells = self._cells_by_id(self._lanes())
+        heights = {
+            round(float(cells[g].find("mxGeometry").get("height")))
+            for g in ("g1", "g2", "g3")
+        }
+        self.assertEqual(len(heights), 1, heights)
+
+    def test_lanes_share_a_top_edge(self) -> None:
+        cells = self._cells_by_id(self._lanes())
+        tops = {round(float(cells[g].find("mxGeometry").get("y"))) for g in ("g1", "g2", "g3")}
+        self.assertEqual(len(tops), 1, tops)
+
+    def test_an_ungrouped_flow_is_untouched(self) -> None:
+        """No groups means no shared rows — the single-box layout already
+        reads top-to-bottom, and stretching nothing would only add space."""
+        cells = _cells(compile_simple_ir(SimpleDiagramIR(**_flow())))
+        self.assertTrue([c for c in cells if c.get("vertex") == "1"])
