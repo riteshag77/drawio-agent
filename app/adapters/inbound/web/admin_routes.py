@@ -196,19 +196,29 @@ def _validation_settings() -> dict:
 
 
 def _validation_provider_options() -> list[dict]:
-    """Providers as the picker needs them: label, and whether they can run.
+    """Providers as the picker needs them: label, models, and whether they run.
 
     The bare key list this used to return made the admin select show `claude` /
     `openai` where the app's own picker shows proper labels, and gave no hint
     that choosing a provider with no API key configured would fail at
     generation time rather than here.
+
+    ``models`` mirrors ``GET /providers`` so the admin select can be built by
+    the same ``populateProviderOptions()`` the composer and Visual-QA pickers
+    use — otherwise admin can pick a *vendor* while every other picker in the
+    app picks a *model*.
     """
     import os
 
     options = []
     for key, spec in sorted(providers_module.PROVIDERS.items()):
         configured = bool(os.environ.get(spec.api_key_env, "")) if spec.api_key_env else True
-        options.append({"key": key, "label": spec.label, "configured": configured})
+        options.append({
+            "key": key,
+            "label": spec.label or key,
+            "models": list(spec.models),
+            "configured": configured,
+        })
     return options
 
 
@@ -219,6 +229,9 @@ async def admin_get_validation(x_admin_token: str | None = Header(default=None))
         "status": "ok",
         "validation": _validation_settings(),
         "providers": _validation_provider_options(),
+        # Same key the /providers payload uses — populateProviderOptions() marks
+        # the matching option so the picker can show which one is the default.
+        "default": providers_module.default_provider_key(),
     }
 
 
@@ -228,12 +241,27 @@ async def admin_update_validation(
 ) -> dict:
     _require_admin(x_admin_token)
     if body.provider is not None:
-        key = body.provider.strip().lower()
+        # The picker sends the same "<provider>::<model>" value the composer's
+        # own select uses, so validate each half and store the pair as one
+        # opaque ref — get_provider() splits it again at call time.
+        # Only the vendor key is case-folded — model ids are vendor-defined and
+        # case-sensitive (e.g. "meta/Llama-3.1-70B-Instruct").
+        raw_key, model = providers_module.split_provider_ref(body.provider)
+        key = raw_key.lower()
         # Blank is meaningful ("use the generation provider"), so it is the one
         # value that skips the known-provider check.
         if key and key not in providers_module.PROVIDERS:
             raise HTTPException(status_code=400, detail="Unknown provider")
-        admin_settings_store.set_setting("DIAGRAM_VALIDATION_PROVIDER", key)
+        if model:
+            available = list(providers_module.PROVIDERS[key].models)
+            if available and model not in available:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Model {model!r} is not available for provider {key!r}",
+                )
+        admin_settings_store.set_setting(
+            "DIAGRAM_VALIDATION_PROVIDER", f"{key}::{model}" if model else key,
+        )
     if body.enabled is not None:
         admin_settings_store.set_setting(
             "DIAGRAM_VALIDATION_ENABLED", "true" if body.enabled else "false",

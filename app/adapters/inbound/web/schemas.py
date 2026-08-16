@@ -168,6 +168,36 @@ class TemplateUpdate(BaseModel):
     pinned: bool | None = None
 
 
+class VoiceCommandRef(BaseModel):
+    """One entry of the browser's voice command registry."""
+
+    id: str = Field(max_length=80)
+    label: str = Field(default="", max_length=160)
+    sample: str = Field(default="", max_length=200)
+
+
+class VoiceRouteRequest(BaseModel):
+    """One spoken utterance the browser's exact-phrase registry could not match.
+
+    ``commands`` is sent by the client on purpose: the registry lives in
+    ``static/js/voice-commands.js`` and stays the single source of truth for
+    what the app can be told to do, so the server never holds a second copy to
+    drift out of sync.
+    """
+
+    transcript: str = Field(max_length=4000)
+    commands: list[VoiceCommandRef] = Field(default_factory=list, max_length=200)
+    has_diagram: bool = False
+    platform: str = Field(default="", max_length=40)
+    diagram_type: str = Field(default="", max_length=40)
+    provider: str = Field(default_factory=_default_provider)
+    model: str | None = Field(default=None, max_length=200)
+    custom_provider: CustomProviderConfig | None = Field(
+        default=None,
+        description="Same BYOK override as ChatRequest.custom_provider.",
+    )
+
+
 class ValidateVisualRequest(BaseModel):
     image_base64: str = Field(max_length=8_000_000)
     xml: str = Field(max_length=1_500_000)

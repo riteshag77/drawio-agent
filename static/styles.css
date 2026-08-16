@@ -529,6 +529,22 @@
             margin-bottom: 0.1rem;
         }
 
+        .voice-help-toggle {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.45rem;
+            font-size: 0.75rem;
+            line-height: 1.4;
+            color: var(--text-muted);
+            cursor: pointer;
+        }
+
+        .voice-help-toggle input {
+            margin: 0.15rem 0 0;
+            flex-shrink: 0;
+            cursor: pointer;
+        }
+
         .sidebar-header h1 {
             font: var(--text-h1);
             letter-spacing: -0.005em;
@@ -1755,6 +1771,50 @@
             border-radius: 50%;
             background: var(--error);
             animation: voicePulse 1.1s ease-in-out infinite;
+        }
+
+        /* ── Voice mode HUD ────────────────────────────────────────
+           Voice mode commits a turn on a pause rather than on a command, so a
+           silent mishearing is its main failure mode. The bar shows the live
+           transcript *before* it fires, and colours by state so "it is
+           thinking" is never mistaken for "it did not hear me". Dictation
+           keeps the plain red recording bar above. */
+        .voice-status[data-voice-state] {
+            color: var(--accent);
+            background: var(--surface-hover);
+            border-color: var(--accent);
+            align-items: flex-start;
+            line-height: 1.35;
+            transition: color 0.18s ease, border-color 0.18s ease;
+        }
+
+        .voice-status[data-voice-state] .voice-dot {
+            background: currentColor;
+            margin-top: 0.28rem;
+            flex-shrink: 0;
+        }
+
+        .voice-status[data-voice-state="thinking"] {
+            color: var(--warning, #d09b3a);
+            border-color: var(--warning, #d09b3a);
+        }
+
+        /* Steady, not pulsing: the pulse means "your mic is live and I am
+           taking this down", which is exactly what is not happening while the
+           app is talking. */
+        .voice-status[data-voice-state="speaking"] {
+            color: var(--success, #3fa66a);
+            border-color: var(--success, #3fa66a);
+        }
+
+        .voice-status[data-voice-state="speaking"] .voice-dot,
+        .voice-status[data-voice-state="thinking"] .voice-dot {
+            animation: none;
+            opacity: 0.85;
+        }
+
+        #voice-status-text {
+            overflow-wrap: anywhere;
         }
 
         .template-search { margin-bottom: 0.5rem; }

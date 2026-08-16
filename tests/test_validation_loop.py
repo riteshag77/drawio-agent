@@ -154,6 +154,94 @@ class ProviderSelectionTests(unittest.TestCase):
             self.assertEqual(get_config().validation_provider, "openai")
 
 
+class ValidationModelTests(unittest.TestCase):
+    """Admin can name a specific *model*, not just a vendor.
+
+    The setting carries it as the same ``"<provider>::<model>"`` ref the
+    frontend's model pickers already emit, so the pipeline keeps passing one
+    opaque provider string and the LLM adapter does the splitting.
+    """
+
+    def test_the_ref_is_passed_through_whole(self) -> None:
+        with _Settings(DIAGRAM_VALIDATION_PROVIDER="nvidia::meta/llama-3.1-70b-instruct"):
+            cfg = get_config()
+            self.assertEqual(
+                cfg.validation_provider, "nvidia::meta/llama-3.1-70b-instruct",
+            )
+            self.assertEqual(cfg.validation_model, "meta/llama-3.1-70b-instruct")
+
+    def test_a_bare_provider_has_no_model(self) -> None:
+        with _Settings(DIAGRAM_VALIDATION_PROVIDER="openai"):
+            self.assertEqual(get_config().validation_model, "")
+
+    def test_key_only_consumers_never_see_the_model_half(self) -> None:
+        """Everything that wants the vendor key — llm_client's provider_key, the
+        fallback chain, agent's usage logging — must be unaffected by the
+        combined form, or a validation pass would log/route under a key that
+        does not exist."""
+        from app.adapters.outbound.llm.providers import normalize_provider_key
+
+        self.assertEqual(normalize_provider_key("openai::gpt-4o"), "openai")
+        self.assertEqual(normalize_provider_key("OpenAI::gpt-4o"), "openai")
+        self.assertEqual(normalize_provider_key("openai"), "openai")
+
+    def test_the_named_model_actually_reaches_the_resolved_spec(self) -> None:
+        """The failure this guards against is the quiet one: the model is
+        stored and displayed in admin, but the pass runs on the provider's
+        default anyway."""
+        from app.adapters.outbound.llm import providers as pm
+
+        spec = next(
+            (s for s in pm.PROVIDERS.values() if len(s.models) > 1), None,
+        )
+        if spec is None:
+            self.skipTest("no multi-model provider registered")
+        wanted = spec.models[-1]
+        resolved = pm.get_provider(f"{spec.key}::{wanted}")
+        self.assertEqual(resolved.default_model, wanted)
+        self.assertEqual(resolved.key, spec.key)
+
+    def test_an_inline_model_outranks_the_request_override(self) -> None:
+        """A validation call nested inside a chat request must run on the model
+        admin chose, not the one the chat request picked for generation."""
+        from app.adapters.outbound.llm import providers as pm
+
+        spec = next(
+            (s for s in pm.PROVIDERS.values() if len(s.models) > 1), None,
+        )
+        if spec is None:
+            self.skipTest("no multi-model provider registered")
+        chat_model, validation_model = spec.models[0], spec.models[-1]
+        with pm.using_model_override(chat_model):
+            resolved = pm.get_provider(f"{spec.key}::{validation_model}")
+        self.assertEqual(resolved.default_model, validation_model)
+
+
+class ValidationProviderApiTests(unittest.TestCase):
+    def test_a_provider_and_model_round_trip(self) -> None:
+        from app.adapters.outbound.llm import providers as pm
+
+        spec = next(
+            (s for s in pm.PROVIDERS.values() if len(s.models) > 1), None,
+        )
+        if spec is None:
+            self.skipTest("no multi-model provider registered")
+        ref = f"{spec.key}::{spec.models[-1]}"
+        key, model = pm.split_provider_ref(ref)
+        self.assertEqual((key, model), (spec.key, spec.models[-1]))
+
+    def test_the_picker_payload_carries_models(self) -> None:
+        """Without `models`, the admin select falls back to one option per
+        provider — which is the bug this whole change exists to fix."""
+        options = admin_routes._validation_provider_options()
+        self.assertTrue(options)
+        for opt in options:
+            self.assertIn("models", opt)
+            self.assertIn("label", opt)
+            self.assertIn("configured", opt)
+            self.assertIsInstance(opt["models"], list)
+
+
 class PrimaryPageCoverageTests(unittest.TestCase):
     """The loop was wired only into the *extra* views at first, so turning
     validation on left the page the user is actually looking at untouched."""

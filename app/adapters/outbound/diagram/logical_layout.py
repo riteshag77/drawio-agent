@@ -125,7 +125,13 @@ def break_cycles(edges: list[tuple[str, str]]) -> list[tuple[str, str]]:
                 back.add((u, v))
         color[u] = 2
 
-    for n in nodes:
+    # sorted(), not the set's own order: which edges come out as back-edges
+    # depends on where the DFS starts, and a set of str iterates in hash order,
+    # which Python randomises per process. On a graph with a cycle that changed
+    # the resulting DAG, hence the ranks, hence where every node was drawn —
+    # the same IR produced a different layout on each run (measured: four
+    # PYTHONHASHSEED values, four different Security-page geometries).
+    for n in sorted(nodes):
         if color[n] == 0:
             dfs(n)
     if not back:
@@ -767,7 +773,13 @@ def _longest_primary_chain(idset: set[str], flows: list) -> list[str]:
             path.pop()
             seen.remove(nxt)
 
-    for start in nodes:
+    # sorted(), not the set's own order: `best` keeps the *first* strictly
+    # longest path, so when two paths tie the winner is decided by iteration
+    # order — and a set of str iterates in hash order, which Python randomises
+    # per process. That made the chosen spine, and therefore the whole page
+    # layout, differ between runs of identical input (measured: three distinct
+    # geometries from three PYTHONHASHSEED values on the same IR).
+    for start in sorted(nodes):
         dfs(start, [start], {start})
     return best
 

@@ -1,14 +1,59 @@
+/** Speech input, in two modes.
+ *
+ * **Dictation** (the original): the mic fills the composer, and the turn only
+ * fires when the user says "send". Still reachable, and still the only thing
+ * that works for someone who wants to mix typing and speech.
+ *
+ * **Voice mode** (the default for the mic button): a conversational loop. A
+ * pause ends the turn, natural speech is routed rather than exact-matched, the
+ * app speaks back, and the user can interrupt it mid-sentence.
+ *
+ * The two share one recognition object and one command registry. What differs
+ * is who decides a turn is over, and whether the mic keeps listening while the
+ * app talks.
+ */
+
+/** Field-tunable thresholds. Grouped because they interact — lengthening the
+ *  endpoint delay makes barge-in feel slower, and loosening the echo overlap
+ *  makes the app more likely to interrupt itself. */
+const VOICE_TUNING = {
+    /** Silence that ends a turn. Long enough to think mid-sentence, short
+     *  enough that the user is not left wondering whether it heard them. */
+    endpointMs: 1200,
+    /** Words that must survive the echo filter before we treat speech during
+     *  playback as a real interruption. One stray word must not stop the app
+     *  mid-sentence. */
+    bargeInMinWords: 2,
+    /** Token overlap with what is currently being spoken, above which a
+     *  transcript is assumed to be the mic hearing our own voice. */
+    echoOverlap: 0.6,
+    /** Cap on the router round-trip before falling back locally. */
+    routerTimeoutMs: 3000,
+    /** Floor between spoken progress updates during a long generation. */
+    progressSpeakMs: 8000,
+};
+
+/** off | listening | capturing | thinking | speaking */
+let voiceState = 'off';
+let voiceMode = false;
+
 let speechRecognition = null;
 let isListening = false;
 let voiceBaseText = '';
 let voiceManuallyStopping = false;
 let voiceStatusBeforeListen = '';
 
+let _voiceTurnBuffer = '';
+let _voiceEndpointTimer = null;
+let _voiceInterim = '';
+/** Utterance buffered because it arrived while a turn was still running. */
+let _voicePendingTurn = '';
+
 // ── Spoken confirmation (text-to-speech) ───────────────────────────────────
-// Opt-in and off by default — narrating every turn is intrusive for anyone
-// typing normally. Only turns actually started by a voice command (quick
-// edit / send) get spoken back, so this stays useful for hands-free use
-// without talking over a user who's just clicking around.
+// In dictation mode this stays opt-in and off by default — narrating every
+// turn is intrusive for anyone typing normally, so only turns actually started
+// by a voice command get spoken back. Voice mode forces it on: speech is the
+// only channel a hands-free user has.
 let voiceRepliesEnabled = localStorage.getItem('voiceRepliesEnabled') === '1';
 let voiceInitiatedTurn = false;
 
@@ -17,56 +62,301 @@ function setVoiceRepliesEnabled(on) {
     localStorage.setItem('voiceRepliesEnabled', voiceRepliesEnabled ? '1' : '0');
 }
 
+function voiceRepliesActive() {
+    return voiceMode || voiceRepliesEnabled;
+}
+
 function markVoiceInitiatedTurn() {
     voiceInitiatedTurn = true;
 }
 
 /** Read-and-clear so exactly one sendMessage() call is attributed to voice,
- *  never leaking into a later typed turn. */
+ *  never leaking into a later typed turn. In voice mode every turn is a voice
+ *  turn, so this reports true without consuming anything — which is what keeps
+ *  the existing speak/resume call sites in app.js working unchanged. */
 function consumeVoiceInitiatedTurn() {
+    if (voiceMode) return true;
     const was = voiceInitiatedTurn;
     voiceInitiatedTurn = false;
     return was;
 }
 
 let lastSpokenReply = '';
+let _speechQueue = [];
+let _speaking = false;
+
+function getVoiceState() {
+    return voiceState;
+}
+
+function setVoiceState(next) {
+    if (voiceState === next) return;
+    voiceState = next;
+    renderVoiceHud();
+}
+
+// ── Speech output ─────────────────────────────────────────────────────────
 
 /** Resolves once the utterance actually finishes (or immediately if replies
- *  are off/unsupported) — callers that want to resume the mic afterward
- *  (see resumeVoiceListening) must wait for real audio playback to end
- *  first, or the mic hears its own TTS output and misreads it as a command. */
+ *  are off/unsupported). Dictation callers that resume the mic afterward must
+ *  wait for real playback to end, or the mic hears its own output. Voice mode
+ *  never stops the mic, and relies on the echo filter instead. */
 function speakVoiceReply(text) {
     if (!text) return Promise.resolve();
-    if (!voiceRepliesEnabled) return Promise.resolve();
+    if (!voiceRepliesActive()) return Promise.resolve();
     if (!('speechSynthesis' in window)) return Promise.resolve();
     lastSpokenReply = text;
+    return _enqueueSpeech(text);
+}
+
+function _enqueueSpeech(text) {
     return new Promise((resolve) => {
-        try {
-            window.speechSynthesis.cancel(); // don't queue behind a stale utterance
-            const utter = new SpeechSynthesisUtterance(text);
-            utter.rate = 1.05;
-            utter.onend = () => resolve();
-            utter.onerror = () => resolve();
-            window.speechSynthesis.speak(utter);
-        } catch (_) {
-            // best-effort only — a TTS failure must never break the actual turn
-            resolve();
-        }
+        _speechQueue.push({ text, resolve });
+        _drainSpeechQueue();
     });
 }
 
-/** Resumes listening after a voice-started turn finishes — the mic is
- *  explicitly silenced for the duration of every sendMessage() call (see
- *  app.js) so it doesn't pick up ambient noise or its own TTS output while
- *  a request is in flight. Only called for turns sendMessage() itself
- *  confirms were voice-initiated AND actually listening beforehand, so this
- *  never surprises a user who was typing or who already turned the mic off. */
-function resumeVoiceListening() {
-    if (isListening) return;
-    if (typeof toggleVoiceInput !== 'function') return;
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR || !isVoiceSecureContext()) return;
-    toggleVoiceInput();
+function _drainSpeechQueue() {
+    if (_speaking) return;
+    const item = _speechQueue.shift();
+    if (!item) {
+        // Nothing left to say — hand the mic back to a plain listening state.
+        if (voiceMode && voiceState === 'speaking') setVoiceState('listening');
+        return;
+    }
+    _speaking = true;
+    if (voiceMode) setVoiceState('speaking');
+    try {
+        const utter = new SpeechSynthesisUtterance(toSpokenText(item.text));
+        utter.rate = 1.05;
+        const done = () => {
+            _speaking = false;
+            item.resolve();
+            _drainSpeechQueue();
+        };
+        utter.onend = done;
+        utter.onerror = done;
+        window.speechSynthesis.speak(utter);
+    } catch (_) {
+        // best-effort only — a TTS failure must never break the actual turn
+        _speaking = false;
+        item.resolve();
+        _drainSpeechQueue();
+    }
+}
+
+/** Drops everything pending, not just the sentence in flight — an interrupted
+ *  user does not want the queue to carry on afterwards. */
+function cancelVoiceSpeech() {
+    const pending = _speechQueue.splice(0, _speechQueue.length);
+    pending.forEach((item) => item.resolve());
+    _speaking = false;
+    if ('speechSynthesis' in window) {
+        try { window.speechSynthesis.cancel(); } catch (_) {}
+    }
+}
+
+/** Strips what reads fine but *sounds* wrong: a TTS voice pronounces markdown
+ *  punctuation, cell ids and XML fragments literally. */
+function toSpokenText(text) {
+    return String(text || '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/`{1,3}[^`]*`{1,3}/g, ' ')
+        .replace(/[*_#>|]+/g, ' ')
+        .replace(/\b[a-zA-Z]+[-_][0-9a-fA-F]{6,}\b/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+let _lastProgressSpokenAt = 0;
+
+/** Narrates the pipeline while it runs. A fresh generation can take 30s+, and
+ *  silence that long is indistinguishable from the app having died — but
+ *  reading every step aloud would talk over the whole run, hence the floor. */
+function speakVoiceProgress(message, { force = false } = {}) {
+    if (!voiceMode || !message) return;
+    const now = Date.now();
+    if (!force && now - _lastProgressSpokenAt < VOICE_TUNING.progressSpeakMs) return;
+    _lastProgressSpokenAt = now;
+    _enqueueSpeech(message);
+}
+
+function resetVoiceProgressThrottle() {
+    _lastProgressSpokenAt = 0;
+}
+
+// ── Echo filter ───────────────────────────────────────────────────────────
+
+function _voiceTokens(text) {
+    return String(text || '')
+        .toLowerCase()
+        .replace(/[^\w\s-]/g, ' ')
+        .split(/\s+/)
+        .filter(Boolean);
+}
+
+/** True when a transcript heard during playback is probably our own voice.
+ *
+ * This is the load-bearing guess of voice mode. Barge-in needs the mic open
+ * while the app speaks, and the Web Speech API opens its own capture stream —
+ * it takes no getUserMedia constraints, so echoCancellation cannot be relied
+ * on the way it could with a raw MediaStream. Comparing against what is
+ * actually being said is the mitigation available at this layer.
+ *
+ * If this proves too leaky on real hardware, the escape hatch is half-duplex:
+ * during playback accept only registry stop-phrases and discard everything
+ * else. That loses conversational interruption but never loops on itself.
+ */
+function _isLikelySelfEcho(text) {
+    const heard = _voiceTokens(text);
+    if (!heard.length) return true;
+    const spoken = _voiceTokens(lastSpokenReply);
+    if (!spoken.length) return false;
+    const spokenSet = new Set(spoken);
+    const overlap = heard.filter((t) => spokenSet.has(t)).length / heard.length;
+    return overlap >= VOICE_TUNING.echoOverlap;
+}
+
+// ── Turn commit ───────────────────────────────────────────────────────────
+
+function _clearEndpointTimer() {
+    if (_voiceEndpointTimer) {
+        clearTimeout(_voiceEndpointTimer);
+        _voiceEndpointTimer = null;
+    }
+}
+
+function _restartEndpointTimer() {
+    _clearEndpointTimer();
+    _voiceEndpointTimer = setTimeout(_commitVoiceTurn, VOICE_TUNING.endpointMs);
+}
+
+/** A pause ended the turn. Registry first (synchronous, zero latency — "stop"
+ *  must never wait on a round-trip), then the router for everything else. */
+async function _commitVoiceTurn() {
+    _clearEndpointTimer();
+    const utterance = _voiceTurnBuffer.trim();
+    _voiceTurnBuffer = '';
+    _voiceInterim = '';
+    if (!utterance) return;
+
+    if (typeof tryRunVoiceCommand === 'function') {
+        const hit = tryRunVoiceCommand(utterance);
+        if (hit && hit.handled) {
+            renderVoiceHud();
+            return;
+        }
+    }
+
+    // A turn is already running: hold this one rather than dropping it, and
+    // flush when the pipeline comes back. Talking over a 30s generation is
+    // normal in a conversation and must not lose what was said.
+    if (typeof isSending !== 'undefined' && isSending) {
+        _voicePendingTurn = utterance;
+        setVoiceStatus(true, 'Heard — I\'ll do that when this finishes');
+        return;
+    }
+
+    setVoiceState('thinking');
+    // Immediate acknowledgement: the router call is short but not free, and
+    // dead air right after speaking reads as "it didn't hear me".
+    _enqueueSpeech('Okay.');
+
+    const route = await routeVoiceUtterance(utterance);
+    await _applyVoiceRoute(route, utterance);
+}
+
+async function _applyVoiceRoute(route, utterance) {
+    if (!route) return;
+    if (route.kind === 'ui_command') {
+        const cmd = (typeof VOICE_COMMANDS !== 'undefined')
+            ? VOICE_COMMANDS.find((c) => c.id === route.command_id)
+            : null;
+        if (cmd) {
+            try {
+                const guard = cmd.when ? cmd.when(null) : null;
+                if (guard) {
+                    speakVoiceReply(guard);
+                    setVoiceStatus(true, guard);
+                    return;
+                }
+                const result = cmd.run(null);
+                const msg = (result && typeof result === 'string') ? result : route.speak;
+                if (result && typeof result === 'object' && result.error) {
+                    speakVoiceReply(result.error);
+                    return;
+                }
+                speakVoiceReply(msg || 'Done.');
+            } catch (err) {
+                speakVoiceReply('That didn\'t work.');
+            }
+            return;
+        }
+        speakVoiceReply(route.speak || "I'm not sure how to do that.");
+        return;
+    }
+
+    if (route.kind === 'diagram_turn') {
+        const prompt = (route.prompt || utterance).trim();
+        if (!prompt) return;
+        if (route.speak) speakVoiceReply(route.speak);
+        resetVoiceProgressThrottle();
+        const input = document.getElementById('chat-input');
+        if (input) {
+            input.value = prompt;
+            if (typeof autoResizeChatInput === 'function') autoResizeChatInput();
+        }
+        if (typeof sendMessage === 'function') sendMessage();
+        return;
+    }
+
+    // clarify — say why, and leave the words somewhere visible so a mishearing
+    // is recoverable rather than simply lost.
+    if (route.prompt) {
+        const input = document.getElementById('chat-input');
+        if (input) {
+            input.value = route.prompt;
+            if (typeof autoResizeChatInput === 'function') autoResizeChatInput();
+        }
+    }
+    speakVoiceReply(route.speak || "Sorry, I didn't catch that.");
+}
+
+/** Called by app.js when a turn finishes, so anything said mid-generation runs
+ *  now instead of being dropped. */
+function flushPendingVoiceTurn() {
+    if (!voiceMode || !_voicePendingTurn) return;
+    const pending = _voicePendingTurn;
+    _voicePendingTurn = '';
+    _voiceTurnBuffer = pending;
+    _commitVoiceTurn();
+}
+
+// ── HUD ───────────────────────────────────────────────────────────────────
+
+const _VOICE_STATE_LABELS = {
+    listening: 'Listening…',
+    capturing: 'Listening…',
+    thinking: 'Thinking…',
+    speaking: 'Speaking — just talk to interrupt',
+};
+
+/** Shows state *and* the live transcript. With a pause committing the turn on
+ *  its own, a silent mishearing is the main failure mode — seeing the words
+ *  before they fire is what makes it recoverable. */
+function renderVoiceHud() {
+    const bar = document.getElementById('voice-status');
+    const label = document.getElementById('voice-status-text');
+    if (!bar) return;
+    if (!voiceMode) {
+        bar.removeAttribute('data-voice-state');
+        return;
+    }
+    bar.hidden = false;
+    bar.setAttribute('data-voice-state', voiceState);
+    if (!label) return;
+    const heard = (_voiceTurnBuffer + ' ' + _voiceInterim).trim();
+    label.textContent = heard || _VOICE_STATE_LABELS[voiceState] || 'Voice mode on';
 }
 
 function isVoiceSecureContext() {
@@ -111,7 +401,7 @@ function initVoiceHotkeys() {
         if (e.code !== 'Space' && e.key !== ' ') return;
         if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
 
-        // While mic is on, Space always stops it (even if composer is focused).
+        // While the mic is on, Space always stops it (even if composer focused).
         if (isListening) {
             e.preventDefault();
             toggleVoiceInput();
@@ -124,6 +414,19 @@ function initVoiceHotkeys() {
         e.preventDefault();
         toggleVoiceInput();
     });
+}
+
+// ── Recognition ───────────────────────────────────────────────────────────
+
+/** Voice mode is the default for the mic button; dictation stays available via
+ *  the settings toggle. Read once at init so a mid-session flip does not swap
+ *  turn-taking rules out from under a running session. */
+function voiceModePreferred() {
+    return localStorage.getItem('voiceDictationOnly') !== '1';
+}
+
+function setVoiceDictationOnly(on) {
+    localStorage.setItem('voiceDictationOnly', on ? '1' : '0');
 }
 
 function initVoiceInput() {
@@ -139,9 +442,11 @@ function initVoiceInput() {
         return;
     }
     if (btn) {
-        btn.title = 'Voice: Space or click to toggle (dictate or say a command; say “help”)';
-        btn.setAttribute('aria-label', 'Voice: press Space or click to toggle microphone');
+        btn.title = 'Voice mode: Space or click to start a spoken conversation';
+        btn.setAttribute('aria-label', 'Voice mode: press Space or click to toggle');
     }
+    const modeToggle = document.getElementById('voice-dictation-only-toggle');
+    if (modeToggle) modeToggle.checked = !voiceModePreferred();
     speechRecognition = new SR();
     speechRecognition.continuous = true;
     speechRecognition.interimResults = true;
@@ -151,13 +456,21 @@ function initVoiceInput() {
     speechRecognition.onstart = () => {
         isListening = true;
         voiceManuallyStopping = false;
-        voiceBaseText = document.getElementById('chat-input').value.trim();
+        voiceBaseText = voiceMode ? '' : document.getElementById('chat-input').value.trim();
         voiceStatusBeforeListen = document.getElementById('diagram-status').textContent;
         if (btn) btn.classList.add('listening');
-        setVoiceStatus(true, 'Listening… Space to stop · dictate or say a command');
-        setComposerRunStatus('Listening… Space to stop, or say a command (try “help”)', 'running');
-        setDiagramStatus('Listening… Space to stop');
+        if (voiceMode) {
+            setVoiceState('listening');
+            renderVoiceHud();
+            setComposerRunStatus('Voice mode on — just talk. Space to end.', 'running');
+            setDiagramStatus('Voice mode on');
+        } else {
+            setVoiceStatus(true, 'Listening… Space to stop · dictate or say a command');
+            setComposerRunStatus('Listening… Space to stop, or say a command (try “help”)', 'running');
+            setDiagramStatus('Listening… Space to stop');
+        }
     };
+
     speechRecognition.onresult = (event) => {
         let interim = '';
         const finals = [];
@@ -168,6 +481,10 @@ function initVoiceInput() {
             } else {
                 interim += piece;
             }
+        }
+        if (voiceMode) {
+            _onVoiceModeResult(finals, interim);
+            return;
         }
         if (finals.length) {
             finals.forEach((chunk) => {
@@ -186,12 +503,16 @@ function initVoiceInput() {
         }
         _voiceSyncComposerDisplay(interim);
     };
+
     speechRecognition.onerror = (e) => {
         if (e.error === 'aborted' && voiceManuallyStopping) {
             voiceManuallyStopping = false;
             stopVoiceInput();
             return;
         }
+        // Silence between turns is normal in a conversation, not an error —
+        // the auto-restart in onend keeps the session alive.
+        if (voiceMode && (e.error === 'no-speech' || e.error === 'aborted')) return;
         appendVerboseLog('client', `Voice input error: ${e.error}`, 'warn');
         let msg = '';
         switch (e.error) {
@@ -216,7 +537,10 @@ function initVoiceInput() {
         if (msg) showError(msg);
         stopVoiceInput();
     };
+
     speechRecognition.onend = () => {
+        // Chrome ends the session on its own every so often; voice mode depends
+        // on this restart, which is why the loop never actually stops.
         if (isListening && !voiceManuallyStopping) {
             try {
                 speechRecognition.start();
@@ -229,13 +553,58 @@ function initVoiceInput() {
     };
 }
 
+/** Voice mode's result handler: echo filter, barge-in, endpointing. */
+function _onVoiceModeResult(finals, interim) {
+    const speakingNow = voiceState === 'speaking' || _speaking;
+
+    if (speakingNow) {
+        const candidate = (finals.join(' ') + ' ' + interim).trim();
+        if (!candidate) return;
+        if (_isLikelySelfEcho(candidate)) return;
+        if (_voiceTokens(candidate).length < VOICE_TUNING.bargeInMinWords) return;
+        // Real speech over the top of playback — the user is interrupting.
+        cancelVoiceSpeech();
+        setVoiceState('capturing');
+    }
+
+    if (finals.length) {
+        finals.forEach((chunk) => {
+            const joined = String(chunk || '').trim();
+            if (!joined) return;
+            if (speakingNow && _isLikelySelfEcho(joined)) return;
+            _voiceTurnBuffer = _voiceTurnBuffer ? `${_voiceTurnBuffer} ${joined}`.trim() : joined;
+        });
+    }
+    _voiceInterim = interim || '';
+    if (_voiceTurnBuffer || _voiceInterim) {
+        if (voiceState === 'listening') setVoiceState('capturing');
+        renderVoiceHud();
+        _restartEndpointTimer();
+    }
+}
+
 function stopVoiceInput() {
     isListening = false;
+    _clearEndpointTimer();
+    _voiceTurnBuffer = '';
+    _voiceInterim = '';
+    _voicePendingTurn = '';
+    const wasVoiceMode = voiceMode;
+    voiceMode = false;
+    setVoiceState('off');
+    cancelVoiceSpeech();
     const btn = document.getElementById('btn-voice');
     if (btn) btn.classList.remove('listening');
+    const bar = document.getElementById('voice-status');
+    if (bar) bar.removeAttribute('data-voice-state');
     setVoiceStatus(false);
     if (!isSending) {
-        setComposerRunStatus('Ready — type, dictate (Space), or say a voice command', 'info');
+        setComposerRunStatus(
+            wasVoiceMode
+                ? 'Voice mode off — type, or press Space to start talking again'
+                : 'Ready — type, dictate (Space), or say a voice command',
+            'info',
+        );
         if (voiceStatusBeforeListen && currentXml) {
             setDiagramStatus(voiceStatusBeforeListen);
         } else if (currentXml) {
@@ -244,6 +613,16 @@ function stopVoiceInput() {
             setDiagramStatus('Waiting for generation');
         }
     }
+}
+
+/** Kept for the dictation path and for voice-commands.js's "stop listening". */
+function resumeVoiceListening() {
+    if (voiceMode) return; // never stopped in the first place
+    if (isListening) return;
+    if (typeof toggleVoiceInput !== 'function') return;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR || !isVoiceSecureContext()) return;
+    toggleVoiceInput();
 }
 
 async function toggleVoiceInput() {
@@ -264,7 +643,14 @@ async function toggleVoiceInput() {
     // Allow mic while generating so the user can say “stop”.
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            // echoCancellation is requested for the permission stream even
+            // though SpeechRecognition opens its own capture — where the
+            // browser applies it device-wide it reduces how much of our own
+            // playback comes back, which is exactly what _isLikelySelfEcho
+            // is otherwise left to clean up alone.
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+            });
             stream.getTracks().forEach(t => t.stop());
         } catch (err) {
             showError('Microphone permission is required for voice input. Please allow access and try again.');
@@ -272,9 +658,14 @@ async function toggleVoiceInput() {
             return;
         }
     }
+    voiceMode = voiceModePreferred();
+    _voiceTurnBuffer = '';
+    _voiceInterim = '';
+    _voicePendingTurn = '';
+    resetVoiceProgressThrottle();
     const startRecognition = () => {
         speechRecognition.start();
-        document.getElementById('chat-input').focus();
+        if (!voiceMode) document.getElementById('chat-input').focus();
     };
     try {
         startRecognition();
