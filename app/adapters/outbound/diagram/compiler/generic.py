@@ -431,7 +431,11 @@ class _GenericCompiler:
             if group.id not in group_origins:
                 cursor_x += box_w + _BLOCK_GAP_X
             self.w.vertex(
-                id=group.id, label=group.label, style=theme.group_style(group.boundary),
+                id=group.id, label=group.label,
+                style=theme.group_style(
+                    group.boundary,
+                    fill_color=group.fill_color, stroke_color=group.stroke_color,
+                ),
                 x=gx, y=gy, w=box_w, h=box_h, parent="1",
             )
             for node in nodes:
@@ -460,6 +464,7 @@ class _GenericCompiler:
                 id=f"{edge_prefix}_{index}", source=edge.source, target=edge.target, label=edge.label,
                 style=theme.edge_style(
                     line_style=edge.line_style, dashed=edge.dashed, arrow=edge.arrow, color=edge.color,
+                    self_loop=edge.source == edge.target,
                 ),
             )
 

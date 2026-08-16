@@ -496,11 +496,33 @@ def _name(node: "Node | None", fallback: str) -> str:
     return (node.label or node.id) if node is not None else fallback
 
 
+#: What each severity costs a pillar out of 100. A pillar with one medium
+#: finding is not in the same state as one with four highs, and the status
+#: alone could not tell them apart: any single `high` failed the pillar
+#: outright, so a design with one gap scored the same as a design with none of
+#: the controls at all, and improving four of five findings showed no movement.
+_SEVERITY_WEIGHT = {"high": 30, "medium": 12, "low": 0}
+#: Score bands. `fail` still starts where a single high lands you, so the
+#: status a reader already knows keeps its meaning; the score is what adds
+#: resolution underneath it.
+_SCORE_FAIL_BELOW = 75
+_SCORE_WARN_BELOW = 95
+
+
+def _pillar_score(findings: list[dict[str, str]]) -> int:
+    """0-100 for a pillar. Strengths cost nothing; only findings deduct."""
+    penalty = sum(
+        _SEVERITY_WEIGHT.get(f.get("severity", "low"), 0)
+        for f in findings if f.get("kind") != "strength"
+    )
+    return max(0, 100 - penalty)
+
+
 def _pillar_status(findings: list[dict[str, str]]) -> str:
-    severities = [f.get("severity", "low") for f in findings]
-    if "high" in severities:
+    score = _pillar_score(findings)
+    if score < _SCORE_FAIL_BELOW:
         return "fail"
-    if "medium" in severities:
+    if score < _SCORE_WARN_BELOW:
         return "warn"
     return "pass"
 
@@ -534,6 +556,10 @@ def assess_well_architected(xml: str, platform: str = "aws") -> dict[str, Any]:
             "name": pillar_info["name"],
             "description": pillar_info["description"],
             "status": status,
+            # Resolution underneath the status: fixing four of five findings
+            # moves this even when the pillar is still failing, which is what
+            # makes a second pass worth running.
+            "score": _pillar_score(findings),
             "findings": findings,
         }
         pillars_result.append(pillar_entry)

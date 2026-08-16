@@ -638,3 +638,60 @@ class GeneratorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GroupAndSelfLoopTests(unittest.TestCase):
+    """A swimlane used to be the one grey box on a page where every node was
+    themed, and a self-loop's label was drawn across the node it loops on."""
+
+    def _grouped(self) -> str:
+        ir = SimpleDiagramIR(**_flow(
+            groups=[
+                {"id": "intake", "label": "Intake"},
+                {"id": "assess", "label": "Assessment"},
+            ],
+            nodes=[
+                {"id": "a", "shape": "rectangle", "label": "Capture", "group": "intake"},
+                {"id": "b", "shape": "rectangle", "label": "Review", "group": "assess"},
+            ],
+            edges=[
+                {"source": "a", "target": "b"},
+                {"source": "b", "target": "b", "label": "Request docs", "dashed": True},
+            ],
+        ))
+        self.assertEqual(ir.semantic_errors(), [])
+        return compile_simple_ir(ir)
+
+    def test_each_group_gets_its_own_palette_slot(self) -> None:
+        cells = {c.get("id"): c for c in _cells(self._grouped())}
+        first = re.search(r"fillColor=(#\w+)", cells["intake"].get("style")).group(1)
+        second = re.search(r"fillColor=(#\w+)", cells["assess"].get("style")).group(1)
+        self.assertNotEqual(first, second)
+        self.assertNotEqual(first.lower(), "none")
+
+    def test_a_group_title_is_legible_against_its_own_fill(self) -> None:
+        """The border hue doubles as the font colour — a titled box needs its
+        title readable against the fill it just got."""
+        style = next(
+            c.get("style") for c in _cells(self._grouped()) if c.get("id") == "intake"
+        )
+        stroke = re.search(r"strokeColor=(#\w+)", style).group(1)
+        font = re.search(r"fontColor=(#\w+)", style).group(1)
+        self.assertEqual(stroke, font)
+
+    def test_a_self_loop_is_anchored_clear_of_its_node(self) -> None:
+        """draw.io's default stub for source == target puts the arc — and so
+        the label — on top of the box."""
+        edge = next(
+            c for c in _cells(self._grouped())
+            if c.get("edge") == "1" and c.get("source") == c.get("target")
+        )
+        self.assertIn("exitX=1", edge.get("style"))
+        self.assertIn("entryX=1", edge.get("style"))
+
+    def test_an_ordinary_edge_gets_no_loop_anchors(self) -> None:
+        edge = next(
+            c for c in _cells(self._grouped())
+            if c.get("edge") == "1" and c.get("source") != c.get("target")
+        )
+        self.assertNotIn("exitX=1", edge.get("style"))

@@ -82,7 +82,20 @@ def node_style(shape: GenericNodeShape, *, fill_color: str | None = None, stroke
     return f"{prefix}whiteSpace=wrap;html=1;fillColor={fill};strokeColor={stroke};strokeWidth=1;fontColor={font};fontSize=11;"
 
 
-def edge_style(*, line_style: str, dashed: bool, arrow: str, color: str | None = None) -> str:
+#: A self-loop's anchors: out of the right edge high, back into it low.
+#: draw.io's default for source == target is a small stub whose midpoint — and
+#: therefore its label — lands on top of the node, so "Request changes" was
+#: drawn across the box it loops on. Fixed anchors put the arc clear of the
+#: shape, and the label lands on the arc.
+_SELF_LOOP_ANCHORS = (
+    "exitX=1;exitY=0.25;exitDx=0;exitDy=0;entryX=1;entryY=0.75;entryDx=0;entryDy=0;"
+)
+
+
+def edge_style(
+    *, line_style: str, dashed: bool, arrow: str, color: str | None = None,
+    self_loop: bool = False,
+) -> str:
     """Style string for a ``GenericEdge`` — matches what was actually drawn,
     not a fixed convention (unlike cloud flows, generic edges carry no
     classification/protection channel to encode as colour)."""
@@ -100,19 +113,36 @@ def edge_style(*, line_style: str, dashed: bool, arrow: str, color: str | None =
         style += "startArrow=none;endArrow=none;"
     elif arrow == "both":
         style += "startArrow=classic;startFill=1;endArrow=classic;endFill=1;"
+    if self_loop:
+        style += _SELF_LOOP_ANCHORS
     return style
 
 
-def group_style(boundary: str) -> str:
-    """Container style for a ``GenericGroup`` — only rendered with a visible
-    border when the source image actually showed one."""
+def group_style(
+    boundary: str, *, fill_color: str | None = None, stroke_color: str | None = None,
+) -> str:
+    """Container style for a ``GenericGroup``.
+
+    Colours behave exactly as they do on a node: used verbatim when given,
+    neutral when not. On the traced path that means "the colour the box had in
+    the image"; on the fresh non-cloud path ``compiler/simple.py`` supplies a
+    palette tint, because a swimlane rendered as the one grey box on a page
+    where every node is themed reads as unfinished rather than as neutral.
+    """
+    fill = fill_color or "none"
     base = (
         "rounded=0;whiteSpace=wrap;html=1;container=1;dropTarget=1;collapsible=0;"
-        "recursiveResize=0;fillColor=none;align=left;verticalAlign=top;"
+        f"recursiveResize=0;fillColor={fill};align=left;verticalAlign=top;"
         "spacingLeft=12;spacingTop=8;fontStyle=1;fontSize=12;"
     )
+    stroke = stroke_color or _STROKE
+    # A titled box needs its title legible against its own fill; the border hue
+    # doubles as the font colour for the same reason a flow node's does.
+    font = stroke_color or _FONT
     if boundary == "solid":
-        return f"{base}strokeColor={_STROKE};strokeWidth=1;fontColor={_FONT};"
+        return f"{base}strokeColor={stroke};strokeWidth=1;fontColor={font};"
     if boundary == "dashed":
-        return f"{base}strokeColor={_STROKE};strokeWidth=1;dashed=1;fontColor={_FONT};"
-    return f"{base}strokeColor=none;fontColor={_FONT};"
+        return f"{base}strokeColor={stroke};strokeWidth=1;dashed=1;fontColor={font};"
+    # "none" keeps the border off but still honours a fill, which is what makes
+    # an unbordered swimlane band possible.
+    return f"{base}strokeColor=none;fontColor={font};"

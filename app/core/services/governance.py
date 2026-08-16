@@ -197,4 +197,44 @@ def _check_rule(ir, rule: GovernanceRule) -> tuple[bool, str]:
         ok = not matches
         return ok, "" if ok else f"label matches forbidden pattern {rule.label_pattern!r}: {', '.join(matches)}"
 
+    if kind == "leaf_shape_in_corridor":
+        # "Every ledger lives in the restricted zone." Vacuous when the shape
+        # is absent — this rule says *where* a thing goes, not that it must
+        # exist; `required_leaf_shape` is the kind for that, and conflating
+        # them would make one rule fail for two unrelated reasons.
+        needle = (rule.shape_type or "").lower()
+        zone_of = _leaf_corridor_ids(ir)
+        if not zone_of:
+            return True, ""  # no corridor vocabulary on this view (Network)
+        misplaced = [
+            _leaf_label(leaf) or leaf.id
+            for leaf in _all_leaves(ir)
+            if needle and needle in (getattr(leaf, "shape_type", "") or "").lower()
+            and zone_of.get(leaf.id) != rule.corridor_id
+        ]
+        ok = not misplaced
+        return ok, "" if ok else (
+            f"{', '.join(misplaced)} should sit in {rule.corridor_id!r} but does not"
+        )
+
+    if kind == "forbidden_corridor_flow":
+        # "Nothing in public talks straight to data." Direct flows only: a path
+        # through an intermediate zone is precisely the thing such a rule
+        # exists to *require*, so reporting it as a violation would invert the
+        # policy.
+        zone_of = _leaf_corridor_ids(ir)
+        if not zone_of:
+            return True, ""
+        offenders = [
+            f"{flow.source} -> {flow.target}"
+            for flow in (getattr(ir, "flows", None) or [])
+            if zone_of.get(flow.source) == rule.corridor_id
+            and zone_of.get(flow.target) == rule.target_corridor_id
+        ]
+        ok = not offenders
+        return ok, "" if ok else (
+            f"flow from {rule.corridor_id!r} straight to "
+            f"{rule.target_corridor_id!r}: {', '.join(offenders)}"
+        )
+
     return True, ""

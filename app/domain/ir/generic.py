@@ -39,6 +39,25 @@ class GenericGroup(Identified):
 
     label: str = ""
     boundary: Literal["none", "dashed", "solid"] = "dashed"
+    fill_color: str | None = Field(
+        default=None,
+        description=(
+            "The box's actual fill color from the source image, as a 6-digit hex string. "
+            "Omit if the box is white/transparent in the image — never invent one."
+        ),
+    )
+    stroke_color: str | None = Field(
+        default=None,
+        description=(
+            "The box's actual border color from the source image, as a 6-digit hex string. "
+            "Omit if not visually distinct from a plain grey outline."
+        ),
+    )
+
+    @field_validator("fill_color", "stroke_color")
+    @classmethod
+    def _valid_group_hex(cls, value: str | None) -> str | None:
+        return _validate_hex_color(value)
     x: float | None = Field(
         default=None, ge=0.0, le=1.0,
         description=(

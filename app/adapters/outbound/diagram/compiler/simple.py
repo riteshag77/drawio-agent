@@ -68,6 +68,18 @@ def _shape_colors(shape: str) -> dict[str, str]:
     return {"fill_color": fill, "stroke_color": border}
 
 
+def _group_colors(index: int) -> dict[str, str]:
+    """Palette slot for the ``index``-th group, tinted well toward white.
+
+    A swimlane used to be the one grey dashed box on a page where every node
+    was themed, which reads as unfinished rather than as neutral. It is drawn
+    *behind* its nodes, so it takes the band tint the sequence view's phase
+    bands use — anything stronger would compete with the boxes it contains.
+    """
+    fill, border = palette.fill_and_border(index % palette.PALETTE_SLOTS, band=True)
+    return {"fill_color": fill, "stroke_color": border}
+
+
 def _drawn_shape(shape: str) -> str:
     """The shape actually emitted for a node's declared ``shape``.
 
@@ -119,7 +131,15 @@ def _to_generic_ir(ir: SimpleDiagramIR) -> GenericDiagramIR:
     return GenericDiagramIR(
         title=ir.title or "Diagram",
         groups=[
-            GenericGroup(id=g.id, label=g.label, boundary=g.boundary) for g in ir.groups
+            # Cycled by declaration order, not by role: a swimlane's identity
+            # *is* its position in the list ("Sales", then "Fulfilment"), and
+            # unlike a node's shape there is nothing else to key a hue to. Band
+            # tint, so the nodes inside stay the most saturated thing in the box.
+            GenericGroup(
+                id=g.id, label=g.label, boundary=g.boundary,
+                **_group_colors(index),
+            )
+            for index, g in enumerate(ir.groups)
         ],
         nodes=[
             GenericNode(

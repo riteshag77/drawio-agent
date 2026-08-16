@@ -461,3 +461,65 @@ class GovernancePipelineTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RelationalRuleTests(unittest.TestCase):
+    """Every other rule kind asks whether something *exists*. Most real house
+    rules are about where a thing sits and what may reach it — those were
+    unexpressible, so they were enforced by review or not at all."""
+
+    def _findings(self, rule: GovernanceRule, ir) -> list:
+        return evaluate_governance_rules(ir, [rule])
+
+    def test_a_leaf_in_the_wrong_zone_is_reported_by_name(self) -> None:
+        rule = _rule("leaf_shape_in_corridor", shape_type="aws_rds",
+                     corridor_id="zone_restricted")
+        findings = self._findings(rule, _security_ir())
+        self.assertEqual(len(findings), 1)
+        self.assertFalse(findings[0].passed)
+        self.assertIn("Legacy DB", findings[0].detail)
+
+    def test_a_leaf_in_the_right_zone_passes(self) -> None:
+        rule = _rule("leaf_shape_in_corridor", shape_type="aws_rds",
+                     corridor_id="zone_private")
+        self.assertTrue(self._findings(rule, _security_ir())[0].passed)
+
+    def test_the_rule_says_where_not_whether(self) -> None:
+        """Vacuous when the shape is absent — `required_leaf_shape` is the kind
+        for "must exist", and conflating them would make one rule fail for two
+        unrelated reasons."""
+        rule = _rule("leaf_shape_in_corridor", shape_type="aws_dynamodb",
+                     corridor_id="zone_restricted")
+        self.assertTrue(self._findings(rule, _security_ir())[0].passed)
+
+    def test_a_forbidden_zone_to_zone_flow_is_caught(self) -> None:
+        ir = _security_ir(flows=[
+            Flow(source="alb", target="legacydb", label="SQL", protection="tls"),
+        ])
+        rule = _rule("forbidden_corridor_flow", corridor_id="zone_public",
+                     target_corridor_id="zone_private")
+        findings = self._findings(rule, ir)
+        self.assertFalse(findings[0].passed)
+        self.assertIn("alb -> legacydb", findings[0].detail)
+
+    def test_an_indirect_path_is_not_a_violation(self) -> None:
+        """Direct flows only: a path *through* an intermediate zone is precisely
+        what such a rule exists to require, so reporting it would invert the
+        policy."""
+        rule = _rule("forbidden_corridor_flow", corridor_id="zone_public",
+                     target_corridor_id="zone_private")
+        # alb -> app is public -> private, so use a rule whose endpoints are
+        # not directly connected in the fixture.
+        ir = _security_ir(flows=[Flow(source="alb", target="app", label="HTTPS", protection="tls")])
+        offending = _rule("forbidden_corridor_flow", corridor_id="zone_private",
+                          target_corridor_id="zone_public")
+        self.assertTrue(self._findings(offending, ir)[0].passed)
+        self.assertFalse(self._findings(rule, ir)[0].passed)
+
+    def test_relational_rules_are_vacuous_on_a_view_without_zones(self) -> None:
+        """Network has no corridor vocabulary; a rule scoped 'any' must not
+        fail there for a grouping the view does not have."""
+        rule = _rule("forbidden_corridor_flow", corridor_id="zone_public",
+                     target_corridor_id="zone_private")
+        findings = evaluate_governance_rules(realistic_ir(), [rule])
+        self.assertTrue(all(f.passed for f in findings))

@@ -32,6 +32,13 @@ GovernanceRuleKind = Literal[
     "min_narrative_bullets",
     "required_flow_protection",
     "forbidden_label_pattern",
+    # Relational kinds. Every kind above asks whether something *exists*; most
+    # real house rules are about where a thing sits and what may reach it —
+    # "the ledger lives in the restricted zone", "nothing in public talks
+    # straight to data". Those were unexpressible, so they were enforced by
+    # review or not at all.
+    "leaf_shape_in_corridor",
+    "forbidden_corridor_flow",
 ]
 
 #: "any" applies the rule to every view/platform; a specific value scopes it.
@@ -80,6 +87,12 @@ class GovernanceRule(BaseModel):
     min_protection: Literal["tls", "mtls"] = "tls"
     boundary_only: bool = True
     label_pattern: str | None = Field(default=None, max_length=200)
+    #: The far end of a relational rule. On ``leaf_shape_in_corridor`` this is
+    #: unused (``corridor_id`` is where the shape must live); on
+    #: ``forbidden_corridor_flow`` it is the corridor a flow may not reach from
+    #: ``corridor_id``. Named for the relation rather than for one rule so a
+    #: third relational kind does not need a third field.
+    target_corridor_id: str | None = Field(default=None, max_length=80)
     created_at: str = ""
     updated_at: str = ""
 

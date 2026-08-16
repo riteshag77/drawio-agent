@@ -442,3 +442,46 @@ class CatalogDriftTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PillarScoreTests(unittest.TestCase):
+    """Any single `high` failed a pillar outright, so a design with one gap
+    scored the same as one with none of the controls at all, and fixing four of
+    five findings showed no movement."""
+
+    def _security(self, *keys: str) -> dict:
+        result = assess_well_architected(_xml_with_services(*keys), platform="aws")
+        return next(p for p in result["pillars"] if p["name"] == "Security")
+
+    def test_the_score_rises_as_findings_are_fixed(self) -> None:
+        scores = [
+            self._security("aws_ec2")["score"],
+            self._security("aws_ec2", "aws_waf")["score"],
+            self._security("aws_ec2", "aws_waf", "aws_kms")["score"],
+            self._security("aws_ec2", "aws_waf", "aws_kms", "aws_secrets_manager")["score"],
+        ]
+        self.assertEqual(scores, sorted(scores))
+        self.assertLess(scores[0], scores[-1])
+        self.assertEqual(scores[-1], 100)
+
+    def test_a_clean_pillar_scores_full_marks(self) -> None:
+        pillar = self._security("aws_waf", "aws_kms", "aws_secrets_manager")
+        self.assertEqual(pillar["score"], 100)
+        self.assertEqual(pillar["status"], "pass")
+
+    def test_strengths_never_deduct(self) -> None:
+        """'Good practices detected' is what the diagram got right — it must
+        not cost the pillar anything."""
+        pillar = self._security("aws_waf", "aws_kms", "aws_secrets_manager")
+        self.assertTrue(any(f.get("kind") == "strength" for f in pillar["findings"]))
+        self.assertEqual(pillar["score"], 100)
+
+    def test_status_still_agrees_with_the_score(self) -> None:
+        for keys in (("aws_ec2",), ("aws_ec2", "aws_waf", "aws_kms"),
+                     ("aws_waf", "aws_kms", "aws_secrets_manager")):
+            pillar = self._security(*keys)
+            expected = (
+                "fail" if pillar["score"] < 75
+                else "warn" if pillar["score"] < 95 else "pass"
+            )
+            self.assertEqual(pillar["status"], expected, keys)
