@@ -156,7 +156,7 @@
                                     <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
                                 </svg>
                             </button>
-                            <button type="button" id="btn-voice" class="composer-btn btn-voice" onclick="toggleVoiceInput()" title="Voice: Space or click to toggle (dictate or say a command; say “help”)" aria-label="Voice: press Space or click to toggle microphone">
+                            <button type="button" id="btn-voice" class="composer-btn btn-voice" onclick="toggleVoiceInput()" title="Voice mode: Space or click to start a spoken conversation" aria-label="Voice mode: press Space or click to toggle">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                     <rect x="9" y="2" width="6" height="12" rx="3"/>
                                     <path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3"/>
@@ -187,7 +187,7 @@
                         </div>
                     </div>
                 </div>
-                <p class="chat-hint">Enter to send · Shift+Enter for new line · <svg class="chat-hint-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3"/></svg> to dictate · Stop cancels in-flight requests</p>
+                <p class="chat-hint">Enter to send · Shift+Enter for new line · <svg class="chat-hint-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3"/></svg> to talk · Stop cancels in-flight requests</p>
                 <div id="progress-track" class="progress-bar-track">
                     <div id="progress-bar" class="progress-bar-fill"></div>
                 </div>
@@ -502,13 +502,13 @@
 
                         <div class="drawer-group drawer-subgroup" data-group="voice">
                             <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
-                                <span class="drawer-group-title">Voice commands</span>
+                                <span class="drawer-group-title">Voice mode</span>
                                 <span class="drawer-group-chevron" aria-hidden="true"></span>
                             </button>
                             <div class="drawer-group-body" hidden>
-                            <p class="voice-help-lead">Press <strong>Space</strong> (or the mic button) to start/stop listening. Dictate a diagram prompt or say a command. Say <strong>help</strong> for the full list in chat. While typing in the composer, Space inserts a normal space — press Space outside the field, or again while listening, to toggle the mic.</p>
+                            <p class="voice-help-lead">Press <strong>Space</strong> (or the mic button) and just talk. A short pause ends your turn — there is no “send”. Say things plainly (“add a Redis cache”, “make the database multi-AZ”) and they are understood; the exact phrases below still work and are instant. The app speaks back, and you can interrupt it just by talking. While typing in the composer, Space inserts a normal space — press Space outside the field, or again while listening, to stop.</p>
                             <ul class="voice-help-list">
-                                <li><span>Send / stop</span> “send message”, “stop”, “stop listening”</li>
+                                <li><span>Stop</span> “stop”, “stop listening” — always instant, never waits</li>
                                 <li><span>Chat</span> “clear chat”, “attach file”, “clear attachments”</li>
                                 <li><span>Platform</span> “switch to aws / gcp / azure / multi”</li>
                                 <li><span>Settings</span> “open settings”, “theme daylight”, “enable cost”</li>
@@ -517,6 +517,10 @@
                                 <li><span>Patterns</span> “list patterns”, “use pattern 1”, “pattern serverless”</li>
                             </ul>
                             <p class="voice-help-limits">Limits: attach only opens the file picker; editing inside the draw.io canvas is mouse/keyboard only; Chrome or Edge on localhost/https. Captures save only when <strong>Save new runs</strong> is on.</p>
+                            <label class="voice-help-toggle">
+                                <input type="checkbox" id="voice-dictation-only-toggle" onchange="setVoiceDictationOnly(this.checked)">
+                                <span>Dictation instead of voice mode — speech fills the composer and waits for “send”, and the mic stops while a diagram generates.</span>
+                            </label>
                             <button type="button" class="btn-soft" onclick="showVoiceCommandHelp()">Show full command list</button>
                             </div>
                         </div>
@@ -800,11 +804,15 @@
     <script src="/static/js/resizer.js?v=20260808a"></script>
     <script src="/static/js/settings.js?v=20260808a"></script>
     <script src="/static/js/custom-providers.js?v=20260808c"></script>
+    <script src="/static/js/provider-options.js?v=20260816a"></script>
     <script src="/static/js/provider-picker.js?v=20260808f"></script>
     <script src="/static/js/prompt-settings.js?v=20260809b"></script>
     <script src="/static/js/diagram.js?v=20260814a"></script>
     <script src="/static/js/voice-commands.js?v=20260808a"></script>
-    <script src="/static/js/voice.js?v=20260726b"></script>
+    <!-- voice.js before voice-router.js: VOICE_TUNING is a `const` there, so it
+         sits in the temporal dead zone until voice.js has run. -->
+    <script src="/static/js/voice.js?v=20260816b"></script>
+    <script src="/static/js/voice-router.js?v=20260816b"></script>
     <script src="/static/js/chat.js?v=20260808c"></script>
     <script src="/static/js/toast.js?v=20260808a"></script>
     <script src="/static/js/exports.js?v=20260724f"></script>
@@ -820,7 +828,16 @@
     <script src="/static/js/sessions.js?v=20260808b"></script>
     <script src="/static/js/validation-card.js?v=20260808c"></script>
     <script src="/static/js/design-rationale-card.js?v=20260809b"></script>
-    <script src="/static/js/app.js?v=20260809d"></script>
+    <!-- The chat turn, split by responsibility. Order between these does not
+         matter (all are function declarations); app.js must stay last, since
+         it is the only one that runs code at load time. -->
+    <script src="/static/js/chat-api.js?v=20260816a"></script>
+    <script src="/static/js/chat-request.js?v=20260816a"></script>
+    <script src="/static/js/chat-response.js?v=20260816a"></script>
+    <script src="/static/js/chat-send.js?v=20260816a"></script>
+    <script src="/static/js/provider-select.js?v=20260816a"></script>
+    <script src="/static/js/visual-validation.js?v=20260816a"></script>
+    <script src="/static/js/app.js?v=20260816a"></script>
 </body>
 
 </html>

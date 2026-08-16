@@ -161,14 +161,32 @@ class EnvConfigAdapter:
 
     @property
     def validation_provider(self) -> str:
-        """Provider key that performs validation passes; blank uses the same
+        """Provider that performs validation passes; blank uses the same
         provider that drew the diagram.
 
         Separable because judging and drawing are different jobs: a cheaper
         model is often enough to find the violations, and a stronger one is
         sometimes worth it only for the retry.
+
+        May carry a specific model as ``"<provider>::<model>"`` — the same form
+        the frontend's model pickers emit. It is passed through to the LLM
+        layer untouched; ``providers.normalize_provider_key`` strips the model
+        half for anything that only wants the vendor key, and
+        ``providers.get_provider`` applies it. So callers keep treating this as
+        an opaque provider string.
         """
         return (self.get("DIAGRAM_VALIDATION_PROVIDER", "") or "").strip()
+
+    @property
+    def validation_model(self) -> str:
+        """The model half of :attr:`validation_provider`, or blank.
+
+        Read-only convenience for the admin API and tests — the pipeline never
+        needs it, because it passes ``validation_provider`` through whole.
+        """
+        raw = self.validation_provider
+        sep = raw.find("::")
+        return raw[sep + 2:].strip() if sep != -1 else ""
 
     @property
     def validation_min_improvement(self) -> int:

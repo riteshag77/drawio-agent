@@ -254,19 +254,29 @@ async function adminLoadValidation() {
     if (el('admin-validation-max-iterations')) el('admin-validation-max-iterations').value = v.max_iterations;
     if (el('admin-validation-min-improvement')) el('admin-validation-min-improvement').value = v.min_improvement;
     const provider = el('admin-validation-provider');
-    if (provider) {
-        // Labels and configured-state, the way the app's own model picker shows
-        // them — a raw key list read as `claude` / `openai` and gave no hint
-        // that picking a provider with no API key fails at generation time
-        // rather than here. The blank option is meaningful, not a placeholder:
-        // it means "use the provider that drew the diagram".
-        provider.innerHTML = '<option value="">Same as generation</option>'
-            + (data.providers || []).map((prov) => {
-                const suffix = prov.configured ? '' : ' — no API key set';
-                return `<option value="${_escHtml(prov.key)}">`
-                    + `${_escHtml(prov.label)}${suffix}</option>`;
-            }).join('');
-        provider.value = v.provider || '';
+    if (provider && typeof populateProviderOptions === 'function') {
+        // The app's own builder, so this picker offers one option per *model*
+        // exactly like the composer's and Visual-QA's — admin used to hand-roll
+        // a flat one-per-provider list, which meant you could choose Nvidia but
+        // not which Nvidia model actually judged the diagram.
+        //
+        // The blank option is meaningful, not a placeholder: it means "use the
+        // provider that drew the diagram", hence autoValue ''. Custom BYOK
+        // providers are excluded — their keys live in the operator's browser,
+        // so the server running the validation pass could never use one.
+        populateProviderOptions(provider, data, {
+            includeAuto: true,
+            autoLabel: 'Same as generation',
+            autoValue: '',
+            includeCustom: false,
+            qualifyModelLabels: true,
+        });
+        // Saved value is the combined "<provider>::<model>" ref; fall back to
+        // the inherit option if that model is no longer offered.
+        provider.value = (v.provider
+            && provider.querySelector(`option[value="${CSS.escape(v.provider)}"]`))
+            ? v.provider
+            : '';
     }
     adminValidationBadge();
     adminValidationToggled();
@@ -297,7 +307,13 @@ function adminValidationBadge() {
     const opt = select.options[select.selectedIndex];
     const label = ((opt && opt.textContent) || '').trim();
     const inherit = !select.value;
-    slot.textContent = inherit ? '↳' : label.charAt(0).toUpperCase();
+    // For a multi-model provider the option's own text is the model id, so the
+    // badge takes its letter from the optgroup (the provider) instead — the
+    // badge names who is answering, not which of their models.
+    const group = opt && opt.parentElement && opt.parentElement.tagName === 'OPTGROUP'
+        ? opt.parentElement.label
+        : '';
+    slot.textContent = inherit ? '↳' : (group || label).trim().charAt(0).toUpperCase();
     slot.classList.toggle('is-inherit', inherit);
     if (warn) warn.hidden = !label.includes('no API key set');
 }

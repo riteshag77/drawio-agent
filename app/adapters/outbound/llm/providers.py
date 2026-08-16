@@ -221,8 +221,33 @@ PROVIDERS: dict[str, ProviderSpec] = _build_registry()
 MODEL_IDS: dict[str, str] = {key: spec.default_model for key, spec in PROVIDERS.items()}
 
 
+def split_provider_ref(ref: str) -> tuple[str, str]:
+    """Split the ``"<provider>::<model>"`` form the UI pickers already emit.
+
+    Returns ``(provider, model)``, with an empty model when the ref carries no
+    ``::`` half. Every model picker in the frontend puts this combined form in
+    its option values, so accepting it here lets a *stored* provider setting
+    (``DIAGRAM_VALIDATION_PROVIDER``) name one specific model without a
+    parallel setting, and without threading a ``model`` argument through the
+    ~25 core call sites that pass a plain ``provider: str`` — the same reason
+    _model_override_ctx exists.
+
+    ``custom:<id>::<model>`` splits correctly too: the first ``::`` is the
+    separator, and the ``custom:`` prefix has no bearing on it.
+    """
+    raw = (ref or "").strip()
+    sep = raw.find("::")
+    if sep == -1:
+        return raw, ""
+    return raw[:sep].strip(), raw[sep + 2:].strip()
+
+
 def normalize_provider_key(provider: str) -> str:
-    return (provider or default_provider_key()).strip().lower()
+    # Drops any "::<model>" half so every caller that only wants the vendor key
+    # (llm_client's provider_key, the fallback chain, agent's usage logging)
+    # keeps seeing exactly what it saw before the combined form existed.
+    key, _ = split_provider_ref(provider)
+    return (key or default_provider_key()).strip().lower()
 
 
 #: Per-request custom (BYOK) provider payload — set for the duration of one
@@ -310,6 +335,7 @@ def using_model_override(model: str | None):
 
 
 def get_provider(provider: str) -> ProviderSpec:
+    _, inline_model = split_provider_ref(provider)
     key = normalize_provider_key(provider)
     if key == CUSTOM_PROVIDER_KEY:
         payload = _custom_provider_ctx.get()
@@ -321,7 +347,11 @@ def get_provider(provider: str) -> ProviderSpec:
     spec = PROVIDERS.get(key)
     if not spec:
         raise ValueError(f"Unsupported provider: {key}")
-    override = _model_override_ctx.get()
+    # A model named inline on the ref wins over the request-scoped override:
+    # the ref is specific to *this* call (a stored validation setting naming
+    # its own model), whereas the contextvar carries whatever model the
+    # surrounding request picked for generation.
+    override = inline_model or _model_override_ctx.get()
     if override:
         if spec.models and override not in spec.models:
             raise ValueError(
