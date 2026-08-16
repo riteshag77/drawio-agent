@@ -155,6 +155,121 @@ class KmsVsCloudArmorRegressionTests(unittest.TestCase):
         self.assertEqual(kms_findings, [])
 
 
+class ServiceKeyDriftTests(unittest.TestCase):
+    """Exact keys track the *catalog*; what arrives is whatever the model and
+    the MCP resolver produced between them."""
+
+    def test_a_real_alb_is_not_reported_as_missing(self) -> None:
+        """Measured on an actual generation: the diagram carried
+        `aws_elastic_load_balancing`, the rule listed
+        `aws_application_load_balancer`, and the user was told to add the load
+        balancer they were looking at — a high finding that flipped the whole
+        Reliability pillar to fail."""
+        result = assess_well_architected(
+            _xml_with_services("aws_elastic_load_balancing", "aws_ec2"), platform="aws",
+        )
+        reliability = next(p for p in result["pillars"] if p["name"] == "Reliability")
+        messages = [f["message"] for f in reliability["findings"]]
+        self.assertFalse([m for m in messages if "load balancer" in m.lower()], messages)
+
+    def test_the_finding_still_fires_when_there_is_genuinely_no_balancer(self) -> None:
+        result = assess_well_architected(_xml_with_services("aws_ec2"), platform="aws")
+        reliability = next(p for p in result["pillars"] if p["name"] == "Reliability")
+        messages = [f["message"] for f in reliability["findings"]]
+        self.assertTrue([m for m in messages if "load balancer" in m.lower()], messages)
+
+    def test_every_high_severity_rule_carries_markers(self) -> None:
+        """A `high` finding is the one a user acts on immediately, so it is the
+        one that must not fire on a diagram that already has the control."""
+        for pillar, recs in _MISSING_RECOMMENDATIONS.items():
+            for rec in recs:
+                if rec["severity"] == "high":
+                    self.assertTrue(
+                        rec.get("markers"),
+                        f"{pillar}: {rec['message']!r} is high severity with no markers",
+                    )
+
+
+class TopologyFindingTests(unittest.TestCase):
+    """Findings about how the diagram is wired, not what is on it."""
+
+    def _compiled(self, *, db_tier: str = "data", zones: int = 2, protection: str = "tls") -> str:
+        from app.adapters.outbound.diagram.compiler.network import compile_network_ir
+        from app.domain.ir import (
+            AvailabilityZone, CloudBoundary, Flow, Leaf, NetworkIR, Region, Subnet, Vpc,
+        )
+
+        az = []
+        for z in range(zones):
+            subnets = [
+                Subnet(id=f"pub{z}", tier="public", leaves=[
+                    Leaf(id=f"alb{z}", shape_type="aws_application_load_balancer", label="ALB"),
+                ]),
+                Subnet(id=f"app{z}", tier="app", leaves=[
+                    Leaf(id=f"svc{z}", shape_type="aws_ecs", label="Checkout"),
+                ]),
+            ]
+            db_subnet = next(s for s in subnets if s.tier == db_tier) if db_tier != "data" else None
+            if db_subnet is not None:
+                db_subnet.leaves.append(Leaf(id=f"db{z}", shape_type="aws_rds", label="Primary DB"))
+            else:
+                subnets.append(Subnet(id=f"data{z}", tier="data", leaves=[
+                    Leaf(id=f"db{z}", shape_type="aws_rds", label="Primary DB"),
+                ]))
+            az.append(AvailabilityZone(id=f"az{z}", label=f"AZ-{z}", subnets=subnets))
+
+        ir = NetworkIR(
+            cloud=CloudBoundary(id="cloud", label="AWS Cloud", regions=[
+                Region(id="r", label="us-east-1", vpcs=[Vpc(id="vpc", zones=az)]),
+            ]),
+            platform="aws",
+        )
+        ir.flows = [
+            Flow(source=f"svc{z}", target=f"db{z}", label="SQL",
+                 classification="pii", protection=protection)
+            for z in range(zones)
+        ]
+        return compile_network_ir(ir)
+
+    def _messages(self, xml: str, pillar: str) -> list[str]:
+        result = assess_well_architected(xml, platform="aws")
+        entry = next(p for p in result["pillars"] if p["name"].startswith(pillar))
+        return [f["message"] for f in entry["findings"]]
+
+    def test_datastore_in_a_public_subnet_is_reported_by_name(self) -> None:
+        messages = self._messages(self._compiled(db_tier="public"), "Security")
+        self.assertTrue(
+            [m for m in messages if "Primary DB" in m and "public subnet" in m], messages,
+        )
+
+    def test_a_correctly_placed_datastore_produces_no_such_finding(self) -> None:
+        messages = self._messages(self._compiled(db_tier="data"), "Security")
+        self.assertFalse([m for m in messages if "public subnet" in m], messages)
+
+    def test_unprotected_sensitive_flow_is_reported_with_both_endpoints(self) -> None:
+        messages = self._messages(self._compiled(protection="none"), "Security")
+        hit = [m for m in messages if "PII" in m and "Checkout" in m and "Primary DB" in m]
+        self.assertTrue(hit, messages)
+
+    def test_a_tls_protected_sensitive_flow_is_not_reported(self) -> None:
+        messages = self._messages(self._compiled(protection="tls"), "Security")
+        self.assertFalse([m for m in messages if "PII" in m], messages)
+
+    def test_single_zone_with_a_datastore_is_a_reliability_finding(self) -> None:
+        messages = self._messages(self._compiled(zones=1), "Reliability")
+        self.assertTrue([m for m in messages if "Single availability zone" in m], messages)
+
+    def test_two_zones_do_not_trigger_the_single_zone_finding(self) -> None:
+        messages = self._messages(self._compiled(zones=2), "Reliability")
+        self.assertFalse([m for m in messages if "Single availability zone" in m], messages)
+
+    def test_a_diagram_with_no_tiers_produces_no_topology_findings(self) -> None:
+        """Absence of structure is the presence checks' job. Saying it twice in
+        two vocabularies is how a report stops being read."""
+        messages = self._messages(_xml_with_services("aws_rds", "aws_ec2"), "Security")
+        self.assertFalse([m for m in messages if "public subnet" in m], messages)
+
+
 class CatalogDriftTests(unittest.TestCase):
     """The six pillar service sets and _MISSING_RECOMMENDATIONS are a
     hand-maintained mirror of the icon catalogs — same drift risk as

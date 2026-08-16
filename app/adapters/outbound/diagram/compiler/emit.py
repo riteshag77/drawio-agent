@@ -34,6 +34,7 @@ class CellWriter:
         parent: str,
         shape_type: str | None = None,
         criticality: str | None = None,
+        tier: str | None = None,
     ) -> None:
         attrs = {
             "id": id,
@@ -46,6 +47,14 @@ class CellWriter:
         # attribute to look up the official stencil and merge it into `style`.
         if shape_type:
             attrs["shape_type"] = shape_type
+        # tier ("public"/"app"/"data") on a subnet container is what lets a
+        # reader of the finished XML tell a data subnet from a public one.
+        # Everything else that distinguishes them — stroke colour, the "Data
+        # Subnet" label — is presentation, and reading topology back out of
+        # presentation is how an assessment breaks the first time a palette or
+        # a label changes. Analysis (well_architected.topology) reads this.
+        if tier:
+            attrs["tier"] = tier
         # Stamped only when non-default: "standard" is the overwhelming common
         # case, and an attribute that's always present either way is noise a
         # reader of the raw XML has to filter past to find the leaves that

@@ -136,7 +136,7 @@ class _NetworkCompiler:
         emit_leaf_grid(self.w, ordered, subnet.id, is_group=False)
         self.w.vertex(
             id=subnet.id, label=f"{subnet.tier.title()} Subnet", style=theme.subnet_style(subnet.tier),
-            x=g.x, y=g.y, w=g.w, h=g.h, parent=parent_id,
+            x=g.x, y=g.y, w=g.w, h=g.h, parent=parent_id, tier=subnet.tier,
         )
 
     def _emit_zone(
