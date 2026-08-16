@@ -15,8 +15,10 @@ from app.domain.ir.base import Flow
 
 _LEFT_KINDS = frozenset({"users", "saas_ingress", "on_prem"})
 _RIGHT_KINDS = frozenset({"saas_egress"})
-#: Cap leaves taken from a single corridor so a dense private zone does not
-#: become a full mesh — enough to show the story, not every peer call.
+#: How many leaves of a corridor the *spine* threads through. Everything past
+#: this still gets connected — see ``_attach_remaining`` — just not by being
+#: strung into the request path, which is what would turn a dense private zone
+#: into a chain implying calls that don't happen.
 _MAX_LEAVES_PER_CORRIDOR = 3
 
 
@@ -49,7 +51,39 @@ def synthesize_spine_flows(ir: Any) -> bool:
         Flow(source=ordered[i], target=ordered[i + 1], primary=True, label="")
         for i in range(len(ordered) - 1)
     ]
+    _attach_remaining(ir, set(ordered))
     return True
+
+
+def _attach_remaining(ir: Any, on_spine: set[str]) -> None:
+    """Give every leaf the spine skipped one edge into its own corridor.
+
+    Without this the spine *creates* orphans: it threads at most
+    ``_MAX_LEAVES_PER_CORRIDOR`` leaves per corridor, so a corridor holding
+    eight left five of them touching nothing — and Logical treats an
+    unconnected leaf as a hard error, so a flow-less IR with wide corridors
+    failed the whole request. That was reachable before and is more reachable
+    now that nothing caps corridor width.
+
+    One edge per stranded leaf, from the first leaf of its own corridor, and
+    ``primary=False`` so the request path drawn through the spine stays the
+    emphasized line. Not a chain through the strays: they are peers within a
+    domain, and stringing them serially would draw a call sequence the model
+    never described. Not a mesh either — this adds exactly one edge per leaf.
+    """
+    if not hasattr(ir, "corridors"):
+        # Network's own chain already visits one leaf per tier and its
+        # unvisited leaves are legal: that view carries meaning through
+        # container nesting, so a leaf sitting in a subnet with no edge is
+        # connected *by where it is*. Only the corridor views make it an error.
+        return
+    for corridor in list(ir.corridors) + list(getattr(ir, "anchored", []) or []):
+        anchor = next((lf.id for lf in corridor.leaves if lf.id in on_spine), None)
+        if anchor is None:
+            continue
+        for leaf in corridor.leaves:
+            if leaf.id not in on_spine:
+                ir.flows.append(Flow(source=anchor, target=leaf.id, primary=False, label=""))
 
 
 def _corridor_chain(ir: Any) -> list[str]:

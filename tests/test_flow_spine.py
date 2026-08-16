@@ -48,6 +48,27 @@ class FlowSpineTests(unittest.TestCase):
         self.assertEqual(ir.flows[0].source, "users")
         self.assertEqual(ir.semantic_errors(), [])
 
+    def test_wide_corridors_leave_no_orphans(self) -> None:
+        """The spine threads only the first few leaves of a corridor, so on a
+        wider one it used to *create* orphans — and an unconnected leaf is a
+        hard Logical error, so a flow-less IR failed the whole request. Every
+        leaf the spine skips gets one edge into its own corridor instead."""
+        corridors = [
+            Corridor(
+                id=f"domain_{name}", label=name[0].upper(),
+                leaves=[_leaf(f"{name[:2]}{i}", "logical_capability", f"Cap {i}") for i in range(8)],
+            )
+            for name in ("experience", "core", "data")
+        ]
+        ir = LogicalIR(corridors=corridors, flows=[])
+        self.assertTrue(synthesize_spine_flows(ir))
+        self.assertEqual(ir.semantic_errors(), [])
+        touched = {f.source for f in ir.flows} | {f.target for f in ir.flows}
+        self.assertEqual(touched, {lf.id for c in corridors for lf in c.leaves})
+        # The added edges are secondary — the spine stays the emphasized path —
+        # and each stray gets exactly one, never a mesh.
+        self.assertEqual(sum(1 for f in ir.flows if not f.primary), 15)
+
     def test_does_not_overwrite_existing_flows(self) -> None:
         ir = LogicalIR(
             corridors=[
