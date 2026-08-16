@@ -875,6 +875,80 @@ def find_service_keys(xml: str) -> list[str]:
     return list(dict.fromkeys(keys))
 
 
+def count_service_keys(xml: str) -> dict[str, int]:
+    """``{service_key: how many cells use it}`` — the quantity ``find_service_keys`` throws away.
+
+    Cost is the caller that needs this. Pricing off the *unique* key list made a
+    thirty-instance estate cost exactly what a one-instance demo did: measured,
+    1 EC2 + 1 RDS and 30 EC2 + 1 RDS both came out at the same total, because
+    "aws_ec2" appears once in a set either way.
+
+    Resolved **per cell**, not per regex match, which is why this cannot simply
+    count hits the way ``find_service_keys`` scans. A single leaf routinely
+    carries more than one of the three sources at once — a resolved leaf has
+    ``service=`` *and* a vendor stencil path in its style — so a document-wide
+    scan would count that one instance two or three times. Each cell resolves
+    to exactly one key, by the same precedence its sibling documents:
+    ``service=`` (ground truth), else ``shape_type=`` (pre-resolution), else the
+    stencil path through the alias table.
+
+    Falls back to one-each on an unparseable document, so a caller gets the old
+    behaviour rather than nothing.
+    """
+    try:
+        root = ET.fromstring(xml or "")
+    except ET.ParseError:
+        return {key: 1 for key in find_service_keys(xml)}
+
+    # Per page, then the maximum across pages — never the sum. A multi-page
+    # document is N *views of one architecture*, not N architectures: the same
+    # RDS pair is drawn on Network, on Security and on ArchiMate. Summing
+    # cells across pages priced a real three-page diagram's single WAF as
+    # "WAF x2" and its two app servers as four. The max is the honest reading:
+    # a service shown twice on the page that shows it most is two instances.
+    pages = root.findall(".//diagram") or [root]
+    counts: dict[str, int] = {}
+    for page in pages:
+        page_counts: dict[str, int] = {}
+        for cell in page.iter("mxCell"):
+            if cell.get("vertex") != "1":
+                continue
+            key = _cell_service_key(cell)
+            if key:
+                page_counts[key] = page_counts.get(key, 0) + 1
+        for key, n in page_counts.items():
+            counts[key] = max(counts.get(key, 0), n)
+    return counts
+
+
+def _cell_service_key(cell: "ET.Element") -> str:
+    """The one service key a cell represents, or "" — precedence as documented
+    on ``find_service_keys``."""
+    for attr in ("service", "shape_type"):
+        raw = (cell.get(attr) or "").strip().lower()
+        if raw.startswith(_VENDOR_PREFIXES):
+            return raw
+    style = cell.get("style") or ""
+    # The same style-embedded shape_type a surgical edit can leave behind.
+    for part in style.split(";"):
+        key, _, value = part.partition("=")
+        if key.strip() == "shape_type":
+            raw = value.strip().strip('"').lower()
+            if raw.startswith(_VENDOR_PREFIXES):
+                return raw
+    # Every match, not the first: a resolved AWS leaf's style carries the
+    # wrapper `shape=mxgraph.aws4.resourceIcon` *before* the real
+    # `resIcon=mxgraph.aws4.lambda`, so stopping at the first match finds only
+    # the wrapper, skips it, and reports the cell as carrying no service at all.
+    for match in _VENDOR_STENCIL_PATTERN.finditer(style):
+        name = match.group(2).lower()
+        if name in _STENCIL_WRAPPER_NAMES:
+            continue
+        stencil_key = _VENDOR_STENCIL_MAP[match.group(1)] + name
+        return _SERVICE_KEY_ALIASES.get(stencil_key, stencil_key)
+    return ""
+
+
 # Presentation keys the LLM owns on service leaves — never wiped by MCP.
 _STYLE_PRESERVE_KEYS = frozenset({
     "verticalLabelPosition",

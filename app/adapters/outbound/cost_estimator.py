@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.adapters.outbound.diagram.xml_diagnostics import _ACTOR_SHAPE_TYPES
-from app.adapters.outbound.diagram.xml_tools import find_service_keys
+from app.adapters.outbound.diagram.xml_tools import count_service_keys
 from app.adapters.outbound.llm.pricing import (
     display_currency,
     load_pricing_config,
@@ -37,29 +37,41 @@ _NON_BILLED_ACTOR_KEYS = _ACTOR_SHAPE_TYPES | {"aws_router", "aws_traditional_se
 
 def estimate_monthly_cost(xml: str, platform: str = "aws") -> dict[str, Any]:
     cfg = load_pricing_config()
-    services = [s for s in find_service_keys(xml) if s not in _NON_BILLED_ACTOR_KEYS]
+    counts = {
+        key: n for key, n in count_service_keys(xml).items()
+        if key not in _NON_BILLED_ACTOR_KEYS
+    }
     breakdown: dict[str, list[dict[str, Any]]] = {}
     total = 0.0
     matched = 0
     unmatched = 0
     fallback_aud = usd_to_display(cfg.cloud_fallback_monthly_usd)
 
-    for key in services:
+    for key, quantity in counts.items():
         info = cfg.cloud_services.get(key)
         if info:
             cat = info["category"]
-            monthly = usd_to_display(float(info["monthly_usd"]))
-            breakdown.setdefault(cat, []).append({
-                "key": key, "name": info["name"], "monthly": round(monthly, 2),
-            })
-            total += monthly
+            each = usd_to_display(float(info["monthly_usd"]))
+            name = info["name"]
+        else:
+            cat = "Other"
+            each = fallback_aud
+            name = key.replace("aws_", "").replace("gcp_", "").replace("azure_", "").replace("_", " ").title()
+        line_total = each * quantity
+        entry: dict[str, Any] = {
+            "key": key, "name": name, "monthly": round(line_total, 2),
+        }
+        # Quantity is only surfaced when it is more than one, so the common
+        # single-instance line reads exactly as it always did.
+        if quantity > 1:
+            entry["quantity"] = quantity
+            entry["monthly_each"] = round(each, 2)
+            entry["name"] = f"{name} x{quantity}"
+        breakdown.setdefault(cat, []).append(entry)
+        total += line_total
+        if info:
             matched += 1
         else:
-            name = key.replace("aws_", "").replace("gcp_", "").replace("azure_", "").replace("_", " ").title()
-            breakdown.setdefault("Other", []).append({
-                "key": key, "name": name, "monthly": round(fallback_aud, 2),
-            })
-            total += fallback_aud
             unmatched += 1
 
     return {
@@ -69,4 +81,5 @@ def estimate_monthly_cost(xml: str, platform: str = "aws") -> dict[str, Any]:
         "breakdown": breakdown,
         "services_matched": matched,
         "services_unmatched": unmatched,
+        "instances_counted": sum(counts.values()),
     }
