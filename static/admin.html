@@ -136,48 +136,83 @@
                     <span class="admin-section-title">Diagram validation</span>
                 </div>
                 <p class="admin-section-desc">
-                    After a view is generated it is scored 0&ndash;100 against its viewpoint rules.
-                    With validation on, a view below the target is regenerated &mdash; but only
-                    while it keeps measurably improving, so a pass that gains nothing ends the loop
-                    instead of spending another call.
+                    Every generated view is scored 0&ndash;100 against its viewpoint rules. With
+                    validation on, a view below the target is regenerated &mdash; but only while it
+                    keeps measurably improving, so a pass that gains nothing ends the loop instead
+                    of spending another call.
                 </p>
 
-                <div class="admin-card">
-                    <div class="admin-default-row">
-                        <span class="admin-default-row-label">Enabled</span>
-                        <input type="checkbox" id="admin-validation-enabled" />
+                <div class="admin-card admin-validation-card">
+                    <label class="admin-switch-row" for="admin-validation-enabled">
+                        <span class="admin-switch">
+                            <input type="checkbox" id="admin-validation-enabled"
+                                   onchange="adminValidationToggled()" />
+                            <span class="admin-switch-track" aria-hidden="true"></span>
+                        </span>
+                        <span class="admin-switch-text">
+                            <span class="admin-switch-title">Run validation passes</span>
+                            <span class="admin-switch-sub" id="admin-validation-state">
+                                Off &mdash; each view is drawn once and kept.
+                            </span>
+                        </span>
+                    </label>
+
+                    <div class="admin-validation-fields" id="admin-validation-fields">
+                        <div class="admin-field-row-2">
+                            <div class="admin-field-group">
+                                <label for="admin-validation-min-score">Quality target</label>
+                                <div class="admin-input-suffix">
+                                    <input type="number" id="admin-validation-min-score"
+                                           min="0" max="100" step="1" />
+                                    <span class="admin-input-unit">/ 100</span>
+                                </div>
+                                <p class="admin-help-text">The score a view must reach to be
+                                    accepted &mdash; what the loop works toward.</p>
+                            </div>
+
+                            <div class="admin-field-group">
+                                <label for="admin-validation-max-iterations">Max corrective passes</label>
+                                <div class="admin-input-suffix">
+                                    <input type="number" id="admin-validation-max-iterations"
+                                           min="0" max="5" step="1" />
+                                    <span class="admin-input-unit">per view</span>
+                                </div>
+                                <p class="admin-help-text">Each pass is a full regeneration, so this
+                                    is the ceiling on cost. 0 disables the loop.</p>
+                            </div>
+                        </div>
+
+                        <div class="admin-field-group">
+                            <label for="admin-validation-min-improvement">Minimum improvement to earn another pass</label>
+                            <div class="admin-input-suffix">
+                                <input type="number" id="admin-validation-min-improvement"
+                                       min="0" max="100" step="1" />
+                                <span class="admin-input-unit">points</span>
+                            </div>
+                            <p class="admin-help-text">
+                                <strong>0</strong> means any measurable improvement &mdash; keep going
+                                while the score rises, stop the moment it flattens. A higher number
+                                says &ldquo;don&rsquo;t spend another call on a small win&rdquo;.
+                            </p>
+                        </div>
+
+                        <div class="admin-field-group">
+                            <label for="admin-validation-provider">Validation model</label>
+                            <select id="admin-validation-provider"></select>
+                            <p class="admin-help-text">Judging and drawing are different jobs, so a
+                                cheaper model is often enough here &mdash; or a stronger one, used
+                                only for the corrections.</p>
+                        </div>
                     </div>
-                    <div class="admin-default-row">
-                        <span class="admin-default-row-label">Quality target (score a view must reach)</span>
-                        <input type="number" id="admin-validation-min-score" min="0" max="100" step="1" />
-                    </div>
-                    <div class="admin-default-row">
-                        <span class="admin-default-row-label">Max corrective passes</span>
-                        <input type="number" id="admin-validation-max-iterations" min="0" max="5" step="1" />
-                    </div>
-                    <div class="admin-default-row">
-                        <span class="admin-default-row-label">Minimum improvement to earn another pass</span>
-                        <input type="number" id="admin-validation-min-improvement" min="0" max="100" step="1" />
-                    </div>
-                    <p class="admin-section-desc">
-                        <strong>0</strong> means &ldquo;any measurable improvement&rdquo; &mdash; keep going while
-                        the score rises, stop the moment it flattens. A higher number says
-                        &ldquo;don&rsquo;t spend another call on a small win&rdquo;.
-                    </p>
-                    <div class="admin-default-row">
-                        <span class="admin-default-row-label">Validation model</span>
-                        <select id="admin-validation-provider"></select>
-                    </div>
-                    <p class="admin-section-desc">
-                        Blank uses whichever provider drew the diagram. Judging and drawing are
-                        different jobs, so a cheaper model is often enough here &mdash; or a stronger
-                        one, used only for the corrections.
-                    </p>
+
                     <div class="admin-governance-form-actions">
-                        <button type="button" class="admin-pill-btn" onclick="adminSaveValidation()">Save</button>
+                        <button type="button" class="admin-add-rule-btn"
+                                onclick="adminSaveValidation()">Save validation settings</button>
+                        <span class="admin-save-hint" id="admin-validation-saved" hidden>Saved</span>
                     </div>
                 </div>
             </div>
+
             <div class="admin-section" id="admin-section-governance" hidden>
                 <div class="admin-section-head">
                     <span class="admin-section-title">Governance / house-style rules</span>

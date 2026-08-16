@@ -248,31 +248,44 @@ async function adminLoadValidation() {
     if (!res.ok) return;
     const data = await res.json();
     const v = data.validation || {};
-    const enabled = document.getElementById('admin-validation-enabled');
-    const score = document.getElementById('admin-validation-min-score');
-    const iters = document.getElementById('admin-validation-max-iterations');
-    const gain = document.getElementById('admin-validation-min-improvement');
-    const provider = document.getElementById('admin-validation-provider');
-    if (enabled) enabled.checked = !!v.enabled;
-    if (score) score.value = v.min_score;
-    if (iters) iters.value = v.max_iterations;
-    if (gain) gain.value = v.min_improvement;
+    const el = (id) => document.getElementById(id);
+    if (el('admin-validation-enabled')) el('admin-validation-enabled').checked = !!v.enabled;
+    if (el('admin-validation-min-score')) el('admin-validation-min-score').value = v.min_score;
+    if (el('admin-validation-max-iterations')) el('admin-validation-max-iterations').value = v.max_iterations;
+    if (el('admin-validation-min-improvement')) el('admin-validation-min-improvement').value = v.min_improvement;
+    const provider = el('admin-validation-provider');
     if (provider) {
-        // A blank option is meaningful, not a placeholder: it means "use the
+        // The blank option is meaningful, not a placeholder: it means "use the
         // provider that drew the diagram".
         provider.innerHTML = '<option value="">Same as generation</option>'
             + (data.providers || []).map(
                 (k) => `<option value="${_escHtml(k)}">${_escHtml(k)}</option>`).join('');
         provider.value = v.provider || '';
     }
+    adminValidationToggled();
+}
+
+/** Reflect the master switch: gated fields dim, and the subtitle says what the
+ *  current setting actually does rather than repeating the label. */
+function adminValidationToggled() {
+    const on = !!(document.getElementById('admin-validation-enabled') || {}).checked;
+    const fields = document.getElementById('admin-validation-fields');
+    const state = document.getElementById('admin-validation-state');
+    if (fields) fields.setAttribute('data-disabled', on ? 'false' : 'true');
+    if (state) {
+        state.innerHTML = on
+            ? 'On &mdash; a view below the target is regenerated while it keeps improving.'
+            : 'Off &mdash; each view is drawn once and kept.';
+    }
 }
 
 async function adminSaveValidation() {
+    const num = (id) => Number(document.getElementById(id).value);
     const body = {
         enabled: document.getElementById('admin-validation-enabled').checked,
-        min_score: Number(document.getElementById('admin-validation-min-score').value),
-        max_iterations: Number(document.getElementById('admin-validation-max-iterations').value),
-        min_improvement: Number(document.getElementById('admin-validation-min-improvement').value),
+        min_score: num('admin-validation-min-score'),
+        max_iterations: num('admin-validation-max-iterations'),
+        min_improvement: num('admin-validation-min-improvement'),
         provider: document.getElementById('admin-validation-provider').value,
     };
     const res = await adminFetch('/admin/validation', {
@@ -281,6 +294,14 @@ async function adminSaveValidation() {
         body: JSON.stringify(body),
     });
     if (res.ok) {
+        // An inline confirmation beside the button, not only a toast: the toast
+        // is gone before the eye returns to the form it just submitted.
+        const hint = document.getElementById('admin-validation-saved');
+        if (hint) {
+            hint.hidden = false;
+            hint.classList.add('is-visible');
+            setTimeout(() => hint.classList.remove('is-visible'), 2200);
+        }
         showToast('Validation settings saved.', 'success');
         adminLoadValidation();
     } else {

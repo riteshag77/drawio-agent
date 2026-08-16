@@ -518,3 +518,62 @@ body {
     font-size: 0.8rem; color: var(--text-muted); padding: 2rem 1rem; text-align: center;
     border: 1px dashed var(--sidebar-border); border-radius: var(--radius-lg);
 }
+
+/* ── Validation ──────────────────────────────────────────────── */
+.admin-validation-card { display: flex; flex-direction: column; gap: 1.1rem; padding: 1.1rem; }
+
+/* A master switch, not a bare checkbox: it governs every control under it, so
+   it needs more weight than the fields it gates. */
+.admin-switch-row {
+    display: flex; align-items: flex-start; gap: 0.75rem; cursor: pointer;
+    padding-bottom: 1rem; border-bottom: 1px solid var(--sidebar-border);
+}
+.admin-switch { position: relative; flex-shrink: 0; width: 38px; height: 22px; margin-top: 0.1rem; }
+.admin-switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.admin-switch-track {
+    position: absolute; inset: 0; border-radius: 999px;
+    background: var(--surface-well); border: 1px solid var(--sidebar-border);
+    transition: background 0.15s, border-color 0.15s;
+}
+.admin-switch-track::after {
+    content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px;
+    border-radius: 50%; background: var(--text-muted); transition: transform 0.15s, background 0.15s;
+}
+.admin-switch input:checked + .admin-switch-track { background: var(--accent); border-color: var(--accent); }
+.admin-switch input:checked + .admin-switch-track::after { transform: translateX(16px); background: #fff; }
+.admin-switch input:focus-visible + .admin-switch-track { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.admin-switch-text { display: flex; flex-direction: column; gap: 0.15rem; }
+/* The row is a <label>, and the page uppercases labels so that *field* captions
+   read as captions. This one is a heading over a sentence, and both belong in
+   sentence case — every other heading on the page ("Diagram validation",
+   "Providers") is. */
+.admin-switch-title {
+    font-size: 0.85rem; font-weight: 700; color: var(--text-primary);
+    text-transform: none; letter-spacing: normal;
+}
+.admin-switch-sub {
+    font-size: 0.74rem; color: var(--text-muted); line-height: 1.45;
+    text-transform: none; letter-spacing: normal; font-weight: 500;
+}
+
+/* Gated fields stay visible but read as inactive — hiding them would make the
+   panel jump, and removing them would hide what the switch actually controls. */
+.admin-validation-fields { display: flex; flex-direction: column; gap: 1rem; }
+.admin-validation-fields[data-disabled="true"] { opacity: 0.45; pointer-events: none; }
+
+/* A number field whose unit is part of the control, not of its label. */
+.admin-input-suffix { display: flex; align-items: center; gap: 0.5rem; }
+.admin-input-suffix input[type="number"] {
+    width: 6.5rem; padding: 0.6rem 0.75rem; font-size: 0.8rem; font-family: inherit;
+    color: var(--text-primary); background-color: var(--surface-well);
+    border: 1px solid var(--sidebar-border); border-radius: var(--radius-md);
+}
+.admin-input-suffix input[type="number"]:focus { outline: none; border-color: var(--accent); }
+.admin-input-unit { font-size: 0.74rem; font-weight: 600; color: var(--text-muted); }
+
+.admin-save-hint {
+    font-size: 0.74rem; font-weight: 600; color: var(--success-soft);
+    opacity: 0; transition: opacity 0.2s;
+}
+.admin-save-hint.is-visible { opacity: 1; }
