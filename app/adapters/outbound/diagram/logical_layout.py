@@ -534,7 +534,8 @@ def _anchor_shelves(
     all_flows = [(f.source, f.target) for f in ir.flows]
 
     def _place(shelf, base_x: float, base_top: float) -> float:
-        shelf.leaves = order_leaves_by_flow(list(shelf.leaves), ir.flows)
+        if not ir.flows_are_synthesized():
+            shelf.leaves = order_leaves_by_flow(list(shelf.leaves), ir.flows)
         leaf_ids = {leaf.id for leaf in shelf.leaves}
         local_edges = [(s, t) for s, t in all_flows if s in leaf_ids and t in leaf_ids]
         width, height = _place_leaves(shelf.leaves, local_edges, geos)
@@ -951,7 +952,12 @@ def layout_corridor_ir(ir: CorridorIR) -> tuple[dict[str, Geo], dict[str, list[t
         _anchor_shelves(ir, geos, row_right=_ROW_START_X, row_bottom=_ROW_START_Y)
         return geos, {}
 
-    _reorder_row_leaves(row, ir.flows)
+    # Flow-aware leaf ordering, skipped when the flows are this app's own
+    # invention. This is the ordering that Logical actually ships: it rewrites
+    # `corridor.leaves` in place, and `_emit_logical_flat` builds the flat
+    # storyboard straight off that list order. See IRModel.flows_are_synthesized.
+    if not ir.flows_are_synthesized():
+        _reorder_row_leaves(row, ir.flows)
 
     leaf_to_corridor: dict[str, str] = {
         leaf.id: corridor.id for corridor in row for leaf in corridor.leaves
@@ -1005,7 +1011,12 @@ def layout_corridor_ir(ir: CorridorIR) -> tuple[dict[str, Geo], dict[str, list[t
         routes = _shift_routes_after_equalize(routes, dys, row_edges, leaf_to_corridor)
 
     # Soft absolute-Y nudge so primary cross-corridor hops share a band.
-    _nudge_primary_leaf_bands(geos, row, ir.flows)
+    # Skipped when the flows are this app's own invention: the nudge pulls a
+    # leaf toward whatever it connects to in the next corridor, which is a
+    # crossing reduction when the model described those calls and a scramble of
+    # the declared order when it didn't. See IRModel.flows_are_synthesized.
+    if not ir.flows_are_synthesized():
+        _nudge_primary_leaf_bands(geos, row, ir.flows)
 
     row_right = max(g.x + g.w for cid, g in geos.items() if cid in row_ids)
     row_bottom = max(g.y + g.h for cid, g in geos.items() if cid in row_ids)

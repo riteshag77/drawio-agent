@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 
 ViewKind = Literal["network", "logical", "security", "data_flow", "archimate"]
 
@@ -26,6 +26,28 @@ class IRModel(BaseModel):
     """
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    #: True when ``flows`` was filled in by ``flow_spine``, not by the model.
+    #: A *private* attribute on purpose: every public field here is part of the
+    #: JSON schema the LLM is shown, and a field named "were these flows real?"
+    #: is an invitation for it to answer. Private attributes are outside both
+    #: the schema and ``extra="forbid"``.
+    _flows_synthesized: bool = PrivateAttr(default=False)
+
+    def mark_flows_synthesized(self) -> None:
+        self._flows_synthesized = True
+
+    def flows_are_synthesized(self) -> bool:
+        """Whether ``flows`` is this app's invention rather than the model's.
+
+        Layout heuristics that read the flow graph — leaf ranking, barycenter
+        ordering, cross-corridor row alignment — must not run when this is
+        true. They exist to make a *described* topology readable; run against
+        edges we invented, they rearrange the diagram to satisfy a call graph
+        nobody claimed, and throw away the one ordering signal a model that
+        returned no flows did give: the order it listed things in.
+        """
+        return self._flows_synthesized
 
 
 class Identified(IRModel):

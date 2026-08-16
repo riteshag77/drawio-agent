@@ -49,10 +49,10 @@ class FlowSpineTests(unittest.TestCase):
         self.assertEqual(ir.semantic_errors(), [])
 
     def test_wide_corridors_leave_no_orphans(self) -> None:
-        """The spine threads only the first few leaves of a corridor, so on a
-        wider one it used to *create* orphans — and an unconnected leaf is a
-        hard Logical error, so a flow-less IR failed the whole request. Every
-        leaf the spine skips gets one edge into its own corridor instead."""
+        """The spine used to thread only the first three leaves of a corridor,
+        so on a wider one it *created* orphans — and an unconnected leaf is a
+        hard Logical error, so the spine built to rescue a flow-less IR failed
+        it instead."""
         corridors = [
             Corridor(
                 id=f"domain_{name}", label=name[0].upper(),
@@ -65,9 +65,65 @@ class FlowSpineTests(unittest.TestCase):
         self.assertEqual(ir.semantic_errors(), [])
         touched = {f.source for f in ir.flows} | {f.target for f in ir.flows}
         self.assertEqual(touched, {lf.id for c in corridors for lf in c.leaves})
-        # The added edges are secondary — the spine stays the emphasized path —
-        # and each stray gets exactly one, never a mesh.
-        self.assertEqual(sum(1 for f in ir.flows if not f.primary), 15)
+        # One edge per leaf — a chain, never the mesh the old cap warned about.
+        self.assertEqual(len(ir.flows), 23)
+
+    def test_synthesized_flows_never_reorder_the_drawn_diagram(self) -> None:
+        """End-to-end: what reaches the page is the order the model declared.
+
+        Three separate flow-driven heuristics read the graph before emission —
+        leaf ranking in `_tile_order`, `_reorder_row_leaves` (which rewrites
+        `corridor.leaves` in place, and is the one Logical's flat storyboard
+        actually reads), and the `_nudge_primary_leaf_bands` row alignment.
+        Each is a crossing reduction when the model described those calls and a
+        scramble when this module invented them, so all three are skipped.
+        """
+        import xml.etree.ElementTree as ET
+
+        from app.adapters.outbound.diagram.compiler.corridor import compile_corridor_ir
+
+        corridors = [
+            Corridor(
+                id=f"domain_{name}", label=name[0].upper(),
+                leaves=[_leaf(f"{name[:2]}{i}", "logical_capability", f"Cap {i}") for i in range(8)],
+            )
+            for name in ("experience", "core", "data")
+        ]
+        ir = LogicalIR(corridors=corridors, flows=[])
+        self.assertTrue(synthesize_spine_flows(ir))
+        self.assertTrue(ir.flows_are_synthesized())
+
+        root = ET.fromstring(compile_corridor_ir(ir, page_name="Logical"))
+        placed = {
+            c.get("id"): (
+                float(c.find("mxGeometry").get("y")), float(c.find("mxGeometry").get("x")),
+            )
+            for c in root.iter("mxCell")
+            if c.find("mxGeometry") is not None and c.get("id", "").startswith(("ex", "co", "da"))
+        }
+        for prefix in ("ex", "co", "da"):
+            ids = [f"{prefix}{i}" for i in range(8)]
+            self.assertEqual(sorted(ids, key=lambda i: placed[i]), ids, prefix)
+
+    def test_synthesized_chain_preserves_declaration_order(self) -> None:
+        """The layout ranks leaves from their edges, so the shape of the
+        invented spine decides the corridor's reading order. A chain makes rank
+        equal declaration index, which is the only ordering signal a model that
+        returned no flows actually gave — a fan from one anchor instead put
+        every straggler a rank below it and scrambled the row."""
+        from app.adapters.outbound.diagram.logical_layout import _tile_order
+
+        leaves = [_leaf(f"c{i}", "logical_capability", f"Cap {i}") for i in range(8)]
+        ir = LogicalIR(
+            corridors=[Corridor(id="domain_core", label="C", leaves=leaves)], flows=[],
+        )
+        synthesize_spine_flows(ir)
+        ids = [lf.id for lf in leaves]
+        local = [(f.source, f.target) for f in ir.flows
+                 if f.source in set(ids) and f.target in set(ids)]
+        self.assertEqual(_tile_order(ids, local)[0], ids)
+        # Identical to what a corridor carrying no edges at all would produce.
+        self.assertEqual(_tile_order(ids, local), _tile_order(ids, []))
 
     def test_does_not_overwrite_existing_flows(self) -> None:
         ir = LogicalIR(
