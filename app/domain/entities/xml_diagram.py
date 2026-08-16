@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, List, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, PrivateAttr, field_validator
 
 from app.domain.entities.governance import GovernanceFinding
 
@@ -107,6 +107,23 @@ class XmlDiagram(BaseModel):
         default="",
         description="Internal use only — always leave empty. Populated by the IR compiler path in Python, never by you.",
     )
+    #: The validated IR this diagram was compiled from, when there was one.
+    #: A *private* attribute, not a field: this class doubles as the structured
+    #: output schema for the direct-XML path, so a public field here would be
+    #: shown to the model and invite it to fill one in. `exclude=True` would
+    #: not have helped — it hides a field from serialization, not from
+    #: model_json_schema(). Carried so the validation loop can score
+    #: *structure* (an unlabelled branch, a stranded node), which is cheaper
+    #: and more exact read off the IR than recovered from compiled XML.
+    _source_ir: Any = PrivateAttr(default=None)
+
+    def with_source_ir(self, ir: Any) -> "XmlDiagram":
+        self._source_ir = ir
+        return self
+
+    @property
+    def source_ir(self) -> Any:
+        return self._source_ir
     design_tradeoffs: List[str] = Field(
         default_factory=list,
         description=(

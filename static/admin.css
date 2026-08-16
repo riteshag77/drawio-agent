@@ -577,3 +577,17 @@ body {
     opacity: 0; transition: opacity 0.2s;
 }
 .admin-save-hint.is-visible { opacity: 1; }
+
+/* Model picker — mirrors the app's own: an identity badge beside the choice,
+   so the selected model is recognisable at a glance rather than read. */
+.admin-model-row { display: flex; align-items: center; gap: 0.6rem; }
+.admin-model-row select { flex: 1; }
+.admin-model-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    flex-shrink: 0; width: 26px; height: 26px; border-radius: var(--radius-md);
+    background: var(--accent); color: #fff; font-size: 0.72rem; font-weight: 700;
+}
+/* "Same as generation" is a deferral, not a model — it should not wear a
+   provider's colour. */
+.admin-model-badge.is-inherit { background: var(--surface-hover); color: var(--text-muted); }
+.admin-model-warning { color: var(--warning-soft); }

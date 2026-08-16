@@ -198,10 +198,21 @@
 
                         <div class="admin-field-group">
                             <label for="admin-validation-provider">Validation model</label>
-                            <select id="admin-validation-provider"></select>
+                            <div class="admin-model-row">
+                                <span class="admin-model-badge is-inherit"
+                                      id="admin-validation-provider-badge" aria-hidden="true">&#8627;</span>
+                                <select id="admin-validation-provider"
+                                        onchange="adminValidationBadge()"></select>
+                            </div>
                             <p class="admin-help-text">Judging and drawing are different jobs, so a
                                 cheaper model is often enough here &mdash; or a stronger one, used
                                 only for the corrections.</p>
+                            <p class="admin-help-text admin-model-warning"
+                               id="admin-validation-provider-warning" hidden>
+                                This provider has no API key configured, so validation passes would
+                                fail at generation time. Add its key under
+                                <strong>Providers</strong> first.
+                            </p>
                         </div>
                     </div>
 

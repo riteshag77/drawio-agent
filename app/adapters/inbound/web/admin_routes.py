@@ -195,13 +195,30 @@ def _validation_settings() -> dict:
     }
 
 
+def _validation_provider_options() -> list[dict]:
+    """Providers as the picker needs them: label, and whether they can run.
+
+    The bare key list this used to return made the admin select show `claude` /
+    `openai` where the app's own picker shows proper labels, and gave no hint
+    that choosing a provider with no API key configured would fail at
+    generation time rather than here.
+    """
+    import os
+
+    options = []
+    for key, spec in sorted(providers_module.PROVIDERS.items()):
+        configured = bool(os.environ.get(spec.api_key_env, "")) if spec.api_key_env else True
+        options.append({"key": key, "label": spec.label, "configured": configured})
+    return options
+
+
 @router.get("/validation")
 async def admin_get_validation(x_admin_token: str | None = Header(default=None)) -> dict:
     _require_admin(x_admin_token)
     return {
         "status": "ok",
         "validation": _validation_settings(),
-        "providers": sorted(providers_module.PROVIDERS),
+        "providers": _validation_provider_options(),
     }
 
 

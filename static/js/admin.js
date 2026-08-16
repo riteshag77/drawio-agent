@@ -255,13 +255,20 @@ async function adminLoadValidation() {
     if (el('admin-validation-min-improvement')) el('admin-validation-min-improvement').value = v.min_improvement;
     const provider = el('admin-validation-provider');
     if (provider) {
-        // The blank option is meaningful, not a placeholder: it means "use the
-        // provider that drew the diagram".
+        // Labels and configured-state, the way the app's own model picker shows
+        // them — a raw key list read as `claude` / `openai` and gave no hint
+        // that picking a provider with no API key fails at generation time
+        // rather than here. The blank option is meaningful, not a placeholder:
+        // it means "use the provider that drew the diagram".
         provider.innerHTML = '<option value="">Same as generation</option>'
-            + (data.providers || []).map(
-                (k) => `<option value="${_escHtml(k)}">${_escHtml(k)}</option>`).join('');
+            + (data.providers || []).map((prov) => {
+                const suffix = prov.configured ? '' : ' — no API key set';
+                return `<option value="${_escHtml(prov.key)}">`
+                    + `${_escHtml(prov.label)}${suffix}</option>`;
+            }).join('');
         provider.value = v.provider || '';
     }
+    adminValidationBadge();
     adminValidationToggled();
 }
 
@@ -277,6 +284,22 @@ function adminValidationToggled() {
             ? 'On &mdash; a view below the target is regenerated while it keeps improving.'
             : 'Off &mdash; each view is drawn once and kept.';
     }
+}
+
+
+/** Mirror the app's own picker: a letter badge beside the chosen model, and a
+ *  visible warning when the selection cannot actually run. */
+function adminValidationBadge() {
+    const select = document.getElementById('admin-validation-provider');
+    const slot = document.getElementById('admin-validation-provider-badge');
+    const warn = document.getElementById('admin-validation-provider-warning');
+    if (!select || !slot) return;
+    const opt = select.options[select.selectedIndex];
+    const label = ((opt && opt.textContent) || '').trim();
+    const inherit = !select.value;
+    slot.textContent = inherit ? '↳' : label.charAt(0).toUpperCase();
+    slot.classList.toggle('is-inherit', inherit);
+    if (warn) warn.hidden = !label.includes('no API key set');
 }
 
 async function adminSaveValidation() {

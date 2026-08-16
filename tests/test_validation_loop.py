@@ -154,10 +154,6 @@ class ProviderSelectionTests(unittest.TestCase):
             self.assertEqual(get_config().validation_provider, "openai")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class PrimaryPageCoverageTests(unittest.TestCase):
     """The loop was wired only into the *extra* views at first, so turning
     validation on left the page the user is actually looking at untouched."""
@@ -203,3 +199,6 @@ class PrimaryPageCoverageTests(unittest.TestCase):
         )
         scored = score_view(xml, view="network", min_score=75)
         self.assertIsInstance(scored.score, int)
+
+if __name__ == "__main__":
+    unittest.main()

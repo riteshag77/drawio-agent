@@ -74,6 +74,7 @@ from app.adapters.outbound.diagram.architecture_docs import (
     pick_primary_view,
     inject_shape_types_from_primary,
 )
+from app.adapters.outbound.diagram.simple_conformance import score_simple_ir
 from app.adapters.outbound.diagram.view_conformance import score_view
 from app.adapters.outbound.diagram.view_fixers import apply_view_fixers, ensure_gap_nodes
 from app.adapters.outbound.llm.llm_client import is_quota_or_rate_limit_error
@@ -1117,17 +1118,65 @@ async def run_simple_pipeline(
         "Updating diagram…" if current_xml else "Designing diagram…",
     )
     chat_messages = messages or ([{"role": "user", "content": user_prompt or ""}])
-    diagram = await run_llm_sync(
-        generate_simple_diagram_from_ir,
-        user_prompt or (chat_messages[-1].get("content") if chat_messages else "") or "",
-        provider,
-        logger,
-        messages,
-        applied_suggestions,
-        include_suggestions,
-        custom_system_message,
-        current_xml or "",
-    )
+    request_text = user_prompt or (chat_messages[-1].get("content") if chat_messages else "") or ""
+
+    async def _simple_attempt(extra: str, *, provider_override: str = "") -> Any:
+        return await run_llm_sync(
+            generate_simple_diagram_from_ir,
+            request_text + extra,
+            provider_override or provider,
+            logger,
+            messages,
+            applied_suggestions,
+            include_suggestions,
+            custom_system_message,
+            current_xml or "",
+        )
+
+    diagram = await _simple_attempt("")
+
+    # The same improve-while-it-improves loop the cloud pages get. Scored off
+    # the IR rather than the compiled XML: an unlabelled decision branch or a
+    # stranded node is a structural fact the IR states outright, and recovering
+    # it from drawn cells would be guesswork. See
+    # diagram/simple_conformance.py for why every rule there is one the prompt
+    # pack already gives.
+    _cfg_simple = get_config()
+    if _cfg_simple.validation_enabled and getattr(diagram, "source_ir", None) is not None:
+        simple_min = _cfg_simple.view_quality_min_score
+        scored = score_simple_ir(diagram.source_ir, min_score=simple_min)
+        simple_iter = 0
+        while not scored.passes and simple_iter < _cfg_simple.validation_max_iterations:
+            simple_iter += 1
+            feedback = "; ".join(v.message for v in scored.violations[:6])
+            candidate = await _simple_attempt(
+                (
+                    f"\n\nQUALITY CORRECTION — the previous attempt scored "
+                    f"{scored.score}/{simple_min}. Redraw the whole diagram, "
+                    f"fixing:\n{feedback}"
+                ),
+                provider_override=_cfg_simple.validation_provider,
+            )
+            cand_ir = getattr(candidate, "source_ir", None)
+            if cand_ir is None:
+                break
+            cand_scored = score_simple_ir(cand_ir, min_score=simple_min)
+            gain = cand_scored.score - scored.score
+            if gain >= 0:
+                diagram, scored = candidate, cand_scored
+            if logger:
+                logger.log(
+                    "validate",
+                    f"Diagram validation pass {simple_iter} scored {cand_scored.score} ({gain:+d})",
+                    level="info" if cand_scored.passes else "warning",
+                    details={
+                        "score": cand_scored.score, "gain": gain, "iteration": simple_iter,
+                        "violations": [v.code for v in cand_scored.violations][:8],
+                    },
+                )
+            if gain <= 0 or gain < _cfg_simple.validation_min_improvement:
+                break
+
     await _emit(on_progress, "ir", "Diagram compiled")
 
     if 'vertex="1"' not in (diagram.xml or ""):

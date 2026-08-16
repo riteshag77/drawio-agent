@@ -1540,7 +1540,7 @@ def generate_simple_diagram_from_ir(
         suggestions=sugg,
         step_markers=[],
         ir_title=ir.title or "",
-    )
+    ).with_source_ir(ir)
 
 
 def run_visual_qa_llm(
