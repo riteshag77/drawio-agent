@@ -378,6 +378,31 @@ class VoiceModeBrowserTests(unittest.TestCase):
             self.assertFalse(pg.evaluate("voiceMode"))
             self.assertTrue(pg.eval_on_selector("#voice-status", "s => s.hidden"))
 
+    def test_dictation_gets_the_same_vocabulary_correction(self) -> None:
+        """Dictation used to land the raw transcript, so "easy two" had to be
+        hand-fixed every time. The text being visible made that defensible, not
+        a reason to make the user do it."""
+        with self.page(dictation_only=True) as pg:
+            pg.evaluate("toggleVoiceInput()")
+            pg.wait_for_timeout(400)
+            pg.evaluate("__emit('add an easy two instance and an are d s database', true)")
+            pg.wait_for_timeout(600)
+            self.assertEqual(pg.eval_on_selector("#chat-input", "s => s.value"),
+                             "add an EC2 instance and an RDS database")
+
+    def test_dictation_commands_match_before_correction(self) -> None:
+        """Commands are matched on the raw chunk — rewriting "switch to aws"
+        first could turn a command into prose that no longer matches."""
+        with self.page(dictation_only=True) as pg:
+            pg.evaluate("toggleVoiceInput()")
+            pg.wait_for_timeout(400)
+            pg.evaluate("selectPlatform('gcp')")
+            pg.evaluate("__emit('switch to aws', true)")
+            pg.wait_for_timeout(600)
+            self.assertEqual(pg.evaluate("selectedPlatform"), "aws")
+            # consumed as a command, not typed into the composer
+            self.assertEqual(pg.eval_on_selector("#chat-input", "s => s.value"), "")
+
     def test_dictation_mode_still_waits_for_send(self) -> None:
         """Voice mode is the default, but dictation is the only thing that
         works for someone mixing typing and speech — it must not regress."""
