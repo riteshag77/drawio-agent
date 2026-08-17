@@ -25,21 +25,28 @@ Quality gates (all run in CI, `.github/workflows/ci.yml`):
 ruff check .        # narrow ruleset — see the rationale in pyproject.toml
 lint-imports        # architecture boundaries (import-linter)
 pytest --cov        # suite + the coverage floor
+
+# Frontend, browser-driven — CI's `frontend` job, and the only automated
+# coverage static/js has. Skips (never fails) locally without a browser;
+# install it with `playwright install chromium`. CI sets
+# REQUIRE_BROWSER_TESTS=1, which turns that skip back into a failure, because
+# a browser job that skips is a green check proving nothing.
+pytest tests/test_voice_mode_browser.py tests/test_chat_flow_browser.py
 ```
 
-Two checks are not in CI and have to be run deliberately:
+One check cannot run in CI and has to be run deliberately:
 
 ```bash
-# Frontend, browser-driven. Skips (never fails) without Playwright:
-#   pip install playwright && playwright install chromium
-pytest tests/test_voice_mode_browser.py
-
 # Layout/geometry regression net — replays every stored capture's IR through
 # the current compiler. Record a baseline BEFORE starting layout work; doing
 # it after bakes in whatever you just changed and the check can only pass.
 python tools/replay_captures.py --update-baseline   # once, before
-python tools/replay_captures.py                     # after
+python tools/replay_captures.py --strict            # after
 ```
+
+It is local-only because `data/` is gitignored in full: on a runner it would
+find zero captures and exit 0 having verified nothing. `--strict` turns "no
+corpus" and "no baseline" into failures so a wiped `data/` can't imitate a pass.
 
 `pyproject.toml` holds all three configs. Two things there are deliberate and
 should not be "tidied": the ruff ruleset is narrow on purpose (a blanket one
@@ -218,8 +225,13 @@ that works for mixing typing and speech.
   `_INTERRUPT_PHRASES`). Announced via toast, reflected in the HUD, and relearnt
   each session so headphones win barge-in back. Tune with
   `VOICE_TUNING.halfDuplexAfterEchoes`.
-- Covered by `tests/test_voice_mode_browser.py` (see Commands) — the only
-  frontend test, because this is the one place a regression is silent.
+- Covered by `tests/test_voice_mode_browser.py` (see Commands), because this is
+  the one place a frontend regression is completely silent. Its sibling
+  `tests/test_chat_flow_browser.py` covers the ordinary chat turn — transcript,
+  `currentXml`, the insight panels, the send/stop lifecycle and the failure
+  paths — by stubbing `fetch`, not `postChatStream`, so SSE parsing stays under
+  test. Neither touches the draw.io iframe: it loads from a remote origin, and
+  asserting on it would trade a unit test for a network test.
 
 ### Logging
 

@@ -18,11 +18,17 @@ Skips (never fails) when Playwright is not installed, so `pytest` stays green
 on a machine that only wants the Python suite. Install with:
 
     pip install playwright && playwright install chromium
+
+That leniency is wrong in CI, where a skip is indistinguishable from a pass and
+the job would go green having tested nothing. Set ``REQUIRE_BROWSER_TESTS=1``
+(the `frontend` job does) to turn every "browser unavailable" path into a
+failure instead.
 """
 
 from __future__ import annotations
 
 import contextlib
+import os
 import socket
 import subprocess
 import sys
@@ -37,6 +43,16 @@ try:  # noqa: SIM105 - the import *is* the capability check
     from playwright.sync_api import sync_playwright
 except ImportError:  # pragma: no cover - environment-dependent
     sync_playwright = None
+
+#: CI sets this. A browser job that skips is a green check proving nothing.
+_REQUIRE_BROWSER = os.environ.get("REQUIRE_BROWSER_TESTS") == "1"
+
+
+def _unavailable(reason: str) -> Exception:
+    """Skip locally, fail where the browser was promised."""
+    if _REQUIRE_BROWSER:
+        return RuntimeError(f"REQUIRE_BROWSER_TESTS=1 but {reason}")
+    return unittest.SkipTest(reason)
 
 
 def _free_port() -> int:
@@ -105,7 +121,7 @@ window.addEventListener('DOMContentLoaded', () => {
 """
 
 
-@unittest.skipIf(sync_playwright is None, "playwright not installed")
+@unittest.skipIf(sync_playwright is None and not _REQUIRE_BROWSER, "playwright not installed")
 class VoiceModeBrowserTests(unittest.TestCase):
     proc: subprocess.Popen | None = None
     base: str = ""
@@ -114,6 +130,8 @@ class VoiceModeBrowserTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
+        if sync_playwright is None:  # pragma: no cover - only when CI's install step failed
+            raise _unavailable("playwright is not installed")
         # One server and one browser for the whole class. Launching Chromium
         # per test costs ~15s each and a slow suite is a suite people skip;
         # a fresh *page* per test is enough isolation, since all app state
@@ -134,19 +152,19 @@ class VoiceModeBrowserTests(unittest.TestCase):
             time.sleep(0.25)
         else:  # pragma: no cover - only on a broken environment
             cls.tearDownClass()
-            raise unittest.SkipTest("dev server did not start")
+            raise _unavailable("the dev server did not start")
         # Importing playwright is not the same as being able to launch it: the
         # browser binary comes from a separate `playwright install chromium`
-        # step. CI installs the pip package via requirements-dev.lock but never
-        # that step, so treat a failed launch as "not available" rather than
-        # letting it error the run.
+        # step. A developer who only ran `pip install` has the package but no
+        # binary, so treat a failed launch as "not available" rather than
+        # letting it error the run — unless CI promised the binary is there.
         try:
             cls._pw = sync_playwright().start()
             cls._browser = cls._pw.chromium.launch()
         except Exception as exc:  # pragma: no cover - environment-dependent
             cls.tearDownClass()
-            raise unittest.SkipTest(f"chromium unavailable ({str(exc)[:80]}) — "
-                                    f"run `playwright install chromium`") from exc
+            raise _unavailable(f"chromium is unavailable ({str(exc)[:80]}) — "
+                               f"run `playwright install chromium`") from exc
 
     @classmethod
     def tearDownClass(cls) -> None:

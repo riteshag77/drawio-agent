@@ -67,6 +67,45 @@ jobs:
           DRAWIO_STYLE_CACHE_RESET: "false"
         run: pytest --cov
 
+  frontend:
+    # The browser test is excluded from the `test` job on purpose: it needs a
+    # Chromium binary (a separate download from the pip package) and boots a
+    # real server, so its failures and its runtime are both unlike the unit
+    # suite's. Separate job, distinct signal — same reasoning as `docker`.
+    #
+    # Until this existed, the browser tests ran solely when a developer
+    # remembered to install Playwright locally, which is to say: on nobody's
+    # machine, most weeks. They are also the *only* frontend tests in the repo,
+    # so this job is all the automated coverage static/js has.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.lock -r requirements-dev.lock
+
+      - name: Install Chromium
+        # --with-deps pulls the shared libraries headless Chromium needs on a
+        # bare runner; without it the browser installs but will not launch.
+        run: python -m playwright install --with-deps chromium
+
+      - name: Frontend, in a browser
+        # REQUIRE_BROWSER_TESTS turns "browser unavailable" from a skip into a
+        # failure. Without it a broken install step would leave this job green
+        # having run no assertions at all.
+        env:
+          REQUIRE_BROWSER_TESTS: "1"
+        run: pytest tests/test_voice_mode_browser.py tests/test_chat_flow_browser.py -q
+
   docker:
     # Separate job: the image is slow to build and its failure mode is
     # unrelated to a test failure, so keep the signals distinct.
@@ -104,7 +143,7 @@ jobs:
     # This is the whole point of the job: render.yaml sets `autoDeploy: false`
     # so Render no longer deploys on its own the instant it sees a push, which
     # would race ahead of (and ignore the result of) everything above.
-    needs: [test, docker]
+    needs: [test, frontend, docker]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 5

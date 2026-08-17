@@ -27,6 +27,17 @@ Usage
     python tools/replay_captures.py                    # whole corpus
     python tools/replay_captures.py --verbose          # explain every non-ok capture
     python tools/replay_captures.py --update-baseline  # record known-good geometry
+    python tools/replay_captures.py --strict           # no corpus / no baseline = failure
+
+Why this is not a CI job
+------------------------
+``data/`` is gitignored in its entirety — both the capture corpus and the
+baseline that describes it are local-only by design (a committed baseline would
+describe captures a fresh clone does not have). On a runner this script would
+therefore find zero captures and exit 0, a green check that verified nothing.
+It is a *local* gate, run deliberately before and after layout work, and
+``--strict`` exists so that a wiped or missing ``data/`` fails loudly instead
+of imitating a pass on the machine that does have a corpus.
 
 Regressions are found by comparing a geometry digest against a *stored*
 baseline (data/capture_replay_baseline.json), not by re-scoring against
@@ -281,11 +292,16 @@ def main() -> int:
     ap.add_argument("--update-baseline", action="store_true",
                     help="record current geometry as the known-good baseline")
     ap.add_argument("--json", metavar="PATH", help="write the full result table as JSON")
+    ap.add_argument("--strict", action="store_true",
+                    help="fail instead of passing when there is no corpus or no baseline to compare against")
     args = ap.parse_args()
 
     caps = sorted((ROOT / "data" / "captures").glob("*.json"))
     if not caps:
         print("No captures in data/captures — nothing to replay.")
+        if args.strict:
+            print("FAIL — --strict was given and there is no corpus to check.")
+            return 1
         return 0
 
     baseline: dict[str, str] = {}
@@ -330,6 +346,9 @@ def main() -> int:
 
     if not baseline:
         print("\n(no baseline compared — geometry changes cannot be detected)")
+        if args.strict:
+            print("\nFAIL — --strict was given and there is no baseline to compare against.")
+            return 1
 
     if args.json:
         Path(args.json).write_text(
