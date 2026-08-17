@@ -1,5 +1,5 @@
 fastapi>=0.115.0,<1.0.0
-uvicorn>=0.32.0,<1.0.0
+uvicorn>=0.52.3,<1.0.0
 # Required for run.py's reload_includes=["*.txt", "*.json"] to do anything.
 # uvicorn falls back to StatReload without it, which watches *.py only and
 # silently ignores reload_includes — so prompt-pack edits would not take
