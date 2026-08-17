@@ -293,46 +293,77 @@ class CorridorIR(DiagramIR):
 
     @staticmethod
     def _bridge_removed_leaves(flows: list[object], removed_ids: set[str]) -> list[object]:
-        """Reconnect around a stripped leaf instead of just deleting its edges.
+        """Reconnect around stripped cells instead of just deleting their edges.
 
-        A leaf denylisted by ``_strip_cross_cutting_infra`` is often a
-        mid-chain hop (``CDN -> WAF -> API Gateway``) — naively dropping every
-        flow that touches it severs the chain and leaves the downstream leaf
-        (API Gateway) with no incoming edge at all, which reads as "the line
-        to X is missing" even though X itself is fine. For each removed leaf,
-        every predecessor is rewired directly to every successor (skipping
-        self-loops and pairs already connected) before the leaf's own edges
-        are finally dropped. One bridging pass — a chain of two *consecutive*
-        removed leaves is a rare residual case the per-view orphan check
-        (``LogicalIR.semantic_errors``) catches as a backstop.
+        A cell denylisted by ``_strip_cross_cutting_infra`` (or by Logical's
+        ``_strip_infra_noise_from_actors``) is usually a mid-chain hop
+        (``Users -> CloudFront -> WAF -> API Gateway``) — naively dropping
+        every flow that touches it severs the chain and leaves the downstream
+        leaf with no incoming edge at all, which reads as "the line to X is
+        missing" even though X itself is fine.
+
+        Bridging is **transitive**: a path from one surviving cell to another
+        that passes through any number of consecutive removed cells collapses
+        to a single direct flow. A single pairwise pass is not enough, and its
+        failure mode was not the benign one the orphan check catches — walking
+        the whole capture corpus, 121 of 142 stored sessions hit a chain of
+        two removed hops, and pairwise bridging *emitted a flow whose source
+        was itself a removed cell* (``cloudfront -> apigw`` after CloudFront
+        and WAF were both stripped). That is a dangling reference, so
+        ``semantic_errors()`` rejected the IR outright and the Logical or
+        Data-flow tab was dropped from the diagram. Consecutive removals are
+        the normal case, not a rare residual one: every ``CDN -> WAF -> app``
+        edge chain is one.
+
+        The bridge inherits the *entry* edge's attributes (classification,
+        protection, primary) and the *exit* edge's label, falling back to the
+        entry's — the traffic is the one that entered, arriving where the
+        chain finally delivered it.
         """
-        incoming: dict[str, list[dict]] = {}
-        outgoing: dict[str, list[dict]] = {}
         kept: list[object] = []
+        out_edges: dict[str, list[dict]] = {}
         for f in flows:
             if not isinstance(f, dict):
                 kept.append(f)
                 continue
             src, tgt = f.get("source"), f.get("target")
-            if tgt in removed_ids:
-                incoming.setdefault(tgt, []).append(f)
-            elif src in removed_ids:
-                outgoing.setdefault(src, []).append(f)
+            if src in removed_ids or tgt in removed_ids:
+                if src:
+                    out_edges.setdefault(src, []).append(f)
             else:
                 kept.append(f)
 
+        def _exits(entry: dict) -> list[dict]:
+            """Every surviving cell reachable from ``entry`` through removed cells only."""
+            reached: list[dict] = []
+            seen_hops: set[str] = set()
+            stack = [entry]
+            while stack:
+                edge = stack.pop()
+                hop = edge.get("target")
+                if hop not in removed_ids:
+                    reached.append(edge)
+                    continue
+                if hop in seen_hops:
+                    continue  # a cycle among removed cells must not loop forever
+                seen_hops.add(hop)
+                stack.extend(out_edges.get(hop, []))
+            return reached
+
         seen_pairs = {(f.get("source"), f.get("target")) for f in kept if isinstance(f, dict)}
         bridged: list[object] = []
-        for removed_id, in_flows in incoming.items():
-            for inf in in_flows:
-                for outf in outgoing.get(removed_id, []):
-                    src, tgt = inf.get("source"), outf.get("target")
+        for src, edges in out_edges.items():
+            if src in removed_ids:
+                continue  # only paths *starting* at a surviving cell can be bridged
+            for entry in edges:
+                for exit_edge in _exits(entry):
+                    tgt = exit_edge.get("target")
                     if not src or not tgt or src == tgt or (src, tgt) in seen_pairs:
                         continue
                     seen_pairs.add((src, tgt))
-                    bridge = dict(inf)
+                    bridge = dict(entry)
                     bridge["source"], bridge["target"] = src, tgt
-                    bridge["label"] = outf.get("label") or inf.get("label")
+                    bridge["label"] = exit_edge.get("label") or entry.get("label")
                     bridged.append(bridge)
 
         return kept + bridged

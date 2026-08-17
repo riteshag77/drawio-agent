@@ -79,7 +79,7 @@ function setDiagramStatus(text) {
 }
 
 function setActionButtonsEnabled(enabled) {
-    ['btn-download', 'btn-open', 'btn-png'].forEach(id => {
+    ['btn-download', 'btn-open', 'btn-png', 'btn-svg'].forEach(id => {
         const btn = document.getElementById(id);
         if (btn) btn.disabled = !enabled;
     });

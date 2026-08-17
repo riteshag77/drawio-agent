@@ -291,5 +291,127 @@ class ExternalActorReuseTests(unittest.TestCase):
             self.assertEqual(len(ir.external_actors), 2)
 
 
+class InfraStripBridgingTests(unittest.TestCase):
+    """Stripping cross-cutting infra must never leave a dangling flow behind.
+
+    Both strippers run pre-parse, so these go through ``model_validate`` on raw
+    dicts — the same entry point the LLM's output takes.
+
+    The corpus numbers in each test are from replaying ``data/captures``: this
+    was not a theoretical edge case but the single largest source of IR
+    rejection in the app's own history, and every rejection cost the user a
+    Logical or Data-flow tab.
+    """
+
+    def _raw_logical(self, flows: list[dict], **extra) -> dict:
+        return {
+            "view": "logical",
+            "corridors": [
+                {"id": "domain_experience", "label": "Experience", "leaves": [
+                    {"id": "cloudfront", "shape_type": "aws_cloudfront", "label": "CloudFront"},
+                    {"id": "waf", "shape_type": "aws_waf", "label": "WAF"},
+                ]},
+                {"id": "domain_core", "label": "Core", "leaves": [
+                    {"id": "apigw", "shape_type": "aws_api_gateway", "label": "API Gateway"},
+                ]},
+            ],
+            "external_actors": [{"id": "users", "kind": "users", "label": "Users"}],
+            "flows": flows,
+            **extra,
+        }
+
+    def test_chain_of_two_removed_leaves_bridges_end_to_end(self) -> None:
+        """``users -> cloudfront -> waf -> apigw``: both hops are denylisted.
+
+        Pairwise bridging emitted ``cloudfront -> apigw`` here — a flow whose
+        source had just been deleted — which failed validation outright. 121 of
+        142 captured sessions hit this exact chain.
+        """
+        ir = LogicalIR.model_validate(self._raw_logical([
+            {"source": "users", "target": "cloudfront", "label": "HTTPS"},
+            {"source": "cloudfront", "target": "waf", "label": "Filters"},
+            {"source": "waf", "target": "apigw", "label": "Forwards Request"},
+        ]))
+        self.assertEqual(ir.semantic_errors(), [])
+        self.assertEqual([(f.source, f.target) for f in ir.flows], [("users", "apigw")])
+        self.assertEqual(ir.flows[0].label, "Forwards Request")
+
+    def test_single_removed_hop_still_bridges(self) -> None:
+        ir = LogicalIR.model_validate(self._raw_logical([
+            {"source": "users", "target": "cloudfront", "label": "HTTPS"},
+            {"source": "cloudfront", "target": "apigw", "label": "Forwards"},
+        ]))
+        self.assertEqual(ir.semantic_errors(), [])
+        self.assertEqual([(f.source, f.target) for f in ir.flows], [("users", "apigw")])
+
+    def test_cycle_among_removed_cells_terminates(self) -> None:
+        """A -> B -> A between two stripped cells must not loop forever."""
+        ir = LogicalIR.model_validate(self._raw_logical([
+            {"source": "users", "target": "cloudfront", "label": "HTTPS"},
+            {"source": "cloudfront", "target": "waf", "label": "Filters"},
+            {"source": "waf", "target": "cloudfront", "label": "Returns"},
+            {"source": "waf", "target": "apigw", "label": "Forwards"},
+        ]))
+        self.assertEqual(ir.semantic_errors(), [])
+        self.assertEqual([(f.source, f.target) for f in ir.flows], [("users", "apigw")])
+
+    def test_stripped_actor_does_not_leave_a_dangling_flow(self) -> None:
+        """Route 53 filed as a ``saas_ingress`` actor rather than a leaf.
+
+        The actor stripper removed the cell but left its flows untouched — 13
+        captured sessions.
+        """
+        raw = self._raw_logical(
+            [
+                {"source": "users", "target": "route53", "label": "DNS"},
+                {"source": "route53", "target": "apigw", "label": "Resolves"},
+            ],
+        )
+        raw["external_actors"].append({"id": "route53", "kind": "saas_ingress", "label": "Route 53"})
+        ir = LogicalIR.model_validate(raw)
+        self.assertEqual(ir.semantic_errors(), [])
+        self.assertNotIn("route53", {a.id for a in ir.external_actors})
+        self.assertEqual([(f.source, f.target) for f in ir.flows], [("users", "apigw")])
+
+    def test_flows_between_surviving_cells_are_untouched(self) -> None:
+        ir = LogicalIR.model_validate(self._raw_logical([
+            {"source": "users", "target": "apigw", "label": "HTTPS"},
+        ]))
+        self.assertEqual(ir.semantic_errors(), [])
+        self.assertEqual([(f.source, f.target) for f in ir.flows], [("users", "apigw")])
+
+    def test_bridge_keeps_entry_edge_attributes(self) -> None:
+        ir = LogicalIR.model_validate(self._raw_logical([
+            {"source": "users", "target": "cloudfront", "label": "HTTPS",
+             "classification": "pii", "protection": "tls", "primary": True},
+            {"source": "cloudfront", "target": "apigw", "label": "Forwards",
+             "classification": "none", "protection": "none", "primary": False},
+        ]))
+        self.assertEqual(ir.flows[0].classification, "pii")
+        self.assertEqual(ir.flows[0].protection, "tls")
+
+    def test_data_flow_view_bridges_the_same_way(self) -> None:
+        ir = DataFlowIR.model_validate({
+            "view": "data_flow",
+            "corridors": [
+                {"id": "phase_ingest", "label": "Ingest", "leaves": [
+                    {"id": "cloudfront", "shape_type": "aws_cloudfront", "label": "CDN"},
+                    {"id": "alb", "shape_type": "aws_application_load_balancer", "label": "ALB"},
+                ]},
+                {"id": "phase_process", "label": "Process", "leaves": [
+                    {"id": "app_server", "shape_type": "aws_ec2", "label": "App Server"},
+                ]},
+            ],
+            "external_actors": [{"id": "users", "kind": "users", "label": "Users"}],
+            "flows": [
+                {"source": "users", "target": "cloudfront", "label": "HTTPS"},
+                {"source": "cloudfront", "target": "alb", "label": "Routes"},
+                {"source": "alb", "target": "app_server", "label": "HTTPS: App Request"},
+            ],
+        })
+        self.assertEqual(ir.semantic_errors(), [])
+        self.assertEqual([(f.source, f.target) for f in ir.flows], [("users", "app_server")])
+
+
 if __name__ == "__main__":
     unittest.main()

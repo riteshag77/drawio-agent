@@ -91,6 +91,14 @@ def _strip_infra_noise_from_actors(data: object) -> object:
         return data
     data = dict(data)
     data["external_actors"] = kept
+    # Removing the cell is only half the job: any flow still referencing it is
+    # now a dangling id, which semantic_errors() treats as fatal and which
+    # costs the view its tab. The leaf-side stripper has always bridged around
+    # its removals; this one silently didn't, so a model that filed Route 53 as
+    # a saas_ingress actor (rather than a leaf) produced an unrenderable IR.
+    removed_ids = {a["id"] for a in actors if isinstance(a, dict) and a.get("id") and _is_noise(a)}
+    if removed_ids and isinstance(data.get("flows"), list):
+        data["flows"] = CorridorIR._bridge_removed_leaves(data["flows"], removed_ids)
     return data
 
 

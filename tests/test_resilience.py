@@ -319,6 +319,53 @@ class SseStreamTests(unittest.TestCase):
         self.assertEqual(chunks, [], "no events should be emitted after an immediate disconnect")
 
 
+# ── What an unexpected failure tells the client ────────────────────────
+
+
+class ErrorDetailTests(unittest.TestCase):
+    """``detail`` is what the UI puts in a toast; ``logs`` is the diagnostic."""
+
+    _request = SseStreamTests._request
+    _body = SseStreamTests._body
+
+    def test_arbitrary_exception_text_is_not_the_headline(self) -> None:
+        from app.adapters.inbound.web.routes import _safe_detail
+
+        detail = _safe_detail(KeyError("zones"))
+        self.assertNotIn("zones", detail)
+        self.assertIn("logs", detail)
+
+    def test_a_provider_url_never_reaches_the_response_detail(self) -> None:
+        """BYOK custom providers make this a real leak, not a theoretical one."""
+        from app.adapters.inbound.web.routes import _safe_detail
+
+        exc = RuntimeError("POST https://internal.acme.corp/v1/chat failed: 500")
+        self.assertNotIn("acme.corp", _safe_detail(exc))
+
+    def test_quota_failures_are_named_rather_than_generic(self) -> None:
+        from app.adapters.inbound.web.routes import _safe_detail
+
+        detail = _safe_detail(ValueError("Error code: 429 - rate_limit_exceeded"))
+        self.assertIn("quota", detail.lower())
+
+    def test_raw_text_still_reaches_the_client_in_logs(self) -> None:
+        """Genericizing the headline must not cost the user the diagnosis."""
+        from app.adapters.inbound.web import routes
+
+        async def failing(body, logger, *, on_progress=None):
+            raise RuntimeError("some deep internal detail")
+
+        async def main():
+            request, _ = self._request()
+            with patch.object(routes, "_run_chat", failing):
+                response = await routes.chat_diagram_stream(self._body(), request)
+                return "".join([c async for c in response.body_iterator])
+
+        out = asyncio.run(main())
+        self.assertIn("some deep internal detail", out)  # in logs
+        self.assertIn("failed unexpectedly", out)  # the headline
+
+
 # ── Rate limiting ──────────────────────────────────────────────────────
 
 

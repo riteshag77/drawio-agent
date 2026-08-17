@@ -49,6 +49,34 @@ function exportDiagramPng() {
     });
 }
 
+/** SVG export, as `xmlsvg` rather than `svg`.
+ *
+ *  Both draw a picture; only xmlsvg embeds the source mxGraph model inside the
+ *  file, so the result can be dropped back into draw.io (or this app) and
+ *  edited rather than only viewed. A vector export exists for the cases PNG
+ *  handles badly — printing, slide decks, and docs sites — and those are the
+ *  same cases where someone later wants to change one label. */
+function exportDiagramSvg() {
+    return new Promise((resolve, reject) => {
+        if (!drawioReady) {
+            reject(new Error('Draw.io not ready'));
+            return;
+        }
+        const iframe = document.getElementById('drawio-frame');
+        pendingSvgExport = { resolve, reject };
+        iframe.contentWindow.postMessage(JSON.stringify({
+            action: 'export',
+            format: 'xmlsvg',
+        }), DRAWIO_ORIGIN);
+        setTimeout(() => {
+            if (pendingSvgExport) {
+                pendingSvgExport.reject(new Error('SVG export timed out'));
+                pendingSvgExport = null;
+            }
+        }, 8000);
+    });
+}
+
 /** Reloads the embedded Draw.io iframe with the given canvas skin.
  *  Called by theme.js whenever the App theme changes (draw.io theme follows
  *  it automatically, see APP_THEME_TO_DRAWIO_THEME) — there is no manual
@@ -175,6 +203,21 @@ function bindDrawioMessages(iframe) {
                 }
                 pendingPngExport.resolve(dataUrl);
                 pendingPngExport = null;
+                return;
+            }
+            if (pendingSvgExport) {
+                // xmlsvg comes back as a data: URL like PNG does, not as SVG
+                // source — decode it here so the caller always deals in markup
+                // and the download is a readable .svg rather than base64.
+                let svg = msg.data;
+                const b64 = svg.match(/^data:image\/svg\+xml;base64,(.*)$/);
+                if (b64) {
+                    svg = decodeURIComponent(escape(atob(b64[1])));
+                } else if (svg.startsWith('data:image/svg+xml,')) {
+                    svg = decodeURIComponent(svg.slice('data:image/svg+xml,'.length));
+                }
+                pendingSvgExport.resolve(svg);
+                pendingSvgExport = null;
             }
         }
     };
