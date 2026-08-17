@@ -82,6 +82,42 @@ def _sanitize_custom_msg(text: str) -> str:
     return (text or "")[:get_config().max_custom_message_len]
 
 
+#: Shown instead of an unexpected exception's own text. Deliberately short —
+#: the raw message is one click away in the run logs.
+_GENERIC_FAILURE = (
+    "Diagram generation failed unexpectedly. The full error is in this run's logs."
+)
+_QUOTA_FAILURE = (
+    "The model provider refused the request — out of quota, or rate-limited. "
+    "Check the provider's usage limits, or switch provider and try again."
+)
+
+
+def _safe_detail(exc: Exception) -> str:
+    """Client-facing text for an *unexpected* failure.
+
+    Only for the 500 path. Deliberately authored ``ValueError``/
+    ``PipelineTimeoutError`` messages still pass through verbatim — those are
+    written for the user and name what to do about it.
+
+    An arbitrary exception's text is not: provider SDKs routinely embed the
+    request URL in it, and with a BYOK custom provider that URL is a private
+    endpoint the user configured, which has no business in an HTTP error body.
+    It also reads badly — a raw ``KeyError: 'zones'`` was being surfaced to the
+    user as a toast. The raw text is still logged (every caller logs it before
+    responding) and still reaches the client inside ``logs``, where the verbose
+    panel shows it; it just is not the headline any more.
+    """
+    from app.adapters.outbound.llm.llm_client import is_quota_or_rate_limit_error
+
+    try:
+        if is_quota_or_rate_limit_error(exc):
+            return _QUOTA_FAILURE
+    except Exception:  # pragma: no cover - classification must never mask the error
+        pass
+    return _GENERIC_FAILURE
+
+
 def _sse(payload: dict[str, Any]) -> str:
     return f"data: {json.dumps(payload, default=str)}\n\n"
 
@@ -207,7 +243,7 @@ async def generate_diagram(body: PromptRequest, request: Request):
         logger.log("error", str(exc), level="error")
         return JSONResponse(
             status_code=500,
-            content={"status": "error", "detail": str(exc), "logs": logger.to_list()},
+            content={"status": "error", "detail": _safe_detail(exc), "logs": logger.to_list()},
         )
 
 
@@ -475,7 +511,7 @@ async def chat_diagram(body: ChatRequest, request: Request):
         logger.log("error", str(exc), level="error")
         return JSONResponse(
             status_code=500,
-            content={"status": "error", "detail": str(exc), "logs": logger.to_list()},
+            content={"status": "error", "detail": _safe_detail(exc), "logs": logger.to_list()},
         )
 
 
@@ -514,7 +550,7 @@ async def chat_diagram_stream(body: ChatRequest, request: Request):
             await queue.put({
                 "type": "error",
                 "status": "error",
-                "detail": str(exc),
+                "detail": _safe_detail(exc),
                 "logs": logger.to_list(),
             })
         finally:
@@ -602,7 +638,7 @@ async def analyze_diagram(body: AnalyzeRequest, request: Request):
         logger.log("error", str(exc), level="error")
         return JSONResponse(
             status_code=500,
-            content={"status": "error", "detail": str(exc), "logs": logger.to_list()},
+            content={"status": "error", "detail": _safe_detail(exc), "logs": logger.to_list()},
         )
 
     return {
@@ -823,4 +859,7 @@ async def validate_visual(body: ValidateVisualRequest, request: Request):
         return {"status": "success", **result.model_dump(), "logs": logger.to_list()}
     except Exception as exc:
         logger.log("error", str(exc), level="error")
-        return JSONResponse(status_code=500, content={"status": "error", "detail": str(exc), "logs": logger.to_list()})
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "detail": _safe_detail(exc), "logs": logger.to_list()},
+        )
