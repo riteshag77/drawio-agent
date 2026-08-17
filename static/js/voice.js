@@ -550,6 +550,10 @@ function initVoiceInput() {
             finals.forEach((chunk) => {
                 const joined = String(chunk || '').trim();
                 if (!joined) return;
+                // Commands are matched on the *raw* chunk, before any cloud
+                // vocabulary fixes: the registry's phrases are ordinary words
+                // ("switch to aws"), and rewriting them first risks turning a
+                // command into prose that no longer matches.
                 if (typeof tryRunVoiceCommand === 'function') {
                     const result = tryRunVoiceCommand(joined);
                     if (result && result.handled) {
@@ -558,7 +562,15 @@ function initVoiceInput() {
                         return;
                     }
                 }
-                voiceBaseText = voiceBaseText ? `${voiceBaseText} ${joined}`.trim() : joined;
+                // Dictation gets the same vocabulary correction voice mode
+                // does. It used to land raw, so "add an easy two instance"
+                // stayed exactly that and had to be hand-fixed every time —
+                // the transcript is visible here, which made it defensible,
+                // but not a reason to make the user do it.
+                const text = (typeof normalizeCloudSpeech === 'function')
+                    ? normalizeCloudSpeech(joined)
+                    : joined;
+                voiceBaseText = voiceBaseText ? `${voiceBaseText} ${text}`.trim() : text;
             });
         }
         _voiceSyncComposerDisplay(interim);
