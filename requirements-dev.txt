@@ -6,7 +6,7 @@
 # installed it. Anything CI invokes belongs in a file, not in a habit.
 
 pytest>=8.0.0,<10.0.0
-pytest-cov>=6.0.0,<8.0.0
+pytest-cov>=7.1.0,<8.0.0
 
 # Drives tests/test_voice_mode_browser.py, the only frontend test. Optional
 # locally on purpose: that file skips rather than fails when the browser is
