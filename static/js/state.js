@@ -50,6 +50,7 @@ let attachmentDiagramXml = null; // validated .drawio/.xml from paperclip — se
 let attachments = []; // [{filename, status: 'loading'|'ready'|'error', message, truncated}] — chip tracking
 let lastValidationFeedback = null;
 let pendingPngExport = null;
+let pendingSvgExport = null;
 let chatMessages = [];
 let appliedSuggestionTexts = [];
 let isSending = false;
