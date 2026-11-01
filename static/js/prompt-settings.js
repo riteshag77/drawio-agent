@@ -1,0 +1,321 @@
+/** Prompt settings — diagram mode, cost/WAF/compliance toggles, custom system message. */
+
+function getDiagramMode() {
+    const select = document.getElementById('diagram-mode-select');
+    const mode = select ? select.value : 'auto';
+    if (mode === 'cloud' || mode === 'simple') return mode;
+    return 'auto';
+}
+
+function saveDiagramMode() {
+    localStorage.setItem(DIAGRAM_MODE_STORAGE_KEY, getDiagramMode());
+}
+
+function initDiagramMode() {
+    const stored = localStorage.getItem(DIAGRAM_MODE_STORAGE_KEY) || 'auto';
+    const select = document.getElementById('diagram-mode-select');
+    if (select && ['auto', 'cloud', 'simple'].includes(stored)) {
+        select.value = stored;
+    }
+}
+
+function updateValidationProviderVisibility() {
+    const row = document.getElementById('validation-provider-row');
+    if (row) row.hidden = !document.getElementById('vlm-validation-toggle')?.checked;
+}
+
+function getSelectedDiagramViews() {
+    const cbs = document.querySelectorAll('.diagram-view-cb');
+    const selected = [];
+    cbs.forEach(function (cb) {
+        if (cb.checked) selected.push(cb.value);
+    });
+    if (!selected.length) return ['logical'];
+    const order = ['logical', 'network', 'security', 'data_flow', 'archimate'];
+    return order.filter(function (v) { return selected.indexOf(v) !== -1; });
+}
+
+function onDiagramViewChange() {
+    const cbs = document.querySelectorAll('.diagram-view-cb');
+    let any = false;
+    cbs.forEach(function (cb) { if (cb.checked) any = true; });
+    if (!any) {
+        const logical = document.querySelector('.diagram-view-cb[value="logical"]');
+        if (logical) logical.checked = true;
+        if (typeof showToast === 'function') {
+            showToast('At least one diagram view is required — Logical kept on', 'info');
+        }
+    }
+    updateNetworkInsightsVisibility();
+    savePromptSettings();
+}
+
+function networkViewSelected() {
+    const net = document.querySelector('.diagram-view-cb[value="network"]');
+    return !!(net && net.checked);
+}
+
+function updateNetworkInsightsVisibility() {
+    const sub = document.getElementById('network-insights-sub');
+    const show = networkViewSelected();
+    if (sub) {
+        if (show) {
+            sub.hidden = false;
+            sub.removeAttribute('hidden');
+            // Keep WAF/Compliance expanded when Network is on so it is discoverable
+            if (!sub.classList.contains('is-open')) {
+                sub.classList.add('is-open');
+                const toggle = sub.querySelector(':scope > .drawer-group-toggle');
+                const body = sub.querySelector(':scope > .drawer-group-body');
+                if (toggle) toggle.setAttribute('aria-expanded', 'true');
+                if (body) body.removeAttribute('hidden');
+            }
+        } else {
+            sub.hidden = true;
+            sub.setAttribute('hidden', '');
+        }
+    }
+    if (!show) {
+        const cost = document.getElementById('cost-estimate-toggle');
+        const waf = document.getElementById('well-architected-toggle');
+        const comp = document.getElementById('compliance-toggle');
+        if (cost && cost.checked) {
+            cost.checked = false;
+            if (typeof toggleCostPanelPreview === 'function') toggleCostPanelPreview();
+        }
+        if (waf && waf.checked) {
+            waf.checked = false;
+            if (typeof toggleWellArchitectedPanel === 'function') toggleWellArchitectedPanel();
+        }
+        if (comp && comp.checked) {
+            comp.checked = false;
+            if (typeof toggleCompliancePanel === 'function') toggleCompliancePanel();
+        }
+        updateComplianceFrameworksVisibility();
+    }
+}
+
+function getPromptSettings() {
+    const networkOn = networkViewSelected();
+    return {
+        custom_system_message: document.getElementById('custom-system-message').value.slice(0, 5000),
+        vlm_validation: document.getElementById('vlm-validation-toggle')
+            ? document.getElementById('vlm-validation-toggle').checked
+            : false,
+        validation_provider: document.getElementById('validation-provider-select')
+            ? document.getElementById('validation-provider-select').value
+            : 'auto',
+        cost_estimate: networkOn && document.getElementById('cost-estimate-toggle').checked,
+        well_architected: networkOn && document.getElementById('well-architected-toggle').checked,
+        compliance: networkOn && document.getElementById('compliance-toggle').checked,
+        compliance_frameworks: getSelectedComplianceFrameworks(),
+        libavoid: document.getElementById('libavoid-toggle')
+            ? document.getElementById('libavoid-toggle').checked
+            : true,
+        image_replicate: document.getElementById('image-mode-select')
+            ? document.getElementById('image-mode-select').value === 'cloud'
+            : false,
+        image_mode: document.getElementById('image-mode-select')
+            ? document.getElementById('image-mode-select').value
+            : 'as_is',
+        animated_connectors: document.getElementById('animated-connectors-toggle')
+            ? document.getElementById('animated-connectors-toggle').checked
+            : false,
+        three_d: document.getElementById('three-d-toggle')
+            ? document.getElementById('three-d-toggle').checked
+            : false,
+        show_reasoning: document.getElementById('show-reasoning-toggle')
+            ? document.getElementById('show-reasoning-toggle').checked
+            : false,
+        suggestions: document.getElementById('suggestions-toggle')
+            ? document.getElementById('suggestions-toggle').checked
+            : false,
+        governance: document.getElementById('governance-toggle')
+            ? document.getElementById('governance-toggle').checked
+            : false,
+        architecture_interview: document.getElementById('architecture-interview-toggle')
+            ? document.getElementById('architecture-interview-toggle').checked
+            : false,
+        diagram_views: getSelectedDiagramViews(),
+        adr_notes: document.getElementById('adr-notes-toggle')
+            ? document.getElementById('adr-notes-toggle').checked
+            : false,
+        raid_register: document.getElementById('raid-register-toggle')
+            ? document.getElementById('raid-register-toggle').checked
+            : false,
+        save_captures: document.getElementById('save-captures-toggle')
+            ? document.getElementById('save-captures-toggle').checked
+            : false,
+    };
+}
+
+function savePromptSettings() {
+    const custom = document.getElementById('custom-system-message').value.slice(0, 5000);
+    const cost = document.getElementById('cost-estimate-toggle').checked;
+    const waf = document.getElementById('well-architected-toggle').checked;
+    const comp = document.getElementById('compliance-toggle').checked;
+    localStorage.setItem(CUSTOM_SYSTEM_MESSAGE_KEY, custom);
+    localStorage.setItem(COST_ESTIMATE_STORAGE_KEY, cost ? '1' : '0');
+    localStorage.setItem(WELL_ARCHITECTED_KEY, waf ? '1' : '0');
+    localStorage.setItem(COMPLIANCE_KEY, comp ? '1' : '0');
+    const lib = document.getElementById('libavoid-toggle');
+    if (lib) localStorage.setItem(LIBAVOID_STORAGE_KEY, lib.checked ? '1' : '0');
+    const imgMode = document.getElementById('image-mode-select');
+    if (imgMode) localStorage.setItem(IMAGE_MODE_STORAGE_KEY, imgMode.value);
+    const anim = document.getElementById('animated-connectors-toggle');
+    if (anim) localStorage.setItem(ANIMATED_CONNECTORS_STORAGE_KEY, anim.checked ? '1' : '0');
+    const threeD = document.getElementById('three-d-toggle');
+    if (threeD) localStorage.setItem(THREE_D_STORAGE_KEY, threeD.checked ? '1' : '0');
+    const reason = document.getElementById('show-reasoning-toggle');
+    if (reason) localStorage.setItem(SHOW_REASONING_STORAGE_KEY, reason.checked ? '1' : '0');
+    const sugg = document.getElementById('suggestions-toggle');
+    if (sugg) localStorage.setItem(SUGGESTIONS_STORAGE_KEY, sugg.checked ? '1' : '0');
+    const gov = document.getElementById('governance-toggle');
+    if (gov) localStorage.setItem(GOVERNANCE_TOGGLE_KEY, gov.checked ? '1' : '0');
+    const interview = document.getElementById('architecture-interview-toggle');
+    if (interview) localStorage.setItem(ARCH_INTERVIEW_STORAGE_KEY, interview.checked ? '1' : '0');
+    const adr = document.getElementById('adr-notes-toggle');
+    if (adr) localStorage.setItem(ADR_NOTES_STORAGE_KEY, adr.checked ? '1' : '0');
+    const raid = document.getElementById('raid-register-toggle');
+    if (raid) localStorage.setItem(RAID_REGISTER_STORAGE_KEY, raid.checked ? '1' : '0');
+    const saveCap = document.getElementById('save-captures-toggle');
+    if (saveCap) localStorage.setItem(SAVE_CAPTURES_STORAGE_KEY, saveCap.checked ? '1' : '0');
+    const vlm = document.getElementById('vlm-validation-toggle');
+    if (vlm) localStorage.setItem(VLM_VALIDATION_KEY, vlm.checked ? '1' : '0');
+    const valProvider = document.getElementById('validation-provider-select');
+    if (valProvider) localStorage.setItem(VALIDATION_PROVIDER_KEY, valProvider.value);
+    localStorage.setItem(DIAGRAM_VIEWS_STORAGE_KEY, JSON.stringify(getSelectedDiagramViews()));
+    updateComplianceFrameworksVisibility();
+    updateValidationProviderVisibility();
+}
+
+function getSelectedComplianceFrameworks() {
+    const cbs = document.querySelectorAll('.compliance-fw-cb');
+    const selected = [];
+    cbs.forEach(function (cb) {
+        if (cb.checked) selected.push(cb.value);
+    });
+    return selected;
+}
+
+function updateComplianceFrameworksVisibility() {
+    const row = document.getElementById('compliance-frameworks-row');
+    if (row) row.hidden = !document.getElementById('compliance-toggle').checked;
+}
+
+function saveComplianceFrameworkSelection() {
+    const cbs = document.querySelectorAll('.compliance-fw-cb');
+    const selected = [];
+    cbs.forEach(function (cb) {
+        if (cb.checked) selected.push(cb.value);
+    });
+    localStorage.setItem(COMPLIANCE_FRAMEWORKS_KEY, JSON.stringify(selected));
+}
+
+function toggleCostPanelPreview() {
+    var panel = document.getElementById('cost-panel');
+    var body = document.getElementById('cost-panel-body');
+    var total = document.getElementById('cost-total-amount');
+    if (!panel || !body) return;
+    if (document.getElementById('cost-estimate-toggle').checked) {
+        panel.classList.add('active');
+        body.innerHTML = '<div class="cost-empty">Generate a diagram to see cost estimates</div>';
+        if (total) total.textContent = 'A$--';
+        if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
+        if (typeof openRightPanel === 'function') openRightPanel();
+        if (typeof switchInsightsTab === 'function') switchInsightsTab('cost');
+        if (typeof rerunCostEstimateCheck === 'function') rerunCostEstimateCheck();
+    } else {
+        panel.classList.remove('active');
+        body.innerHTML = '';
+        if (total) total.textContent = 'A$0';
+        if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
+    }
+}
+
+function initPromptSettings() {
+    document.getElementById('custom-system-message').value =
+        localStorage.getItem(CUSTOM_SYSTEM_MESSAGE_KEY) || '';
+    const costStored = localStorage.getItem(COST_ESTIMATE_STORAGE_KEY);
+    document.getElementById('cost-estimate-toggle').checked = costStored === '1';
+    const wafStored = localStorage.getItem(WELL_ARCHITECTED_KEY);
+    document.getElementById('well-architected-toggle').checked = wafStored === '1';
+    const compStored = localStorage.getItem(COMPLIANCE_KEY);
+    document.getElementById('compliance-toggle').checked = compStored === '1';
+    const libEl = document.getElementById('libavoid-toggle');
+    if (libEl) {
+        const libStored = localStorage.getItem(LIBAVOID_STORAGE_KEY);
+        libEl.checked = libStored === null ? true : libStored === '1';
+    }
+    const imgModeEl = document.getElementById('image-mode-select');
+    if (imgModeEl) imgModeEl.value = localStorage.getItem(IMAGE_MODE_STORAGE_KEY) || 'as_is';
+    const animEl = document.getElementById('animated-connectors-toggle');
+    if (animEl) animEl.checked = localStorage.getItem(ANIMATED_CONNECTORS_STORAGE_KEY) === '1';
+    const threeDEl = document.getElementById('three-d-toggle');
+    if (threeDEl) threeDEl.checked = localStorage.getItem(THREE_D_STORAGE_KEY) === '1';
+    const reasonEl = document.getElementById('show-reasoning-toggle');
+    if (reasonEl) reasonEl.checked = localStorage.getItem(SHOW_REASONING_STORAGE_KEY) === '1';
+    const suggEl = document.getElementById('suggestions-toggle');
+    if (suggEl) suggEl.checked = localStorage.getItem(SUGGESTIONS_STORAGE_KEY) === '1';
+    const govEl = document.getElementById('governance-toggle');
+    if (govEl) govEl.checked = localStorage.getItem(GOVERNANCE_TOGGLE_KEY) === '1';
+    const interviewEl = document.getElementById('architecture-interview-toggle');
+    if (interviewEl) interviewEl.checked = localStorage.getItem(ARCH_INTERVIEW_STORAGE_KEY) === '1';
+    const adrEl = document.getElementById('adr-notes-toggle');
+    if (adrEl) adrEl.checked = localStorage.getItem(ADR_NOTES_STORAGE_KEY) === '1';
+    const raidEl = document.getElementById('raid-register-toggle');
+    if (raidEl) raidEl.checked = localStorage.getItem(RAID_REGISTER_STORAGE_KEY) === '1';
+    const saveCapEl = document.getElementById('save-captures-toggle');
+    if (saveCapEl) saveCapEl.checked = localStorage.getItem(SAVE_CAPTURES_STORAGE_KEY) === '1';
+    const vlmEl = document.getElementById('vlm-validation-toggle');
+    if (vlmEl) vlmEl.checked = localStorage.getItem(VLM_VALIDATION_KEY) === '1';
+    const valProviderEl = document.getElementById('validation-provider-select');
+    if (valProviderEl) valProviderEl.value = localStorage.getItem(VALIDATION_PROVIDER_KEY) || 'auto';
+    const viewsStored = localStorage.getItem(DIAGRAM_VIEWS_STORAGE_KEY);
+    if (viewsStored) {
+        try {
+            const selected = JSON.parse(viewsStored);
+            document.querySelectorAll('.diagram-view-cb').forEach(function (cb) {
+                cb.checked = selected.indexOf(cb.value) !== -1;
+            });
+            if (!getSelectedDiagramViews().length) {
+                const net = document.querySelector('.diagram-view-cb[value="network"]');
+                if (net) net.checked = true;
+            }
+        } catch (_) {}
+    }
+    document.querySelectorAll('.diagram-view-cb').forEach(function (cb) {
+        cb.addEventListener('change', onDiagramViewChange);
+    });
+    const fwStored = localStorage.getItem(COMPLIANCE_FRAMEWORKS_KEY);
+    if (fwStored) {
+        try {
+            const selected = JSON.parse(fwStored);
+            document.querySelectorAll('.compliance-fw-cb').forEach(function (cb) {
+                cb.checked = selected.indexOf(cb.value) !== -1;
+            });
+        } catch (_) {}
+    }
+    document.querySelectorAll('.compliance-fw-cb').forEach(function (cb) {
+        cb.addEventListener('change', saveComplianceFrameworkSelection);
+    });
+    updateNetworkInsightsVisibility();
+    updateValidationProviderVisibility();
+    updateComplianceFrameworksVisibility();
+    // The panel's own open/closed state is saved separately from any single
+    // toggle (see state.js's rightPanelOpen) — capture it now, before the
+    // toggleXPanel() calls below run, since each one auto-opens the panel
+    // when its toggle happens to be checked. Restoring this value afterward
+    // is what stops a reload from silently reopening the panel just because
+    // a toggle is still on from a prior session.
+    const savedPanelOpen = localStorage.getItem(RIGHT_PANEL_OPEN_KEY) === '1';
+    toggleCostPanelPreview();
+    toggleWellArchitectedPanel();
+    toggleCompliancePanel();
+    toggleGovernancePanel();
+    toggleSuggestionsPanel();
+    rightPanelOpen = savedPanelOpen;
+    localStorage.setItem(RIGHT_PANEL_OPEN_KEY, savedPanelOpen ? '1' : '0');
+    if (typeof updateRightPanelVisibility === 'function') updateRightPanelVisibility();
+    if (typeof updateInsightsTabVisibility === 'function') updateInsightsTabVisibility();
+}

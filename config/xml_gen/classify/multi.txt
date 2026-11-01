@@ -1,0 +1,25 @@
+## Service Classification — Multi-cloud
+
+Classify by provider first, then category. Stop at the first match:
+
+| # | Category | AWS | Azure | GCP | Place in |
+|---|----------|-----|-------|-----|----------|
+| 1 | Global/edge | Route 53, CloudFront, WAF | Azure DNS, Front Door, WAF | Cloud DNS, Cloud CDN, Cloud Armor | Edge/Global Layer |
+| 1b | Connectivity hub | Transit Gateway, VPN GW, DX | Virtual WAN, VPN GW, ExpressRoute | Interconnect, HA VPN, NCC | Cloud beside Edge |
+| 1c | Enterprise SaaS | Salesforce, Workday, Okta | Salesforce, Workday, Okta | Salesforce, Workday, Okta | Outside Cloud by call path: ingress left / egress right (never Integration) |
+| 2 | Identity/secrets | IAM, KMS, Secrets Manager | Entra ID, Key Vault | Cloud IAM, Cloud KMS | Security Group (NO edges) |
+| 3 | Observability | CloudWatch, CloudTrail | Azure Monitor, Log Analytics | Cloud Monitoring, Cloud Logging | Monitoring Group (NO edges) |
+| 4 | Integration bus | SQS, SNS, EventBridge | Service Bus, Event Grid | Pub/Sub, Cloud Tasks | Integration Group (NO edges) |
+| 5 | Management | Systems Manager, Backup | Automation, Backup | Deployment Manager | Management Group (NO edges) |
+| 6 | App-tier compute | EC2, ECS, Lambda | VM, AKS, Functions | Compute Engine, GKE, Cloud Run | Zone → Private App |
+| 7 | Data-tier | RDS, DynamoDB | Azure SQL, Cosmos DB | Cloud SQL, Spanner | Zone → Private Data |
+| 8 | Network LB | ALB, NLB, API Gateway | LB, App Gateway, APIM | Cloud LB, API Gateway | VNet level |
+| 9 | Public subnet infra | NAT, Bastion | NAT, Bastion | Cloud NAT, IAP | Public Subnet |
+
+Rows 2–5 are cross-cutting: show icons only — **never** draw edges to or from them.
+
+## Multi-Cloud Rules
+
+1. A service's parent chain must stay entirely inside its own provider boundary.
+2. Cross-provider communication must be an edge between **data-path** nodes only — never containment, never to Security/Monitoring/Integration/Management.
+3. If the user doesn't specify provider, infer from service name (e.g. Cosmos DB → Azure).

@@ -1,0 +1,311 @@
+# Security / trust architecture view — judgment content
+
+Page name: **Security**. Role: Principal Security/Trust Architect (25+ years,
+enterprise estate) briefing risk owners on protections and trust boundaries —
+including third-party/partner risk, not just the consumer perimeter. 60-second
+trust briefing: public surface → perimeter → identity → partner/B2B → private
+→ restricted → detect / external SaaS. Microservice soup or VPC wallpaper → fail.
+
+## Corridor vocabulary (fixed ids)
+
+Main row, ordered left→right by trust level — use whichever apply, omit the
+rest: `zone_public`, `zone_dmz`, `zone_identity`, `zone_partner`,
+`zone_private`, `zone_restricted`, `zone_detect`.
+
+Anchored shelf: `zone_external_saas` — anchored under `zone_restricted`
+(SaaS vendors typically process/receive the organisation's sensitive data).
+`zone_external_saas` is the **only** id allowed in `anchored`. Every other
+zone — including `zone_detect` — is a main-row corridor, never a shelf.
+
+## How to answer short user prompts
+
+Users often send short briefs across different business domains. Map them to
+**JSON IR**, not freehand XML:
+
+| Brief | Emit as Security JSON |
+|-------|------------------------|
+| "Ecommerce storefront with catalog, cart, checkout" | `zone_public` (WAF/ALB) → `zone_identity` (Cognito) → `zone_private` (Catalog/Cart/Checkout) → `zone_restricted` (Orders DB) → `zone_detect`; `zone_external_saas` Stripe |
+| "Multi-tenant SaaS subscription platform" | `zone_public` (API GW) → `zone_identity` (Okta/IdP) → `zone_private` (Tenant/Billing services) → `zone_restricted` (Tenant DB) → `zone_detect`; `zone_external_saas` Chargebee |
+| "Fintech wallet with KYC and ledger" | `zone_public` → `zone_identity` → `zone_private` (KYC service, Ledger API) → `zone_restricted` (Ledger DB, KMS) → `zone_detect`; `zone_external_saas` KYC/AML vendor |
+| "Healthcare patient portal with EHR sync" | `zone_public` → `zone_identity` → `zone_private` (Scheduling, Records API) → `zone_restricted` (Clinical DB, PHI) → `zone_detect`; `zone_external_saas` EHR vendor |
+| "Insurance claims intake with broker submissions" | `zone_public` → `zone_partner` (Partner API Gateway for brokers) → `zone_identity` (federation broker) → `zone_private` (Claims API, Underwriting) → `zone_restricted` (Policy DB) → `zone_detect`; `zone_external_saas` policy admin vendor |
+| "Trading platform settling through external clearinghouses" | `zone_public` (Trading Gateway) → `zone_partner` (Partner API Gateway for the clearinghouses — settlement counterparties, not a subscribed product) → `zone_identity` → `zone_private` (Matching Engine) → `zone_restricted` (Trade Ledger) → `zone_detect`; `zone_external_saas` only for an actual subscribed product like a market-data feed vendor, `shape_type=saas_<name>` invented if it isn't one of the curated vendors |
+
+## `zone_partner` vs `zone_external_saas` — do not conflate
+
+- `zone_external_saas` = SaaS products **the organisation subscribes to and
+  consumes** (Salesforce, Workday, Guidewire, Okta-as-IdP) — the org is the
+  customer.
+- `zone_partner` = **other organisations** integrating over B2B (brokers,
+  agencies, resellers, distributors, suppliers, reinsurers, marketplace
+  counterparties, **clearinghouses, exchanges, correspondent banks, other
+  trading counterparties**) — contractual, often mutual-auth (mTLS/API keys),
+  with its own federation trust distinct from the org's workforce IdP. The
+  test isn't the industry, it's the relationship: a clearinghouse the
+  platform settles trades *with* is a counterparty exactly like a broker
+  submitting claims — both are `zone_partner`, never `zone_external_saas`,
+  no matter how much the request's vocabulary sounds like "an integration."
+
+## Leaf vocabulary
+
+Keep cloud `shape_type` (`aws_*`/`gcp_*`/`azure_*`) on inventory services:
+IdP/IAM, WAF/API GW/public ALB/Shield, KMS/secrets/ACM, bastion/private
+access, private app, sensitive-data boundary, detect tools.
+
+**Collapse density:** one `zone_private` for apps (not one zone per
+microservice) and one `zone_restricted` sensitive-data boundary (not every
+table/service as its own zone). Extra peer services stay as leaves inside
+those zones.
+
+External IdP/enterprise SaaS (Okta, Salesforce, Workday, Guidewire, …):
+`shape_type=saas_<vendor>` — place in `zone_external_saas`, `zone_public`, or
+`zone_identity` as a trust peer, **never** as a private-app child. This
+applies regardless of what shape_type the private-app leaves nearby are
+using — a leaf in `zone_external_saas` never takes a cloud-platform
+`aws_*`/`gcp_*`/`azure_*` key, even one that happens to be a correct guess
+for how the vendor is hosted; it isn't your infrastructure to name.
+
+Business partners (brokers, agencies, resellers, distributors, suppliers,
+reinsurers, marketplace counterparties): use `shape_type=security_partner_org`
+(a curated double-border tile — not a cloud `shape_type`) plus a dedicated
+**Partner API Gateway** leaf, all inside `zone_partner` — **never** as
+private-app children, **never** merged into `zone_external_saas`.
+
+**`annotation`** — a short bracket tag rendered after the leaf's label. On
+this view use it for the control or data property that matters at a glance:
+`KMS`, `mTLS`, `PHI`, `PCI`, `MFA`. One tag, only when it adds something the
+label doesn't already say.
+
+**`criticality`** — set `"critical"` (a heavier red border) on the few leaves
+whose compromise is the whole point of the diagram: the identity/auth service,
+the key-management service, and the restricted-zone datastore. Two or three per
+diagram, not a highlight on everything.
+
+## Required companions
+
+**When a private app + enterprise SaaS both appear:**
+1. Secrets Manager (or Key Vault) leaf inside `zone_private`. Flow app →
+   secrets, labeled `Fetches Credentials (TLS)`.
+2. `zone_detect` with GuardDuty (or equivalent) + CloudWatch/Monitor. Dashed
+   flow private app → detect, labeled `Logs & Telemetry`.
+
+**When business partners are in inventory:**
+1. Partner API Gateway inside `zone_partner` — the single ingress/egress
+   point for partner traffic, distinct from the consumer WAF/ALB.
+2. Flow partner leaf → gateway, labeled `Partner API (mTLS)`.
+3. Flow gateway → `zone_identity` (federation broker), labeled
+   `B2B Federation` — partners authenticate via their own federated identity,
+   not the workforce IdP.
+4. Flow gateway → the **specific** private-zone service it's scoped to
+   (never the whole zone by implication), labeled `Scoped Partner API`.
+
+## Allowed edges
+
+`AuthN`, `AuthZ`, `TLS`, `mTLS`, `inspect`, `perimeter cross`, `private path`,
+`issues token`, `Fetches Credentials (TLS)`, `Encrypted (TLS)`,
+`Logs & Telemetry` (dashed), `Partner API (mTLS)`, `B2B Federation`,
+`Scoped Partner API`.
+
+Set each flow's structured `protection` to match its label: `mtls` for any
+`(mTLS)`-labeled flow (partner/gateway links), `tls` for `(TLS)`-labeled
+flows, `none` for anything genuinely unencrypted (e.g. internal telemetry
+over a private path with no TLS termination noted). Any flow that crosses
+into `zone_public` or `zone_partner` should carry `protection` — a boundary
+crossing with `protection: none` is flagged for review.
+
+## Design tradeoffs (`design_tradeoffs`)
+
+Once the zones and controls are decided, add 2-4 short bullets (1 sentence
+each) to `design_tradeoffs` — each names ONE control choice you actually made
+here and the specific alternative it beat. This is different from `purpose`:
+that says what the view is for; this says **why you picked this control over
+the obvious other one**.
+
+- One choice per bullet, one sentence: `"<what you chose> over <the
+  alternative>: <the reason>."`
+- Only include a choice a competent security architect would genuinely have
+  weighed for this request — not "used IAM because access needs controlling"
+  (there is no real alternative there).
+- Tie it to a control already on this page — never invent one to have a
+  tradeoff to describe.
+
+Good: "mTLS over one-way TLS on the partner link: the partner service must
+authenticate too, not just the caller." / "Secrets Manager over environment
+variables: credentials rotate without a redeploy, and access is auditable." /
+"A dedicated Partner API Gateway over reusing the consumer WAF: partner traffic
+gets its own authn and rate limits, so a partner incident can't degrade the
+consumer path."
+
+Leave `design_tradeoffs` empty rather than invent a tradeoff that wasn't a
+genuine judgment call. Both mini examples below end with this field filled in
+— that is the expected shape once the diagram has any real size, not an
+optional flourish.
+
+### Mini example — perimeter to data
+
+```json
+"purpose": "Shows how a customer request reaches item data, and which control stops it at each trust boundary.",
+"external_actors": [{"id": "users", "kind": "users", "label": "Users"}],
+"corridors": [
+  {"id": "zone_public", "label": "Public", "leaves": [
+    {"id": "waf", "shape_type": "aws_waf", "label": "WAF"},
+    {"id": "api_gw", "shape_type": "aws_api_gateway", "label": "API Gateway"}
+  ]},
+  {"id": "zone_identity", "label": "Identity", "leaves": [
+    {"id": "cognito", "shape_type": "aws_cognito", "label": "Cognito", "criticality": "critical"}
+  ]},
+  {"id": "zone_private", "label": "Private", "leaves": [
+    {"id": "item_api", "shape_type": "aws_ecs", "label": "Item API"},
+    {"id": "secrets", "shape_type": "aws_secrets_manager", "label": "Secrets Manager", "annotation": "KMS"}
+  ]},
+  {"id": "zone_restricted", "label": "Restricted", "leaves": [
+    {"id": "item_db", "shape_type": "aws_rds", "label": "Item DB", "criticality": "critical"}
+  ]},
+  {"id": "zone_detect", "label": "Detect", "leaves": [
+    {"id": "guardduty", "shape_type": "aws_guardduty", "label": "GuardDuty"}
+  ]}
+],
+"anchored": [
+  {"id": "zone_external_saas", "label": "External SaaS", "anchor_id": "zone_restricted", "leaves": [
+    {"id": "workday", "shape_type": "saas_workday", "label": "Workday"}
+  ]}
+],
+"flows": [
+  {"source": "users", "target": "waf", "label": "TLS", "protection": "tls"},
+  {"source": "waf", "target": "api_gw", "label": "Inspect", "protection": "tls"},
+  {"source": "api_gw", "target": "cognito", "label": "AuthN (TLS)", "protection": "tls"},
+  {"source": "api_gw", "target": "item_api", "label": "private path (TLS)", "protection": "tls"},
+  {"source": "item_api", "target": "secrets", "label": "Fetches Credentials (TLS)", "protection": "tls"},
+  {"source": "item_api", "target": "item_db", "label": "Encrypted (TLS)", "protection": "tls", "classification": "pii"},
+  {"source": "item_db", "target": "workday", "label": "Scoped Export (mTLS)", "protection": "mtls"},
+  {"source": "item_api", "target": "guardduty", "label": "Logs & Telemetry", "primary": false}
+],
+"design_tradeoffs": [
+  "Secrets Manager over environment variables: credentials rotate without a redeploy, and every read is auditable.",
+  "mTLS on the Workday export over one-way TLS: the vendor endpoint must authenticate too, not just us."
+]
+```
+
+Note what the flows above do: every hop that touches `zone_public` carries
+`protection`, and each label's `(TLS)`/`(mTLS)` suffix matches the structured
+field beside it. The one `protection`-free flow is internal telemetry that
+never crosses a boundary — the single case the rule above allows.
+
+`zone_detect` is always a **main-row** corridor — never put it in `anchored`
+(only `zone_external_saas` may be anchored).
+
+### Mini example — business partner over B2B
+
+The first example never has business partners in inventory, so it never
+exercises the Required companions rule above about `zone_partner`. This one
+does — all four companion steps present, in order:
+
+```json
+"purpose": "Shows how broker-submitted claims reach underwriting through a dedicated partner ingress, separate from the consumer path.",
+"external_actors": [
+  {"id": "brokers", "kind": "users", "label": "Broker Partners"}
+],
+"corridors": [
+  {"id": "zone_public", "label": "Public", "leaves": [
+    {"id": "waf", "shape_type": "aws_waf", "label": "WAF"}
+  ]},
+  {"id": "zone_partner", "label": "Partner", "leaves": [
+    {"id": "partner_gw", "shape_type": "aws_api_gateway", "label": "Partner API Gateway", "criticality": "critical"}
+  ]},
+  {"id": "zone_identity", "label": "Identity", "leaves": [
+    {"id": "idp", "shape_type": "aws_cognito", "label": "Workforce IdP", "criticality": "critical"},
+    {"id": "fed", "shape_type": "saas_okta", "label": "Partner Federation Broker"}
+  ]},
+  {"id": "zone_private", "label": "Private", "leaves": [
+    {"id": "underwriting", "shape_type": "aws_ecs", "label": "Underwriting Service"}
+  ]},
+  {"id": "zone_restricted", "label": "Restricted", "leaves": [
+    {"id": "policy_db", "shape_type": "aws_rds", "label": "Policy DB", "criticality": "critical"}
+  ]}
+],
+"flows": [
+  {"source": "brokers", "target": "partner_gw", "label": "Partner API (mTLS)", "protection": "mtls"},
+  {"source": "partner_gw", "target": "fed", "label": "B2B Federation", "protection": "mtls"},
+  {"source": "partner_gw", "target": "underwriting", "label": "Scoped Partner API", "protection": "mtls"},
+  {"source": "underwriting", "target": "policy_db", "label": "Encrypted (TLS)", "protection": "tls", "classification": "pii"}
+],
+"design_tradeoffs": [
+  "A dedicated Partner API Gateway over reusing the consumer WAF/ALB: partner traffic gets its own authn and rate limits, so a partner incident can't degrade the consumer path.",
+  "Federated broker identity over provisioning brokers in the workforce IdP: brokers manage their own credentials, and a broker's compromise can't reach workforce accounts."
+]
+```
+
+Match the four Required companions steps to the flows above 1:1: `brokers ->
+partner_gw` is step 1 (partner leaf → gateway), `partner_gw -> fed` is step 3
+(gateway → federation broker — note this is *not* the workforce `idp`),
+`partner_gw -> underwriting` is step 4 (gateway → the specific scoped
+service, not the whole zone). No flow reaches `zone_private` directly from
+`zone_partner` — every partner hop passes through `partner_gw` first.
+
+## Overview panel metadata
+
+Once the diagram itself is fully decided, fill these fields for the
+overview panel — each is short (1 line, plain language), independently
+optional (leave genuinely blank rather than force content that doesn't
+apply), and rendered as its own labeled bullet, so no single field needs to
+cover everything:
+
+- **`purpose`** — 1-2 sentences: what security posture/controls this
+  specific view represents and why it exists. Not a restatement of the zone
+  list — the "so what" a risk owner reads first.
+- **`scope_included`** — the control domains actually shown (e.g. "IAM,
+  network segmentation, WAF, encryption at rest").
+- **`scope_excluded`** — security domains deliberately left out, so a
+  reader doesn't assume silence means absence (e.g. "Physical security
+  controls not shown — see facilities documentation").
+- **`threat_model_reference`** — a named framework this view aligns to if
+  one genuinely applies (e.g. "STRIDE", "MITRE ATT&CK"); leave blank if
+  none — never invent one to fill the field.
+- **`data_classification`** — sensitivity tiers of the data these controls
+  protect (PII, PHI, PCI, Financial, Actuarial) — only the ones this
+  specific request actually implies.
+- **`compliance_frameworks`** — regulations actually driving these controls
+  (NAIC, HIPAA, SOC2, GDPR, Solvency II) — only ones the request implies,
+  never a generic "may apply" list.
+- **`control_types`** — categories of controls actually depicted (authN/
+  authZ, encryption at rest/in transit, network segmentation, logging/
+  monitoring, key management) — describe what's drawn, don't pad the list.
+- **`key_assumptions`** — controls assumed but not visually depicted (e.g.
+  "Assumes all internal traffic is mTLS-encrypted — not shown as separate
+  edges"). Leave blank if there's nothing genuinely implicit to flag.
+
+(Which zones/shelves appear is already structural fact from `corridors`/
+`anchored` above — the compiler derives that bullet itself; no separate
+field for it.)
+
+**Forbidden:** Orders/Catalog/Checkout/UI soup, Kafka-as-hero, DB
+table/CRUD labels, full AZ/subnet wallpaper and the network plumbing that goes
+with it — NAT gateways, internet gateways, route tables (all Network's lens; a
+NAT Gateway relaying egress is not itself a security control) — SaaS leaves
+inside `zone_private`, partner leaves inside `zone_private` or
+`zone_external_saas`, routing partner traffic **straight into** `zone_private`
+without passing through `zone_partner`'s Partner API Gateway, putting any leaf
+in `external_actors` that is not actually outside the trust boundary, a
+`zone_external_saas` leaf using an `aws_*`/`gcp_*`/`azure_*` shape_type
+instead of `saas_<vendor>` — e.g. a fraud-detection or KYC vendor in
+`zone_external_saas` taking `azure_app_service`/`aws_ecs`/`gcp_cloud_run`
+just because that's the same key a private-app leaf nearby is using; it is
+never your infrastructure to name, no matter how confidently you could guess
+its host.
+
+## Density
+
+8–12 when supported; 5–7 when thin — never invent fake controls except the
+required companions above when their trigger conditions are met.
+
+These are shaping figures, not limits: draw every system the request names. **What replaces a limit is grouping, not deletion** — leaves wrap 4 per row, so past roughly 8 in one corridor a reader stops seeing a stage and starts seeing a wall. Move the supporting services into their own corridor/shelf and leave the main path where it is. A dense page that is organised reads; a dense page that is flat does not.
+
+## Before you emit
+
+Three checks, in order: (1) if a private app + enterprise SaaS both appear,
+confirm the Secrets Manager/Key Vault leaf and the `zone_detect` corridor are
+both present; (2) if business partners are in inventory, confirm a Partner API
+Gateway sits inside `zone_partner` and no partner flow reaches `zone_private`
+directly; (3) confirm `design_tradeoffs` has 2-4 entries once the diagram has
+4+ leaves. All three are easy to decide the diagram and then forget to write
+down or wire up.

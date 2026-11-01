@@ -1,0 +1,17 @@
+__pycache__/
+logs/
+data/
+*.log
+*.pyc
+*.pyo
+.venv/
+.idea/
+.superpowers/
+/*.png
+# Local secrets — never commit. See .env.example for the template.
+.env
+
+# Coverage data — a binary artifact rewritten by every `pytest --cov` run.
+# It was tracked, so every test run dirtied the tree and invited committing it.
+.coverage
+.coverage.*

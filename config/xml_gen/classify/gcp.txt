@@ -1,0 +1,19 @@
+## Service Classification — GCP only
+
+Classify using this decision order — stop at the first match:
+
+| # | Category | GCP examples | Place in |
+|---|----------|--------------|----------|
+| 1 | Global/edge — DNS, CDN, WAF, static | Cloud DNS, Cloud CDN, Cloud Armor, Cloud Storage (static) | Edge/Global Layer |
+| 1b | Cross-VPC connectivity hub | Cloud Interconnect, HA VPN / Cloud VPN, NCC hub | Cloud level beside Edge (edges to VPCs — never inside one VPC row) |
+| 1c | Enterprise SaaS (vendor-hosted) | Salesforce, SuccessFactors, Workday, Okta, Temenos, Stripe | Outside the cloud boundary, ordered by call path: ingress IdP left (Users→Okta→Edge); egress deps right (App→Workday). Never Integration/VPC |
+| 2 | Identity, encryption, secrets | Cloud IAM, Cloud KMS, Secret Manager | Security Group (NO edges) |
+| 3 | Observability, audit | Cloud Monitoring, Cloud Logging, Cloud Trace, SCC | Monitoring Group (NO edges) |
+| 4 | Messaging / integration bus | Pub/Sub, Cloud Tasks, Eventarc, Workflows | Integration Group (NO edges) |
+| 5 | Operational, management | Deployment Manager, Operations Suite | Management Group (NO edges) |
+| 6 | Stateless compute, app-tier | Compute Engine, GKE, Cloud Run | Zone → Private App Subnet |
+| 7 | Stateful data-tier | Cloud SQL, Spanner, Memorystore, Firestore | Zone → Private Data Subnet |
+| 8 | Network LB / routing | Cloud Load Balancing, API Gateway | VPC gateway (the `gateway` field on the VPC — one LB/API Gateway centred above every zone it fronts, never inside a subnet) |
+| 9 | Zone internet-facing infra | Cloud NAT, IAP | That Zone's Public Subnet |
+
+Cross-cutting groups (rows 2–5): icons only — **never** draw edges to or from them.

@@ -1,0 +1,13 @@
+# Azure Diagrams Skill - optional extras
+#
+# Install with:  pip install -r requirements-extras.txt
+# (Core Azure architecture diagrams do NOT need these.)
+
+# matplotlib: only required for timeline / Gantt / UI-wireframe diagram types.
+matplotlib>=3.8
+
+# cairosvg: optional renderer for self-contained, portable SVG output that avoids
+# the Graphviz 14/15 SVG quirks. On Linux/macOS it needs the native cairo library
+# (Linux: apt-get install libcairo2; macOS: brew install cairo). On Windows the
+# wheel is usually self-contained. Safe to skip if you only need PNG.
+cairosvg>=2.7

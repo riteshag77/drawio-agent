@@ -1,0 +1,112 @@
+{
+  "saas_salesforce": {
+    "file": "salesforce.svg",
+    "source": "simple-icons:salesforce",
+    "brand": "#00A1E0"
+  },
+  "saas_workday": {
+    "file": "workday.svg",
+    "source": "monogram",
+    "brand": "#F68D2E"
+  },
+  "saas_successfactors": {
+    "file": "successfactors.svg",
+    "source": "monogram",
+    "brand": "#008FD3"
+  },
+  "saas_servicenow": {
+    "file": "servicenow.svg",
+    "source": "monogram",
+    "brand": "#81B5A1"
+  },
+  "saas_okta": {
+    "file": "okta.svg",
+    "source": "simple-icons:okta",
+    "brand": "#007DC1"
+  },
+  "saas_guidewire": {
+    "file": "guidewire.svg",
+    "source": "monogram",
+    "brand": "#E87722"
+  },
+  "saas_duck_creek": {
+    "file": "duck_creek.svg",
+    "source": "monogram",
+    "brand": "#6B2D7B"
+  },
+  "saas_temenos": {
+    "file": "temenos.svg",
+    "source": "monogram",
+    "brand": "#0033A0"
+  },
+  "saas_finastra": {
+    "file": "finastra.svg",
+    "source": "monogram",
+    "brand": "#FF5A00"
+  },
+  "saas_fiserv": {
+    "file": "fiserv.svg",
+    "source": "monogram",
+    "brand": "#FF6600"
+  },
+  "saas_fis": {
+    "file": "fis.svg",
+    "source": "monogram",
+    "brand": "#00A3E0"
+  },
+  "saas_murex": {
+    "file": "murex.svg",
+    "source": "monogram",
+    "brand": "#1B3A5F"
+  },
+  "saas_bloomberg": {
+    "file": "bloomberg.svg",
+    "source": "monogram",
+    "brand": "#2800D1"
+  },
+  "saas_refinitiv": {
+    "file": "refinitiv.svg",
+    "source": "monogram",
+    "brand": "#FF8000"
+  },
+  "saas_experian": {
+    "file": "experian.svg",
+    "source": "monogram",
+    "brand": "#3B6E8F"
+  },
+  "saas_equifax": {
+    "file": "equifax.svg",
+    "source": "monogram",
+    "brand": "#C8102E"
+  },
+  "saas_stripe": {
+    "file": "stripe.svg",
+    "source": "simple-icons:stripe",
+    "brand": "#635BFF"
+  },
+  "saas_adyen": {
+    "file": "adyen.svg",
+    "source": "simple-icons:adyen",
+    "brand": "#0ABF53"
+  },
+  "saas_plaid": {
+    "file": "plaid.svg",
+    "source": "monogram",
+    "brand": "#111111"
+  },
+  "saas_slack": {
+    "file": "slack.svg",
+    "source": "simple-icons:slack",
+    "brand": "#4A154B"
+  },
+  "saas_office365": {
+    "file": "office365.svg",
+    "source": "simple-icons:microsoft",
+    "brand": "#D83B01"
+  },
+  "saas_microsoft_365": {
+    "file": "microsoft_365.svg",
+    "source": "simple-icons:microsoft",
+    "brand": "#D83B01"
+  }
+}

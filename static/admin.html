@@ -1,0 +1,358 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin — Cloud Architect AI</title>
+    <meta name="theme-color" content="#14161D">
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="/static/favicon.png" type="image/png" sizes="32x32">
+    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/styles.css?v=20260810l">
+    <link rel="stylesheet" href="/static/themes/midnight-slate.css?v=20260810e">
+    <link rel="stylesheet" href="/static/themes/daylight.css?v=20260810e">
+    <link rel="stylesheet" href="/static/themes/aurora-contrast.css?v=20260810g">
+    <link rel="stylesheet" href="/static/admin.css?v=20260814a">
+    <script>
+        (function () {
+            var known = ['midnight-slate', 'daylight', 'aurora-contrast'];
+            var stored = localStorage.getItem('drawio-agent-app-theme');
+            document.documentElement.setAttribute('data-theme', known.indexOf(stored) !== -1 ? stored : 'midnight-slate');
+        })();
+    </script>
+</head>
+
+<body>
+    <!-- Not configured -->
+    <div id="admin-not-configured" class="admin-gate" hidden>
+        <div class="admin-gate-card">
+            <div class="admin-gate-mark">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="12" cy="16" r="1.5"/></svg>
+            </div>
+            <span class="admin-gate-eyebrow">Setup required</span>
+            <h1>Admin panel isn't configured</h1>
+            <p class="admin-gate-sub">Set an admin password to enable this panel.</p>
+            <div class="admin-setup-steps">
+                <div class="admin-setup-step"><span class="admin-setup-step-num">1</span><span>Open <code>.env</code> in the project root.</span></div>
+                <div class="admin-setup-step"><span class="admin-setup-step-num">2</span><span>Add <code>ADMIN_PASSWORD="your-password"</code>.</span></div>
+                <div class="admin-setup-step"><span class="admin-setup-step-num">3</span><span>Restart the server and reload this page.</span></div>
+            </div>
+            <a class="admin-gate-back" href="/static/index.html">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+                Back to the app
+            </a>
+        </div>
+    </div>
+
+    <!-- Login -->
+    <div id="admin-login" class="admin-gate" hidden>
+        <div class="admin-gate-card">
+            <div class="admin-gate-mark">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="7" height="7" rx="1.5"/>
+                    <rect x="14" y="3" width="7" height="7" rx="1.5"/>
+                    <rect x="8.5" y="14" width="7" height="7" rx="1.5"/>
+                    <path d="M6.5 10v2a2 2 0 0 0 2 2h0M17.5 10v2a2 2 0 0 1-2 2h0"/>
+                </svg>
+            </div>
+            <span class="admin-gate-eyebrow">Admin console</span>
+            <h1>Cloud Architect AI</h1>
+            <p class="admin-gate-sub">Enter the admin password to manage providers and house-style rules.</p>
+            <form class="admin-gate-form" onsubmit="event.preventDefault(); adminLogin();">
+                <div class="admin-password-field">
+                    <input type="password" id="admin-password-input" placeholder="Password" autocomplete="current-password" autofocus>
+                    <button type="button" class="admin-password-toggle" onclick="adminTogglePasswordVisibility('admin-password-input', this)" aria-label="Show password" title="Show password">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    </button>
+                </div>
+                <div id="admin-login-error" class="admin-gate-error"></div>
+                <button type="submit" id="admin-login-btn" class="admin-gate-submit">
+                    <span id="admin-login-btn-label">Log in</span>
+                </button>
+            </form>
+            <a class="admin-gate-back" href="/static/index.html">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+                Back to the app
+            </a>
+        </div>
+    </div>
+
+    <!-- Main dashboard -->
+    <div id="admin-main" hidden>
+        <div class="admin-topbar">
+            <div class="admin-topbar-mark">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="7" height="7" rx="1.5"/>
+                    <rect x="14" y="3" width="7" height="7" rx="1.5"/>
+                    <rect x="8.5" y="14" width="7" height="7" rx="1.5"/>
+                    <path d="M6.5 10v2a2 2 0 0 0 2 2h0M17.5 10v2a2 2 0 0 1-2 2h0"/>
+                </svg>
+            </div>
+            <div class="admin-topbar-title">
+                <strong>Cloud Architect AI</strong>
+                <span>Admin console</span>
+            </div>
+            <div class="admin-topbar-actions">
+                <a class="admin-pill-btn" href="/static/index.html">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+                    Back to app
+                </a>
+                <button type="button" class="admin-pill-btn" onclick="adminLogout()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
+                    Log out
+                </button>
+            </div>
+        </div>
+
+        <div class="admin-shell">
+            <div class="admin-subnav">
+                <button type="button" id="admin-subnav-providers" class="active" onclick="adminSwitchSection('providers')">Providers</button>
+                <button type="button" id="admin-subnav-governance" onclick="adminSwitchSection('governance')">Governance</button>
+                <button type="button" id="admin-subnav-validation" onclick="adminSwitchSection('validation')">Validation</button>
+            </div>
+
+            <div class="admin-section" id="admin-section-providers">
+                <div class="admin-section-head">
+                    <span class="admin-section-title">Providers</span>
+                </div>
+                <p class="admin-section-desc">Manage API keys per LLM provider and pick which one chat uses by default.</p>
+
+                <div class="admin-card admin-default-row">
+                    <span class="admin-default-row-label">Default provider</span>
+                    <select id="admin-default-provider-select"></select>
+                    <button type="button" class="admin-pill-btn" onclick="adminSaveDefaultProvider()">Save</button>
+                </div>
+
+                <div id="admin-provider-list" class="admin-provider-list"></div>
+            </div>
+
+
+            <div class="admin-section" id="admin-section-validation" hidden>
+                <div class="admin-section-head">
+                    <span class="admin-section-title">Diagram validation</span>
+                </div>
+                <p class="admin-section-desc">
+                    Every generated view is scored 0&ndash;100 against its viewpoint rules. With
+                    validation on, a view below the target is regenerated &mdash; but only while it
+                    keeps measurably improving, so a pass that gains nothing ends the loop instead
+                    of spending another call.
+                </p>
+
+                <div class="admin-card admin-validation-card">
+                    <label class="admin-switch-row" for="admin-validation-enabled">
+                        <span class="admin-switch">
+                            <input type="checkbox" id="admin-validation-enabled"
+                                   onchange="adminValidationToggled()" />
+                            <span class="admin-switch-track" aria-hidden="true"></span>
+                        </span>
+                        <span class="admin-switch-text">
+                            <span class="admin-switch-title">Run validation passes</span>
+                            <span class="admin-switch-sub" id="admin-validation-state">
+                                Off &mdash; each view is drawn once and kept.
+                            </span>
+                        </span>
+                    </label>
+
+                    <div class="admin-validation-fields" id="admin-validation-fields">
+                        <div class="admin-field-row-2">
+                            <div class="admin-field-group">
+                                <label for="admin-validation-min-score">Quality target</label>
+                                <div class="admin-input-suffix">
+                                    <input type="number" id="admin-validation-min-score"
+                                           min="0" max="100" step="1" />
+                                    <span class="admin-input-unit">/ 100</span>
+                                </div>
+                                <p class="admin-help-text">The score a view must reach to be
+                                    accepted &mdash; what the loop works toward.</p>
+                            </div>
+
+                            <div class="admin-field-group">
+                                <label for="admin-validation-max-iterations">Max corrective passes</label>
+                                <div class="admin-input-suffix">
+                                    <input type="number" id="admin-validation-max-iterations"
+                                           min="0" max="5" step="1" />
+                                    <span class="admin-input-unit">per view</span>
+                                </div>
+                                <p class="admin-help-text">Each pass is a full regeneration, so this
+                                    is the ceiling on cost. 0 disables the loop.</p>
+                            </div>
+                        </div>
+
+                        <div class="admin-field-group">
+                            <label for="admin-validation-min-improvement">Minimum improvement to earn another pass</label>
+                            <div class="admin-input-suffix">
+                                <input type="number" id="admin-validation-min-improvement"
+                                       min="0" max="100" step="1" />
+                                <span class="admin-input-unit">points</span>
+                            </div>
+                            <p class="admin-help-text">
+                                <strong>0</strong> means any measurable improvement &mdash; keep going
+                                while the score rises, stop the moment it flattens. A higher number
+                                says &ldquo;don&rsquo;t spend another call on a small win&rdquo;.
+                            </p>
+                        </div>
+
+                        <div class="admin-field-group">
+                            <label for="admin-validation-provider">Validation model</label>
+                            <div class="admin-model-row">
+                                <span class="admin-model-badge is-inherit"
+                                      id="admin-validation-provider-badge" aria-hidden="true">&#8627;</span>
+                                <select id="admin-validation-provider"
+                                        onchange="adminValidationBadge()"></select>
+                            </div>
+                            <p class="admin-help-text">Judging and drawing are different jobs, so a
+                                cheaper model is often enough here &mdash; or a stronger one, used
+                                only for the corrections.</p>
+                            <p class="admin-help-text admin-model-warning"
+                               id="admin-validation-provider-warning" hidden>
+                                This provider has no API key configured, so validation passes would
+                                fail at generation time. Add its key under
+                                <strong>Providers</strong> first.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="admin-governance-form-actions">
+                        <button type="button" class="admin-add-rule-btn"
+                                onclick="adminSaveValidation()">Save validation settings</button>
+                        <span class="admin-save-hint" id="admin-validation-saved" hidden>Saved</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="admin-section" id="admin-section-governance" hidden>
+                <div class="admin-section-head">
+                    <span class="admin-section-title">Governance / house-style rules</span>
+                </div>
+                <p class="admin-section-desc">
+                    Rules checked automatically against every generated diagram. Soft enforcement only —
+                    a failed rule nudges the AI to fix it on the spot and shows up in the diagram's
+                    <strong>Governance</strong> tab; it never blocks a diagram from being produced.
+                </p>
+
+                <div class="admin-card admin-governance-form">
+                    <div class="admin-field-group">
+                        <label for="gov-kind">What to check</label>
+                        <select id="gov-kind" onchange="adminGovernanceKindChanged()">
+                            <option value="required_corridor">Diagram must include a specific zone</option>
+                            <option value="forbidden_corridor">Diagram must NOT include a specific zone</option>
+                            <option value="required_leaf_shape">Diagram must include a specific service</option>
+                            <option value="forbidden_shape_type">Diagram must NOT include a specific service</option>
+                            <option value="required_overview_field">A summary field must be filled in</option>
+                            <option value="min_narrative_bullets">A narrative field needs a minimum number of points</option>
+                            <option value="required_flow_protection">Sensitive connections must be encrypted</option>
+                            <option value="forbidden_label_pattern">No name may match a forbidden pattern</option>
+                        </select>
+                        <small id="gov-kind-help" class="admin-help-text"></small>
+                    </div>
+
+                    <div class="admin-field-row-2">
+                        <div class="admin-field-group">
+                            <label for="gov-view">Applies to view</label>
+                            <select id="gov-view" onchange="adminGovernanceViewChanged()">
+                                <option value="any">Any view</option>
+                                <option value="network">Network</option>
+                                <option value="logical">Logical</option>
+                                <option value="security">Security</option>
+                                <option value="data_flow">Data flow</option>
+                                <option value="archimate">ArchiMate</option>
+                            </select>
+                        </div>
+                        <div class="admin-field-group">
+                            <label for="gov-platform">Applies to platform</label>
+                            <select id="gov-platform">
+                                <option value="any">Any platform</option>
+                                <option value="aws">AWS</option>
+                                <option value="gcp">GCP</option>
+                                <option value="azure">Azure</option>
+                                <option value="multi">Multi-cloud</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="gov-param-corridor" class="admin-field-group gov-param">
+                        <label for="gov-corridor-id">Zone / corridor id</label>
+                        <input type="text" id="gov-corridor-id" placeholder="e.g. zone_detect, phase_ingest, domain_data">
+                        <small class="admin-help-text">Fixed ids only — see each view's own corridor vocabulary (e.g. Security uses zone_public/zone_dmz/zone_identity/zone_partner/zone_private/zone_restricted/zone_detect).</small>
+                    </div>
+
+                    <div id="gov-param-shape" class="admin-field-group gov-param">
+                        <label for="gov-shape-type">Service name (matched as substring, e.g. "waf" or "aws_waf")</label>
+                        <input type="text" id="gov-shape-type" placeholder="e.g. waf, aws_route53, gcp_cloud_armor">
+                    </div>
+
+                    <div id="gov-param-overview" class="admin-field-group gov-param">
+                        <label for="gov-overview-field">Field</label>
+                        <select id="gov-overview-field">
+                            <option value="business_notes" data-views="network,logical,security,data_flow">Business notes</option>
+                            <option value="design_tradeoffs" data-views="network,logical,security,data_flow,archimate">Design tradeoffs</option>
+                            <option value="purpose" data-views="security">Purpose (Security)</option>
+                            <option value="scope_included" data-views="security">Scope included (Security)</option>
+                            <option value="scope_excluded" data-views="security">Scope excluded (Security)</option>
+                            <option value="threat_model_reference" data-views="security">Threat model reference (Security)</option>
+                            <option value="data_classification" data-views="security,data_flow">Data classification (Security/Data flow)</option>
+                            <option value="compliance_frameworks" data-views="security,data_flow">Compliance frameworks (Security/Data flow)</option>
+                            <option value="control_types" data-views="security">Control types (Security)</option>
+                            <option value="key_assumptions" data-views="security,data_flow">Key assumptions (Security/Data flow)</option>
+                            <option value="trust_zones_referenced" data-views="data_flow">Trust zones referenced (Data flow)</option>
+                            <option value="panel_summary" data-views="archimate">Panel summary (ArchiMate)</option>
+                            <option value="viewpoint_rationale" data-views="archimate">Viewpoint rationale (ArchiMate)</option>
+                            <option value="layers_excluded_reason" data-views="archimate">Layers excluded reason (ArchiMate)</option>
+                            <option value="walkthrough" data-views="archimate">Walkthrough (ArchiMate)</option>
+                            <option value="compliance_notes" data-views="archimate">Compliance notes (ArchiMate)</option>
+                            <option value="coaching_note" data-views="archimate">Coaching note (ArchiMate)</option>
+                        </select>
+                        <small id="gov-overview-field-hint" class="admin-help-text"></small>
+                    </div>
+
+                    <div id="gov-param-mincount" class="admin-field-group gov-param">
+                        <label for="gov-min-count">Minimum bullet count</label>
+                        <input type="number" id="gov-min-count" value="2" min="1" max="20">
+                    </div>
+
+                    <div id="gov-param-protection" class="admin-field-group gov-param">
+                        <label for="gov-min-protection">Minimum protection level</label>
+                        <select id="gov-min-protection">
+                            <option value="tls">TLS (one-way)</option>
+                            <option value="mtls">mTLS (mutual)</option>
+                        </select>
+                        <label class="admin-checkbox-label"><input type="checkbox" id="gov-boundary-only" checked> Only check flows crossing a public/partner boundary (in addition to any PII/PCI-classified flow, always checked)</label>
+                        <small class="admin-help-text">Trust-boundary crossing is only meaningful on the Security view — its zone_public/zone_partner vocabulary has no equivalent elsewhere. On any other view, this box is silently ignored and only PII/PCI-classified flows are checked; uncheck it for a Logical/Data-flow/Network/ArchiMate-scoped rule to avoid a confusing always-passing box.</small>
+                    </div>
+
+                    <div id="gov-param-pattern" class="admin-field-group gov-param">
+                        <label for="gov-label-pattern">Forbidden pattern (regex, case-insensitive)</label>
+                        <input type="text" id="gov-label-pattern" placeholder="e.g. \\b(table|crud)\\b">
+                    </div>
+
+                    <div class="admin-field-group">
+                        <label for="gov-message">Message shown to the user when this rule fails</label>
+                        <textarea id="gov-message" rows="2" maxlength="300" oninput="adminGovernanceMessageInput()" placeholder="Be specific — e.g. &quot;Every Security diagram must include a detection/monitoring zone (zone_detect) per our SOC2 control mapping.&quot;"></textarea>
+                        <small id="gov-message-count" class="admin-help-text">0 / 300</small>
+                    </div>
+
+                    <div class="admin-governance-form-actions">
+                        <button type="button" class="admin-add-rule-btn" id="admin-add-rule-btn" onclick="adminSubmitGovernanceRule()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                            Add rule
+                        </button>
+                        <button type="button" class="admin-cancel-edit-btn" id="admin-cancel-edit-btn" onclick="adminCancelGovernanceEdit()" hidden>Cancel edit</button>
+                    </div>
+                </div>
+
+                <div id="admin-governance-list" class="admin-governance-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="app-toast" class="app-toast" role="status" aria-live="assertive" hidden></div>
+    <script src="/static/js/toast.js?v=20260808a"></script>
+    <script src="/static/js/provider-options.js?v=20260816a"></script>
+    <script src="/static/js/admin.js?v=20260816a"></script>
+</body>
+
+</html>

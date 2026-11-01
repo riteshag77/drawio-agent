@@ -1,0 +1,19 @@
+## Service Classification — Azure only
+
+Classify using this decision order — stop at the first match:
+
+| # | Category | Azure examples | Place in |
+|---|----------|----------------|----------|
+| 1 | Global/edge — DNS, CDN, WAF, static | Azure DNS, Front Door, WAF, Blob Storage (static) | Edge/Global Layer |
+| 1b | Cross-VNet connectivity hub | Virtual WAN, VPN Gateway, ExpressRoute | Cloud level beside Edge (edges to VNets — never inside one VNet row) |
+| 1c | Enterprise SaaS (vendor-hosted) | Salesforce, SuccessFactors, Workday, Okta, Temenos, Stripe | Outside the cloud boundary, ordered by call path: ingress IdP left (Users→Okta→Edge); egress deps right (App→Workday). Never Integration/VNet |
+| 2 | Identity, encryption, secrets | Entra ID, Key Vault, Managed Identities | Security Group (NO edges) |
+| 3 | Observability, audit | Azure Monitor, Log Analytics, Defender for Cloud | Monitoring Group (NO edges) |
+| 4 | Messaging / integration bus | Service Bus, Event Grid, Event Hubs, Logic Apps | Integration Group (NO edges) |
+| 5 | Operational, management | Azure Automation, Azure Backup, Update Mgmt | Management Group (NO edges) |
+| 6 | Stateless compute, app-tier | Azure VM, AKS, Functions | Zone → Private App Subnet |
+| 7 | Stateful data-tier | Azure SQL, Cosmos DB, Cache for Redis | Zone → Private Data Subnet |
+| 8 | Network LB / routing | Load Balancer, App Gateway, API Management | VPC gateway (the `gateway` field on the VPC — one LB/API Gateway centred above every zone it fronts, never inside a subnet) |
+| 9 | Zone internet-facing infra | NAT Gateway, Azure Bastion | That Zone's Public Subnet |
+
+Cross-cutting groups (rows 2–5): icons only — **never** draw edges to or from them.

@@ -1,0 +1,79 @@
+/* Midnight Slate — default theme.
+   Graphite control room for long working sessions: a cool, desaturated
+   blue-grey neutral ramp (not true black) with a precise indigo accent —
+   deliberately picked over the near-black+single-neon-accent template look.
+   Canvas chrome (diagram toolbar/viewport/action buttons/mobile nav) stays
+   light-neutral to match draw.io's own default white canvas with no visual
+   seam. */
+:root[data-theme="midnight-slate"] {
+    --text-primary: #EEF0F5;
+    --text-secondary: #9AA1B4;
+    --text-muted: #6B7180;
+
+    --sidebar-bg: #14161D;
+    --sidebar-border: rgba(255, 255, 255, 0.08);
+    --surface-well: #0F1015;
+    --surface-raised: rgba(255, 255, 255, 0.03);
+    --surface-hover: rgba(255, 255, 255, 0.06);
+    --surface-active: rgba(255, 255, 255, 0.09);
+    --border-subtle: rgba(255, 255, 255, 0.05);
+    --border-strong: rgba(255, 255, 255, 0.16);
+    --surface-panel-right: #12131A;
+
+    --accent: #5468F0;
+    --accent-hover: #7086FF;
+    --accent-glow: rgba(84, 104, 240, 0.22);
+
+    --success: #22c55e;
+    --success-soft: #86efac;
+    --success-bg-soft: rgba(34, 197, 94, 0.15);
+    --warning: #f59e0b;
+    --warning-soft: #fcd34d;
+    --warning-bg-soft: rgba(245, 158, 11, 0.15);
+    --error: #ef4444;
+    --error-soft: #fca5a5;
+    --error-bg-soft: rgba(239, 68, 68, 0.15);
+    --info: #38BDF8;
+    --info-soft: #7DD3FC;
+    --info-bg-soft: rgba(56, 189, 248, 0.14);
+
+    --cost-accent: #14b8a6;
+    --cost-accent-dim: rgba(20, 184, 166, 0.1);
+    --cost-bar-bg: rgba(255, 255, 255, 0.06);
+
+    --panel-bg: #f4f5f7;
+    --canvas-surface: #ffffff;
+    --canvas-overlay: rgba(255, 255, 255, 0.85);
+    --canvas-toolbar-bg: linear-gradient(to bottom, #ffffff, #fafbfc);
+    --canvas-toolbar-meta-bg: #fafbfc;
+    --canvas-border: #e5e7eb;
+    --canvas-text: #18181b;
+    --canvas-text-muted: #71717a;
+
+    --btn-bg: #ffffff;
+    --btn-border: #e4e4e7;
+    --btn-text: #3f3f46;
+    --btn-hover-bg: #f4f4f5;
+    --btn-hover-border: #d4d4d8;
+    --btn-primary-bg: #18181b;
+    --btn-primary-text: #ffffff;
+    --btn-primary-hover-bg: #27272a;
+
+    /* Cost donut categorical palette — dataviz-skill validated 8-hue set, dark column. */
+    --chart-cat-1: #3987e5;
+    --chart-cat-2: #d95926;
+    --chart-cat-3: #199e70;
+    --chart-cat-4: #c98500;
+    --chart-cat-5: #d55181;
+    --chart-cat-6: #008300;
+    --chart-cat-7: #9085e9;
+    --chart-cat-8: #e66767;
+}
+
+:root[data-theme="midnight-slate"] select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%239aa1b4' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+}
+
+:root[data-theme="midnight-slate"] .composer-tools select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='%239aa1b4' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+}

@@ -1,0 +1,26 @@
+# Development and CI tooling. Not needed to run the app — `requirements.txt`
+# alone serves it.
+#
+# These were previously undeclared: pytest existed only in whoever's local
+# virtualenv, so CI ran `pytest` against an environment that had never
+# installed it. Anything CI invokes belongs in a file, not in a habit.
+
+pytest>=8.0.0,<10.0.0
+pytest-cov>=6.0.0,<8.0.0
+
+# Drives tests/test_voice_mode_browser.py, the only frontend test. Optional
+# locally on purpose: that file skips rather than fails when the browser is
+# absent, so the Python suite runs anywhere without the one-off
+# `playwright install chromium`. CI's `frontend` job does run that step and
+# sets REQUIRE_BROWSER_TESTS=1, which turns the skip back into a failure —
+# this was declared here but missing from requirements-dev.lock, so CI had
+# never actually installed it.
+playwright>=1.40,<2.0
+
+# Quality gates — see pyproject.toml for the ruleset and contract rationale.
+ruff>=0.16.0,<1.0.0
+import-linter>=2.0,<3.0
+
+# Generates requirements.lock. Pinned loosely: it produces the lock rather than
+# appearing in it, so its own version does not affect what ships.
+uv>=0.12,<1.0

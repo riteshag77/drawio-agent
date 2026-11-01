@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloud Architect AI</title>
+    <meta name="description" content="AI-powered cloud architecture diagram generator with live Draw.io preview.">
+    <meta name="theme-color" content="#ffffff">
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="/static/favicon.png" type="image/png" sizes="32x32">
+    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/styles.css?v=20260814b">
+    <link rel="stylesheet" href="/static/themes/midnight-slate.css?v=20260810e">
+    <link rel="stylesheet" href="/static/themes/daylight.css?v=20260810e">
+    <link rel="stylesheet" href="/static/themes/aurora-contrast.css?v=20260810g">
+    <script>
+        (function () {
+            var known = ['daylight', 'midnight-slate', 'aurora-contrast'];
+            var stored = localStorage.getItem('drawio-agent-app-theme');
+            document.documentElement.setAttribute('data-theme', known.indexOf(stored) !== -1 ? stored : 'daylight');
+        })();
+    </script>
+    <!-- Access gate (static/js/api-key.js): hides the entire app — not just
+         data, the layout, the branding, everything — until that script
+         confirms the stored key works (or confirms none is required). Placed
+         here, before any stylesheet or body content, on the same reasoning
+         as the theme script above: nothing about the app should paint before
+         this decision is made. api-key.js removes this tag by id once
+         access is confirmed; if that script fails to load at all, the app
+         stays permanently hidden rather than silently exposed — a missing
+         script is a broken deploy, not a reason to skip the gate. -->
+    <style id="app-shell-gate-style">.app-shell{visibility:hidden}</style>
+</head>
+
+<body>
+    <!-- Sibling of .app-shell, not inside it, so hiding .app-shell via the
+         gate style doesn't hide this too. Visible the instant body paints,
+         with no JS dependency at all — the fallback if api-key.js itself
+         ever fails to load: rather than a silent, unexplained blank page,
+         there is at least a visible sign the app is stuck, not just gone.
+         api-key.js removes it the moment it has anything real to show
+         (the login dialog, or the revealed app). -->
+    <div id="gate-loading" aria-live="polite">Loading…</div>
+    <div class="app-shell">
+        <!-- Left: chat / input panel -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="brand-row">
+                    <div class="brand-mark">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none"/>
+                            <circle cx="12" cy="4.5" r="1.8"/>
+                            <circle cx="19" cy="16" r="1.8"/>
+                            <circle cx="5" cy="16" r="1.8"/>
+                            <line x1="12" y1="9.4" x2="12" y2="6.6"/>
+                            <line x1="13.9" y1="13.4" x2="17.4" y2="15"/>
+                            <line x1="10.1" y1="13.4" x2="6.6" y2="15"/>
+                        </svg>
+                    </div>
+                    <div class="brand-text">
+                        <h1>Cloud Architect AI</h1>
+                    </div>
+                    <button type="button" class="icon-btn settings-trigger" onclick="openSettings()" title="Settings" aria-label="Settings">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="3"/>
+                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                        </svg>
+                    </button>
+                    <button type="button" class="icon-btn sidebar-collapse-trigger" onclick="toggleSidebarCollapse()" title="Collapse sidebar" aria-label="Collapse sidebar">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="4" width="18" height="16" rx="2"/>
+                            <line x1="10" y1="4" x2="10" y2="20"/>
+                            <path d="M7 10l-1.5 2 1.5 2"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <div class="sidebar-body">
+                <div class="control-bar">
+                    <div class="segmented" role="tablist" aria-label="Target cloud platform">
+                        <div class="platform-card active" data-platform="aws" onclick="selectPlatform('aws')" role="tab">
+                            <span class="platform-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a5 5 0 1 1 1.14-9.86 4.5 4.5 0 0 1 8.6 1.73A3.5 3.5 0 0 1 17.5 19z"/></svg></span><span class="platform-name">AWS</span>
+                        </div>
+                        <div class="platform-card" data-platform="gcp" onclick="selectPlatform('gcp')" role="tab">
+                            <span class="platform-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></span><span class="platform-name">GCP</span>
+                        </div>
+                        <div class="platform-card" data-platform="azure" onclick="selectPlatform('azure')" role="tab">
+                            <span class="platform-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="2" transform="rotate(45 12 12)"/></svg></span><span class="platform-name">Azure</span>
+                        </div>
+                        <div class="platform-card" data-platform="multi" onclick="selectPlatform('multi')" role="tab">
+                            <span class="platform-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span><span class="platform-name">Multi</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="chat-panel">
+                    <div class="chat-toolbar">
+                        <span>Conversation</span>
+                        <div class="chat-toolbar-actions">
+                            <button type="button" class="btn-icon-ghost" onclick="openSessionsDialog()" title="Browse past sessions" aria-label="Browse past sessions">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
+                            </button>
+                            <button type="button" class="btn-new-chat" onclick="clearChat()" title="Start a new chat">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                                New chat
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="chat-messages" class="chat-messages">
+                        <div id="chat-welcome" class="chat-welcome">
+                             <div class="welcome-hero">
+                                 <h2>Design your cloud architecture</h2>
+                                 <p>Describe what you need, or start from a pattern below.</p>
+                             </div>
+                             <div class="patterns-gallery" id="patterns-gallery">
+                                 <div class="gallery-header">
+                                     <h3>Architecture Patterns</h3>
+                                     <p>Choose a foundation for your diagram</p>
+                                 </div>
+                                 <div class="gallery-grid" id="gallery-grid"></div>
+                             </div>
+                             <div class="example-chips" id="example-chips"></div>
+                         </div>
+                        <div id="chat-typing" class="chat-typing">
+                            <span></span><span></span><span></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-footer">
+                <input type="file" id="file-input" multiple accept=".pdf,.txt,.md,.json,.yaml,.yml,.tf,.tfvars,.hcl,.toml,.png,.jpg,.jpeg,.gif,.webp,.drawio,.xml,application/xml,text/xml" hidden onchange="handleFileSelect(event)">
+                <div id="attachment-preview" class="attachment-preview" hidden></div>
+                <div id="voice-status" class="voice-status" hidden>
+                    <span class="voice-dot"></span><span id="voice-status-text">Listening…</span>
+                </div>
+                <div class="composer">
+                    <textarea id="chat-input" rows="2"
+                        placeholder="Describe or refine your architecture…"></textarea>
+                    <div class="composer-actions">
+                        <div class="composer-tools">
+                            <button type="button" class="composer-btn" onclick="document.getElementById('file-input').click()" title="Attach a PDF, text, image, Terraform/K8s, or .drawio/.xml diagram (up to 3, 15 MB each)" aria-label="Attach file">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+                                </svg>
+                            </button>
+                            <button type="button" class="composer-btn" onclick="promptImportUrl()" title="Import context from a URL (article/page)" aria-label="Import from URL">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                                </svg>
+                            </button>
+                            <button type="button" id="btn-voice" class="composer-btn btn-voice" onclick="toggleVoiceInput()" title="Voice mode: Space or click to start a spoken conversation" aria-label="Voice mode: press Space or click to toggle">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="9" y="2" width="6" height="12" rx="3"/>
+                                    <path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3"/>
+                                </svg>
+                            </button>
+                            <div class="provider-picker">
+                                <button type="button" id="provider-picker-btn" class="provider-picker-btn" onclick="toggleProviderPicker()" aria-haspopup="dialog" aria-expanded="false">
+                                    <span id="provider-picker-icon" class="provider-picker-icon"></span>
+                                    <span id="provider-picker-label" class="provider-picker-label">Gemini</span>
+                                    <svg class="provider-picker-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+                                </button>
+                            </div>
+                            <select id="provider-select" aria-label="AI provider" hidden>
+                                <option value="gemini" selected>Gemini</option>
+                            </select>
+                        </div>
+                        <div class="btn-group">
+                            <button id="send-btn" class="btn-send" onclick="sendMessage()" title="Send (Enter)" aria-label="Send message">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+                                </svg>
+                            </button>
+                            <button type="button" id="stop-btn" class="btn-stop" onclick="stopActiveRun()" title="Stop generation" aria-label="Stop generation" hidden>
+                                <svg viewBox="0 0 24 24" fill="currentColor">
+                                    <rect x="6" y="6" width="12" height="12" rx="1"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <p class="chat-hint">Enter to send · Shift+Enter for new line · <svg class="chat-hint-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3"/></svg> to talk · Stop cancels in-flight requests</p>
+                <div id="progress-track" class="progress-bar-track">
+                    <div id="progress-bar" class="progress-bar-fill"></div>
+                </div>
+            </div>
+
+            <!-- Slide-in settings drawer -->
+            <div id="settings-backdrop" class="settings-backdrop" onclick="closeSettings()"></div>
+            <div id="settings-drawer" class="settings-drawer" role="dialog" aria-label="Settings" aria-modal="true">
+                <div class="drawer-head">
+                    <span class="drawer-title">Settings</span>
+                    <button type="button" class="icon-btn" onclick="closeSettings()" title="Close" aria-label="Close settings">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                    </button>
+                </div>
+                <div class="drawer-body">
+                    <div class="drawer-group is-open" data-group="generation">
+                        <button type="button" class="drawer-group-toggle" aria-expanded="true" onclick="toggleDrawerGroup(this)">
+                            <span class="drawer-group-title">Generation</span>
+                            <span class="drawer-group-chevron" aria-hidden="true"></span>
+                        </button>
+                        <div class="drawer-group-body">
+                        <label for="diagram-mode-select">Diagram type</label>
+                        <select id="diagram-mode-select" aria-label="Diagram type" onchange="saveDiagramMode()">
+                            <option value="auto">Auto</option>
+                            <option value="cloud">Cloud architecture</option>
+                            <option value="simple">Simple (flowchart / chart)</option>
+                        </select>
+
+                        <label for="diagram-renderer-select">Render</label>
+                        <select id="diagram-renderer-select" aria-label="Diagram renderer" title="Local layout vs Draw.io MCP icon enrichment">
+                            <option value="auto">Auto (MCP)</option>
+                            <option value="mcp">MCP</option>
+                            <option value="local">Local</option>
+                        </select>
+
+                        <div class="verbose-toggle-row">
+                            <div>
+                                <span>Uploaded image handling</span>
+                                <small>How an attached screenshot/PDF becomes a diagram</small>
+                            </div>
+                            <select id="image-mode-select" title="Uploaded image handling" onchange="savePromptSettings()">
+                                <option value="as_is" selected>As-is</option>
+                                <option value="cloud">Cloud interpretation</option>
+                            </select>
+                        </div>
+                        <div class="verbose-toggle-row">
+                            <div>
+                                <span>3D isometric (AWS only)</span>
+                                <small>Legacy aws3d icon set, staircase layout — also triggers automatically if your prompt says "3D" or "isometric"</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle 3D isometric rendering">
+                                <input type="checkbox" id="three-d-toggle" onchange="savePromptSettings()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="verbose-toggle-row">
+                            <div>
+                                <span>Animated connectors</span>
+                                <small>flowAnimation on primary edges (explainability)</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle animated connectors">
+                                <input type="checkbox" id="animated-connectors-toggle" onchange="savePromptSettings()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="verbose-toggle-row">
+                            <div>
+                                <span>Libavoid edge routing</span>
+                                <small>Obstacle-avoiding connectors via MCP (mcp/auto only)</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle libavoid routing">
+                                <input type="checkbox" id="libavoid-toggle" checked onchange="savePromptSettings()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="verbose-toggle-row">
+                            <div>
+                                <span>Architecture interview</span>
+                                <small>Ask clarifying questions before generating when on</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle architecture interview">
+                                <input type="checkbox" id="architecture-interview-toggle" onchange="savePromptSettings()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        </div>
+                    </div>
+
+                    <div class="drawer-group is-open" data-group="quality">
+                        <button type="button" class="drawer-group-toggle" aria-expanded="true" onclick="toggleDrawerGroup(this)">
+                            <span class="drawer-group-title">Quality &amp; review</span>
+                            <span class="drawer-group-chevron" aria-hidden="true"></span>
+                        </button>
+                        <div class="drawer-group-body">
+                        <div class="verbose-toggle-row">
+                            <div>
+                                <span>Follow-up suggestions</span>
+                                <small>Improvement ideas for any selected view (grouped by where they apply)</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle follow-up suggestions">
+                                <input type="checkbox" id="suggestions-toggle" onchange="savePromptSettings(); toggleSuggestionsPanel()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="verbose-toggle-row">
+                            <div>
+                                <span>Governance findings</span>
+                                <small>Org house-style rules checked against the diagram — rules themselves are managed by an admin</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle governance findings">
+                                <input type="checkbox" id="governance-toggle" onchange="savePromptSettings(); toggleGovernancePanel()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="verbose-toggle-row">
+                            <div>
+                                <span>Visual validation (VLM)</span>
+                                <small>Screenshot the diagram and ask the AI to check for overlaps/routing/readability issues — costs one extra LLM call per generation</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle visual validation">
+                                <input type="checkbox" id="vlm-validation-toggle" onchange="savePromptSettings()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div id="validation-provider-row" class="settings-field-row" hidden>
+                            <label for="validation-provider-select">Validation provider</label>
+                            <select id="validation-provider-select" onchange="savePromptSettings()">
+                                <option value="auto" selected>Same as chat</option>
+                            </select>
+                        </div>
+                        <small class="settings-group-hint">Pipeline logs stay under App &amp; diagnostics — results appear in the Insights → Logs tab.</small>
+                        <button type="button" class="btn-soft" onclick="openHistoryDialog(); closeSettings();">View full diagram history</button>
+                        </div>
+                    </div>
+
+                    <div class="drawer-group" data-group="architecture-docs">
+                        <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
+                            <span class="drawer-group-title">Architecture docs</span>
+                            <span class="drawer-group-chevron" aria-hidden="true"></span>
+                        </button>
+                        <div class="drawer-group-body" hidden>
+                        <div class="settings-field-row">
+                            <label>Diagram views</label>
+                            <small style="display:block;margin-bottom:6px;opacity:0.75">Multi-select — each becomes a separate draw.io page</small>
+                            <div class="compliance-fw-checkboxes" id="diagram-views-checkboxes">
+                                <label class="fw-checkbox"><input type="checkbox" class="diagram-view-cb" value="logical" checked onchange="onDiagramViewChange()"> Logical</label>
+                                <label class="fw-checkbox"><input type="checkbox" class="diagram-view-cb" value="network" onchange="onDiagramViewChange()"> Network / VPC</label>
+                                <label class="fw-checkbox"><input type="checkbox" class="diagram-view-cb" value="security" onchange="onDiagramViewChange()"> Security / trust</label>
+                                <label class="fw-checkbox"><input type="checkbox" class="diagram-view-cb" value="data_flow" onchange="onDiagramViewChange()"> Data flow</label>
+                                <label class="fw-checkbox"><input type="checkbox" class="diagram-view-cb" value="archimate" onchange="onDiagramViewChange()"> ArchiMate</label>
+                            </div>
+                            <!-- Own drawer-group so nested toggle does not collapse Architecture docs -->
+                            <div id="network-insights-sub" class="drawer-group network-insights-sub is-open" data-group="network-insights">
+                                <button type="button" class="drawer-group-toggle" aria-expanded="true" onclick="toggleDrawerGroup(this)">
+                                    <span class="drawer-group-title">Network insights</span>
+                                    <span class="drawer-group-chevron" aria-hidden="true"></span>
+                                </button>
+                                <div class="drawer-group-body">
+                                    <small class="network-insights-hint">Cost, Well-Architected, and Compliance — only when Network / VPC is selected</small>
+                                    <div class="verbose-toggle-row">
+                                        <div>
+                                            <span>Cost estimation</span>
+                                            <small>Estimated monthly cost from Network inventory</small>
+                                        </div>
+                                        <label class="toggle-switch" title="Toggle cost estimation">
+                                            <input type="checkbox" id="cost-estimate-toggle" onchange="savePromptSettings(); toggleCostPanelPreview()">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                    <div class="verbose-toggle-row">
+                                        <div>
+                                            <span>Well-Architected Review</span>
+                                            <small>Pillar-based assessment of the Network diagram</small>
+                                        </div>
+                                        <label class="toggle-switch" title="Toggle Well-Architected review">
+                                            <input type="checkbox" id="well-architected-toggle" onchange="savePromptSettings(); toggleWellArchitectedPanel()">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                    <div class="verbose-toggle-row">
+                                        <div>
+                                            <span>Compliance Assessment</span>
+                                            <small>Framework overlay (HIPAA, PCI-DSS, GDPR, SOC 2, NAIC)</small>
+                                        </div>
+                                        <label class="toggle-switch" title="Toggle compliance assessment">
+                                            <input type="checkbox" id="compliance-toggle" onchange="savePromptSettings(); toggleCompliancePanel()">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                    <div id="compliance-frameworks-row" class="settings-field-row" hidden>
+                                        <label>Compliance frameworks</label>
+                                        <div class="compliance-fw-checkboxes">
+                                            <label class="fw-checkbox"><input type="checkbox" class="compliance-fw-cb" value="hipaa" checked> HIPAA</label>
+                                            <label class="fw-checkbox"><input type="checkbox" class="compliance-fw-cb" value="pci_dss" checked> PCI-DSS</label>
+                                            <label class="fw-checkbox"><input type="checkbox" class="compliance-fw-cb" value="gdpr" checked> GDPR</label>
+                                            <label class="fw-checkbox"><input type="checkbox" class="compliance-fw-cb" value="soc2" checked> SOC 2</label>
+                                            <label class="fw-checkbox"><input type="checkbox" class="compliance-fw-cb" value="naic" checked> NAIC</label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="verbose-toggle-row">
+                            <div>
+                                <span>ADR Notes page</span>
+                                <small>Extra draw.io page with Architecture Decision Records</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle ADR Notes page">
+                                <input type="checkbox" id="adr-notes-toggle" onchange="savePromptSettings()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="verbose-toggle-row">
+                            <div>
+                                <span>RAID register page</span>
+                                <small>Risks, Assumptions, Issues, Dependencies table for docs</small>
+                            </div>
+                            <label class="toggle-switch" title="Toggle RAID register page">
+                                <input type="checkbox" id="raid-register-toggle" onchange="savePromptSettings()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        </div>
+                    </div>
+
+                    <div class="drawer-group" data-group="prompts-templates">
+                        <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
+                            <span class="drawer-group-title">Prompts &amp; templates</span>
+                            <span class="drawer-group-chevron" aria-hidden="true"></span>
+                        </button>
+                        <div class="drawer-group-body" hidden>
+                        <label for="custom-system-message">Custom instructions</label>
+                        <textarea id="custom-system-message"
+                            placeholder="Optional: e.g. Always use multi-AZ, prefer serverless, keep labels in Spanish…"
+                            oninput="savePromptSettings()"></textarea>
+                        <label for="template-search" style="margin-top:14px">Saved templates</label>
+                        <input type="text" id="template-search" class="template-search" placeholder="Search templates…" oninput="onTemplateSearchInput()">
+                        <div id="template-list" class="template-list"></div>
+                        <button type="button" class="btn-soft" onclick="saveCurrentAsTemplate()">＋ Save current prompt</button>
+                        </div>
+                    </div>
+
+                    <div class="drawer-group" data-group="advanced">
+                        <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
+                            <span class="drawer-group-title">Advanced</span>
+                            <span class="drawer-group-chevron" aria-hidden="true"></span>
+                        </button>
+                        <div class="drawer-group-body" hidden>
+
+                        <div class="drawer-group drawer-subgroup" data-group="custom-providers">
+                            <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
+                                <span class="drawer-group-title">Custom providers</span>
+                                <span class="drawer-group-chevron" aria-hidden="true"></span>
+                            </button>
+                            <div class="drawer-group-body" hidden>
+                            <small style="color:var(--text-muted)">Bring your own API key/endpoint — OpenAI/Anthropic/Google-compatible. Stored only in your browser; sent per-request, never saved on the server. A local endpoint (e.g. Ollama at http://localhost:11434/v1) works fine here.</small>
+                            <div id="custom-provider-summary-list" class="provider-card-list"></div>
+                            <button type="button" class="btn-soft" onclick="openProviderConfigDialog()">Manage providers…</button>
+                            </div>
+                        </div>
+
+                        <div class="drawer-group drawer-subgroup" data-group="app-diagnostics">
+                            <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
+                                <span class="drawer-group-title">App &amp; diagnostics</span>
+                                <span class="drawer-group-chevron" aria-hidden="true"></span>
+                            </button>
+                            <div class="drawer-group-body" hidden>
+                            <label for="app-theme-select">App theme</label>
+                            <select id="app-theme-select" aria-label="Application theme" onchange="changeAppTheme()">
+                                <option value="daylight">Daylight (default)</option>
+                                <option value="midnight-slate">Midnight Slate</option>
+                                <option value="aurora-contrast">Aurora Contrast</option>
+                            </select>
+                            <div class="verbose-toggle-row">
+                                <div>
+                                    <span>Show AI reasoning</span>
+                                    <small>Surface pipeline thinking steps in chat</small>
+                                </div>
+                                <label class="toggle-switch" title="Toggle AI reasoning display">
+                                    <input type="checkbox" id="show-reasoning-toggle" onchange="savePromptSettings()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="verbose-toggle-row">
+                                <div>
+                                    <span>Pipeline logs</span>
+                                    <small>Show the right-side build log panel</small>
+                                </div>
+                                <label class="toggle-switch" title="Toggle pipeline log panel">
+                                    <input type="checkbox" id="verbose-toggle" onchange="toggleVerbosePanel()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="verbose-toggle-row">
+                                <div>
+                                    <span>Save new runs</span>
+                                    <small>Persist each /chat response under data/captures (large files)</small>
+                                </div>
+                                <label class="toggle-switch" title="Toggle saving captured runs">
+                                    <input type="checkbox" id="save-captures-toggle" onchange="savePromptSettings()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <label for="captures-select">Past responses (view only — no LLM/MCP call)</label>
+                            <select id="captures-select" aria-label="Captured runs"></select>
+                            <div class="btn-group">
+                                <button type="button" class="btn-soft" onclick="loadCapturesList()">Refresh</button>
+                                <button type="button" class="btn-soft" onclick="playbackSelectedCapture()">Load into preview</button>
+                            </div>
+                            </div>
+                        </div>
+
+                        <div class="drawer-group drawer-subgroup" data-group="voice">
+                            <button type="button" class="drawer-group-toggle" aria-expanded="false" onclick="toggleDrawerGroup(this)">
+                                <span class="drawer-group-title">Voice mode</span>
+                                <span class="drawer-group-chevron" aria-hidden="true"></span>
+                            </button>
+                            <div class="drawer-group-body" hidden>
+                            <p class="voice-help-lead">Press <strong>Space</strong> (or the mic button) and just talk. A short pause ends your turn — there is no “send”. Say things plainly (“add a Redis cache”, “make the database multi-AZ”) and they are understood; the exact phrases below still work and are instant. The app speaks back, and you can interrupt it just by talking. While typing in the composer, Space inserts a normal space — press Space outside the field, or again while listening, to stop.</p>
+                            <ul class="voice-help-list">
+                                <li><span>Stop</span> “stop”, “stop listening” — always instant, never waits</li>
+                                <li><span>Chat</span> “clear chat”, “attach file”, “clear attachments”</li>
+                                <li><span>Platform</span> “switch to aws / gcp / azure / multi”</li>
+                                <li><span>Settings</span> “open settings”, “theme daylight”, “enable cost”</li>
+                                <li><span>Diagram</span> “download diagram”, “export png”, “open in drawio”</li>
+                                <li><span>Insights</span> “apply waf”, “apply compliance”, “apply all insights”</li>
+                                <li><span>Patterns</span> “list patterns”, “use pattern 1”, “pattern serverless”</li>
+                            </ul>
+                            <p class="voice-help-limits">Limits: attach only opens the file picker; editing inside the draw.io canvas is mouse/keyboard only; Chrome or Edge on localhost/https. Captures save only when <strong>Save new runs</strong> is on.</p>
+                            <label class="voice-help-toggle">
+                                <input type="checkbox" id="voice-dictation-only-toggle" onchange="setVoiceDictationOnly(this.checked)">
+                                <span>Dictation instead of voice mode — speech fills the composer and waits for “send”, and the mic stops while a diagram generates.</span>
+                            </label>
+                            <button type="button" class="btn-soft" onclick="showVoiceCommandHelp()">Show full command list</button>
+                            </div>
+                        </div>
+
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Resizable handle for sidebar -->
+        <div class="sidebar-resizer" id="sidebar-resizer" role="separator" tabindex="0" aria-label="Resize sidebar"></div>
+
+        <!-- Right: full-height Draw.io editor -->
+        <main class="diagram-panel">
+            <div class="collapsed-rail collapsed-rail-left" onclick="toggleSidebarCollapse()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}" role="button" tabindex="0" title="Show chat panel" aria-label="Show chat panel">
+                <span class="collapsed-rail-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M9 6l6 6-6 6"/>
+                    </svg>
+                </span>
+                <span class="collapsed-rail-label">Chat</span>
+            </div>
+            <div class="diagram-toolbar">
+                <div class="diagram-toolbar-leading">
+                    <div class="title">Diagram Preview</div>
+                    <div id="diagram-status" class="status" role="status" aria-live="polite">Waiting for generation</div>
+                </div>
+                <div id="token-badge" class="token-meter" hidden role="status" aria-live="polite">
+                    <div class="token-meter-top">
+                        <span class="token-meter-label">LLM usage</span>
+                        <span class="token-meter-summary" id="token-meter-summary"></span>
+                    </div>
+                    <div class="token-meter-track" aria-hidden="true">
+                        <span class="token-meter-seg token-meter-in" id="token-meter-in"></span>
+                        <span class="token-meter-seg token-meter-out" id="token-meter-out"></span>
+                    </div>
+                    <div class="token-meter-legend">
+                        <span class="token-meter-legend-item"><i class="token-swatch token-swatch-in"></i><span id="token-meter-in-label">in</span></span>
+                        <span class="token-meter-legend-item"><i class="token-swatch token-swatch-out"></i><span id="token-meter-out-label">out</span></span>
+                    </div>
+                </div>
+                <div class="toolbar-actions">
+                    <button id="btn-download" class="btn-action primary" onclick="downloadXML()" disabled title="Download the .drawio source file" aria-label="Download .drawio">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+                        <span class="btn-action-label">Download .drawio</span>
+                    </button>
+                    <button id="btn-png" class="btn-action" onclick="downloadPNG()" disabled title="Export PNG from Draw.io">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+                        <span class="btn-action-label">PNG</span>
+                    </button>
+                    <button id="btn-svg" class="btn-action" onclick="downloadSVG()" disabled title="Export SVG (vector, still editable in Draw.io)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20l6-12 4 7 3-4 3 9z"/><circle cx="7.5" cy="6.5" r="2"/></svg>
+                        <span class="btn-action-label">SVG</span>
+                    </button>
+                    <button id="btn-open" class="btn-action" onclick="openInDrawio()" disabled title="Open this diagram in draw.io" aria-label="Open in draw.io">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>
+                        <span class="btn-action-label">Open</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="diagram-toolbar-meta">
+                <div class="diagram-toolbar-meta-left">
+                    <div id="context-chip" class="context-chip" aria-live="polite"></div>
+                </div>
+                <div id="version-strip" class="version-strip" hidden></div>
+            </div>
+
+            <pre id="xml-output" hidden aria-hidden="true"></pre>
+
+            <div class="diagram-viewport">
+                <div id="diagram-placeholder" class="diagram-placeholder">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <rect x="3" y="3" width="18" height="18" rx="2"/>
+                        <path d="M9 3v18M3 9h18"/>
+                    </svg>
+                    <p>Your diagram will appear here after generation. You can pan, zoom, and edit directly in Draw.io.</p>
+                </div>
+                <div id="diagram-loading" class="diagram-loading">
+                    <div class="loading-ring-modern" aria-hidden="true"></div>
+                    <p>Rendering diagram...</p>
+                </div>
+                <iframe id="drawio-frame" title="Draw.io diagram editor"></iframe>
+            </div>
+            <div id="log-panel-reopen-tab" class="collapsed-rail collapsed-rail-right" title="Show insights panel" aria-label="Show insights panel" hidden>
+                <button type="button" class="collapsed-rail-icon" onclick="setLogPanelOpen()" title="Show insights panel" aria-label="Show insights panel">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M15 6l-6 6 6 6"/>
+                    </svg>
+                </button>
+                <div id="collapsed-rail-tabs" class="collapsed-rail-tabs"></div>
+                <span class="collapsed-rail-label">Insights</span>
+            </div>
+        </main>
+
+        <!-- Right: insights (cost / WAF / compliance / logs) -->
+        <aside id="log-panel" class="log-panel">
+            <div class="insights-tabs" role="tablist" aria-label="Insights">
+                <button type="button" class="insights-tab active" data-tab="cost" role="tab" aria-selected="true" onclick="switchInsightsTab('cost')">
+                    <svg class="insights-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                    <span class="insights-tab-spinner" aria-hidden="true"></span>
+                    Cost
+                </button>
+                <button type="button" class="insights-tab" data-tab="waf" role="tab" aria-selected="false" onclick="switchInsightsTab('waf')">
+                    <svg class="insights-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+                    <span class="insights-tab-spinner" aria-hidden="true"></span>
+                    WAF/Compliance
+                </button>
+                <button type="button" class="insights-tab" data-tab="governance" role="tab" aria-selected="false" onclick="switchInsightsTab('governance')">
+                    <svg class="insights-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/><path d="M8 4v5"/><path d="M8 13.5l2 2 4-4"/></svg>
+                    <span class="insights-tab-spinner" aria-hidden="true"></span>
+                    Governance
+                </button>
+                <button type="button" class="insights-tab" data-tab="suggestions" role="tab" aria-selected="false" onclick="switchInsightsTab('suggestions')">
+                    <svg class="insights-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></svg>
+                    <span class="insights-tab-spinner" aria-hidden="true"></span>
+                    Suggestions
+                </button>
+                <button type="button" class="insights-tab" data-tab="logs" role="tab" aria-selected="false" onclick="switchInsightsTab('logs')">
+                    <svg class="insights-tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                    Logs
+                </button>
+                <button type="button" class="insights-panel-close" onclick="closeLogPanel()" title="Close panel" aria-label="Close insights panel">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+            <div class="insights-tab-panels">
+            <div id="network-insights-panel" class="insights-panel network-insights-panel active" data-panel="cost">
+            <div id="cost-panel" class="cost-panel network-insight-section active">
+                <div class="cost-panel-total">
+                    <span id="cost-total-amount" class="cost-total-amount">A$0</span>
+                    <span class="cost-total-period">per month estimated</span>
+                </div>
+                <div id="cost-donut" class="cost-donut" hidden></div>
+                <div id="cost-panel-body" class="cost-panel-body"></div>
+            </div>
+            </div>
+            <div id="waf-compliance-panel" class="insights-panel network-insights-panel network-insight-section" data-panel="waf" hidden>
+                <div class="chat-suggestions-header" id="insight-select-all-row" hidden>
+                    <div class="chat-suggestions-title">Findings with recommendations</div>
+                    <label class="chat-suggestions-select-all">
+                        <input type="checkbox" id="insight-select-all" class="suggestion-checkbox suggestion-select-all">
+                        <span>Select all</span>
+                    </label>
+                </div>
+                <div id="well-architected-panel" class="waf-panel">
+                    <div class="waf-panel-summary">
+                        <span id="waf-overall-badge" class="waf-overall-badge">--</span>
+                        <span class="waf-summary-text">Generate a diagram to assess against Well-Architected pillars</span>
+                    </div>
+                    <div id="waf-panel-body" class="waf-panel-body"></div>
+                </div>
+                <div id="compliance-panel" class="compliance-panel">
+                    <div class="compliance-tabs" id="compliance-tabs"></div>
+                    <div class="compliance-legend">
+                        <span class="legend-item legend-pass">&#x25CF; Pass</span>
+                        <span class="legend-item legend-warn">&#x25CF; Warn</span>
+                        <span class="legend-item legend-fail">&#x25CF; Fail</span>
+                    </div>
+                    <div id="compliance-body" class="compliance-body">
+                        <div class="compliance-empty">Generate a diagram with Compliance Assessment enabled to see results</div>
+                    </div>
+                </div>
+                <div class="suggestion-actions" id="insight-action-row" hidden>
+                    <button type="button" class="suggestion-btn" id="insight-apply-selected">Apply Selected</button>
+                    <button type="button" class="suggestion-btn suggestion-btn-primary" id="insight-apply-all">Apply All</button>
+                </div>
+            </div>
+            <div id="governance-panel" class="insights-panel" data-panel="governance" hidden>
+                <p class="governance-panel-intro">
+                    Your org's house-style rules, checked against this diagram. The rules themselves are
+                    managed by an admin in the <strong>Admin panel</strong> — this tab's visibility is
+                    controlled by the "Governance findings" toggle in Settings → Quality &amp; review.
+                </p>
+                <div id="governance-summary" class="governance-summary"></div>
+                <div id="governance-list" class="governance-list"></div>
+            </div>
+            <div id="suggestions-panel" class="suggestions-panel insights-panel" data-panel="suggestions" hidden>
+                <div class="chat-suggestions" id="suggestions-wrap">
+                    <div class="chat-suggestions-header" id="suggestions-select-all-row" hidden>
+                        <div class="chat-suggestions-title">Follow-up improvements</div>
+                        <label class="chat-suggestions-select-all">
+                            <input type="checkbox" id="suggestions-select-all" class="suggestion-checkbox suggestion-select-all">
+                            <span>Select all</span>
+                        </label>
+                    </div>
+                    <div id="suggestions-panel-body" class="chat-suggestions-list">
+                        <div class="suggestions-empty">Enable Follow-up suggestions in Settings, then generate a diagram</div>
+                    </div>
+                    <div class="suggestion-actions" id="suggestions-action-row" hidden>
+                        <button type="button" class="suggestion-btn" id="suggestions-apply-selected">Apply Selected</button>
+                        <button type="button" class="suggestion-btn suggestion-btn-primary" id="suggestions-apply-all">Apply All</button>
+                    </div>
+                </div>
+            </div>
+            <div id="verbose-log-body" class="log-panel-body insights-panel" data-panel="logs" hidden>
+                <div class="log-panel-body-header">
+                    <span id="log-count-badge" class="log-count-badge">0 entries</span>
+                    <button type="button" class="btn-log-action" onclick="clearVerboseLogs()">Clear logs</button>
+                </div>
+                <div id="verbose-log-entries">
+                    <div class="log-empty">Turn on <strong>Pipeline logs</strong> in Settings, then generate a diagram to see each step here with full details.</div>
+                </div>
+            </div>
+            </div>
+        </aside>
+    </div>
+
+    <nav class="mobile-tab-bar" aria-label="Mobile navigation">
+        <button type="button" class="mobile-tab active" data-mobile="chat" onclick="switchMobilePane('chat')">Chat</button>
+        <button type="button" class="mobile-tab" data-mobile="diagram" onclick="switchMobilePane('diagram')">Diagram</button>
+        <button type="button" class="mobile-tab" data-mobile="insights" onclick="switchMobilePane('insights')">Insights</button>
+    </nav>
+
+    <div id="app-toast" class="app-toast" role="status" aria-live="assertive" hidden></div>
+    <div class="copy-feedback" id="copy-toast">Copied to clipboard!</div>
+
+    <div id="provider-picker-backdrop" class="provider-picker-backdrop" onclick="closeProviderPicker()" hidden></div>
+    <div id="provider-picker-popover" class="provider-picker-popover" role="dialog" aria-label="Choose AI provider" hidden>
+        <div class="provider-picker-search-row">
+            <svg class="provider-picker-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+            <input type="text" id="provider-picker-search" class="provider-picker-search" placeholder="Search models…" oninput="filterProviderPicker()">
+            <button type="button" class="provider-picker-close" onclick="closeProviderPicker()" aria-label="Close">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+        </div>
+        <div id="provider-picker-list" class="provider-picker-list" role="listbox"></div>
+        <button type="button" class="provider-picker-footer provider-picker-footer-link" onclick="closeProviderPicker(); openProviderConfigDialog();">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20a8 8 0 1 0 0-16 8 8 0 0 0 0 16z"/><path d="M12 8v4l3 2"/></svg>
+            Configure providers… <span class="provider-picker-footer-hint">Untested BYOK models are marked</span>
+        </button>
+    </div>
+
+    <div id="provider-config-backdrop" class="settings-backdrop" onclick="closeProviderConfigDialog()" hidden></div>
+    <div id="provider-config-dialog" class="provider-config-dialog" role="dialog" aria-label="AI Provider Configuration" hidden>
+        <div class="drawer-head">
+            <span class="drawer-title">AI Provider Configuration</span>
+            <button type="button" class="icon-btn" onclick="closeProviderConfigDialog()" aria-label="Close">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+        </div>
+        <div class="provider-config-body">
+            <div class="provider-config-sidebar">
+                <div id="provider-config-list" class="provider-config-list"></div>
+                <button type="button" class="btn-soft provider-config-add-btn" onclick="selectProviderConfig('new')">＋ Add Provider</button>
+            </div>
+            <div id="provider-config-detail" class="provider-config-detail"></div>
+        </div>
+        <div class="provider-config-footer">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            API keys are stored locally in your browser — never sent anywhere except per-request to the model you choose.
+        </div>
+    </div>
+
+    <div id="history-backdrop" class="settings-backdrop" onclick="closeHistoryDialog()" hidden></div>
+    <div id="history-dialog" class="history-dialog" role="dialog" aria-label="Diagram history" aria-modal="true" hidden>
+        <div class="drawer-head">
+            <span class="drawer-title">Diagram history</span>
+            <button type="button" class="icon-btn" onclick="clearSessionHistory()" title="Clear this session's history" aria-label="Clear this session's history">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/>
+                </svg>
+            </button>
+            <button type="button" class="icon-btn" onclick="closeHistoryDialog()" title="Close" aria-label="Close history">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+        </div>
+        <div id="history-grid" class="history-grid"></div>
+    </div>
+
+    <div id="sessions-backdrop" class="settings-backdrop" onclick="closeSessionsDialog()" hidden></div>
+    <div id="sessions-dialog" class="history-dialog" role="dialog" aria-label="Past sessions" aria-modal="true" hidden>
+        <div class="drawer-head">
+            <span class="drawer-title">Sessions</span>
+            <button type="button" class="icon-btn" onclick="closeSessionsDialog()" title="Close" aria-label="Close sessions">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+        </div>
+        <div id="sessions-grid" class="history-grid"></div>
+    </div>
+    <script src="/static/js/api-key.js?v=20260814b"></script>
+    <script src="/static/js/state.js?v=20260809b"></script>
+    <script src="/static/js/theme.js?v=20260724f"></script>
+    <script src="/static/js/resizer.js?v=20260808a"></script>
+    <script src="/static/js/settings.js?v=20260808a"></script>
+    <script src="/static/js/custom-providers.js?v=20260808c"></script>
+    <script src="/static/js/provider-options.js?v=20260816a"></script>
+    <script src="/static/js/provider-picker.js?v=20260808f"></script>
+    <script src="/static/js/prompt-settings.js?v=20260809b"></script>
+    <script src="/static/js/diagram.js?v=20260814a"></script>
+    <script src="/static/js/voice-commands.js?v=20260808a"></script>
+    <!-- voice.js before voice-router.js: VOICE_TUNING is a `const` there, so it
+         sits in the temporal dead zone until voice.js has run. -->
+    <script src="/static/js/voice.js?v=20260816b"></script>
+    <script src="/static/js/voice-router.js?v=20260816b"></script>
+    <script src="/static/js/chat.js?v=20260808c"></script>
+    <script src="/static/js/toast.js?v=20260808a"></script>
+    <script src="/static/js/exports.js?v=20260724f"></script>
+    <script src="/static/js/attachments.js?v=20260808b"></script>
+    <script src="/static/js/platform-ui.js?v=20260724f"></script>
+    <script src="/static/js/run-controls.js?v=20260726b"></script>
+    <script src="/static/js/verbose-logs.js?v=20260809d"></script>
+    <script src="/static/js/insights-ui.js?v=20260809a"></script>
+    <script src="/static/js/insights-panels.js?v=20260814a"></script>
+    <script src="/static/js/captures.js?v=20260809a"></script>
+    <script src="/static/js/templates.js?v=20260808a"></script>
+    <script src="/static/js/history.js?v=20260808b"></script>
+    <script src="/static/js/sessions.js?v=20260808b"></script>
+    <script src="/static/js/validation-card.js?v=20260808c"></script>
+    <script src="/static/js/design-rationale-card.js?v=20260809b"></script>
+    <!-- The chat turn, split by responsibility. Order between these does not
+         matter (all are function declarations); app.js must stay last, since
+         it is the only one that runs code at load time. -->
+    <script src="/static/js/chat-api.js?v=20260816a"></script>
+    <script src="/static/js/chat-request.js?v=20260816a"></script>
+    <script src="/static/js/chat-response.js?v=20260816a"></script>
+    <script src="/static/js/chat-send.js?v=20260816a"></script>
+    <script src="/static/js/provider-select.js?v=20260816a"></script>
+    <script src="/static/js/visual-validation.js?v=20260816a"></script>
+    <script src="/static/js/app.js?v=20260816a"></script>
+</body>
+
+</html>

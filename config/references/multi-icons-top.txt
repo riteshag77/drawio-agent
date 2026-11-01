@@ -1,0 +1,71 @@
+# Multi-cloud top services — `shape_type` vocabulary
+
+Copy a key verbatim into a leaf's `shape_type`. Icon artwork is resolved
+server-side from the key, so never emit a draw.io style, stencil path or image
+path. A service that is not listed still takes your best semantic guess in the
+same `<platform>_<service>` shape.
+
+Mixing platforms in one diagram is the point of this view: use the key for the
+platform each service actually belongs to.
+
+Never reuse another leaf's key for a different service just because it's
+already in front of you — e.g. IAM, KMS and CloudWatch are three different
+services and must not all resolve to the same key. Two different leaves
+sharing one icon reads as a worse mistake than either one showing an
+unresolved placeholder.
+
+## AWS
+| shape_type | Service |
+|---|---|
+| aws_lambda | Lambda |
+| aws_api_gateway | API Gateway |
+| aws_s3 | S3 |
+| aws_dynamodb | DynamoDB |
+| aws_rds | RDS |
+| aws_sqs | SQS |
+| aws_sns | SNS |
+| aws_cloudfront | CloudFront |
+| aws_vpc | VPC |
+| aws_ecs | ECS |
+
+## GCP
+| shape_type | Service |
+|---|---|
+| gcp_cloud_run | Cloud Run |
+| gcp_gke | GKE |
+| gcp_cloud_functions | Cloud Functions |
+| gcp_compute_engine | Compute Engine |
+| gcp_cloud_storage | Cloud Storage |
+| gcp_cloud_sql | Cloud SQL |
+| gcp_pubsub | Pub/Sub |
+| gcp_bigquery | BigQuery |
+| gcp_cloud_load_balancing | Cloud Load Balancing |
+| gcp_vpc | VPC |
+
+## Azure
+| shape_type | Service |
+|---|---|
+| azure_app_service | App Service |
+| azure_functions | Functions |
+| azure_aks | AKS |
+| azure_vm | Virtual Machine |
+| azure_storage_account | Storage Account |
+| azure_sql_database | SQL Database |
+| azure_cosmos_db | Cosmos DB |
+| azure_service_bus | Service Bus |
+| azure_key_vault | Key Vault |
+| azure_api_management | API Management |
+
+## Security & Ops
+| shape_type | Service |
+|---|---|
+| aws_iam | IAM |
+| aws_kms | KMS |
+| aws_cloudwatch | CloudWatch |
+| aws_secrets_manager | Secrets Manager |
+| gcp_iam | IAM |
+| gcp_cloud_kms | Cloud KMS |
+| gcp_cloud_logging | Cloud Logging |
+| gcp_secret_manager | Secret Manager |
+| azure_entra_id | Microsoft Entra ID |
+| azure_monitor | Azure Monitor |

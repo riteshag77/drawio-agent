@@ -1,0 +1,62 @@
+━━━ Enterprise SaaS shape_types ━━━
+Server resolves saas_* via curated stencil icons under static/saas-icons/ (embedded as data-URI image styles).
+Leaf style is a grey placeholder + shape_type=saas_<vendor>; never derive a draw.io style or stencil string for these — the key alone is all the IR needs.
+Expand this catalog by industry section as needed. Vendors are ordered L→R by journey role
+(identity → experience → workforce → industry → payments → collab) — never one mega SaaS container.
+
+Every key below has its own distinct, real, branded icon — copy the key that
+actually matches the vendor. Never reuse a listed vendor's key for a
+different, unrelated vendor just because it's a name you recognize (e.g. a
+generic "market data vendor" or "clearinghouse" the brief never names is not
+Salesforce or Stripe just because those are familiar keys) — that renders the
+wrong company's logo, a worse mistake than an unresolved placeholder. If the
+actual vendor genuinely is not one of these, invent a new `saas_<name>` key
+instead — it safely renders as a generic labelled placeholder.
+
+This applies leaf-by-leaf, not just once: "three external clearinghouses"
+with no real names given is three *different* unresolved vendors, so it's
+three *different* invented keys (`saas_clearinghouse_a`, `saas_clearinghouse_b`,
+`saas_clearinghouse_c`, or similar per-instance names) — never three copies of
+the same real vendor's key (all three as `saas_stripe`) and never three
+different but equally wrong real vendors borrowed to fill the slots (`saas_fis`,
+`saas_fiserv`, `saas_temenos`). None of those are the clearinghouses the brief
+described; a generic placeholder per leaf is honest, a borrowed real brand
+per leaf is not.
+
+shape_type              | Common labels / needles
+------------------------|------------------------------------------
+## Identity
+saas_okta               | Okta, Okta IdP
+## Experience / CRM / service
+saas_salesforce         | Salesforce, SFDC, Sales Cloud, Service Cloud
+saas_servicenow         | ServiceNow, SNOW, Now Platform
+## Workforce / HR
+saas_workday            | Workday, Workday HCM, Workday Finance
+saas_successfactors     | SuccessFactors, Success Factors, SAP SuccessFactors, SFSF
+## Industry / BFSI core
+saas_guidewire          | Guidewire, PolicyCenter, ClaimCenter, BillingCenter
+saas_duck_creek         | Duck Creek, Duck Creek Policy
+saas_temenos            | Temenos, Temenos Transact, T24
+saas_finastra           | Finastra, Fusion
+saas_fiserv             | Fiserv, DNA, Premier
+saas_fis                | FIS, Profile, Modern Banking Platform
+saas_murex              | Murex, MX.3
+saas_bloomberg          | Bloomberg, Bloomberg Terminal, BBG
+saas_refinitiv          | Refinitiv, LSEG, Eikon
+## Payments / credit / data
+saas_experian           | Experian
+saas_equifax            | Equifax
+saas_stripe             | Stripe
+saas_adyen              | Adyen
+saas_plaid              | Plaid
+## Collaboration
+saas_slack              | Slack
+saas_office365          | Office 365, Microsoft 365, M365, O365
+
+Hint tokens (include catalog when request mentions): bank, banking, insurance, insurer,
+claims, policy, underwriting, core banking, payments, fintech, salesforce, workday,
+successfactors, success factors, guidewire, temenos, duck creek, servicenow, okta, saas.
+
+On Logical: prefer saas_* for known vendors (labels still ``Name (SAAS)``); optional domain_saas when 2+;
+unknown vendor → logical_saas.
+On Network: saas_* leaves sit ungrouped as external_actors, left of the cloud boundary, ordered L→R by journey role.

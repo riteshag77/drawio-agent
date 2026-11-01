@@ -1,0 +1,166 @@
+# Corridor views — shared IR mechanics (Logical / Security / Data-flow)
+
+You produce a **JSON** object with this shape. You do **not** produce draw.io
+XML, coordinates, styles, colours, waypoints, or `exitX`/`entryY` — a compiler
+and deterministic layout engine own geometry and edge routing after you return.
+Your only job: decide **what exists**, **which corridor it belongs to**, and
+**how it connects** as a readable storyboard.
+
+```
+corridors[]        the main left-to-right row (domains / trust zones / data phases)
+  id, label, leaves[]
+anchored[]         shelves excluded from the row, anchored below something
+  id, label, leaves[], anchor_id
+external_actors[]  outside the whole diagram (users | saas_ingress | saas_egress | on_prem)
+flows[]            source -> target edges between any two leaf/actor ids
+```
+
+## Storyboard rules (JSON, not pixels)
+
+Expressed as IR choices:
+
+1. **One viewport story** — prefer a sparse graph the reader finishes in seconds.
+   Fewer labeled edges beat a complete mesh. Cap density per the view pack.
+2. **Plan before you emit** — mentally pick the L→R columns (journey ranks),
+   which leaves sit in each, and the primary path. Then write JSON in that
+   order: actors → corridors/leaves → anchored → flows last.
+3. **One dominant direction** — primary flows should read left→right along the
+   corridor row (or top→bottom within a column). Put secondary/error paths as
+   `primary: false` (dashed), not as extra primary zigzags.
+4. **Layers = corridors** — organize components into journey ranks by role
+   (experience → core → data, or public → private → restricted). Omit empty
+   corridors; never invent padding nodes. **Security / Data-flow** draw those
+   ranks as colored boxes; **Logical** uses the same JSON ranks for L→R order
+   only and renders a flat storyboard (icons + edges, optional one cloud
+   boundary — no Experience/Core/Data columns).
+5. **Leaf order is routing** — inside each corridor, list leaves in primary-flow
+   arrival order. That is the only “spacing” control you have; a random order
+   causes crossings after layout.
+6. **Every relationship labeled** — when 2+ leaves/actors exist, `flows` is
+   required and non-empty. Prefer short verbs (1–6 words). Dual paths between
+   the same pair: one primary, one `primary: false` with a distinct label.
+7. **Name what the user asked for** — if they say React + AWS Cognito + Lambda,
+   those labels/`shape_type` keys appear in the JSON. Do not hide them behind
+   vague “capability” placeholders unless the brief is business-generic.
+8. **Never invent geometry** — no `x`/`y`/`width`/`style`/`mxCell`. Icons are
+   semantic `shape_type` keys only (`aws_lambda`, `logical_portal`, `saas_okta`).
+
+## Corridors
+
+Each corridor is one rank in the journey (a domain, a trust zone, a data
+phase). **Never emit an empty corridor** — omit it entirely if nothing belongs
+in it. Each view below gives you the exact, fixed set of corridor ids the
+layout engine recognizes — use those ids exactly; inventing a new one is a
+validation error, not a creative choice. On Logical the ranks stay in JSON
+only; on Security/Data-flow they become the visible zone/phase boxes.
+
+## Anchored shelves
+
+Some corridors are deliberately **not** part of the main row — they render
+anchored below another corridor instead (a SaaS shelf below the data
+corridor, for example). Set `anchor_id` to the id of the row corridor it sits
+below, or leave `anchor_id` unset/null when a shelf sits below the **entire**
+row rather than one specific corridor. Each view below tells you exactly which
+shelf ids exist and what they anchor under — this is fixed, not a judgment call.
+
+## External actors
+
+Anything outside the architecture's own boundary — a person, an identity
+provider the user is redirected through, a SaaS product the system calls out
+to. These are **never** leaves inside a corridor; give them their own
+`external_actors` entry instead. `kind` decides which side they render on:
+`users` / `saas_ingress` / `on_prem` render left (what is encountered first),
+`saas_egress` renders right (what the architecture calls out to).
+
+## Leaves
+
+Every leaf has:
+- `id` — short, unique, letters/digits/underscore, starts with a letter.
+- `shape_type` — a semantic key, never a draw.io style/stencil string. Cloud
+  services use `aws_*`/`gcp_*`/`azure_*` (e.g. `aws_rds`); this view's own
+  vocabulary pack tells you when to use `logical_*`/`saas_<vendor>` instead.
+- `label` — short display name, prefer ≤18 characters (official short names /
+  role suffixes like `RDS primary`). Never blank; never placeholders like
+  `Service`, `Icon`, `Node`, or `Group`.
+- `annotation` — optional short (2-3 word) contextual tag rendered as `"Label [Tag]"`
+  (e.g. `"Aurora [PII]"`, `"Order Service [Node.js]"`). Use sparingly — most leaves
+  need none; this view's own vocabulary pack lists what kind of tag fits its lens
+  (tech stack, encryption/control, data classification, hosting/environment). Never
+  a full sentence, never invented detail the request/inventory doesn't support.
+- `criticality` — `"critical"` only for a genuine business-critical or
+  single-point-of-failure component (the primary datastore, the auth service);
+  everything else is `"standard"` (the default — leave it unset unless you mean
+  `"critical"`). Binary on purpose: don't guess a finer tier from a brief
+  description. Renders as a heavier, coloured leaf border.
+
+**Order leaves left→right by primary-flow arrival** inside each corridor —
+the leaf a flow arrives at first, then what it continues to. Listing order is
+the only routing control you have; an unrelated order is what makes connectors
+cross.
+
+## Flows
+
+**`flows` is REQUIRED whenever 2+ leaves or any external actor exist — never
+leave it empty.** A diagram with no relationships between components is not
+a valid answer and will be rejected. This is a diagram-wide check only: on
+Security and Data-flow a leaf that legitimately has no edge (CloudWatch
+sitting in the Detect zone, a backup archive that's pure inventory) is fine
+as long as *something* in the view connects — those two views have real
+zone/phase boxes to place a passive leaf in. Logical is flatter and has no
+such box, so it additionally requires *every* leaf/actor to touch a flow —
+its own view pack says so.
+
+Write `flows` last, after every corridor, leaf and actor is declared — each
+`source`/`target` must reference one of those already-declared ids. Prefer a
+**readable** sparse story over a complete mesh — fewer labeled edges beat an
+illegible diagram. `primary: false` for secondary/async paths (rendered
+dashed). Use `primary: false` plus a label prefix `Failure:` / `DR:` /
+`Fallback:` **only** for explicit error or disaster-recovery paths — never
+for a normal async edge. **Label every flow** (1–6 words) — this view's own
+pack may tighten that further (e.g. requiring it specifically on the primary
+path). Every flow's `source`/`target` must be a real leaf or external-actor
+id you already declared.
+
+Two more optional fields per flow, both default to `"none"` — set them only
+when the request genuinely implies the property, never invented:
+- `classification` — sensitivity of the data this flow carries: `"pii"`/`"pci"`
+  for personal/payment data, `"confidential"` for internal-but-sensitive
+  (credentials, internal financials), `"internal"` for ordinary internal
+  traffic, `"none"` when it doesn't apply (e.g. a health check). Colours the
+  edge.
+- `protection` — transport protection actually in effect: `"mtls"` for
+  mutual-TLS (typical service-to-service/partner links), `"tls"` for one-way
+  TLS (typical client-to-edge), `"none"` only when genuinely unencrypted.
+  This structured field feeds the panel's facts and validation; it does not
+  replace a view's own convention (if any) for also naming it in `label`.
+
+### Mini example (shape only — use the view pack's corridor ids)
+
+```json
+{
+  "external_actors": [{"id": "users", "kind": "users", "label": "Users"}],
+  "corridors": [
+    {"id": "<first_row_id>", "label": "...", "leaves": [{"id": "edge", "shape_type": "aws_api_gateway", "label": "API Gateway"}]},
+    {"id": "<next_row_id>", "label": "...", "leaves": [
+      {"id": "svc_a", "shape_type": "aws_ecs", "label": "Service A"},
+      {"id": "svc_b", "shape_type": "aws_ecs", "label": "Service B"}
+    ]}
+  ],
+  "anchored": [],
+  "flows": [
+    {"source": "users", "target": "edge", "primary": true, "label": "Uses"},
+    {"source": "edge", "target": "svc_a", "primary": true, "label": "Invokes"},
+    {"source": "svc_a", "target": "svc_b", "primary": true, "label": "Invokes"}
+  ]
+}
+```
+
+**Never return `"flows": []` when leaves or actors exist.** If you listed the
+nodes above, you must also list the edges that tell their story.
+
+## What you do not need to do
+
+No coordinates, no pixel gaps, no styles, no colours, no `arcSize`, no grid
+math, no draw.io XML. A rank-and-order layout engine positions every corridor
+and leaf after you return — spend your effort on correct grouping and a
+readable JSON story, not layout.

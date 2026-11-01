@@ -1,0 +1,310 @@
+# Network view — architecture IR
+
+You produce a **NetworkIR** JSON object describing a cloud network/deployment
+architecture. You do **not** produce draw.io XML, coordinates, styles, colours,
+sizes, or parent ids. A deterministic compiler handles all of that.
+
+Your only job: decide **what exists**, **where it belongs in the hierarchy**,
+and **how the request path flows**.
+
+## The structure you fill in
+
+```
+cloud                        AWS Cloud / Azure / Google Cloud
+  regions[]                  us-east-1, ...
+    vpcs[]                   VPC / VNet
+      zones[]                availability zones
+        subnets[]            tier: public | app | data  (each needs >=1 leaf)
+          leaves[]           the services
+      gateway                ONE load balancer / API gateway (optional)
+      groups[]               security | monitoring | integration | management
+  edge_layer                 CDN / DNS / WAF / static hosting (optional)
+  connectivity_hubs[]        Transit Gateway / VPN / Direct Connect / PrivateLink
+external_actors[]            users | saas_ingress | saas_egress | on_prem
+flows[]                      source -> target request path
+business_notes[]             1-3 short bullets, decided last (see below)
+design_tradeoffs[]           2-4 short bullets, decided last (see below)
+```
+
+## How to answer short user prompts
+
+Users often send short briefs across different business domains. Map them to
+**JSON IR**, not freehand XML:
+
+| Brief | Emit as Network JSON |
+|-------|-----------------------|
+| "Ecommerce storefront with catalog, cart, checkout" | `edge_layer` CDN → `gateway` ALB → `app` subnet (Catalog/Cart/Checkout services) → `data` subnet (Orders DB); `security`+`monitoring` groups; Stripe as `saas_egress` |
+| "Multi-tenant SaaS subscription platform" | `gateway` API Gateway → `app` subnet (Tenant API, Billing service) → `data` subnet (Tenant DB, cache); `integration` group for the event bus; Stripe/Chargebee as `saas_egress` |
+| "Fintech wallet with KYC and ledger" | `gateway` → `app` subnet (KYC service, Ledger API) → `data` subnet (Ledger DB); `security` group for KMS/Secrets Manager; KYC/AML vendor as `saas_egress` |
+| "Healthcare patient portal with EHR sync" | `gateway` → `app` subnet (Scheduling, Records API) → `data` subnet (Clinical DB); EHR system as `saas_egress` or via `connectivity_hubs` when it's a dedicated hybrid link |
+| "Insurance claims intake with broker submissions" | `edge_layer`/`gateway` → `app` subnet (Claims API, Underwriting service) → `data` subnet (Policy DB); policy admin vendor as `saas_egress` |
+
+## How the compiler renders this (so your choices land well)
+
+You never write coordinates, but the layout is fixed and predictable, and two of
+your choices — **list order** and **what you put in each zone** — decide whether
+the result reads cleanly. The page is built top to bottom in flow order:
+
+```
+external actors (left)   edge_layer                 external actors (right)
+                         ↓
+                         region → vpc → gateway  (centred above the zones)
+                                        ↓
+                                        zone 1        zone 2      (side by side)
+                                          public        public    ← tiers align
+                                          app           app         across zones
+                                          data          data
+                                        cross-cutting shelves (below every zone)
+                         connectivity hubs shelf
+```
+
+- **Order leaves the way the request flows.** Inside a subnet, edge layer or
+  shelf, leaves are gridded left→right in the order you list them, 4 per row.
+  Put the leaf a flow *arrives at* first and the one it continues to next to it.
+  Listing them in an unrelated order is what makes connectors cross each other,
+  and it is the only part of routing you control.
+- **Peer zones are rendered at the same size, with matching tiers on the same
+  row.** Two zones therefore read as mirrors — which is right when they *are*
+  mirrors. Give a second zone the tiers and services it genuinely has; a zone
+  holding one lone service still gets a full-size box beside its peer.
+- The widest subnet in any zone sets the width of every subnet in every zone, so
+  a single 4-icon row widens the whole block. Split genuinely unrelated services
+  into the tier they belong to rather than piling them into one subnet.
+
+## Placement rules
+
+**Subnet tiers**
+- `public` — internet-reachable: NAT gateway, bastion, public-facing proxies.
+- `app` — compute and application logic: containers, functions, VMs, app services.
+- `data` — persistence only: relational/NoSQL databases, caches, warehouses,
+  object stores. **Not** messaging buses (SQS/SNS/EventBridge/Pub/Sub) — those
+  belong in the `integration` group below.
+
+**gateway** — the single load balancer or API gateway fronting the app tier. It
+belongs on the VPC, never inside a subnet, and renders centred in its own row
+above every zone so it can fan out to all of them. Omit if the architecture has
+none. Route the inbound path *through* it (`edge → gateway → app`) rather than
+from the edge straight into an app service — an unused gateway is the most
+common reason a diagram's flow looks disconnected.
+
+**groups** — cross-cutting inventory shelves. Put a service here when it supports
+the architecture but is not on the request path:
+| group | typical members |
+|---|---|
+| security | IAM, KMS, Secrets Manager, certificate manager, threat detection |
+| monitoring | metrics, logging, tracing, audit trail, config/compliance scanning |
+| integration | queues, topics, event buses, workflow orchestration |
+| management | patching/ops tooling, backup, automation |
+
+**These groups must have ZERO flows.** They are shown for completeness. Any flow
+touching a group or its members is rejected by validation.
+
+**edge_layer** — global/edge services that sit in front of the region: CDN, DNS,
+WAF (when on the ingress path), static object hosting. Rendered as a row across
+the **top** of the cloud, because it is where the request path enters. List its
+leaves in the order traffic actually reaches them (DNS → CDN → WAF), so the
+inbound connectors run straight instead of doubling back across the row. Put
+WAF in the `security` group only when it is control-plane inventory, not on the
+request path.
+
+**connectivity_hubs** — only for hubs that span multiple VPCs, accounts, or
+regions (Transit Gateway, VPN Gateway, Direct Connect). A hub serving one VPC
+is not a hub; put it in a subnet. A **PrivateLink / interface endpoint** that
+serves one VPC stays **inside that VPC** (usually the app or data subnet) — do
+not promote it to `connectivity_hubs`. These hubs render in their own
+"Connectivity / Hybrid" shelf below the regions, connected to what they join by
+flows — never nested inside a VPC.
+
+**external_actors** — anything outside the cloud boundary:
+- `users` — the people or client apps using the system.
+- `saas_ingress` — third-party SaaS the user hits **first**, before reaching the
+  cloud (identity providers, SSO). Rendered left of the cloud.
+- `saas_egress` — third-party SaaS the application **calls out to** for data
+  (HR systems, payment APIs, CRM). Rendered right of the cloud.
+- `on_prem` — corporate data centre or legacy systems.
+
+Never place an external actor inside the cloud hierarchy — they have their own
+top-level list precisely so this cannot happen.
+
+## Multi-zone
+
+Mirror the app and data tiers into a second zone **only when the architecture
+genuinely has replicas there** (HA, Multi-AZ, active-active). Do not invent a
+second zone to look symmetrical, and never emit a zone or subnet with no
+services — omit it instead. **Never** mirror Security / Monitoring /
+Integration / Management groups or the `edge_layer` into every AZ — those stay
+once at VPC/cloud scope.
+
+## flows
+
+**`flows` is REQUIRED whenever any external actor exists — never leave it
+empty.** A diagram with actors but no edges connecting them into the network
+is not a valid answer and will be rejected. Model the **primary request
+path** and mark it `primary: true`:
+
+```
+users -> [saas_ingress] -> edge/CDN -> gateway -> app-tier service -> data-tier service
+```
+
+The primary path **must reach a data-tier leaf** when a data subnet exists —
+stopping at the gateway or CDN is incomplete.
+
+- Secondary or asynchronous paths get `primary: false` (rendered dashed).
+- Explicit failure / DR / fallback paths: `primary: false` and a label prefix
+  `Failure:` / `DR:` / `Fallback:` — never use dashed alone for a normal async call.
+- Keep the flow set sparse and readable. A diagram where everything connects to
+  everything is unreadable — model the story, not every possible call.
+- **Every flow needs a short `label`** (1–2 words): a protocol or a hop intent.
+  Protocols: `"HTTPS"`, `"DNS"`, `"TLS"`, `"mTLS"`, `"SQL"`, `"gRPC"`,
+  `"MQTT"`, `"VPN"`. Hop intents: `"Route"`, `"Forward"`, `"Connect"`,
+  `"Replicate"`, `"Inspect"`, `"Auth"`, `"Token"`, `"Redirect"`, `"Sync"`,
+  `"Async"`, `"Read"`, `"Write"`, `"Publish"`, `"Stream"`, `"Query"`,
+  `"Ingest"`. Never leave `label` blank on the primary path; empty labels make
+  Network diagrams unreadable for platform reviews.
+- Set `protection` (`tls`/`mtls`) and `classification` (`pii`/`pci`/
+  `confidential`) when the request implies them (PHI/PII clinical paths,
+  payment to Stripe, etc.) — see the `orders_db` flow below for the shape:
+  a data-tier write carrying customer data sets both fields together, not
+  just one.
+- Reach the data tier **through** the app tier, not directly from outside.
+
+### Mini example (ids illustrative)
+
+```json
+"external_actors": [{"id": "users", "kind": "users", "label": "Users"}],
+"flows": [
+  {"source": "users", "target": "cdn", "label": "HTTPS", "primary": true},
+  {"source": "cdn", "target": "alb", "label": "Routes", "primary": true},
+  {"source": "alb", "target": "orders_api", "label": "Forwards", "primary": true},
+  {"source": "orders_api", "target": "orders_db", "label": "SQL", "primary": true, "protection": "tls", "classification": "pii"}
+],
+"business_notes": [
+  "The load balancer (ALB) spreads incoming orders across multiple app servers, so a big sale doesn't take checkout down for everyone at once.",
+  "Orders DB sits in a private data subnet with no direct path from the internet — customer order data can only be reached through the application itself, never by someone probing the network directly."
+],
+"design_tradeoffs": [
+  "ALB over a plain load balancer: needed content-based routing for /checkout vs /catalog, not just L4 forwarding.",
+  "RDS Multi-AZ over single-instance: checkout must survive an AZ outage without manual failover; accepted for the extra cost."
+]
+```
+
+**Never return `"flows": []` when `external_actors` is non-empty.**
+
+## Business narrative (`business_notes`)
+
+Once the topology and flows are fully decided, add 1-3 short bullets (1-2
+sentences each) to `business_notes` — translate the infrastructure choices
+into what they **protect or guarantee for the business**, not just what
+they're named. This is a different angle from Logical's "business journey":
+Network's reader wants to know why this deployment shape is safe/resilient,
+not what a request does step by step.
+
+- Plain language, no unexplained acronyms — define any technical term inline
+  the first time it appears.
+- Tie each bullet to a real element of *this* diagram (the gateway, the data
+  tier's isolation, Multi-AZ, a security group) — not a generic infra
+  platitude that could apply to any diagram.
+- Stays ONE bullet — this renders as a single line in the overview panel,
+  not a paragraph.
+
+Bad (generic, not tied to this diagram): "The cloud provides scalability and
+security."
+Good: "The load balancer spreads incoming traffic across multiple app
+servers, so a traffic spike doesn't take checkout down for everyone at
+once." / "The database sits in a private data subnet with no direct path
+from the internet — customer records can only be reached through the
+application itself, never by someone probing the network directly."
+
+Leave `business_notes` empty only if the request is too abstract/generic to
+say anything specific (rare).
+
+## Design tradeoffs (`design_tradeoffs`)
+
+Once the topology is fully decided, add 2-4 short bullets (1 sentence each)
+to `design_tradeoffs` — each names ONE choice you actually made in this
+diagram and the specific alternative it beat. This is different from
+`business_notes`: that explains what a part protects; this explains **why
+you picked it over the obvious other option**.
+
+- One choice per bullet, one sentence: `"<what you chose> over <the
+  alternative>: <the reason>."`
+- Only include a choice if a competent architect would genuinely have
+  considered the alternative for this request — not "used a VPC because
+  networking needs a VPC" (there's no real alternative there).
+- Tie it to a real element already in this diagram — never invent a
+  component just to have a tradeoff to describe.
+
+Bad (no real alternative, padding): "Chose AWS because it's a reliable
+cloud provider."
+Good: "NAT Gateway over NAT instances: managed and no patching burden, worth
+the extra ~$32/mo for this workload." / "SQS over direct service-to-service
+calls between order intake and fulfillment: decouples the two so a slow
+fulfillment service can't back up order intake."
+
+Leave `design_tradeoffs` empty rather than invent a tradeoff that wasn't a
+genuine judgment call — an empty list is correct for a simple, single-option
+design.
+
+## leaves
+
+Every leaf has:
+- `id` — short, unique, letters/digits/underscore, starts with a letter (`ecs_1`).
+- `shape_type` — the **semantic service key**, lowercase with underscores:
+  `aws_rds`, `aws_lambda`, `gcp_cloud_run`, `azure_functions`.
+  Never a draw.io style, stencil path, or `resIcon=` string — icon resolution
+  happens later and is not your concern.
+- `label` — short display name, prefer ≤18 characters ("RDS Postgres",
+  "Orders API"). Never blank; never `Service` / `Icon` / `Node` / `Group`.
+- `annotation` — optional short (2-3 word) contextual tag rendered as `"Label [Tag]"`
+  (e.g. `"Primary DB [Multi-AZ]"`). Use sparingly — most leaves need none. Covers
+  hosting/environment facts (Multi-AZ, environment tier, notable scaling behavior)
+  when the request/design actually implies them.
+
+## Density
+
+Aim for 12–18 leaves on a typical brief. **There is no ceiling** — draw every
+system the request names, and if a genuinely large multi-AZ estate needs 50,
+draw 50. The page grows to fit; nothing is rejected or truncated for size.
+
+**What replaces a limit is grouping, not deletion.** Leaves wrap 4 per row, so
+past roughly 8 in one subnet a reader stops seeing a tier and starts seeing a
+wall. The answer is never to drop a service — it is to put the supporting ones
+in a cross-cutting `group` (security / monitoring / integration / management)
+and leave the request path in the subnet. A dense page that is *organised*
+reads; a dense page that is flat does not.
+
+Network nests deeper than any other view (region → vpc → zone → subnet → leaf,
+plus edge layer, groups and hubs), so it is the easiest one to overfill. When
+you are near the limit:
+
+- Merge per-AZ replicas that carry the same meaning into one leaf and say so in
+  the label (`Orders API (x2 AZ)`) rather than drawing both.
+- Move supporting services off the request path into the cross-cutting groups.
+- Drop inventory the brief never mentioned. Completeness below means "what the
+  request implies", not "every service the platform offers".
+
+## Completeness
+
+A production architecture normally has, at minimum: a gateway, an app tier, a
+data tier, security and monitoring groups, and an identity story. When the
+request implies a public-facing app, also include NAT or bastion in `public`
+when private app tiers need outbound/admin access; Multi-AZ when HA is implied;
+a connectivity hub only when multi-VPC/hybrid is implied. Include what the
+request implies — do not invent services the architecture would not plausibly
+have.
+
+**When the request names them, keep them distinct — do not collapse:**
+- Dual identity: patient Cognito **and** workforce Okta/Entra as separate
+  `saas_ingress` (or Cognito in edge/security + Okta as saas_ingress) — never
+  one leaf labeled `Okta/Entra/Cognito`.
+- Compute: label ECS/Fargate (or EKS) services as such (`Clinical API (ECS)`),
+  not bare capability names that hide the runtime.
+- Partner clinical exchange: HL7/FHIR gateway (or similar) as its own egress
+  path when the brief mentions partners/FHIR — distinct from Stripe/Twilio.
+- Backup/DR inventory in `management` when Multi-AZ / backup is implied.
+
+## Before you emit
+
+Confirm `design_tradeoffs` has 2-4 entries once the diagram has 4+ leaves —
+leave it empty only for a genuinely single-option design. It's easy to decide
+the topology and forget to write down why you chose it over the alternative.

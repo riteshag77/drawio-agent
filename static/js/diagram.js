@@ -1,0 +1,371 @@
+function getDrawioUrl(theme) {
+    const ui = DRAWIO_THEMES.includes(theme) ? theme : 'kennedy';
+    // spin=0: suppress drawio's own boot spinner. The app's own placeholder/
+    // loading overlay already covers this window, so drawio's spinner was a
+    // second, differently-styled loading indicator competing with ours.
+    return `${DRAWIO_ORIGIN}/?embed=1&ui=${ui}&spin=0&proto=json&configure=1&libs=aws4;gcp2;azure2&nav=1&saveAndExit=0&noSaveBtn=1&noExitBtn=1&sidebar=0&format=0`;
+}
+
+function exportDiagramXml() {
+    return new Promise((resolve, reject) => {
+        if (!drawioReady) {
+            resolve(currentXml || null);
+            return;
+        }
+        const iframe = document.getElementById('drawio-frame');
+        pendingXmlExport = { resolve, reject };
+        iframe.contentWindow.postMessage(JSON.stringify({
+            action: 'export',
+            format: 'xml',
+        }), DRAWIO_ORIGIN);
+        setTimeout(() => {
+            if (pendingXmlExport) {
+                pendingXmlExport.resolve(currentXml || null);
+                pendingXmlExport = null;
+            }
+        }, 5000);
+    });
+}
+
+function exportDiagramPng() {
+    return new Promise((resolve, reject) => {
+        if (!drawioReady) {
+            reject(new Error('Draw.io not ready'));
+            return;
+        }
+        const iframe = document.getElementById('drawio-frame');
+        pendingPngExport = { resolve, reject };
+        iframe.contentWindow.postMessage(JSON.stringify({
+            action: 'export',
+            format: 'png',
+            scale: 1,
+        }), DRAWIO_ORIGIN);
+        setTimeout(() => {
+            if (pendingPngExport) {
+                pendingPngExport.reject(new Error('PNG export timed out'));
+                pendingPngExport = null;
+            }
+        }, 8000);
+    });
+}
+
+/** SVG export, as `xmlsvg` rather than `svg`.
+ *
+ *  Both draw a picture; only xmlsvg embeds the source mxGraph model inside the
+ *  file, so the result can be dropped back into draw.io (or this app) and
+ *  edited rather than only viewed. A vector export exists for the cases PNG
+ *  handles badly — printing, slide decks, and docs sites — and those are the
+ *  same cases where someone later wants to change one label. */
+function exportDiagramSvg() {
+    return new Promise((resolve, reject) => {
+        if (!drawioReady) {
+            reject(new Error('Draw.io not ready'));
+            return;
+        }
+        const iframe = document.getElementById('drawio-frame');
+        pendingSvgExport = { resolve, reject };
+        iframe.contentWindow.postMessage(JSON.stringify({
+            action: 'export',
+            format: 'xmlsvg',
+        }), DRAWIO_ORIGIN);
+        setTimeout(() => {
+            if (pendingSvgExport) {
+                pendingSvgExport.reject(new Error('SVG export timed out'));
+                pendingSvgExport = null;
+            }
+        }, 8000);
+    });
+}
+
+/** Reloads the embedded Draw.io iframe with the given canvas skin.
+ *  Called by theme.js whenever the App theme changes (draw.io theme follows
+ *  it automatically, see APP_THEME_TO_DRAWIO_THEME) — there is no manual
+ *  Draw.io-theme control in Settings anymore. */
+function applyDrawioTheme(theme) {
+    localStorage.setItem(THEME_STORAGE_KEY, theme);
+    drawioReady = false;
+    pendingXml = currentXml || pendingXml;
+    const iframe = document.getElementById('drawio-frame');
+    if (iframe) {
+        iframe.src = getDrawioUrl(theme);
+    }
+}
+
+function ensureDrawioFrame() {
+    const iframe = document.getElementById('drawio-frame');
+    const theme = localStorage.getItem(THEME_STORAGE_KEY) || 'kennedy';
+    if (!iframe.src) {
+        iframe.src = getDrawioUrl(theme);
+        bindDrawioMessages(iframe);
+    }
+    return iframe;
+}
+
+function bindDrawioMessages(iframe) {
+    if (messageHandler) {
+        window.removeEventListener('message', messageHandler);
+    }
+
+    messageHandler = (evt) => {
+        if (evt.origin !== DRAWIO_ORIGIN) return;
+        if (!evt.data || typeof evt.data !== 'string') return;
+
+        let msg;
+        try {
+            msg = JSON.parse(evt.data);
+        } catch {
+            return;
+        }
+
+        if (msg.event === 'configure') {
+            appendVerboseLog('drawio', 'Embed sent configure response', 'info');
+            iframe.contentWindow.postMessage(JSON.stringify({
+                action: 'configure',
+                config: {
+                    defaultFonts: ['Helvetica', 'Arial', 'sans-serif'],
+                    defaultLibraries: 'aws4;gcp2;azure2',
+                    // .geDiagramContainer: keep the canvas white regardless of embed UI theme.
+                    // .geSpinnerStatus: belt-and-suspenders alongside spin=0 in getDrawioUrl —
+                    // the embed's own boot spinner competes with this app's loading UI.
+                    css: '.geDiagramContainer { background: #ffffff !important; } .geSpinnerStatus { display: none !important; }'
+                }
+            }), DRAWIO_ORIGIN);
+        }
+
+        if (msg.event === 'init') {
+            drawioReady = true;
+            appendVerboseLog('drawio', 'Editor initialized', 'success');
+            if (pendingXml) {
+                loadDiagramIntoEditor(pendingXml);
+                pendingXml = null;
+            }
+        }
+
+        // draw.io rejects an action it doesn't recognise with {error: '...'} and
+        // NO `event` key, so the `msg.event === 'error'` branch below never saw
+        // it. That silence is what made the old Mermaid bug so hard to place:
+        // the embed was refusing the message every single time, and the only
+        // symptom was a spinner that ran for 15s before blaming the diagram's
+        // syntax. Anything we send that draw.io won't accept is a bug on our
+        // side — surface it loudly rather than letting it time out.
+        if (msg.error) {
+            clearDrawioLoadTimer();
+            appendVerboseLog('drawio', 'Draw.io rejected a message: ' + msg.error, 'error', msg);
+            setComposerRunStatus('Draw.io rejected the request (' + msg.error + ')', 'error');
+            document.getElementById('diagram-loading').classList.remove('active');
+        }
+
+        if (msg.event === 'load') {
+            clearDrawioLoadTimer();
+            appendVerboseLog('drawio', 'Diagram loaded in editor', 'success', {
+                page: msg.page,
+                bounds: msg.bounds || null
+            });
+            document.getElementById('diagram-loading').classList.remove('active');
+            document.getElementById('diagram-placeholder').classList.add('hidden');
+            setDiagramStatus('Diagram loaded — pan and zoom to explore');
+            if (!isSending) {
+                setComposerRunStatus('Ready — ask for changes or try another prompt', 'success');
+            }
+            // A full 'load' always resets the editor to the first page.
+            currentDrawioPageIndex = 0;
+            if (pendingFocusPageIndex) {
+                switchToDrawioPage(pendingFocusPageIndex);
+                pendingFocusPageIndex = null;
+            }
+        }
+
+        if (msg.event === 'error') {
+            clearDrawioLoadTimer();
+            appendVerboseLog('drawio', 'Draw.io error: ' + (msg.message || 'Unknown'), 'error', msg);
+            setComposerRunStatus('Draw.io render error: ' + (msg.message || 'Check the diagram'), 'error');
+            document.getElementById('diagram-loading').classList.remove('active');
+        }
+
+        if (msg.event === 'dialog' && msg.button === 'cancel') {
+            clearDrawioLoadTimer();
+            appendVerboseLog('drawio', 'Diagram load cancelled by editor', 'warning');
+            document.getElementById('diagram-loading').classList.remove('active');
+        }
+
+        if (msg.event === 'export' && msg.data) {
+            if (pendingXmlExport) {
+                pendingXmlExport.resolve(msg.data);
+                pendingXmlExport = null;
+                return;
+            }
+            if (pendingPngExport) {
+                let dataUrl = msg.data;
+                if (!dataUrl.startsWith('data:')) {
+                    dataUrl = 'data:image/png;base64,' + btoa(
+                        unescape(encodeURIComponent(msg.data))
+                    );
+                }
+                pendingPngExport.resolve(dataUrl);
+                pendingPngExport = null;
+                return;
+            }
+            if (pendingSvgExport) {
+                // xmlsvg comes back as a data: URL like PNG does, not as SVG
+                // source — decode it here so the caller always deals in markup
+                // and the download is a readable .svg rather than base64.
+                let svg = msg.data;
+                const b64 = svg.match(/^data:image\/svg\+xml;base64,(.*)$/);
+                if (b64) {
+                    svg = decodeURIComponent(escape(atob(b64[1])));
+                } else if (svg.startsWith('data:image/svg+xml,')) {
+                    svg = decodeURIComponent(svg.slice('data:image/svg+xml,'.length));
+                }
+                pendingSvgExport.resolve(svg);
+                pendingSvgExport = null;
+            }
+        }
+    };
+
+    window.addEventListener('message', messageHandler);
+}
+
+/** Index of the <diagram name="..."> page matching pageName (case-insensitive), or -1. */
+function drawioPageIndexByName(xml, pageName) {
+    if (!xml || !pageName) return -1;
+    const re = /<diagram\b[^>]*\bname="([^"]*)"/g;
+    let match;
+    let idx = 0;
+    while ((match = re.exec(xml)) !== null) {
+        if ((match[1] || '').toLowerCase() === pageName.toLowerCase()) return idx;
+        idx++;
+    }
+    return -1;
+}
+
+/** Name of the <diagram name="..."> page at pageIndex, or null — the reverse
+ *  of drawioPageIndexByName, used to work out what the canvas is currently
+ *  showing rather than what the editor was last told to show. */
+function drawioPageNameByIndex(xml, pageIndex) {
+    if (!xml || pageIndex == null || pageIndex < 0) return null;
+    const re = /<diagram\b[^>]*\bname="([^"]*)"/g;
+    let match;
+    let idx = 0;
+    while ((match = re.exec(xml)) !== null) {
+        if (idx === pageIndex) return match[1] || null;
+        idx++;
+    }
+    return null;
+}
+
+/** Mirrors app/adapters/outbound/diagram/architecture_docs.py's VIEW_PAGE_NAMES
+ *  — the page name each view compiles to, so the frontend can go the other
+ *  way (a page name back to the view id the backend expects). */
+const DRAWIO_PAGE_NAME_TO_VIEW = {
+    'logical': 'logical', 'network': 'network', 'security': 'security',
+    'data flow': 'data_flow', 'archimate': 'archimate',
+};
+
+/** Best available guess at which view the user is actually looking at right
+ *  now, for anything (like Suggestions) that should follow the canvas
+ *  rather than force a specific page the way WAF/Compliance deliberately do.
+ *
+ *  draw.io's embed postMessage protocol has no event for "the user clicked a
+ *  different page tab" (see switchToDrawioPage's comment) — currentDrawioPageIndex
+ *  only updates on a fresh load or an app-initiated switch, so this can go
+ *  stale the moment someone clicks a tab by hand. It is still a strictly
+ *  better signal than the Settings view checkboxes (getSelectedDiagramViews),
+ *  which reflect what's enabled for the *next* generation, not what's on
+ *  screen — falls back to that array only when the page name can't be
+ *  resolved at all (e.g. no diagram loaded yet). */
+function currentDrawioViewId(xml, fallbackViews) {
+    const pageName = drawioPageNameByIndex(xml, typeof currentDrawioPageIndex === 'number' ? currentDrawioPageIndex : 0);
+    const viewId = pageName ? DRAWIO_PAGE_NAME_TO_VIEW[pageName.trim().toLowerCase()] : null;
+    if (viewId) return viewId;
+    return (fallbackViews && fallbackViews[0]) || 'network';
+}
+
+/** Arranges for the editor to land on pageName once the next diagram finishes loading. */
+function requestDrawioFocusOnLoad(pageName, xml) {
+    const idx = drawioPageIndexByName(xml, pageName);
+    pendingFocusPageIndex = idx >= 0 ? idx : null;
+}
+
+/** Steps the draw.io page tab from the (tracked) current page to targetIndex.
+ *  draw.io's embed postMessage protocol has no "select page N" action, only the
+ *  editor's own previousPage/nextPage actions — so we walk there one page at a time. */
+function switchToDrawioPage(targetIndex) {
+    if (!drawioReady || targetIndex == null || targetIndex === currentDrawioPageIndex) return;
+    const iframe = document.getElementById('drawio-frame');
+    if (!iframe || !iframe.contentWindow) return;
+    const step = targetIndex > currentDrawioPageIndex ? 'nextPage' : 'previousPage';
+    const steps = Math.abs(targetIndex - currentDrawioPageIndex);
+    for (let i = 0; i < steps; i++) {
+        iframe.contentWindow.postMessage(JSON.stringify({ action: 'invokeAction', actionName: step }), DRAWIO_ORIGIN);
+    }
+    currentDrawioPageIndex = targetIndex;
+}
+
+function loadDiagramFromResponse(data) {
+    // Every path returns draw.io XML now, including the "simple" (non-cloud)
+    // one. It used to return Mermaid source instead, which this function handed
+    // to the embed as {action: 'import', format: 'mermaid'} — an action draw.io
+    // does not have. The embed answered {error: 'unknownMessage'} and drew
+    // nothing, so no simple diagram this app generated ever appeared on screen.
+    // diagram_type is now a label ('simple' | 'cloud') for the features that
+    // only make sense on a cloud architecture, not a choice of loader.
+    isSimpleDiagram = data.diagram_type === 'simple';
+    if (data.xml) {
+        document.getElementById('xml-output').textContent = data.xml;
+        // Drop the "your diagram will appear here" placeholder as soon as a
+        // diagram exists, rather than waiting for draw.io's 'load' to confirm.
+        // That event was the only thing that hid it, so any path where the
+        // embed never answers left instructional text sitting over the canvas —
+        // exactly what the old Mermaid `import` did, since it was rejected
+        // outright and no 'load' ever came.
+        document.getElementById('diagram-placeholder')?.classList.add('hidden');
+        loadDiagramIntoEditor(data.xml);
+        if (typeof refreshVersionStrip === 'function') refreshVersionStrip();
+    }
+}
+
+let drawioLoadTimer = null;
+
+function clearDrawioLoadTimer() {
+    if (drawioLoadTimer) {
+        clearTimeout(drawioLoadTimer);
+        drawioLoadTimer = null;
+    }
+}
+
+function loadDiagramIntoEditor(xml) {
+    const iframe = ensureDrawioFrame();
+    const payload = {
+        action: 'load',
+        xml: xml,
+        autosave: 0,
+        fit: 1,
+        maxFitScale: 1.25,
+        border: 20
+    };
+    if (!drawioReady) {
+        pendingXml = xml;
+        appendVerboseLog('drawio', 'Waiting for editor init before load', 'info', {
+            xml_chars: xml.length,
+            layout: payload.layout || null
+        });
+        return;
+    }
+
+    appendVerboseLog('drawio', 'Sending diagram to editor', 'info', {
+        xml_chars: xml.length,
+        fit: payload.fit,
+        maxFitScale: payload.maxFitScale,
+        layout: payload.layout || null
+    });
+    iframe.contentWindow.postMessage(JSON.stringify(payload), DRAWIO_ORIGIN);
+
+    clearDrawioLoadTimer();
+    drawioLoadTimer = setTimeout(() => {
+        drawioLoadTimer = null;
+        appendVerboseLog('drawio', 'Diagram load timed out — the XML may have errors', 'error', { xml_chars: xml.length });
+        setComposerRunStatus('Diagram render timed out — XML may have errors', 'error');
+        document.getElementById('diagram-loading').classList.remove('active');
+    }, 15000);
+}
+

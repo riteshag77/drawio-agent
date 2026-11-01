@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "resources": [
+    { "type": "Microsoft.Network/virtualNetworks", "name": "vnet", "dependsOn": [] },
+    { "type": "Microsoft.Web/serverfarms", "name": "plan", "dependsOn": [] },
+    {
+      "type": "Microsoft.Web/sites",
+      "name": "api",
+      "dependsOn": ["[resourceId('Microsoft.Web/serverfarms','plan')]"]
+    },
+    { "type": "Microsoft.DocumentDB/databaseAccounts", "name": "cosmos", "dependsOn": [] },
+    { "type": "Microsoft.KeyVault/vaults", "name": "kv", "dependsOn": [] },
+    { "type": "Microsoft.ServiceBus/namespaces", "name": "bus", "dependsOn": [] },
+    {
+      "type": "Microsoft.Web/sites",
+      "kind": "functionapp",
+      "name": "worker",
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/serverfarms','plan')]",
+        "[resourceId('Microsoft.ServiceBus/namespaces','bus')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Insights/components",
+      "name": "appinsights",
+      "dependsOn": ["[resourceId('Microsoft.Web/sites','api')]"]
+    }
+  ]
+}

@@ -1,0 +1,223 @@
+"""Canonical diagram colours — the single source of truth.
+
+Same role for colour that ``geometry_spec.py`` plays for geometry: the module
+that *produces* styles (``compiler/theme.py``) reads these tables, so the
+compiler's output is already the final corridor appearance (palette + theme
+are authoritative; there is no downstream color-normalization pass).
+
+Values mirror each corridor view's section colours (Logical domains / Security
+zones / Data-flow phases), with three deliberate corrections documented at
+``CORRIDOR_COLORS`` below.
+
+One visual language across all four views: a colour means the same thing on
+Logical, Security, Data-flow and Network alike, so a reader learns it once.
+"""
+
+from __future__ import annotations
+
+# ── Corridor containers (Logical domains / Security zones / Data-flow phases) ──
+#
+#: ``{corridor_id: (fillColor, strokeColor)}``.
+#:
+#: Three corrections against the raw pack tables, each fixing a case where two
+#: semantically different containers were rendering identically:
+#:
+#: 1. ``zone_public`` was byte-identical to ``zone_dmz`` (both #FFF2CC/#D6B656)
+#:    — the internet-facing surface and the perimeter looked like one zone.
+#: 2. ``zone_detect`` shared #DAE8FC with ``zone_private``.
+#: 3. ``phase_saas_producer``/``phase_saas_consumer`` had no entries of their
+#:    own, so both fell through prefix-matching to ``phase_saas`` and rendered
+#:    the same despite being opposite ends of a data exchange.
+#:
+#: Security's trust axis reads as a *hue* journey — yellow/exposed through
+#: blue/internal to red/regulated — not a luminance ramp. Deliberate: a strict
+#: light-to-dark ramp across four different hues would force muddy in-between
+#: colours and destroy the categorical meaning each hue already carries. What
+#: the axis does guarantee is that its four fills are mutually distinct and
+#: that ``zone_restricted`` is the visually strongest (see
+#: ``SECURITY_TRUST_ORDER``). Zones that are not ranks (identity, partner,
+#: detect) stay categorical on purpose: giving them axis positions would imply
+#: an ordering they do not have.
+#:
+#: Some same-category peers *do* share a fill, on purpose — see
+#: ``INTENTIONAL_COLOR_TWINS``.
+CORRIDOR_COLORS: dict[str, tuple[str, str]] = {
+    # ── logical: channel → application → data, with identity/platform aside ──
+    # (all of these are dead for Logical's actual rendered output — the flat
+    # storyboard path never emits a domain_* box at all, see logical.py's
+    # module docstring — but kept for the corridor-color contract these keys
+    # are part of, and in case a future compile path draws them.)
+    "domain_experience": ("#F5F5F5", "#666666"),
+    "domain_core": ("#DAE8FC", "#6C8EBF"),
+    "domain_commerce": ("#DAE8FC", "#6C8EBF"),
+    "domain_platform": ("#E8EEF7", "#147EBA"),
+    "domain_data": ("#D5E8D4", "#82B366"),
+    "domain_saas": ("#FFF2CC", "#D6B656"),
+    # ── security: monotone trust axis + categorical off-axis zones ──
+    "zone_public": ("#FFE6CC", "#D79B00"),
+    "zone_dmz": ("#FFF2CC", "#D6B656"),
+    "zone_identity": ("#E1D5E7", "#9673A6"),
+    "zone_partner": ("#D5E8D4", "#82B366"),
+    "zone_private": ("#DAE8FC", "#6C8EBF"),
+    "zone_restricted": ("#F8CECC", "#B85450"),
+    "zone_detect": ("#E8EEF7", "#147EBA"),
+    "zone_external_saas": ("#FFF2CC", "#D6B656"),
+    # ── data flow: ingest → process → store, with consume/control/SaaS shelves ──
+    "phase_ingest": ("#FFF2CC", "#D6B656"),
+    "phase_process": ("#DAE8FC", "#6C8EBF"),
+    "phase_store": ("#D5E8D4", "#82B366"),
+    "phase_consume": ("#D5E8D4", "#82B366"),
+    "phase_control": ("#E8EEF7", "#147EBA"),
+    "phase_saas_producer": ("#FFF2CC", "#D6B656"),
+    "phase_saas_consumer": ("#FFE6CC", "#D79B00"),
+    "phase_saas": ("#FFF2CC", "#D6B656"),
+}
+
+#: Security zones along the trust axis, least to most restricted. Only the
+#: zones whose colours are meant to read as one journey — the categorical ones
+#: (identity/partner/detect) are deliberately absent. Documentation the tests
+#: can enforce; nothing reads it at runtime.
+SECURITY_TRUST_ORDER: tuple[str, ...] = (
+    "zone_public", "zone_dmz", "zone_private", "zone_restricted",
+)
+
+#: Corridor pairs that share a fill **on purpose**, because they are peers of
+#: the same category — the shared hue is what makes the category readable, and
+#: the label (plus, for shelves, the dashed border) tells them apart. Anything
+#: NOT listed here must be visually distinct; ``tests/test_palette.py`` enforces
+#: that, so an accidental collision like the old ``zone_public``/``zone_dmz``
+#: one cannot creep back in unnoticed.
+INTENTIONAL_COLOR_TWINS: frozenset[frozenset[str]] = frozenset({
+    # Two application domains of equal standing — same category, distinct labels.
+    frozenset({"domain_core", "domain_commerce"}),
+    # Both are "data at rest"; consume is additionally a dashed shelf.
+    frozenset({"phase_store", "phase_consume"}),
+    # Both are third-party/untrusted surfaces; the SaaS ones are dashed shelves.
+    frozenset({"zone_dmz", "zone_external_saas"}),
+    frozenset({"phase_ingest", "phase_saas_producer"}),
+    # phase_saas is the prefix fallback for any phase_saas_* id beyond the two
+    # known shelves, so it duplicates the producer entry by construction.
+    frozenset({"phase_saas", "phase_saas_producer"}),
+    frozenset({"phase_saas", "phase_ingest"}),
+})
+
+#: Corridors rendered as an anchored shelf rather than a main-row peer. They
+#: keep a dashed, heavier border so "this sits outside the main journey" stays
+#: visible — ``theme.shelf_style()`` owns that distinction.
+SHELF_IDS: frozenset[str] = frozenset({
+    "domain_saas",
+    "zone_external_saas",
+    "phase_consume", "phase_control",
+    "phase_saas", "phase_saas_producer", "phase_saas_consumer",
+})
+
+
+# ── ArchiMate layers ────────────────────────────────────────────────────────
+#
+#: ``{layer: (fillColor, strokeColor)}`` for ArchiMate elements, plus the
+#: lighter band/grouping shades the layered viewpoint stacks them on.
+#:
+#: These live in their own table rather than in ``CORRIDOR_COLORS`` even though
+#: both are "container colours": ``corridor_colors()`` resolves unknown ids by
+#: *longest-prefix* match, so anything added to that dict becomes a fallback
+#: target for every future corridor id — and an ArchiMate layer is not a
+#: corridor, so it must never be one. Same module (one source of truth for
+#: colour), separate table (no accidental cross-talk).
+#:
+#: The hues are ArchiMate's own convention, which readers of the notation
+#: already know — yellow = business, blue = application, green = technology.
+#: They are deliberately NOT re-derived from this app's cloud palette: on this
+#: view the colour IS the notation, and overriding it would make a standard
+#: diagram unreadable to the people who read standard diagrams.
+ARCHIMATE_LAYER_COLORS: dict[str, tuple[str, str]] = {
+    # The standard's own layer colours — purple for motivation, tan/orange for
+    # strategy, yellow/blue/green for the core stack, pink for implementation
+    # & migration. Kept verbatim so a diagram from this app reads the same way
+    # as one from Archi or a textbook.
+    "motivation": ("#CCCCFF", "#6666B3"),
+    "strategy": ("#F5DEAA", "#B39A50"),
+    "business": ("#FFFFB5", "#B3B300"),
+    "application": ("#B5FFFF", "#0F8C8C"),
+    "technology": ("#C9E7B7", "#4C9141"),
+    "implementation": ("#FFE0E0", "#B36666"),
+}
+
+#: Band wrapper behind each layer's elements — a tint of the same hue, light
+#: enough that a filled element sitting on it still reads as the foreground.
+ARCHIMATE_BAND_COLORS: dict[str, tuple[str, str]] = {
+    "motivation": ("#F5F5FF", "#6666B3"),
+    "strategy": ("#FDF8EE", "#B39A50"),
+    "business": ("#FFFFF0", "#B3B300"),
+    "application": ("#F0FFFF", "#0F8C8C"),
+    "technology": ("#F2F9EE", "#4C9141"),
+    "implementation": ("#FFF5F5", "#B36666"),
+}
+
+#: Domain groupings nested inside a band. ArchiMate draws a Grouping with a
+#: dashed border and no fill; keeping it unfilled is also what stops a
+#: three-deep nest (band > grouping > element) from turning into three stacked
+#: washes of the same colour.
+ARCHIMATE_GROUPING_STROKE = "#7F7F7F"
+
+#: Relationship stroke. One neutral colour for every relationship type: the
+#: type is already carried by the line notation (arrowheads, dashes) and by the
+#: edge label, and adding colour as a third redundant channel would spend the
+#: page's only remaining free channel on information it already shows twice.
+ARCHIMATE_RELATION_STROKE = "#4D4D4D"
+
+
+def archimate_layer_colors(layer: str) -> tuple[str, str]:
+    """``(fill, stroke)`` for an ArchiMate layer, defaulting to application.
+
+    Exact match only — unlike ``corridor_colors``, there are exactly three
+    layers and they come from a closed ``Literal``, so a prefix fallback would
+    only ever mask a bug.
+    """
+    return ARCHIMATE_LAYER_COLORS.get(layer, ARCHIMATE_LAYER_COLORS["application"])
+
+
+def archimate_band_colors(layer: str) -> tuple[str, str]:
+    """``(fill, stroke)`` for an ArchiMate layer band."""
+    return ARCHIMATE_BAND_COLORS.get(layer, ARCHIMATE_BAND_COLORS["application"])
+
+
+# ── Flow classification (edge stroke colour) ────────────────────────────────
+#
+#: One more visual channel than "primary" already gives (strokeWidth/dashed),
+#: applied independently: classification colours the line, primary/secondary
+#: still controls its weight and dash. A flow can be both non-primary and
+#: carry PII — the two channels must never collapse into one.
+CLASSIFICATION_COLORS: dict[str, str] = {
+    "none": "#6B7280",
+    "internal": "#232F3E",
+    "confidential": "#8C4FFF",
+    "pii": "#B85450",
+    "pci": "#C7131F",
+}
+
+#: Leaf border when ``criticality="critical"`` — same red as ``zone_restricted``
+#: and the ``pii`` flow colour, on purpose: "this needs your attention" reads
+#: as one colour across the whole visual system, not three unrelated reds.
+CRITICAL_LEAF_STROKE = "#B85450"
+
+
+def corridor_colors(corridor_id: str) -> tuple[str, str] | None:
+    """``(fillColor, strokeColor)`` for a corridor id, by exact match then by
+    longest prefix — so a de-duplicated id like ``domain_core_2`` still
+    resolves. Longest-first matters: ``phase_saas_producer`` must not be
+    shadowed by the shorter ``phase_saas``."""
+    exact = CORRIDOR_COLORS.get(corridor_id)
+    if exact is not None:
+        return exact
+    for prefix in sorted(CORRIDOR_COLORS, key=len, reverse=True):
+        if corridor_id.startswith(prefix):
+            return CORRIDOR_COLORS[prefix]
+    return None
+
+
+def is_shelf(corridor_id: str) -> bool:
+    """Whether ``corridor_id`` is an anchored shelf, matched the same way as
+    ``corridor_colors`` so de-duplicated ids behave identically."""
+    if corridor_id in SHELF_IDS:
+        return True
+    return any(corridor_id.startswith(sid) for sid in sorted(SHELF_IDS, key=len, reverse=True))

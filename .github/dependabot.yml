@@ -1,0 +1,50 @@
+version: 2
+
+updates:
+  # requirements.txt declares the supported ranges; requirements.lock pins what
+  # actually installs. Dependabot proposes range bumps here — regenerate the
+  # lock (see its header) before merging, or the lock silently keeps the old
+  # pin and the PR changes nothing that ships.
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # LangChain and the provider SDKs move together and break together;
+      # reviewing them as one PR is far less work than six that each need the
+      # whole suite run against them.
+      llm-stack:
+        patterns:
+          - "langchain*"
+          - "anthropic"
+          - "openai"
+          - "google-genai"
+          - "google-generativeai"
+      # Routine infrastructure bumps, batched to keep the queue short.
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    labels:
+      - dependencies
+
+  # elkjs is vendored under tools/elk_layout/node_modules, so a bump here is a
+  # real change to layout behaviour — worth its own PR and a look at the
+  # geometry tests rather than being batched with anything else.
+  - package-ecosystem: npm
+    directory: "/tools/elk_layout"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+    labels:
+      - dependencies
+      - layout
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    labels:
+      - dependencies

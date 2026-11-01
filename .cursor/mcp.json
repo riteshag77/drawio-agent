@@ -1,0 +1,14 @@
+﻿{
+  "mcpServers": {
+    "drawio-app": {
+      "url": "https://mcp.draw.io/mcp",
+      "disabled": false,
+      "autoApprove": [
+        "create_diagram",
+        "read_diagram",
+        "write_diagram",
+        "search_shapes"
+      ]
+    }
+  }
+}

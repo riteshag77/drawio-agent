@@ -1,0 +1,168 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  # A new push to the same branch supersedes the old run.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # Matches the container (Debian bookworm's python3) and the lock's
+          # resolution target, so CI exercises the version that actually
+          # deploys rather than whatever a developer happens to run locally.
+          python-version: "3.11"
+          cache: pip
+
+      # ELK layout shells out to `node tools/elk_layout/layout.js`. Without it,
+      # every compiler test that lays out a corridor or network view fails —
+      # this is a hard runtime dependency, not an optional extra.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        # From the lock, not requirements.txt — this is also what proves the
+        # lock is genuinely cross-platform, since it is generated on Windows
+        # and installed here on Linux.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.lock -r requirements-dev.lock
+
+      - name: Verify ELK toolchain
+        # elkjs is vendored under tools/elk_layout/node_modules, so no npm
+        # install is needed — but assert it resolves, because the failure mode
+        # otherwise surfaces as confusing geometry assertions deep in the
+        # compiler tests rather than "the layout engine is missing".
+        run: |
+          node --version
+          node -e "require('./tools/elk_layout/node_modules/elkjs'); console.log('elkjs resolvable')"
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Architecture boundaries
+        # domain stays pure; core's reach into adapters is frozen at its current
+        # set, so a new one fails here rather than being noticed a year later.
+        run: lint-imports
+
+      - name: Test
+        # No provider keys are set, so anything reaching a real LLM would fail
+        # rather than silently pass. The live suite is opt-in via RUN_LIVE_E2E.
+        # --cov applies the fail_under floor in pyproject.toml.
+        env:
+          DRAWIO_STYLE_CACHE_RESET: "false"
+        run: pytest --cov
+
+  frontend:
+    # The browser test is excluded from the `test` job on purpose: it needs a
+    # Chromium binary (a separate download from the pip package) and boots a
+    # real server, so its failures and its runtime are both unlike the unit
+    # suite's. Separate job, distinct signal — same reasoning as `docker`.
+    #
+    # Until this existed, the browser tests ran solely when a developer
+    # remembered to install Playwright locally, which is to say: on nobody's
+    # machine, most weeks. They are also the *only* frontend tests in the repo,
+    # so this job is all the automated coverage static/js has.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.lock -r requirements-dev.lock
+
+      - name: Install Chromium
+        # --with-deps pulls the shared libraries headless Chromium needs on a
+        # bare runner; without it the browser installs but will not launch.
+        run: python -m playwright install --with-deps chromium
+
+      - name: Frontend, in a browser
+        # REQUIRE_BROWSER_TESTS turns "browser unavailable" from a skip into a
+        # failure. Without it a broken install step would leave this job green
+        # having run no assertions at all.
+        env:
+          REQUIRE_BROWSER_TESTS: "1"
+        run: pytest tests/test_voice_mode_browser.py tests/test_chat_flow_browser.py -q
+
+  docker:
+    # Separate job: the image is slow to build and its failure mode is
+    # unrelated to a test failure, so keep the signals distinct.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t drawio-agent:ci .
+
+      - name: Boot the container and check /health
+        # Building proves it compiles; this proves it actually serves. Both
+        # runtimes have to be present for the app to answer at all.
+        run: |
+          docker run -d --name drawio-ci -p 8000:8000 drawio-agent:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/health; then
+              echo "healthy after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::container never became healthy"
+          docker logs drawio-ci
+          exit 1
+
+      - name: Container logs
+        if: always()
+        run: docker logs drawio-ci || true
+
+  deploy:
+    # Gate: only after both `test` and `docker` succeed, and only for a real
+    # push to main — never a PR, never workflow_dispatch on some other branch.
+    # This is the whole point of the job: render.yaml sets `autoDeploy: false`
+    # so Render no longer deploys on its own the instant it sees a push, which
+    # would race ahead of (and ignore the result of) everything above.
+    needs: [test, frontend, docker]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Trigger Render deploy
+        # RENDER_DEPLOY_HOOK_URL: repo Settings -> Secrets and variables ->
+        # Actions -> New repository secret. The URL itself comes from Render:
+        # the service's Settings tab -> Deploy Hook -> Create Deploy Hook,
+        # then copy the generated URL (POSTing to it is what triggers a
+        # deploy; no other auth is needed since the URL itself is the secret).
+        #
+        # Warns and exits cleanly rather than failing CI when the secret is
+        # unset, so this step is a no-op until Render is actually configured
+        # instead of turning every push red.
+        run: |
+          if [ -z "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" ]; then
+            echo "::warning::RENDER_DEPLOY_HOOK_URL is not set — skipping deploy. See this step's comment for setup."
+            exit 0
+          fi
+          curl -fsS -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
+          echo "Deploy triggered — watch progress in the Render dashboard's Events tab."

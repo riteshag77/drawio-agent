@@ -1,0 +1,418 @@
+"""Environment-based configuration provider.
+
+Reads all application settings from environment variables / .env file.
+No hardcoded defaults — every value comes from env or is set explicitly.
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from typing import Any
+
+from dotenv import load_dotenv
+
+
+class EnvConfigAdapter:
+    """Configuration sourced from environment variables and .env file."""
+
+    _initialized = False
+
+    def __init__(self, env_file: str | None = None) -> None:
+        if not EnvConfigAdapter._initialized:
+            # Prefer project-root .env so keys load regardless of cwd
+            path = env_file or str(EnvConfigAdapter.base_dir() / ".env")
+            load_dotenv(path)
+            EnvConfigAdapter._initialized = True
+
+    # ── Base directory ─────────────────────────────────────────────────
+    @staticmethod
+    def base_dir() -> Path:
+        return Path(__file__).resolve().parent.parent.parent.parent.parent
+
+    @staticmethod
+    def static_dir() -> Path:
+        return EnvConfigAdapter.base_dir() / "static"
+
+    # ── ConfigPort implementation ──────────────────────────────────────
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return os.getenv(key, default)
+
+    def get_int(self, key: str, default: int = 0) -> int:
+        return int(os.getenv(key, str(default)))
+
+    def get_float(self, key: str, default: float = 0.0) -> float:
+        return float(os.getenv(key, str(default)))
+
+    def get_bool(self, key: str, default: bool = False) -> bool:
+        val = os.getenv(key)
+        if val is None:
+            return default
+        return val.strip().lower() in ("1", "true", "yes", "on")
+
+    def get_list(self, key: str, default: list[str] | None = None, sep: str = ",") -> list[str]:
+        val = os.getenv(key)
+        if val is None:
+            return default or []
+        return [item.strip() for item in val.split(sep) if item.strip()]
+
+    # ── Convenience accessors ──────────────────────────────────────────
+
+    @property
+    def app_title(self) -> str:
+        return self.get("APP_TITLE", "Draw.io AI Architect")
+
+    @property
+    def host(self) -> str:
+        return self.get("HOST", "0.0.0.0")
+
+    @property
+    def port(self) -> int:
+        return self.get_int("PORT", 8000)
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return self.get_list("CORS_ORIGINS", ["*"])
+
+    @property
+    def api_key(self) -> str | None:
+        """When set, require matching X-API-Key (or Authorization: Bearer) on API routes."""
+        key = (self.get("API_KEY") or "").strip()
+        return key or None
+
+    @property
+    def max_request_body_bytes(self) -> int:
+        return self.get_int("MAX_REQUEST_BODY_BYTES", 2_000_000)
+
+    @property
+    def max_custom_message_len(self) -> int:
+        return self.get_int("MAX_CUSTOM_MESSAGE_LEN", 5000)
+
+    @property
+    def llm_timeout_seconds(self) -> int:
+        return self.get_int("LLM_TIMEOUT", 120)
+
+    @property
+    def llm_max_retries(self) -> int:
+        """Retry attempts for a transient provider error (429/502/503/504), beyond the first try.
+
+        Defaults to 0 — a provider returning 503 ("model overloaded/unavailable")
+        is telling you it's already busy; waiting a few seconds and re-hitting the
+        same overloaded model rarely helps and just adds latency/cost on top of
+        an already-failed call. Raise this only if your provider's rate limits
+        (429) are known to reset quickly and a retry is actually likely to help.
+        """
+        return max(0, self.get_int("LLM_MAX_RETRIES", 0))
+
+    @property
+    def llm_retry_backoff_base(self) -> float:
+        """Seconds before the first retry; doubles each subsequent attempt up to llm_retry_backoff_max."""
+        return max(0.0, self.get_float("BACKOFF_BASE", 2.0))
+
+    @property
+    def llm_retry_backoff_max(self) -> float:
+        return max(0.0, self.get_float("BACKOFF_MAX", 30.0))
+
+    @property
+    def request_timeout_seconds(self) -> float:
+        """Overall wall-clock budget for a single /generate, /chat, or /chat/stream request."""
+        return max(30.0, self.get_float("REQUEST_TIMEOUT_SECONDS", 300.0))
+
+    @property
+    def enrichment_branch_timeout_seconds(self) -> float:
+        """Per-branch budget for each cost/WAF/compliance/MCP task in the enrichment gather."""
+        return max(10.0, self.get_float("ENRICHMENT_BRANCH_TIMEOUT_SECONDS", 150.0))
+
+    @property
+    def max_concurrent_llm(self) -> int:
+        """Max simultaneous blocking LLM calls across requests.
+
+        Default 5 so multi-view fan-out (3 views + ADR + RAID) is not secretly
+        serialized behind a too-small semaphore. Raise to 6–7 when view quality
+        repair passes are common so repairs do not wait on ADR/RAID.
+        """
+        return self.get_int("MAX_CONCURRENT_LLM", 5)
+
+    @property
+    def view_quality_min_score(self) -> int:
+        """Minimum conformance score (0–100) before a focused view is accepted."""
+        return max(0, min(100, self.get_int("VIEW_QUALITY_MIN_SCORE", 75)))
+
+    @property
+    def view_llm_provider(self) -> str:
+        """Optional provider key override for Logical/Security/Data flow calls."""
+        return (self.get("VIEW_LLM_PROVIDER", "") or "").strip()
+
+    @property
+    def validation_enabled(self) -> bool:
+        """When true, a generated view is re-scored and re-generated while it
+        keeps measurably improving. Off by default: it costs an LLM call per
+        iteration, and the single corrective pass it replaces was free of that
+        choice."""
+        return self.get_bool("DIAGRAM_VALIDATION_ENABLED", False)
+
+    @property
+    def validation_max_iterations(self) -> int:
+        """How many *corrective* passes a view may take, on top of the first
+        generation. 0 disables the loop as surely as the flag does; the ceiling
+        is low because each one is a full view regeneration."""
+        return max(0, min(5, self.get_int("DIAGRAM_VALIDATION_MAX_ITERATIONS", 2)))
+
+    @property
+    def validation_provider(self) -> str:
+        """Provider that performs validation passes; blank uses the same
+        provider that drew the diagram.
+
+        Separable because judging and drawing are different jobs: a cheaper
+        model is often enough to find the violations, and a stronger one is
+        sometimes worth it only for the retry.
+
+        May carry a specific model as ``"<provider>::<model>"`` — the same form
+        the frontend's model pickers emit. It is passed through to the LLM
+        layer untouched; ``providers.normalize_provider_key`` strips the model
+        half for anything that only wants the vendor key, and
+        ``providers.get_provider`` applies it. So callers keep treating this as
+        an opaque provider string.
+        """
+        return (self.get("DIAGRAM_VALIDATION_PROVIDER", "") or "").strip()
+
+    @property
+    def validation_model(self) -> str:
+        """The model half of :attr:`validation_provider`, or blank.
+
+        Read-only convenience for the admin API and tests — the pipeline never
+        needs it, because it passes ``validation_provider`` through whole.
+        """
+        raw = self.validation_provider
+        sep = raw.find("::")
+        return raw[sep + 2:].strip() if sep != -1 else ""
+
+    @property
+    def validation_min_improvement(self) -> int:
+        """Score points an iteration must gain to earn the next one.
+
+        **0 means "any measurable improvement"** — the loop continues while the
+        score is still going up and stops the moment it flattens or regresses.
+        That is the default, and it is the whole point of the setting: iterating
+        because a budget allows it, rather than because the diagram is getting
+        better, is how a pipeline burns tokens producing no change.
+
+        A positive value demands the gain be at least that big, which is how an
+        operator says "don't spend another call on a two-point win".
+        """
+        return max(0, min(100, self.get_int("DIAGRAM_VALIDATION_MIN_IMPROVEMENT", 0)))
+
+    @property
+    def ssl_verify(self) -> bool:
+        return self.get_bool("SSL_VERIFY", True)
+
+    @property
+    def drawio_lib_aws(self) -> str:
+        return self.get("DRAWIO_LIB_AWS", "mxgraph.aws4")
+
+    @property
+    def drawio_lib_gcp(self) -> str:
+        return self.get("DRAWIO_LIB_GCP", "mxgraph.gcp2")
+
+    @property
+    def drawio_lib_azure(self) -> str:
+        return self.get("DRAWIO_LIB_AZURE", "img/lib/azure2")
+
+    @property
+    def provider_default(self) -> str:
+        return self.get("PROVIDER_DEFAULT", "gemini")
+
+    @property
+    def diagram_renderer(self) -> str:
+        """local | mcp | auto — how Draw.io XML is enriched after LLM architecture."""
+        value = (self.get("DIAGRAM_RENDERER", "auto") or "auto").strip().lower()
+        return value if value in ("local", "mcp", "auto") else "auto"
+
+    @property
+    def drawio_mcp_url(self) -> str:
+        return self.get("DRAWIO_MCP_URL", "https://mcp.draw.io/mcp")
+
+    @property
+    def drawio_mcp_timeout(self) -> int:
+        return self.get_int("DRAWIO_MCP_TIMEOUT", 30)
+
+    @property
+    def drawio_mcp_concurrency(self) -> int:
+        """Max parallel MCP search_shapes sessions for cache misses."""
+        return self.get_int("DRAWIO_MCP_CONCURRENCY", 4)
+
+    @property
+    def drawio_mcp_libavoid(self) -> bool:
+        """When true, call create_diagram(libavoid) after style resolve (extra MCP hop).
+
+        Defaults to True so mcp/auto diagrams get obstacle-avoiding edges unless
+        explicitly disabled via env or per-request ``libavoid=false``.
+        """
+        return self.get_bool("DRAWIO_MCP_LIBAVOID", True)
+
+    @property
+    def drawio_style_cache_path(self) -> str:
+        """Relative or absolute SQLite path for durable MCP style cache. Empty disables."""
+        return self.get("DRAWIO_STYLE_CACHE_PATH", "data/mcp_style_cache.sqlite3")
+
+    @property
+    def captures_dir(self) -> str:
+        """Directory where full, untruncated /chat responses are persisted for later playback."""
+        return self.get("CAPTURES_DIR", "data/captures")
+
+    @property
+    def drawio_style_cache_reset(self) -> bool:
+        """When true, clear MCP style cache once at process startup."""
+        return self.get_bool("DRAWIO_STYLE_CACHE_RESET", False)
+
+    @property
+    def diagram_ir_enabled(self) -> bool:
+        """When true, fresh cloud views are generated via IR + compiler only.
+
+        The LLM emits a validated IR (``app/domain/ir``) and a deterministic
+        compiler renders draw.io XML. Edit mode and 3D still use direct XML.
+        There is no silent direct-XML fallback for fresh generation — IR failure
+        fails the request.
+        """
+        return self.get_bool("DIAGRAM_IR_ENABLED", True)
+
+    @property
+    def diagram_ir_views(self) -> list[str]:
+        """Which primary views use the IR path when ``diagram_ir_enabled``.
+
+        Logical, Security, and Data-flow compile through a
+        geometrically-authoritative layered path (``compiler/corridor.py``'s
+        ``run_layered``) — the same "geometry becomes code, nothing left for
+        repair_xml to fix" property Network's compiler already had, verified
+        in ``tests/test_corridor_ir_layout.py``'s parity tests for all three.
+        """
+        return [
+            v.lower()
+            for v in self.get_list(
+                "DIAGRAM_IR_VIEWS", ["network", "security", "data_flow", "logical", "archimate"]
+            )
+        ]
+
+    @property
+    def elk_sidecar_enabled(self) -> bool:
+        """Keep one long-lived ``tools/elk_layout/serve.js`` process for ELK layout.
+
+        Node start plus the elkjs load costs ~300-400ms; the layout itself is
+        ~46ms for a typical view. Measured over 5 views: 932ms of concurrent
+        cold spawns becomes 233ms through one warm process, and a single-view
+        request goes 385ms -> 46ms.
+
+        Set false to force the per-call ``layout.js`` spawn — the path that
+        predates the sidecar, and the one it automatically falls back to if the
+        sidecar dies, wedges or desynchronises.
+        """
+        return self.get_bool("ELK_SIDECAR_ENABLED", True)
+
+    @property
+    def elk_layout_timeout_seconds(self) -> float:
+        """Max seconds to wait for the ``node tools/elk_layout/layout.js`` subprocess."""
+        return self.get_float("ELK_LAYOUT_TIMEOUT_SECONDS", 8.0)
+
+    @property
+    def diagram_vlm_qa(self) -> bool:
+        """When true, run optional post-render visual QA (PNG → VLM) after compile.
+
+        Default off — enable once capture/VLM wiring is proven; feeds IR
+        correction suggestions rather than rewriting mxCells.
+        """
+        return self.get_bool("DIAGRAM_VLM_QA", False)
+
+    @property
+    def history_enabled(self) -> bool:
+        """When true, persist each successful generation for later recall/versioning."""
+        return self.get_bool("DIAGRAM_HISTORY_ENABLED", True)
+
+    @property
+    def history_db_path(self) -> str:
+        """SQLite path for diagram history. Empty disables persistence."""
+        return self.get("DIAGRAM_HISTORY_PATH", "data/diagram_history.sqlite3")
+
+    @property
+    def history_max_versions_per_session(self) -> int:
+        """Cap on retained versions per session — oldest pruned beyond this."""
+        return max(1, self.get_int("DIAGRAM_HISTORY_MAX_VERSIONS", 50))
+
+    @property
+    def templates_db_path(self) -> str:
+        """SQLite path for saved prompt templates."""
+        return self.get("DIAGRAM_TEMPLATES_PATH", "data/templates.sqlite3")
+
+    @property
+    def governance_rules_db_path(self) -> str:
+        """SQLite path for org governance/house-style rules."""
+        return self.get("DIAGRAM_GOVERNANCE_PATH", "data/governance_rules.sqlite3")
+
+    @property
+    def admin_password(self) -> str | None:
+        """Gates the /admin panel. Unset (default) disables the panel entirely —
+        this is the one setting the panel itself can never override."""
+        pw = (self.get("ADMIN_PASSWORD") or "").strip()
+        return pw or None
+
+    @property
+    def rate_limit_per_minute(self) -> int:
+        """Max diagram-generation requests per client per minute. 0 disables."""
+        return max(0, self.get_int("RATE_LIMIT_PER_MINUTE", 0))
+
+    @property
+    def provider_fallback_order(self) -> list[str]:
+        """Provider keys to try, in order, when the primary provider fails.
+
+        Empty (the default) preserves today's behaviour exactly: a failed
+        provider call propagates. Set e.g. ``claude,gemini`` to survive a
+        single-vendor outage or quota exhaustion.
+        """
+        return [p.lower() for p in self.get_list("PROVIDER_FALLBACK_ORDER", [])]
+
+    @property
+    def gap_analysis_enabled(self) -> bool:
+        """When true, run the pre-generation architecture gap-analysis LLM pass.
+
+        Enriches Logical/Security/Data-flow/Network context with defaulted,
+        industry-standard components (security, resilience, observability,
+        data classification) before the primary XML generation call.
+        """
+        return self.get_bool("GAP_ANALYSIS_ENABLED", True)
+
+    @property
+    def libavoid_focused_views(self) -> bool:
+        """When true, route Logical/Security/Data-flow edges via libavoid (MCP) too.
+
+        Previously these pages were excluded from libavoid and left entirely to
+        the local obstacle-aware router. Defaults to True; set false to fall
+        back to local-only routing for focused views.
+        """
+        return self.get_bool("LIBAVOID_FOCUSED_VIEWS", True)
+
+    @property
+    def log_format(self) -> str:
+        """text | json — file/console log line format."""
+        value = (self.get("LOG_FORMAT", "text") or "text").strip().lower()
+        return value if value in ("text", "json") else "text"
+
+    @property
+    def log_dir(self) -> str:
+        """Directory for rotating log files."""
+        return self.get("DRAWIO_AGENT_LOG_DIR", "logs")
+
+    @property
+    def log_retention_days(self) -> int:
+        """How many rotated daily log files to keep before the oldest is deleted."""
+        return max(1, self.get_int("LOG_RETENTION_DAYS", 14))
+
+
+# Singleton for app-wide use
+_config_instance: EnvConfigAdapter | None = None
+
+
+def get_config() -> EnvConfigAdapter:
+    global _config_instance
+    if _config_instance is None:
+        _config_instance = EnvConfigAdapter()
+    return _config_instance

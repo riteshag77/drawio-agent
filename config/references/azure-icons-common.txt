@@ -1,0 +1,67 @@
+# Azure services — `shape_type` vocabulary
+
+Copy a key verbatim into a leaf's `shape_type`. These are already in the form
+the IR expects; do not derive, prefix or reformat them. A service that is not
+listed still takes your best semantic guess in the same `azure_<service>`
+shape — an unresolved key renders as a labelled grey placeholder, which is
+strictly better than a confidently wrong icon.
+
+Icon artwork is resolved server-side from this key — never emit a draw.io
+style, image path, or stencil path.
+
+Never reuse another leaf's key for a different service just because it's
+already in front of you — e.g. Entra ID, Key Vault and Azure Monitor are
+three different services and must not all resolve to the same key (such as
+`azure_app_service`, which is a fourth, unrelated service). Two different
+leaves sharing one icon reads as a worse mistake than either one showing an
+unresolved placeholder.
+
+## Compute
+| shape_type | Service |
+|---|---|
+| azure_app_service | App Service |
+| azure_functions | Function App |
+| azure_aks | AKS |
+| azure_vm | Virtual Machine |
+| azure_container_instances | Container Instances |
+
+## Networking
+| shape_type | Service |
+|---|---|
+| azure_load_balancer | Load Balancer |
+| azure_application_gateway | Application Gateway |
+| azure_front_door | Front Door |
+| azure_dns | DNS |
+| azure_virtual_network | Virtual Network |
+| azure_vnet_peering | VNet Peering |
+| azure_public_ip | Public IP |
+| azure_firewall | Azure Firewall |
+| azure_nat_gateway | NAT Gateway |
+| azure_vpn_gateway | VPN Gateway |
+| azure_expressroute | ExpressRoute |
+
+## Data & storage
+| shape_type | Service |
+|---|---|
+| azure_storage_account | Storage Account |
+| azure_sql_database | SQL Database |
+| azure_cosmos_db | Cosmos DB |
+| azure_redis | Azure Cache for Redis |
+| azure_postgresql | Azure Database for PostgreSQL |
+
+## Integration & messaging
+| shape_type | Service |
+|---|---|
+| azure_service_bus | Service Bus |
+| azure_event_grid | Event Grid |
+| azure_logic_apps | Logic Apps |
+| azure_event_hubs | Event Hubs |
+| azure_api_management | API Management |
+
+## Security & ops
+| shape_type | Service |
+|---|---|
+| azure_key_vault | Key Vault |
+| azure_entra_id | Microsoft Entra ID |
+| azure_monitor | Azure Monitor |
+| azure_users | Users |

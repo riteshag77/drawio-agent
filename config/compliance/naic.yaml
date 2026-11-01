@@ -1,0 +1,83 @@
+name: "NAIC"
+full_name: "National Association of Insurance Commissioners"
+description: "Insurance data security model law requiring protection of consumer information"
+
+in_scope_categories:
+  - storage
+  - database
+  - compute
+  - networking
+
+controls:
+  encryption_at_rest:
+    name: "Encryption at Rest"
+    description: "Section 4.C — encrypt nonpublic consumer information at rest"
+    severity: high
+    recommendation: "Enable KMS/Key Vault encryption for all data stores containing consumer information"
+    affected_categories:
+      - storage
+      - database
+    required_services:
+      aws: ["aws_kms"]
+      gcp: ["gcp_cloud_kms"]
+      azure: ["azure_key_vault"]
+
+  encryption_in_transit:
+    name: "Encryption in Transit"
+    description: "Section 4.C — encrypt nonpublic consumer information in transit over public networks"
+    topology_check: transit_encryption
+    severity: high
+    recommendation: "Enforce TLS for all data in transit across public and external networks"
+    affected_categories:
+      - networking
+    required_services:
+      aws: ["aws_application_load_balancer", "aws_api_gateway", "aws_cloudfront"]
+      gcp: ["gcp_cloud_load_balancing", "gcp_cloud_cdn"]
+      azure: ["azure_application_gateway", "azure_front_door"]
+
+  access_control:
+    name: "Access Control"
+    description: "Section 4.A — implement access controls with least-privilege principles"
+    severity: high
+    recommendation: "Implement IAM with MFA, role-based access controls, and periodic access reviews"
+    affected_categories: []
+    required_services:
+      aws: ["aws_iam", "aws_cognito"]
+      gcp: ["gcp_iam"]
+      azure: ["azure_entra_id"]
+
+  audit_logging:
+    name: "Audit Logging"
+    description: "Section 4.D — monitor and log system activity for unauthorized access"
+    severity: high
+    recommendation: "Enable CloudTrail/Cloud Monitoring with log retention and integrity verification"
+    affected_categories: []
+    required_services:
+      aws: ["aws_cloudtrail", "aws_cloudwatch"]
+      gcp: ["gcp_cloud_monitoring", "gcp_cloud_logging"]
+      azure: ["azure_monitor"]
+
+  network_segmentation:
+    name: "Network Segmentation"
+    description: "Section 4.G — secure network segmentation for information systems"
+    topology_check: segmentation
+    severity: medium
+    recommendation: "Deploy WAF and network firewalls to segment consumer information systems"
+    affected_categories:
+      - networking
+    required_services:
+      aws: ["aws_waf"]
+      gcp: ["gcp_cloud_armor"]
+      azure: ["azure_application_gateway", "azure_firewall"]
+
+  incident_response:
+    name: "Incident Response"
+    description: "Section 5 — establish and maintain incident response plan for cybersecurity events"
+    assessment: process
+    severity: medium
+    recommendation: "Enable monitoring, alerting, and automated incident response workflows"
+    affected_categories: []
+    required_services:
+      aws: ["aws_cloudwatch", "aws_guardduty", "aws_sns"]
+      gcp: ["gcp_cloud_monitoring", "gcp_pubsub"]
+      azure: ["azure_monitor"]

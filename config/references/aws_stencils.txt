@@ -1,0 +1,135 @@
+# AWS services — `shape_type` vocabulary
+
+Copy a key verbatim into a leaf's `shape_type`. These are already in the form
+the IR expects; do not derive, prefix or reformat them. A service that is not
+listed still takes your best semantic guess in the same `aws_<service>` shape —
+an unresolved key renders as a labelled grey placeholder, which is strictly
+better than a confidently wrong icon.
+
+Never reuse another leaf's key for a different service just because it's
+already in front of you — e.g. IAM, KMS and CloudWatch are three different
+services and must not all resolve to the same key (such as `aws_directory_service`,
+which is a fourth, unrelated service). Two different leaves sharing one icon
+reads as a worse mistake than either one showing an unresolved placeholder.
+
+Icon artwork is resolved server-side from this key — never emit a draw.io style
+or stencil path.
+
+## Compute
+| shape_type | Service |
+|---|---|
+| aws_lambda | Lambda |
+| aws_ec2 | EC2 |
+| aws_ec2_instance | EC2 Instance |
+| aws_ecs | ECS |
+| aws_ecs_container | ECS Container |
+| aws_fargate | Fargate |
+| aws_elastic_beanstalk | Elastic Beanstalk |
+| aws_kubernetes | EKS / Kubernetes |
+
+## Application integration
+| shape_type | Service |
+|---|---|
+| aws_api_gateway | API Gateway |
+| aws_eventbridge | EventBridge |
+| aws_sns | SNS |
+| aws_sqs | SQS |
+| aws_step_functions | Step Functions |
+| aws_ses | SES |
+
+## Database
+| shape_type | Service |
+|---|---|
+| aws_dynamodb | DynamoDB |
+| aws_rds | RDS |
+| aws_aurora | Aurora |
+| aws_elasticache | ElastiCache |
+| aws_redshift | Redshift |
+| aws_dms | Database Migration Service |
+| aws_timestream | Timestream (time-series) |
+| aws_documentdb | DocumentDB |
+| aws_neptune | Neptune (graph) |
+
+## Storage
+| shape_type | Service |
+|---|---|
+| aws_s3 | S3 |
+| aws_efs | EFS |
+| aws_ebs | EBS |
+| aws_backup | Backup |
+| aws_storage_gateway | Storage Gateway |
+| aws_snowball | Snowball |
+
+## Networking & content delivery
+| shape_type | Service |
+|---|---|
+| aws_cloudfront | CloudFront |
+| aws_route53 | Route 53 |
+| aws_application_load_balancer | Application Load Balancer |
+| aws_network_load_balancer | Network Load Balancer |
+| aws_vpc | VPC |
+| aws_nat_gateway | NAT Gateway |
+| aws_internet_gateway | Internet Gateway |
+| aws_vpn_gateway | VPN Gateway |
+| aws_privatelink | PrivateLink |
+| aws_endpoints | VPC Endpoints |
+| aws_peering | VPC Peering |
+
+## Security, identity & compliance
+| shape_type | Service |
+|---|---|
+| aws_iam | IAM |
+| aws_cognito | Cognito |
+| aws_kms | KMS |
+| aws_secrets_manager | Secrets Manager |
+| aws_waf | WAF |
+| aws_shield | Shield |
+| aws_directory_service | Directory Service |
+| aws_single_sign_on | IAM Identity Center (SSO) |
+| aws_guardduty | GuardDuty |
+| aws_config | Config |
+
+## Management & observability
+| shape_type | Service |
+|---|---|
+| aws_cloudwatch | CloudWatch |
+| aws_cloudtrail | CloudTrail |
+| aws_xray | X-Ray |
+
+## Analytics, streaming & ML
+| shape_type | Service |
+|---|---|
+| aws_kinesis | Kinesis |
+| aws_managed_streaming_for_kafka | MSK (Managed Kafka) |
+| aws_athena | Athena |
+| aws_glue | Glue |
+| aws_emr | EMR |
+| aws_sagemaker | SageMaker |
+| aws_bedrock | Bedrock |
+| aws_comprehend | Comprehend |
+| aws_rekognition | Rekognition |
+| aws_translate | Translate |
+
+## Generic / non-AWS actors
+| shape_type | Meaning |
+|---|---|
+| aws_client | Client / browser |
+| aws_mobile_client | Mobile client |
+| aws_traditional_server | On-premise server |
+| aws_generic_database | Non-AWS database |
+| aws_generic_firewall | Firewall appliance |
+| aws_router | Router |
+
+## Keys with no usable icon — never emit these
+Use the suggested replacement instead; these resolve to a blank or wrong glyph.
+
+| Do not use | Use instead |
+|---|---|
+| aws_dynamodb_table, aws_dynamodb_stream | aws_dynamodb |
+| aws_s3_bucket | aws_s3, labelled with the bucket name |
+| aws_kinesis_data_streams | aws_kinesis |
+| aws_msk | aws_managed_streaming_for_kafka |
+| aws_iam_identity_center | aws_single_sign_on |
+| aws_vpc_peering, aws_peering_connection | aws_peering |
+| aws_endpoint | aws_endpoints |
+| aws_general_saml_token | aws_iam |

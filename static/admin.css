@@ -1,0 +1,593 @@
+/* Admin console — layout/component rules specific to admin.html. Colors,
+   type, spacing, and radius all come from the shared token system defined
+   in styles.css and static/themes/*.css; nothing here hardcodes a value
+   that belongs to that system. */
+body {
+    overflow-y: auto;
+    background:
+        radial-gradient(720px 420px at 12% -8%, var(--accent-glow), transparent 60%),
+        var(--sidebar-bg);
+    min-height: 100vh;
+}
+
+/* ── Gate screens (login / not-configured) ─────────────────────── */
+.admin-gate {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem 1.25rem;
+}
+
+.admin-gate-card {
+    width: 100%;
+    max-width: 380px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 0.35rem;
+}
+
+.admin-gate-mark {
+    width: 56px;
+    height: 56px;
+    border-radius: var(--radius-xl);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+    box-shadow: 0 10px 32px var(--accent-glow);
+    margin-bottom: 0.75rem;
+}
+
+.admin-gate-mark svg { width: 28px; height: 28px; }
+
+.admin-gate-eyebrow {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--accent);
+}
+
+.admin-gate-card h1 {
+    font: var(--text-display);
+    letter-spacing: -0.01em;
+    color: var(--text-primary);
+    margin: 0.15rem 0 0.35rem;
+}
+
+.admin-gate-sub {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+    margin: 0 0 1.6rem;
+}
+
+.admin-gate-form {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+}
+
+.admin-password-field {
+    position: relative;
+    width: 100%;
+}
+
+.admin-password-field input {
+    width: 100%;
+    padding: 0.8rem 2.6rem 0.8rem 1rem;
+    font-size: 0.9rem;
+    font-family: inherit;
+    color: var(--text-primary);
+    background-color: var(--surface-well);
+    border: 1px solid var(--sidebar-border);
+    border-radius: var(--radius-lg);
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.admin-password-field input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: var(--shadow-focus);
+}
+
+.admin-password-field input.shake { animation: admin-shake 0.4s; }
+
+@keyframes admin-shake {
+    10%, 90% { transform: translateX(-1px); }
+    20%, 80% { transform: translateX(2px); }
+    30%, 50%, 70% { transform: translateX(-4px); }
+    40%, 60% { transform: translateX(4px); }
+}
+
+.admin-password-toggle {
+    position: absolute;
+    right: 0.4rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: var(--radius-md);
+}
+
+.admin-password-toggle:hover { color: var(--text-primary); background: var(--surface-hover); }
+.admin-password-toggle svg { width: 17px; height: 17px; }
+
+.admin-gate-submit {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border: none;
+    border-radius: var(--radius-lg);
+    padding: 0.8rem 1rem;
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+    color: #fff;
+    font-family: inherit;
+    font-size: 0.88rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: transform 0.15s, filter 0.15s, opacity 0.15s;
+}
+
+.admin-gate-submit:hover { filter: brightness(1.08); }
+.admin-gate-submit:active { transform: scale(0.98); }
+.admin-gate-submit:disabled { opacity: 0.7; cursor: default; }
+
+.admin-spinner {
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.4);
+    border-top-color: #fff;
+    animation: admin-spin 0.7s linear infinite;
+    flex-shrink: 0;
+}
+
+.admin-spinner.dark {
+    border: 2px solid var(--sidebar-border);
+    border-top-color: var(--accent);
+}
+
+@keyframes admin-spin { to { transform: rotate(360deg); } }
+
+.admin-gate-error {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--error-soft);
+    min-height: 1.1em;
+}
+
+.admin-gate-error svg { width: 14px; height: 14px; flex-shrink: 0; }
+
+.admin-gate-back {
+    margin-top: 1.6rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.admin-gate-back:hover { color: var(--text-primary); }
+.admin-gate-back svg { width: 14px; height: 14px; }
+
+.admin-setup-steps {
+    width: 100%;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    background-color: var(--surface-well);
+    border: 1px solid var(--sidebar-border);
+    border-radius: var(--radius-xl);
+    padding: 1rem 1.1rem;
+}
+
+.admin-setup-step {
+    display: flex;
+    gap: 0.65rem;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.admin-setup-step-num {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--surface-hover);
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.admin-setup-step code {
+    background: var(--surface-hover);
+    border: 1px solid var(--sidebar-border);
+    color: var(--accent);
+    padding: 0.1rem 0.4rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.76rem;
+}
+
+/* ── Dashboard shell ─────────────────────────────────────────── */
+.admin-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    padding: 0.85rem 1.5rem;
+    background: color-mix(in srgb, var(--sidebar-bg) 88%, transparent);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--sidebar-border);
+}
+
+.admin-topbar-mark {
+    width: 30px;
+    height: 30px;
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+    flex-shrink: 0;
+}
+
+.admin-topbar-mark svg { width: 16px; height: 16px; }
+
+.admin-topbar-title { display: flex; flex-direction: column; line-height: 1.2; }
+.admin-topbar-title strong { font: var(--text-h1); font-size: 0.95rem; color: var(--text-primary); }
+.admin-topbar-title span { font-size: 0.66rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+
+.admin-topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 0.5rem; }
+
+.admin-pill-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border: 1px solid var(--sidebar-border);
+    background-color: var(--surface-raised);
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 0.76rem;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 0.45rem 0.75rem;
+    border-radius: var(--radius-pill);
+    text-decoration: none;
+    transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.admin-pill-btn:hover { color: var(--text-primary); background: var(--surface-hover); border-color: var(--border-strong); }
+.admin-pill-btn svg { width: 14px; height: 14px; }
+
+.admin-shell { max-width: 760px; margin: 0 auto; padding: 1.75rem 1.5rem 4rem; }
+
+.admin-subnav {
+    display: flex;
+    gap: 0.4rem;
+    margin-bottom: 1.75rem;
+    padding: 0.3rem;
+    background-color: var(--surface-well);
+    border: 1px solid var(--sidebar-border);
+    border-radius: var(--radius-lg);
+}
+
+.admin-subnav button {
+    flex: 1;
+    text-align: center;
+    padding: 0.5rem 0.7rem;
+    border: none;
+    border-radius: var(--radius-md);
+    font-family: inherit;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    background: transparent;
+    cursor: pointer;
+    transition: color 0.15s, background 0.15s;
+}
+
+.admin-subnav button:hover { color: var(--text-primary); }
+
+.admin-subnav button.active {
+    color: var(--text-primary);
+    background: var(--surface-hover);
+}
+
+.admin-section { margin-bottom: 2.25rem; }
+.admin-section[hidden] { display: none !important; }
+
+.admin-section-head { display: flex; align-items: baseline; gap: 0.5rem; margin-bottom: 0.9rem; }
+.admin-section-title { font: var(--text-h2); color: var(--text-primary); }
+.admin-section-desc { font-size: 0.78rem; color: var(--text-muted); margin: 0.15rem 0 1rem; line-height: 1.5; }
+
+.admin-card {
+    border: 1px solid var(--sidebar-border);
+    border-radius: var(--radius-xl);
+    background-color: var(--surface-well);
+    transition: border-color 0.15s;
+}
+
+.admin-default-row {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    padding: 1rem 1.1rem;
+    margin-bottom: 1rem;
+}
+
+.admin-default-row-label { font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); flex-shrink: 0; }
+.admin-default-row select { flex: 1; }
+
+.admin-provider-list { display: flex; flex-direction: column; gap: 0.7rem; }
+.admin-provider-card { padding: 1rem 1.1rem; }
+.admin-provider-card:hover { border-color: var(--border-strong); }
+
+.admin-provider-head { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.75rem; }
+
+.admin-provider-avatar {
+    width: 30px;
+    height: 30px;
+    border-radius: var(--radius-md);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.78rem;
+    font-weight: 800;
+    background: var(--surface-hover);
+    color: var(--text-secondary);
+}
+
+.admin-provider-name-col { display: flex; flex-direction: column; min-width: 0; }
+.admin-provider-label { font-weight: 700; color: var(--text-primary); font-size: 0.88rem; }
+.admin-provider-env { font-size: 0.66rem; color: var(--text-muted); font-family: var(--font-mono); }
+
+.admin-default-badge {
+    font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+    padding: 0.15rem 0.4rem; border-radius: var(--radius-pill);
+    background: var(--accent-glow); color: var(--accent);
+}
+
+.admin-source-badge {
+    margin-left: auto;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.32rem;
+    font-size: 0.66rem;
+    font-weight: 700;
+    padding: 0.2rem 0.55rem;
+    border-radius: var(--radius-pill);
+}
+
+.admin-source-badge::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.admin-source-badge.admin { background: var(--accent-glow); color: var(--accent); }
+.admin-source-badge.env { background: var(--success-bg-soft); color: var(--success-soft); }
+.admin-source-badge.unset { background: var(--error-bg-soft); color: var(--error-soft); }
+
+.admin-field-row { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.55rem; }
+
+.admin-field-row .admin-password-field { flex: 1; margin: 0; }
+.admin-field-row .admin-password-field input {
+    padding: 0.55rem 2.4rem 0.55rem 0.8rem;
+    font-size: 0.8rem;
+    border-radius: var(--radius-md);
+}
+.admin-field-row input[type="text"] {
+    flex: 1;
+    padding: 0.55rem 0.8rem;
+    font-size: 0.8rem;
+    font-family: inherit;
+    color: var(--text-primary);
+    background-color: var(--surface-well);
+    border: 1px solid var(--sidebar-border);
+    border-radius: var(--radius-md);
+}
+.admin-field-row input:focus { outline: none; border-color: var(--accent); }
+
+.admin-icon-btn {
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--sidebar-border);
+    background-color: var(--surface-raised);
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-radius: var(--radius-md);
+    transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.admin-icon-btn:hover { color: var(--text-primary); background: var(--surface-hover); }
+.admin-icon-btn svg { width: 15px; height: 15px; }
+.admin-icon-btn.danger:hover { color: var(--error-soft); border-color: var(--error-soft); }
+
+.admin-provider-actions { display: flex; gap: 0.6rem; align-items: center; padding-top: 0.35rem; border-top: 1px solid var(--border-subtle); margin-top: 0.15rem; }
+
+.admin-test-btn {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    border: none; background: transparent; color: var(--text-muted);
+    font-family: inherit; font-size: 0.74rem; font-weight: 600;
+    cursor: pointer; padding: 0.3rem 0.1rem;
+    white-space: nowrap;
+}
+.admin-test-btn:hover { color: var(--text-primary); }
+.admin-test-btn svg { width: 13px; height: 13px; flex-shrink: 0; }
+
+.admin-test-result {
+    font-size: 0.72rem;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+.admin-test-result.ok { color: var(--success-soft); }
+.admin-test-result.fail { color: var(--error-soft); }
+
+[hidden] { display: none !important; }
+
+/* ── Governance ──────────────────────────────────────────────── */
+.admin-governance-form {
+    display: flex; flex-direction: column; gap: 0.9rem;
+    padding: 1.1rem; margin-bottom: 1.1rem;
+}
+.admin-field-group { display: flex; flex-direction: column; gap: 0.35rem; }
+.admin-field-group label { font-size: 0.75rem; font-weight: 700; color: var(--text-secondary); }
+.admin-field-group select, .admin-field-group input[type="text"], .admin-field-group input[type="number"], .admin-field-group textarea {
+    padding: 0.6rem 0.75rem; font-size: 0.8rem; font-family: inherit; color: var(--text-primary);
+    background-color: var(--surface-well); border: 1px solid var(--sidebar-border); border-radius: var(--radius-md);
+}
+.admin-field-group textarea { resize: vertical; min-height: 2.6rem; }
+.admin-field-group select:focus, .admin-field-group input:focus, .admin-field-group textarea:focus { outline: none; border-color: var(--accent); }
+.admin-help-text { font-size: 0.71rem; color: var(--text-muted); line-height: 1.45; }
+.admin-field-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; }
+.admin-checkbox-label { display: flex; align-items: flex-start; gap: 0.45rem; font-size: 0.74rem; font-weight: 500; color: var(--text-muted); margin-top: 0.35rem; }
+.admin-checkbox-label input { margin-top: 0.15rem; accent-color: var(--accent); }
+.gov-param[hidden] { display: none; }
+
+.admin-add-rule-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+    border: none; border-radius: var(--radius-lg); padding: 0.65rem 1rem;
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+    color: #fff; font-family: inherit; font-size: 0.82rem; font-weight: 700;
+    cursor: pointer; transition: filter 0.15s;
+    align-self: flex-start;
+}
+.admin-add-rule-btn:hover { filter: brightness(1.08); }
+.admin-add-rule-btn svg { width: 15px; height: 15px; }
+
+.admin-governance-form-actions { display: flex; align-items: center; gap: 0.7rem; }
+.admin-cancel-edit-btn {
+    border: none; background: transparent; color: var(--text-muted);
+    font-family: inherit; font-size: 0.78rem; font-weight: 600;
+    cursor: pointer; padding: 0.4rem 0.2rem; text-decoration: underline;
+}
+.admin-cancel-edit-btn:hover { color: var(--text-primary); }
+
+.admin-governance-list { display: flex; flex-direction: column; gap: 0.6rem; }
+.admin-governance-card { padding: 0.9rem 1rem; transition: opacity 0.15s, border-color 0.15s; }
+.admin-governance-card.disabled { opacity: 0.5; }
+.admin-governance-card.editing { border-color: var(--accent); }
+.admin-governance-card-head { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; flex-wrap: wrap; }
+.admin-governance-kind-badge {
+    font-size: 0.63rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
+    padding: 0.18rem 0.5rem; border-radius: var(--radius-pill); background: var(--info-bg-soft); color: var(--info-soft);
+}
+.admin-governance-scope { font-size: 0.68rem; font-weight: 600; color: var(--text-muted); }
+.admin-governance-message { font-size: 0.83rem; color: var(--text-primary); margin: 0.35rem 0 0.15rem; line-height: 1.45; }
+.admin-governance-actions { display: flex; gap: 0.7rem; align-items: center; margin-top: 0.6rem; padding-top: 0.55rem; border-top: 1px solid var(--border-subtle); }
+.admin-governance-actions .admin-checkbox-label { margin: 0; align-items: center; }
+.admin-governance-actions .admin-checkbox-label input { margin-top: 0; }
+.admin-governance-empty {
+    font-size: 0.8rem; color: var(--text-muted); padding: 2rem 1rem; text-align: center;
+    border: 1px dashed var(--sidebar-border); border-radius: var(--radius-lg);
+}
+
+/* ── Validation ──────────────────────────────────────────────── */
+.admin-validation-card { display: flex; flex-direction: column; gap: 1.1rem; padding: 1.1rem; }
+
+/* A master switch, not a bare checkbox: it governs every control under it, so
+   it needs more weight than the fields it gates. */
+.admin-switch-row {
+    display: flex; align-items: flex-start; gap: 0.75rem; cursor: pointer;
+    padding-bottom: 1rem; border-bottom: 1px solid var(--sidebar-border);
+}
+.admin-switch { position: relative; flex-shrink: 0; width: 38px; height: 22px; margin-top: 0.1rem; }
+.admin-switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.admin-switch-track {
+    position: absolute; inset: 0; border-radius: 999px;
+    background: var(--surface-well); border: 1px solid var(--sidebar-border);
+    transition: background 0.15s, border-color 0.15s;
+}
+.admin-switch-track::after {
+    content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px;
+    border-radius: 50%; background: var(--text-muted); transition: transform 0.15s, background 0.15s;
+}
+.admin-switch input:checked + .admin-switch-track { background: var(--accent); border-color: var(--accent); }
+.admin-switch input:checked + .admin-switch-track::after { transform: translateX(16px); background: #fff; }
+.admin-switch input:focus-visible + .admin-switch-track { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.admin-switch-text { display: flex; flex-direction: column; gap: 0.15rem; }
+/* The row is a <label>, and the page uppercases labels so that *field* captions
+   read as captions. This one is a heading over a sentence, and both belong in
+   sentence case — every other heading on the page ("Diagram validation",
+   "Providers") is. */
+.admin-switch-title {
+    font-size: 0.85rem; font-weight: 700; color: var(--text-primary);
+    text-transform: none; letter-spacing: normal;
+}
+.admin-switch-sub {
+    font-size: 0.74rem; color: var(--text-muted); line-height: 1.45;
+    text-transform: none; letter-spacing: normal; font-weight: 500;
+}
+
+/* Gated fields stay visible but read as inactive — hiding them would make the
+   panel jump, and removing them would hide what the switch actually controls. */
+.admin-validation-fields { display: flex; flex-direction: column; gap: 1rem; }
+.admin-validation-fields[data-disabled="true"] { opacity: 0.45; pointer-events: none; }
+
+/* A number field whose unit is part of the control, not of its label. */
+.admin-input-suffix { display: flex; align-items: center; gap: 0.5rem; }
+.admin-input-suffix input[type="number"] {
+    width: 6.5rem; padding: 0.6rem 0.75rem; font-size: 0.8rem; font-family: inherit;
+    color: var(--text-primary); background-color: var(--surface-well);
+    border: 1px solid var(--sidebar-border); border-radius: var(--radius-md);
+}
+.admin-input-suffix input[type="number"]:focus { outline: none; border-color: var(--accent); }
+.admin-input-unit { font-size: 0.74rem; font-weight: 600; color: var(--text-muted); }
+
+.admin-save-hint {
+    font-size: 0.74rem; font-weight: 600; color: var(--success-soft);
+    opacity: 0; transition: opacity 0.2s;
+}
+.admin-save-hint.is-visible { opacity: 1; }
+
+/* Model picker — mirrors the app's own: an identity badge beside the choice,
+   so the selected model is recognisable at a glance rather than read. */
+.admin-model-row { display: flex; align-items: center; gap: 0.6rem; }
+.admin-model-row select { flex: 1; }
+.admin-model-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    flex-shrink: 0; width: 26px; height: 26px; border-radius: var(--radius-md);
+    background: var(--accent); color: #fff; font-size: 0.72rem; font-weight: 700;
+}
+/* "Same as generation" is a deferral, not a model — it should not wear a
+   provider's colour. */
+.admin-model-badge.is-inherit { background: var(--surface-hover); color: var(--text-muted); }
+.admin-model-warning { color: var(--warning-soft); }

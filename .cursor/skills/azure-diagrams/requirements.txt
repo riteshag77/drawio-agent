@@ -1,0 +1,17 @@
+# Azure Diagrams Skill - core Python dependency
+#
+# System prerequisite (NOT installable via pip): Graphviz must be installed and
+# the `dot` binary must be on PATH.
+#   Windows: winget install -e --id Graphviz.Graphviz   (or: choco / scoop)
+#   macOS:   brew install graphviz
+#   Linux:   sudo apt-get install graphviz   (or your distro equivalent)
+#
+# diagrams 0.25.1 is the floor: 0.25.0 shipped with missing logos and was fixed
+# in 0.25.1 (Nov 2025). 0.25.x adds the Azure AI/ML (aimachinelearning),
+# containers, management-governance, databases(v2) and networking icon modules
+# this skill relies on. It also renamed AzureSpeedToText -> AzureSpeechService.
+diagrams>=0.25.1
+
+# Optional extras live in requirements-extras.txt (matplotlib for timeline/Gantt/
+# wireframe types; cairosvg for portable SVG). Kept separate so this core install
+# never fails on a platform missing the native cairo libraries.

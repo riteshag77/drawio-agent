@@ -1,0 +1,19 @@
+## Service Classification — AWS only
+
+Classify using this decision order — stop at the first match:
+
+| # | Category | AWS examples | Place in |
+|---|----------|--------------|----------|
+| 1 | Global/edge — DNS, CDN, WAF, static | Route 53, CloudFront, WAF, S3 (static) | Edge/Global Layer |
+| 1b | Cross-VPC / cross-account connectivity hub | Transit Gateway, VPN Gateway, Direct Connect, PrivateLink, VPC Lattice | Cloud level beside Edge (edges to VPCs — never inside one VPC row) |
+| 1c | Enterprise SaaS (vendor-hosted) | Salesforce, SuccessFactors, Workday, Okta, Guidewire, Stripe | Outside the cloud boundary, ordered by **call path**: ingress IdP left (Users→Okta→Edge); egress deps right (App→Workday). Never Integration/VPC |
+| 2 | Identity, encryption, secrets | IAM, KMS, Secrets Manager, ACM, Cognito, GuardDuty | Security Group (NO edges) |
+| 3 | Observability, audit | CloudWatch, CloudTrail, Config, X-Ray | Monitoring Group (NO edges) |
+| 4 | Messaging / integration bus | SQS, SNS, EventBridge, Step Functions | Integration Group (NO edges) |
+| 5 | Operational, management | Systems Manager, AWS Backup | Management Group (NO edges) |
+| 6 | Stateless compute, app-tier | EC2, ECS, Lambda (app) | Zone → Private App Subnet |
+| 7 | Stateful data-tier | RDS, Aurora, ElastiCache, DynamoDB | Zone → Private Data Subnet |
+| 8 | Network LB / routing | ALB, NLB, API Gateway | VPC gateway (the `gateway` field on the VPC — one LB/API Gateway centred above every zone it fronts, never inside a subnet) |
+| 9 | Zone internet-facing infra | NAT Gateway, Bastion | That Zone's Public Subnet |
+
+Cross-cutting groups (rows 2–5): place icons only — **never** draw edges to or from them.

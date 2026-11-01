@@ -1,0 +1,24 @@
+## Enterprise SaaS (all architecture views)
+
+When the request or inventory includes external enterprise apps (Salesforce, SuccessFactors, Workday, Guidewire, Okta, …):
+
+1. Emit a service **leaf** with **`shape_type=saas_<vendor>`** from the enterprise SaaS catalog (e.g. `saas_salesforce`, `saas_successfactors`, `saas_okta`).
+2. On **Logical**, label as `{Product} (SAAS)`; use the `domain_saas` shelf when 2+ apps. On Network / Security / Data flow, a short product name is enough.
+3. Do **not** invent `resIcon=`, AWS/GCP/Azure stencils, or logo URLs — the server resolves curated icons.
+4. Placement by view (by **call path**):
+   - **Network:** `external_actors` with `kind=saas_ingress` (user hits SaaS first) or `kind=saas_egress` (cloud calls SaaS). Never nest SaaS inside a VPC or Integration group.
+   - **Security:** `zone_external_saas` shelf (under `zone_restricted`) by default; `zone_public` / `zone_identity` only for trust peers on the ingress path (e.g. an external IdP).
+   - **Data flow:** `phase_saas_producer` (SaaS feeding data IN) or `phase_saas_consumer` (pipeline sending data OUT) — both shelves under `phase_store`.
+   - **Logical:** `domain_saas` shelf under `domain_data` when useful; `shape_type=saas_*` leaves ordered by journey role.
+
+Unknown vendor not in the catalog → `logical_saas` on Logical (or a generic
+egress actor on Network) — those views have a non-`saas_*` fallback shape, so
+prefer it over guessing a vendor key. **Security and Data-flow have no such
+fallback** — a leaf in `zone_external_saas`/`phase_saas_producer`/
+`phase_saas_consumer` only makes sense as a `saas_*` key, so for those two
+views, an unlisted vendor still gets `shape_type=saas_<name>` (invent the
+`<name>` from the vendor's actual name) rather than reusing a *listed*
+vendor's key. Reusing `saas_salesforce` for a vendor that isn't Salesforce
+renders that vendor's leaf with the Salesforce logo — a specific, wrong,
+recognizable brand shown on the diagram, which is worse than the generic
+placeholder an invented key safely falls back to.

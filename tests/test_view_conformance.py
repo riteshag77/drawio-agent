@@ -1,0 +1,491 @@
+"""Tests for focused-view conformance scoring and deterministic fixers."""
+
+from __future__ import annotations
+
+import unittest
+import xml.etree.ElementTree as ET
+
+from app.adapters.outbound.diagram.architecture_docs import (
+    achievable_density_target,
+    build_architecture_inventory,
+)
+from app.adapters.outbound.llm.prompts.ir import get_corridor_ir_system_prompt
+from app.adapters.outbound.diagram.compiler import compile_corridor_ir
+from app.adapters.outbound.diagram.view_conformance import score_view
+from app.adapters.outbound.diagram.view_fixers import (
+    apply_edge_label_defaults,
+    apply_view_fixers,
+    drop_forbidden_nodes,
+    relabel_generic_data_stores,
+)
+from app.domain.ir import AnchoredCorridor, Corridor, Flow, Leaf, SecurityIR
+
+
+def _wrap(body: str, name: str = "Logical") -> str:
+    return (
+        f'<mxfile host="app.diagrams.net"><diagram id="d1" name="{name}">'
+        '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>'
+        f"{body}</root></mxGraphModel></diagram></mxfile>"
+    )
+
+
+def _leaf(cid: str, label: str, x: int, shape_type: str = "") -> str:
+    st = f' shape_type="{shape_type}"' if shape_type else ""
+    return (
+        f'<mxCell id="{cid}" value="{label}"{st} style="fillColor=#F5F5F5;" '
+        f'vertex="1" parent="1">'
+        f'<mxGeometry x="{x}" y="40" width="78" height="78" as="geometry"/></mxCell>'
+    )
+
+
+class PackBoundaryTests(unittest.TestCase):
+    def test_logical_ir_excludes_network_vpc_vocabulary(self) -> None:
+        logical = get_corridor_ir_system_prompt("logical", platform="aws")
+        self.assertIn("domain_experience", logical)
+        self.assertIn("(SAAS)", logical)
+        self.assertNotIn("Canonical Container Hierarchy", logical)
+        self.assertNotIn("Cross-Cutting Groups", logical)
+        self.assertNotIn("Availability Zone", logical)
+        self.assertNotIn("Service Classification — AWS", logical)
+
+
+class DensityTargetTests(unittest.TestCase):
+    def test_scales_with_inventory(self) -> None:
+        self.assertEqual(achievable_density_target(0), 5)
+        self.assertEqual(achievable_density_target(2), 5)
+        self.assertGreaterEqual(achievable_density_target(8), 8)
+        self.assertLessEqual(achievable_density_target(100), 12)
+
+
+class ConformanceScorerTests(unittest.TestCase):
+    def test_forbidden_waf_on_logical(self) -> None:
+        xml = _wrap(
+            _leaf("waf", "WAF", 40, "aws_waf")
+            + _leaf("app", "Orders API", 240, "aws_ecs")
+            + '<mxCell id="e1" edge="1" parent="1" source="waf" target="app" value="Calls API">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        scored = score_view(xml, view="logical", min_score=75)
+        codes = {v.code for v in scored.violations}
+        self.assertIn("forbidden_node", codes)
+
+    def test_unlabeled_edge(self) -> None:
+        xml = _wrap(
+            _leaf("a", "Orders API", 40, "aws_ecs")
+            + _leaf("b", "Customer data store", 240, "aws_rds")
+            + '<mxCell id="e1" edge="1" parent="1" source="a" target="b" value="">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        scored = score_view(xml, view="logical", min_score=75)
+        self.assertTrue(any(v.code == "unlabeled_edge" for v in scored.violations))
+
+    def test_network_clone_detected(self) -> None:
+        primary = _wrap(
+            _leaf("waf", "WAF", 40, "aws_waf")
+            + _leaf("alb", "ALB", 220, "aws_alb")
+            + _leaf("ecs", "ECS", 400, "aws_ecs")
+            + '<mxCell id="e1" edge="1" parent="1" source="waf" target="alb" value="HTTPS">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+            + '<mxCell id="e2" edge="1" parent="1" source="alb" target="ecs" value="HTTPS">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>',
+            name="Network",
+        )
+        clone = primary.replace('name="Network"', 'name="Logical"')
+        scored = score_view(clone, view="logical", primary_xml=primary, min_score=75)
+        self.assertTrue(any(v.code == "network_clone" for v in scored.violations))
+
+    def test_escaped_html_leak(self) -> None:
+        xml = _wrap(
+            _leaf("a", "App", 40, "aws_ecs")
+            + _leaf("b", "Store", 240, "aws_rds")
+            + '<mxCell id="overview_panel" value="&amp;lt;div&amp;gt;Title&amp;lt;/div&amp;gt;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="900" y="40" width="400" height="120" as="geometry"/></mxCell>'
+        )
+        scored = score_view(xml, view="logical", min_score=75)
+        self.assertTrue(any(v.code == "escaped_html_leak" for v in scored.violations))
+
+
+class ViewFixerTests(unittest.TestCase):
+    def test_drop_forbidden_keeps_graph(self) -> None:
+        xml = _wrap(
+            _leaf("waf", "WAF", 40, "aws_waf")
+            + _leaf("app", "Orders API", 240, "aws_ecs")
+            + _leaf("db", "Aurora", 440, "aws_rds")
+            + '<mxCell id="e1" edge="1" parent="1" source="waf" target="app" value="Calls API">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+            + '<mxCell id="e2" edge="1" parent="1" source="app" target="db" value="Relies on">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        out = drop_forbidden_nodes(xml, view="logical")
+        ids = {c.get("id") for c in ET.fromstring(out).iter("mxCell")}
+        self.assertNotIn("waf", ids)
+        self.assertIn("app", ids)
+        self.assertIn("db", ids)
+
+    def test_drop_forbidden_bridges_all_incoming_sources(self) -> None:
+        """Fan-in > 1 into a forbidden pass-through node: every incoming
+        source must be bridged to the outgoing target, not just the first."""
+        xml = _wrap(
+            _leaf("app1", "Orders API", 40, "aws_ecs")
+            + _leaf("app2", "Billing API", 40, "aws_ecs")
+            + _leaf("nat", "NAT Gateway", 240, "aws_waf")
+            + _leaf("saas", "Stripe", 440, "aws_ecs")
+            + '<mxCell id="e1" edge="1" parent="1" source="app1" target="nat" value="Egress">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+            + '<mxCell id="e2" edge="1" parent="1" source="app2" target="nat" value="Egress">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+            + '<mxCell id="e3" edge="1" parent="1" source="nat" target="saas" value="Calls">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        out = drop_forbidden_nodes(xml, view="logical")
+        tree = ET.fromstring(out)
+        ids = {c.get("id") for c in tree.iter("mxCell")}
+        self.assertNotIn("nat", ids)
+        edges = {(c.get("source"), c.get("target")) for c in tree.iter("mxCell") if c.get("edge") == "1"}
+        self.assertIn(("app1", "saas"), edges)
+        self.assertIn(("app2", "saas"), edges)
+
+    def test_relabel_preserves_shape_type(self) -> None:
+        xml = _wrap(_leaf("db", "Aurora", 40, "aws_rds"))
+        out = relabel_generic_data_stores(xml, view="logical")
+        cell = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "db")
+        self.assertEqual(cell.get("shape_type"), "aws_rds")
+        # Named cloud products keep product labels on sparse Logical.
+        self.assertIn("aurora", (cell.get("value") or "").lower())
+
+    def test_relabel_generic_brand_without_cloud_shape(self) -> None:
+        xml = _wrap(_leaf("db", "Postgres", 40, "logical_datastore"))
+        out = relabel_generic_data_stores(xml, view="logical")
+        cell = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "db")
+        self.assertIn("data store", (cell.get("value") or "").lower())
+
+    def test_edge_label_defaults(self) -> None:
+        xml = _wrap(
+            _leaf("app", "App", 40, "aws_ecs")
+            + _leaf("db", "Customer data store", 240, "aws_rds")
+            + '<mxCell id="e1" edge="1" parent="1" source="app" target="db" value="">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        out = apply_edge_label_defaults(xml, view="logical")
+        edge = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "e1")
+        self.assertTrue((edge.get("value") or "").strip())
+
+    def test_edge_label_defaults_replaces_off_vocabulary_non_blank_label(self) -> None:
+        """Regression: a live capture showed Security-view edges keeping a
+        Data-flow-style label ('SQL read/write', 'Cache get/set') carried over
+        from shared-story IR generation — non-blank, so the old blank-only
+        check never touched it, and view_conformance flagged it as
+        edge_vocab_mismatch, dropping the view's quality score below the
+        75-point gate."""
+        xml = _wrap(
+            _leaf("app", "App", 40, "aws_ecs")
+            + _leaf("db", "Data store", 240, "aws_rds")
+            + '<mxCell id="e1" edge="1" parent="1" source="app" target="db" value="SQL read/write">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        out = apply_edge_label_defaults(xml, view="security")
+        edge = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "e1")
+        label = (edge.get("value") or "").strip().lower()
+        self.assertNotEqual(label, "sql read/write")
+        self.assertIn("private path", label)  # app->data default for security
+
+    def test_edge_label_defaults_leaves_on_vocabulary_label_alone(self) -> None:
+        xml = _wrap(
+            _leaf("app", "App", 40, "aws_ecs")
+            + _leaf("db", "Data store", 240, "aws_rds")
+            + '<mxCell id="e1" edge="1" parent="1" source="app" target="db" value="mTLS">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        out = apply_edge_label_defaults(xml, view="security")
+        edge = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "e1")
+        self.assertEqual((edge.get("value") or "").strip(), "mTLS")
+
+    def test_gap_nodes(self) -> None:
+        from app.adapters.outbound.diagram.view_fixers import append_gaps_to_overview_panel
+        from app.adapters.outbound.diagram.xml_diagnostics import _trim_overview_panel_value
+
+        xml = _wrap(
+            _leaf("app", "App", 40, "aws_ecs")
+            + '<mxCell id="overview_panel" value="'
+            "&lt;div style=&quot;font-size:22px;font-weight:bold;&quot;&gt;Security&lt;/div&gt;"
+            "&lt;div style=&quot;font-size:15px;&quot;&gt;1. Perimeter first.&lt;/div&gt;"
+            "&lt;div style=&quot;font-size:15px;&quot;&gt;2. Private app.&lt;/div&gt;"
+            '" vertex="1" parent="1">'
+            '<mxGeometry x="900" y="40" width="400" height="200" as="geometry"/></mxCell>'
+            + '<mxCell id="gap_old" value="Old gap box" gap="1" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="400" width="200" height="60" as="geometry"/></mxCell>'
+        )
+        out = append_gaps_to_overview_panel(
+            xml, view="security", gap_labels=["Identity Provider / IdP", "KMS / secrets management"],
+        )
+        ids = {c.get("id") for c in ET.fromstring(out).iter("mxCell")}
+        self.assertNotIn("gap_old", ids)
+        panel = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "overview_panel")
+        val = panel.get("value") or ""
+        self.assertIn("Recommended gaps", val)
+        self.assertIn("Identity Provider", val)
+        self.assertIn("#B85450", val)
+        self.assertIn("font-size:22px", val)  # existing title recipe untouched by append
+        # Trim must preserve red gaps and keep normal steps
+        trimmed = _trim_overview_panel_value(val)
+        self.assertIn("Recommended gaps", trimmed)
+        self.assertIn("#B85450", trimmed)
+        self.assertIn("Perimeter first", trimmed)
+        self.assertIn("font-size:22px;font-weight:bold", trimmed)
+
+    def test_logical_gap_nodes_allowed(self) -> None:
+        from app.adapters.outbound.diagram.view_fixers import append_gaps_to_overview_panel
+
+        xml = _wrap(
+            _leaf("app", "App", 40, "logical_capability")
+            + '<mxCell id="overview_panel" value="'
+            "&lt;div style=&quot;font-size:22px;font-weight:bold;&quot;&gt;Logical&lt;/div&gt;"
+            "&lt;div style=&quot;font-size:15px;&quot;&gt;1. Persona first.&lt;/div&gt;"
+            '" vertex="1" parent="1">'
+            '<mxGeometry x="900" y="40" width="400" height="200" as="geometry"/></mxCell>'
+        )
+        out = append_gaps_to_overview_panel(
+            xml, view="logical", gap_labels=["Cache / graceful degradation for SaaS outage"],
+        )
+        panel = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "overview_panel")
+        val = panel.get("value") or ""
+        self.assertIn("Recommended gaps", val)
+        self.assertIn("Cache", val)
+
+    def test_strip_detail_cards(self) -> None:
+        from app.adapters.outbound.diagram.view_fixers import strip_detail_cards
+
+        xml = _wrap(
+            _leaf("app", "Orders", 40, "aws_ecs")
+            + '<mxCell id="note_experience" value="card" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="400" width="200" height="80" as="geometry"/></mxCell>'
+            + '<mxCell id="ctrl_dmz" value="ctrl" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="500" width="200" height="80" as="geometry"/></mxCell>'
+            + '<mxCell id="overview_panel" value="Overview" vertex="1" parent="1">'
+            '<mxGeometry x="900" y="40" width="300" height="120" as="geometry"/></mxCell>'
+        )
+        out = strip_detail_cards(xml, view="logical")
+        ids = {c.get("id") for c in ET.fromstring(out).iter("mxCell")}
+        self.assertNotIn("note_experience", ids)
+        self.assertNotIn("ctrl_dmz", ids)
+        self.assertIn("app", ids)
+        self.assertIn("overview_panel", ids)
+
+    def test_logical_trust_zone_violation(self) -> None:
+        xml = _wrap(
+            '<mxCell id="zone_dmz" value="DMZ / Perimeter" style="container=1;" '
+            'vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="400" height="200" as="geometry"/></mxCell>'
+            + _leaf("app", "Private app", 80, "aws_ecs")
+            + '<mxCell id="e1" edge="1" parent="1" source="app" target="app" value="Invokes">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        # put leaf inside conceptually — scorer looks at containers
+        scored = score_view(xml, view="logical", min_score=75)
+        self.assertTrue(any(v.code == "logical_trust_zone" for v in scored.violations))
+
+    def test_apply_view_fixers_chain(self) -> None:
+        xml = _wrap(
+            '<mxCell id="a" value="Orders" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="b" value="Customer store" vertex="1" parent="1">'
+            '<mxGeometry x="240" y="40" width="78" height="78" as="geometry"/></mxCell>'
+            '<mxCell id="e" edge="1" source="a" target="b" value="" '
+            'style="strokeWidth=2;" parent="1">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        out = apply_view_fixers(xml, view="logical")
+        self.assertTrue(out.count('edge="1"') >= 1)
+        self.assertIn("labelBackgroundColor=#F5F5F5", out)
+        self.assertIn("orthogonalEdgeStyle", out)
+        self.assertRegex(out, r'id="e"[^>]*value="[^"]+"')
+
+        xml = _wrap(
+            _leaf("waf", "WAF", 40, "aws_waf")
+            + _leaf("app", "App", 240, "aws_ecs")
+            + _leaf("db", "Aurora", 440, "aws_rds")
+            + '<mxCell id="note_x" value="clutter" vertex="1" parent="1">'
+            '<mxGeometry x="40" y="400" width="200" height="80" as="geometry"/></mxCell>'
+            + '<mxCell id="e1" edge="1" parent="1" source="app" target="db" value="">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        out = apply_view_fixers(xml, view="logical")
+        ids = {c.get("id") for c in ET.fromstring(out).iter("mxCell")}
+        self.assertNotIn("waf", ids)
+        self.assertNotIn("note_x", ids)
+        db = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "db")
+        # Named cloud stores keep product labels + aws_* shape_types on Logical.
+        self.assertIn("aurora", (db.get("value") or "").lower())
+        self.assertEqual(db.get("shape_type"), "aws_rds")
+        app = next(c for c in ET.fromstring(out).iter("mxCell") if c.get("id") == "app")
+        self.assertEqual(app.get("shape_type"), "aws_ecs")
+
+    def test_relabel_kafka_and_drop_alb(self) -> None:
+        xml = _wrap(
+            _leaf("k", "Kafka", 40, "aws_msk")
+            + _leaf("alb", "ALB", 240, "aws_alb")
+            + _leaf("ord", "Orders", 440, "aws_ecs")
+            + '<mxCell id="e1" edge="1" parent="1" source="ord" target="k" value="Invokes">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        out = apply_view_fixers(xml, view="logical")
+        by_id = {c.get("id"): c for c in ET.fromstring(out).iter("mxCell") if c.get("id")}
+        self.assertNotIn("alb", by_id)
+        self.assertIn("k", by_id)
+        self.assertIn("Async messaging", by_id["k"].get("value") or "")
+
+    def test_cloud_shape_violation_on_logical(self) -> None:
+        """Network plumbing shape_types are still illegal on Logical."""
+        xml = _wrap(
+            _leaf("a", "WAF", 40, "aws_waf")
+            + _leaf("b", "Customer data store", 240, "aws_rds")
+            + '<mxCell id="e1" edge="1" parent="1" source="a" target="b" value="Reads/Writes via API">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        scored = score_view(xml, view="logical", min_score=75)
+        self.assertTrue(any(v.code == "cloud_shape_on_logical" for v in scored.violations))
+
+    def test_solution_cloud_shapes_ok_on_logical(self) -> None:
+        xml = _wrap(
+            _leaf("a", "Orders", 40, "aws_ecs")
+            + _leaf("b", "Customer data store", 240, "aws_rds")
+            + '<mxCell id="e1" edge="1" parent="1" source="a" target="b" value="Reads/Writes via API">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        scored = score_view(xml, view="logical", min_score=75)
+        self.assertFalse(any(v.code == "cloud_shape_on_logical" for v in scored.violations))
+
+    def test_missing_classification_on_data_flow(self) -> None:
+        xml = _wrap(
+            _leaf("a", "Orders API", 40, "aws_ecs")
+            + _leaf("b", "Aurora", 240, "aws_rds")
+            + '<mxCell id="e1" edge="1" parent="1" source="a" target="b" value="SQL: CustomerRow">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        scored = score_view(
+            xml, view="data_flow", request_text="Handle customer PII orders", min_score=75,
+        )
+        self.assertTrue(any(v.code == "missing_classification" for v in scored.violations))
+
+    def test_classification_present_ok(self) -> None:
+        xml = _wrap(
+            _leaf("a", "Orders API", 40, "aws_ecs")
+            + _leaf("b", "Aurora", 240, "aws_rds")
+            + '<mxCell id="e1" edge="1" parent="1" source="a" target="b" value="SQL: CustomerRow [PII]">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        )
+        scored = score_view(
+            xml, view="data_flow", request_text="Handle customer PII orders", min_score=75,
+        )
+        self.assertFalse(any(v.code == "missing_classification" for v in scored.violations))
+
+
+def _sec_leaf(i: str, label: str, **kw) -> Leaf:
+    return Leaf(id=i, shape_type="aws_ec2", label=label, **kw)
+
+
+class Phase2ScoringTests(unittest.TestCase):
+    """The three score_view additions that read the typed IR's stamped
+    attributes — all gated on the page actually being IR-compiled (``layout=
+    "ir"``), since the direct-XML fallback never stamps them."""
+
+    def test_classification_attribute_satisfies_missing_classification(self) -> None:
+        ir = SecurityIR(
+            corridors=[
+                Corridor(id="zone_public", label="Public", leaves=[_sec_leaf("waf", "WAF")]),
+                Corridor(id="zone_private", label="Private", leaves=[_sec_leaf("db", "Primary DB")]),
+            ],
+            flows=[Flow(source="waf", target="db", classification="pii")],
+        )
+        xml = compile_corridor_ir(ir, page_name="Security")
+        scored = score_view(xml, view="security", request_text="Handle customer PII", min_score=75)
+        self.assertFalse(any(v.code == "missing_classification" for v in scored.violations))
+
+    def test_unprotected_boundary_flow_flagged_on_ir_page(self) -> None:
+        ir = SecurityIR(
+            corridors=[
+                Corridor(id="zone_public", label="Public", leaves=[_sec_leaf("waf", "WAF")]),
+                Corridor(id="zone_private", label="Private", leaves=[_sec_leaf("app", "App")]),
+            ],
+            flows=[Flow(source="waf", target="app", protection="none")],
+        )
+        xml = compile_corridor_ir(ir, page_name="Security")
+        scored = score_view(xml, view="security", min_score=75)
+        self.assertTrue(any(v.code == "unprotected_boundary_flow" for v in scored.violations))
+
+    def test_protected_boundary_flow_not_flagged(self) -> None:
+        ir = SecurityIR(
+            corridors=[
+                Corridor(id="zone_public", label="Public", leaves=[_sec_leaf("waf", "WAF")]),
+                Corridor(id="zone_private", label="Private", leaves=[_sec_leaf("app", "App")]),
+            ],
+            flows=[Flow(source="waf", target="app", protection="tls")],
+        )
+        xml = compile_corridor_ir(ir, page_name="Security")
+        scored = score_view(xml, view="security", min_score=75)
+        self.assertFalse(any(v.code == "unprotected_boundary_flow" for v in scored.violations))
+
+    def test_direct_xml_fallback_is_never_flagged_for_boundary_protection(self) -> None:
+        """The direct-XML path never stamps `protection` — this must not be
+        misread as "every flow is unprotected"."""
+        xml = _wrap(
+            _leaf("waf", "WAF", 40) + _leaf("app", "App", 240)
+            + '<mxCell id="e1" edge="1" parent="1" source="waf" target="app" value="inspect">'
+            '<mxGeometry relative="1" as="geometry"/></mxCell>',
+            name="Security",
+        )
+        scored = score_view(xml, view="security", min_score=75)
+        self.assertFalse(any(v.code == "unprotected_boundary_flow" for v in scored.violations))
+
+    def test_missing_legend_flagged_when_conventions_in_play_without_one(self) -> None:
+        """Shelf present (dashed container) + security trust axis = 2 legend
+        rows worth of convention, so a legend is expected."""
+        ir = SecurityIR(
+            corridors=[
+                Corridor(id="zone_private", label="Private", leaves=[_sec_leaf("app", "App")]),
+                Corridor(id="zone_restricted", label="Restricted", leaves=[_sec_leaf("db", "DB")]),
+            ],
+            anchored=[AnchoredCorridor(
+                id="zone_external_saas", label="SaaS", anchor_id="zone_restricted",
+                leaves=[_sec_leaf("workday", "Workday (SAAS)")],
+            )],
+            flows=[Flow(source="app", target="db"), Flow(source="db", target="workday")],
+        )
+        xml = compile_corridor_ir(ir, page_name="Security")
+        # Strip the compiler's own legend so the page is missing one on purpose.
+        xml = xml.replace('id="legend_box"', 'id="legend_box_removed"')
+        scored = score_view(xml, view="security", min_score=75)
+        self.assertTrue(any(v.code == "missing_legend" for v in scored.violations))
+
+    def test_missing_legend_not_flagged_when_conventions_are_sparse(self) -> None:
+        """Only one legend-worthy convention (the security trust axis alone,
+        no shelf, no primary/secondary mix) — below the 2-row threshold, so no
+        legend is expected and none should be flagged missing."""
+        ir = SecurityIR(
+            corridors=[
+                Corridor(id="zone_public", label="Public", leaves=[_sec_leaf("waf", "WAF")]),
+            ],
+            flows=[],
+        )
+        xml = compile_corridor_ir(ir, page_name="Security")
+        scored = score_view(xml, view="security", min_score=75)
+        self.assertFalse(any(v.code == "missing_legend" for v in scored.violations))
+
+
+class InventoryBriefTests(unittest.TestCase):
+    def test_inventory_includes_target_model(self) -> None:
+        xml = _wrap(
+            _leaf("alb", "ALB", 40, "aws_alb")
+            + _leaf("ecs", "ECS", 220, "aws_ecs")
+            + _leaf("rds", "Aurora", 400, "aws_rds"),
+            name="Network",
+        )
+        inv = build_architecture_inventory(xml, request_text="secure web app with PII")
+        self.assertIn("Achievable density target", inv)
+        self.assertIn("Trust-zone assignment", inv)
+        self.assertIn("Gap candidates", inv)
+
+
+if __name__ == "__main__":
+    unittest.main()

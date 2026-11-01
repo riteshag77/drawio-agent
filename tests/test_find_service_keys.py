@@ -1,0 +1,159 @@
+"""Regression: find_service_keys — shared by cost_estimator.py, well_architected.py,
+and compliance.py — must detect services from BOTH a raw shape_type attribute
+AND an already-MCP-resolved style, in the same document, and must normalize
+the two spellings the IR/compiler vocabulary and the static service configs
+disagree on for load balancers.
+
+Found via a live capture: a surgical edit added an ALB node, MCP resolved and
+styled it (correctly stripping its shape_type per apply_mcp_styles), but
+well_architected.py still reported "No load balancer detected" — the old
+either/or fallback (`if not keys: <scan styles>`) never ran the style scan at
+all once ANY other cell on the page still carried a raw shape_type attribute,
+and even when it did run, the resolved stencil name
+("application_load_balancer") never matched the short form ("aws_alb") the
+static configs check for.
+"""
+
+from __future__ import annotations
+
+import unittest
+
+from app.adapters.outbound.diagram.xml_tools import find_service_keys
+
+
+class FindServiceKeysTests(unittest.TestCase):
+    def test_detects_from_shape_type_attribute(self) -> None:
+        xml = '<mxCell id="a" shape_type="aws_rds" vertex="1"/>'
+        self.assertIn("aws_rds", find_service_keys(xml))
+
+    def test_detects_from_resolved_style_when_no_shape_type_anywhere(self) -> None:
+        xml = (
+            '<mxCell id="a" style="shape=mxgraph.aws4.resourceIcon;'
+            'resIcon=mxgraph.aws4.lambda;" vertex="1"/>'
+        )
+        self.assertIn("aws_lambda", find_service_keys(xml))
+
+    def test_service_attribute_wins_over_a_stencil_name_with_no_alias(self) -> None:
+        """service= (stamped by apply_mcp_styles at resolution time) is the
+        LLM's own ground-truth key — it must be detected even when the
+        resolved stencil name has no entry in _SERVICE_KEY_ALIASES at all,
+        which is the entire point of not relying solely on reverse-engineering
+        the service from draw.io's arbitrary stencil name."""
+        xml = (
+            '<mxCell id="a" service="aws_kms" style="shape=mxgraph.aws4.'
+            'resourceIcon;resIcon=mxgraph.aws4.some_never_aliased_icon;" vertex="1"/>'
+        )
+        self.assertIn("aws_kms", find_service_keys(xml))
+
+    def test_shape_type_ground_truth_is_never_downgraded_by_the_alias_table(self) -> None:
+        """Confirmed live: shape_type="azure_application_gateway" (source 2,
+        already the correct current shape_type — see azure-icons-common.txt)
+        was getting silently rewritten to the retired "azure_agw" because
+        _SERVICE_KEY_ALIASES used to apply to every source indiscriminately,
+        not just source 3 (the stencil-path fallback it's actually meant
+        for). That corrupted every downstream compliance/cost/WAF check —
+        happened on every one of this app's own diagrams, not just an edge
+        case, since sources 1/2 are the common path and source 3 is the rare
+        one. The four keys below are exactly the ones _SERVICE_KEY_ALIASES
+        still maps (for source 3's/drawio_mcp_client.py's sake) — this
+        confirms none of that leaks into sources 1/2."""
+        for key in (
+            "aws_application_load_balancer", "aws_network_load_balancer",
+            "azure_load_balancer", "azure_application_gateway", "gcp_cloud_load_balancing",
+        ):
+            with self.subTest(key=key):
+                shape_type_xml = f'<mxCell id="a" shape_type="{key}" vertex="1"/>'
+                self.assertEqual(find_service_keys(shape_type_xml), [key])
+                service_xml = f'<mxCell id="a" service="{key}" vertex="1"/>'
+                self.assertEqual(find_service_keys(service_xml), [key])
+
+    def test_detects_both_sources_in_the_same_mixed_document(self) -> None:
+        """The exact real-world shape after a surgical edit: some leaves still
+        carry a raw shape_type (unresolved), others have already been
+        MCP-resolved and had shape_type stripped."""
+        xml = (
+            '<mxCell id="a" shape_type="aws_rds" vertex="1"/>'
+            '<mxCell id="b" style="shape=mxgraph.aws4.resourceIcon;'
+            'resIcon=mxgraph.aws4.lambda;" vertex="1"/>'
+        )
+        keys = find_service_keys(xml)
+        self.assertIn("aws_rds", keys)
+        self.assertIn("aws_lambda", keys)
+
+    def test_normalizes_long_form_load_balancer_stencil_names(self) -> None:
+        xml = (
+            '<mxCell id="alb" style="shape=mxgraph.aws4.application_load_balancer;'
+            'fillColor=#8C4FFF;" vertex="1"/>'
+        )
+        keys = find_service_keys(xml)
+        self.assertIn("aws_alb", keys)
+        self.assertNotIn("aws_application_load_balancer", keys)
+
+    def test_normalizes_network_load_balancer_too(self) -> None:
+        xml = (
+            '<mxCell id="nlb" style="shape=mxgraph.aws4.network_load_balancer;" vertex="1"/>'
+        )
+        self.assertIn("aws_nlb", find_service_keys(xml))
+
+    def test_no_duplicate_keys_when_both_sources_agree(self) -> None:
+        xml = '<mxCell id="a" shape_type="aws_s3" vertex="1"/>'
+        keys = find_service_keys(xml)
+        self.assertEqual(keys.count("aws_s3"), 1)
+
+    def test_normalizes_route53_underscore_variant(self) -> None:
+        xml = '<mxCell id="a" style="shape=mxgraph.aws4.productIcon;prIcon=mxgraph.aws4.route_53;" vertex="1"/>'
+        self.assertIn("aws_route53", find_service_keys(xml))
+
+    def test_normalizes_elasticache_cache_node_stencil(self) -> None:
+        xml = '<mxCell id="a" style="shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.cache_node;" vertex="1"/>'
+        self.assertIn("aws_elasticache", find_service_keys(xml))
+
+    def test_normalizes_cloudwatch_alarm_stencil(self) -> None:
+        xml = '<mxCell id="a" style="shape=mxgraph.aws4.alarm;" vertex="1"/>'
+        self.assertIn("aws_cloudwatch", find_service_keys(xml))
+
+    def test_normalizes_kms_data_encryption_key_stencil(self) -> None:
+        """Regression: aws_kms's cached MCP resolution (data/mcp_style_cache.
+        sqlite3) is exclusively mxgraph.aws4.data_encryption_key — there is no
+        stencil literally named "kms" in the aws4 library. Without this alias,
+        well_architected.py/compliance.py never recognized a KMS node the LLM
+        had actually added and MCP had actually resolved, and kept reporting
+        "no encryption service" every turn — confirmed via a live capture
+        where the user applied this exact fix twice for that reason."""
+        xml = (
+            '<mxCell id="a" style="shape=mxgraph.aws4.resourceIcon;'
+            'resIcon=mxgraph.aws4.data_encryption_key;" vertex="1"/>'
+        )
+        self.assertIn("aws_kms", find_service_keys(xml))
+
+    def test_normalizes_azure_load_balancer(self) -> None:
+        xml = '<mxCell id="a" style="shape=mxgraph.azure2.load_balancer;" vertex="1"/>'
+        self.assertIn("azure_lb", find_service_keys(xml))
+
+    def test_normalizes_azure_application_gateway(self) -> None:
+        xml = '<mxCell id="a" style="shape=mxgraph.azure2.application_gateway;" vertex="1"/>'
+        self.assertIn("azure_agw", find_service_keys(xml))
+
+    def test_normalizes_gcp_cloud_load_balancing(self) -> None:
+        xml = '<mxCell id="a" style="shape=mxgraph.gcp2.cloud_load_balancing;" vertex="1"/>'
+        self.assertIn("gcp_lb", find_service_keys(xml))
+
+    def test_stencil_wrapper_name_is_not_treated_as_a_service(self) -> None:
+        """resourceIcon/productIcon are the stencil-wrapper prefix, not a
+        service — matching them as if they were one is a false positive that
+        showed up in a live capture (aws_resourceicon, aws_producticon)."""
+        xml = (
+            '<mxCell id="a" style="shape=mxgraph.aws4.resourceIcon;'
+            'resIcon=mxgraph.aws4.kms;" vertex="1"/>'
+            '<mxCell id="b" style="shape=mxgraph.aws4.productIcon;'
+            'prIcon=mxgraph.aws4.sqs;" vertex="1"/>'
+        )
+        keys = find_service_keys(xml)
+        self.assertNotIn("aws_resourceicon", keys)
+        self.assertNotIn("aws_producticon", keys)
+        self.assertIn("aws_kms", keys)
+        self.assertIn("aws_sqs", keys)
+
+
+if __name__ == "__main__":
+    unittest.main()

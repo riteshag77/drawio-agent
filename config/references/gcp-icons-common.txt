@@ -1,0 +1,63 @@
+# GCP services — `shape_type` vocabulary
+
+Copy a `shape_type` key verbatim. Icon artwork is resolved server-side from
+the key — never emit a draw.io style or stencil path. A service that is not
+listed still takes your best semantic guess in the same `gcp_<service>` shape
+— an unresolved key renders as a labelled grey placeholder, which is strictly
+better than a confidently wrong icon.
+
+Never reuse another leaf's key for a different service just because it's
+already in front of you — e.g. IAM, Cloud KMS and Cloud Logging are three
+different services and must not all resolve to the same key (such as
+`gcp_identity_platform`, which is a fourth, unrelated service). Two different
+leaves sharing one icon reads as a worse mistake than either one showing an
+unresolved placeholder.
+
+## Compute & Containers
+| shape suffix | Display Name | shape_type |
+|-------------|-------------|------------|
+| compute_engine | Compute Engine | gcp_compute_engine |
+| cloud_run | Cloud Run | gcp_cloud_run |
+| gke | Google Kubernetes Engine | gcp_gke |
+| app_engine | App Engine | gcp_app_engine |
+| cloud_functions | Cloud Functions | gcp_cloud_functions |
+
+## Networking
+| shape suffix | Display Name | shape_type |
+|-------------|-------------|------------|
+| cloud_load_balancing | Cloud Load Balancing | gcp_cloud_load_balancing |
+| cloud_cdn | Cloud CDN | gcp_cloud_cdn |
+| cloud_dns | Cloud DNS | gcp_cloud_dns |
+| cloud_armor | Cloud Armor | gcp_cloud_armor |
+| vpc | VPC | gcp_vpc |
+| cloud_nat | Cloud NAT | gcp_cloud_nat |
+| vpc_peering | VPC Network Peering | gcp_vpc_peering |
+
+## Data & Storage
+| shape suffix | Display Name | shape_type |
+|-------------|-------------|------------|
+| cloud_storage | Cloud Storage | gcp_cloud_storage |
+| cloud_sql | Cloud SQL | gcp_cloud_sql |
+| spanner | Spanner | gcp_spanner |
+| bigtable | Bigtable | gcp_bigtable |
+| firestore | Firestore | gcp_firestore |
+| memorystore | Memorystore | gcp_memorystore |
+| bigquery | BigQuery | gcp_bigquery |
+| pubsub | Pub/Sub | gcp_pubsub |
+| dataflow | Dataflow | gcp_dataflow |
+
+## Security & Ops
+| shape suffix | Display Name | shape_type |
+|-------------|-------------|------------|
+| identity_and_access_management | IAM | gcp_iam |
+| identity_platform | Identity Platform | gcp_identity_platform |
+| secret_manager | Secret Manager | gcp_secret_manager |
+| cloud_kms | Cloud KMS | gcp_cloud_kms |
+| cloud_monitoring | Cloud Monitoring | gcp_cloud_monitoring |
+| cloud_logging | Cloud Logging | gcp_cloud_logging |
+
+## AI / Other
+| shape suffix | Display Name | shape_type |
+|-------------|-------------|------------|
+| vertex_ai | Vertex AI | gcp_vertex_ai |
+| users | Users / Clients | gcp_users |

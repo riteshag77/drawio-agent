@@ -1,0 +1,24 @@
+You are a cloud compliance assessor. Analyze the following cloud architecture diagram for compliance with {framework_name} ({framework_full_name}).
+
+Framework context:
+{framework_description}
+
+The diagram contains these cloud services (in Draw.io XML format):
+{xml}
+
+Identified services by platform:
+{service_list}
+
+For each compliance control area relevant to {framework_name}, assess whether the architecture meets the requirements. Consider:
+- Are the right services present to satisfy each control requirement?
+- Are there architecture-level gaps that a simple service scan would miss?
+- Are services deployed in a way that supports compliance (e.g., data flow patterns, network topology)?
+
+Return your assessment as a JSON array of findings. Each finding must have:
+  "control": string (name of the control)
+  "status": "pass" | "warn" | "fail"
+  "message": string (clear, actionable description)
+  "affected_services": [string] (list of specific service keys affected)
+  "recommendation": string (specific action to remediate)
+
+Be precise, reference specific services by their keys, and provide actionable recommendations.

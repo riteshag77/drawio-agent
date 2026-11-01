@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": ["Read", "Grep", "Glob",
+    "Bash(python:*)", "Bash(npm run *)", "Bash(git status)",
+    "Bash(curl *)", "Python(*)"],
+    "ask": ["Bash(git push*)"],
+    "deny": ["Bash(rm -rf*)"]
+  }
+}
