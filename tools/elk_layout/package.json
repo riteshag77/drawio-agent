@@ -5,6 +5,6 @@
   "description": "Stdin/stdout ELK (elkjs) layout runner used by the Python diagram compiler.",
   "main": "layout.js",
   "dependencies": {
-    "elkjs": "^0.9.3"
+    "elkjs": "^0.12.1"
   }
 }
